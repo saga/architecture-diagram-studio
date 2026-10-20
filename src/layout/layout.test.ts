@@ -71,6 +71,23 @@ describe('layout engines', () => {
     },
   );
 
+  it('uses a spanning forest without duplicating a node reached by sibling branches', async () => {
+    const diagram: DiagramDocument = {
+      ...initialDiagram,
+      nodes: ['a', 'b', 'c', 'd'].map((id) => ({ id, type: 'service' as const, label: id.toUpperCase() })),
+      relations: [
+        { id: 'ab', sourceId: 'a', targetId: 'b', label: 'A to B' },
+        { id: 'ac', sourceId: 'a', targetId: 'c', label: 'A to C' },
+        { id: 'bd', sourceId: 'b', targetId: 'd', label: 'B to D' },
+        { id: 'cd', sourceId: 'c', targetId: 'd', label: 'C to D' },
+      ],
+      layout: Object.fromEntries(['a', 'b', 'c', 'd'].map((id) => [id, { x: 0, y: 0, width: 180, height: 80 }])),
+    };
+    const result = await applyLayout(diagram, 'hierarchy');
+    expect(result.nodes.map((node) => node.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(Math.abs(result.layout.d.y - result.layout.b.y)).toBeLessThan(Math.abs(result.layout.d.y - result.layout.c.y));
+  });
+
   it('keeps isolated nodes and cyclic components in hierarchy layout', async () => {
     const diagram: DiagramDocument = {
       ...initialDiagram,
