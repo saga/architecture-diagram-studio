@@ -51,6 +51,19 @@ describe('draw.io export', () => {
     expect(xml).toContain('entryX=0;entryY=0.5;entryPerimeter=1;');
   });
 
+  it('uses compatible node shapes, two-level labels, explicit edge routes and anchors', () => {
+    const xml = exportDrawio(initialDiagram);
+    expect(xml).toContain('shape=umlActor');
+    expect(xml).toContain('shape=cylinder3');
+    expect(xml).toContain('fontSize=12;fontColor=#24344b');
+    expect(xml).toContain('&lt;div style=&quot;font-family:Arial,sans-serif;text-align:center;');
+    expect(xml).toContain('font-size:10px;font-weight:400;color:#748196');
+    expect(xml).toContain('edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=1.5;');
+    expect(xml).toContain('exitX=1;exitY=0.5;exitPerimeter=1;');
+    expect(xml).toContain('entryX=0;entryY=0.5;entryPerimeter=1;');
+    expect(xml).toContain('<Array as="points">');
+  });
+
   it('produces stable XML for the same document snapshot', () => {
     expect(exportDrawio(initialDiagram)).toBe(exportDrawio(initialDiagram));
   });
