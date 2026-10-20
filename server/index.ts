@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
-import { CopilotClient, defineTool } from '@github/copilot-sdk';
+import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
 import { initialDiagram, type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
 import { validateDiagram } from '../src/model/validate.js';
@@ -30,7 +30,7 @@ function getClient(): Promise<CopilotClient> {
         mode: 'empty',
         baseDirectory: BASE_DIRECTORY,
         ...(process.env.GITHUB_TOKEN ? { gitHubToken: process.env.GITHUB_TOKEN, useLoggedInUser: false } : { useLoggedInUser: true }),
-        ...(process.env.COPILOT_CLI_PATH ? { cliPath: process.env.COPILOT_CLI_PATH } : {}),
+        ...(process.env.COPILOT_CLI_PATH ? { connection: RuntimeConnection.forStdio({ path: process.env.COPILOT_CLI_PATH }) } : {}),
         ...(process.env.COPILOT_LOG_LEVEL ? { logLevel: process.env.COPILOT_LOG_LEVEL as 'none'|'error'|'warning'|'info'|'debug'|'all' } : {}),
       });
       await next.start();
@@ -201,7 +201,7 @@ app.post('/api/chat',async(req,res)=>{
   }
 });
 
-const server=app.listen(PORT,()=>console.log(`[architecture-diagram-studio] API listening on http://127.0.0.1:${PORT}; model=${MODEL}`));
+const server=app.listen(PORT,'127.0.0.1',()=>console.log(`[architecture-diagram-studio] API listening on http://127.0.0.1:${PORT}; model=${MODEL}`));
 async function shutdown(){server.close();if(client)await client.stop().catch(()=>undefined);process.exit(0);}
 process.on('SIGINT',()=>void shutdown());
 process.on('SIGTERM',()=>void shutdown());
