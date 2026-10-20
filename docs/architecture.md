@@ -15,6 +15,9 @@ flowchart TD
   F --> G[draw.io XML exporter]
   G --> H[XML validation and visual regression]
   H --> I[Editable draw.io artifact]
+  Copilot[VS Code GitHub Copilot] <--> MCP[Local stdio MCP server]
+  MCP <--> API[Loopback shared diagram API]
+  API <--> E
 ```
 
 ## Runtime sequence
@@ -98,3 +101,29 @@ sequenceDiagram
 - Model edits are applied to a draft and validated before the API returns them. The browser applies the complete document snapshot, rather than trying to infer changes from natural-language text.
 - If the API process restarts, the browser sends recent conversation history to seed a new SDK session. The runtime session itself is not durably resumed.
 - The local API binds to loopback; do not expose it directly to a network without adding authentication and request authorization.
+
+
+## VS Code Copilot MCP bridge
+
+The local MCP server and browser editor share the active Diagram Document through the Express API. MCP tools perform validated semantic mutations against the API's active snapshot; the browser polls revision metadata and applies changes to React Flow. Browser edits and resulting geometry are sent back to the API so `get_current_diagram` observes the current canvas state.
+
+```mermaid
+sequenceDiagram
+  actor Architect
+  participant Copilot as VS Code Copilot
+  participant MCP as Stdio MCP Server
+  participant API as Loopback Diagram API
+  participant UI as Browser Editor
+  Architect->>Copilot: Request architecture change
+  Copilot->>MCP: add/update/delete/validate tool
+  MCP->>API: Mutate active Diagram Document
+  API->>API: Validate and increment revision
+  API-->>MCP: Result and revision
+  MCP-->>Copilot: Structured result
+  UI->>API: Poll diagram revision
+  API-->>UI: New Diagram Document
+  UI->>UI: Update React Flow nodes and edges
+  UI->>API: Persist current geometry
+```
+
+The MCP server uses stdio for protocol traffic and keeps diagnostics on stderr. The API remains bound to `127.0.0.1`; this bridge is a local single-active-editor workflow, not a remote or multi-user collaboration service. See [VS Code Copilot MCP setup](vscode-copilot-mcp.md) and [ADR 0005](adr/0005-vscode-copilot-mcp.md).
