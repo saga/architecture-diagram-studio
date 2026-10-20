@@ -43,7 +43,7 @@ describe("V2 semantic fixtures and intents", () => {
 
   it("bounds model output to a small JSON intent plan", () => {
     const plan = parseAIIntentPlan(JSON.stringify({
-      commands: ["所有关系线改成虚线", "把所有 external 放到右侧", "x", "y", "z", "q", "ignored"],
+      commands: ["所有关系线改成虚线", "把所有 external 放到右侧", "所有关系线改成实线", "把曲线改成折线", "把数据库和存储放到底部", "重新自动排版"],
       reply: "按布局指令执行"
     }));
     expect(plan.commands).toHaveLength(6);
@@ -52,5 +52,12 @@ describe("V2 semantic fixtures and intents", () => {
 
   it("rejects unstructured model output instead of applying guesses", () => {
     expect(() => parseAIIntentPlan("Change all lines and put vendor on right")).toThrow("有效 JSON");
+  });
+
+  it("rejects any command outside the exact intent whitelist", () => {
+    expect(() => parseAIIntentPlan(JSON.stringify({
+      commands: ["所有关系线改成虚线", "删除所有节点"],
+      reply: "完成"
+    }))).toThrow("白名单");
   });
 });

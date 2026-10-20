@@ -37,6 +37,19 @@ const SYSTEM_PROMPT = [
   "Do not invent commands outside this list. For unsupported editing (for example, changing business logic or renaming one node), return an empty commands array and explain the limitation in reply.",
   "Use the diagram context to resolve terms like vendor, external, storage, and direction."
 ].join("\n");
+const ALLOWED_COMMANDS = new Set([
+  "所有关系线改成虚线",
+  "所有关系线改成实线",
+  "把曲线改成直角折线",
+  "把曲线改成折线",
+  "把所有 external 放到右侧",
+  "把数据库和存储放到底部",
+  "布局方向从左到右",
+  "布局方向从上到下",
+  "重新自动排版",
+  "解除手动锁定"
+]);
+
 
 function extractAssistantContent(payload: unknown): string {
   if (!payload || typeof payload !== "object") throw new Error("模型响应不是 JSON 对象");
@@ -66,9 +79,13 @@ export function parseAIIntentPlan(raw: string): AIIntentPlan {
   }
   if (!parsed || typeof parsed !== "object") throw new Error("模型计划格式无效");
   const value = parsed as { commands?: unknown; reply?: unknown };
-  const commands = Array.isArray(value.commands)
-    ? value.commands.filter((command): command is string => typeof command === "string" && command.trim().length > 0).slice(0, 6).map((command) => command.trim().slice(0, 240))
+  const rawCommands = Array.isArray(value.commands)
+    ? value.commands.filter((command): command is string => typeof command === "string" && command.trim().length > 0).map((command) => command.trim())
     : [];
+  if (rawCommands.length > 6) throw new Error("模型计划包含超过 6 条命令；未执行任何修改");
+  const unsupported = rawCommands.filter((command) => !ALLOWED_COMMANDS.has(command));
+  if (unsupported.length) throw new Error("模型计划包含不在白名单中的操作；未执行任何修改");
+  const commands = rawCommands.map((command) => command.slice(0, 240));
   const reply = typeof value.reply === "string" ? value.reply.trim().slice(0, 500) : "";
   return { commands, reply };
 }
