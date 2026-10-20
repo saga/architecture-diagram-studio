@@ -56,10 +56,20 @@ async function loadWar() {
   if (!response.ok) throw new Error("Download failed with HTTP " + response.status + ". Set DRAWIO_WAR to a local archive in offline environments.");
   return Buffer.from(await response.arrayBuffer());
 }
+function hasValidBundle() {
+  try {
+    if (fs.readFileSync(STAMP, "utf8").trim() !== VERSION) return false;
+    if (!fs.existsSync(path.join(DEST, "index.html"))) return false;
+    const manifest = JSON.parse(fs.readFileSync(path.join(DEST, "studio-bundle.json"), "utf8"));
+    return manifest.version === VERSION && manifest.sha256 === SHA256;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
-  if (fs.existsSync(STAMP) && fs.readFileSync(STAMP, "utf8").trim() === VERSION &&
-      fs.existsSync(path.join(DEST, "index.html")) && fs.existsSync(path.join(DEST, "studio-bundle.json"))) {
-    log("Pinned assets already installed; no download needed.");
+  if (hasValidBundle()) {
+    log("Pinned assets and checksum manifest verified; no download needed.");
     return;
   }
   const archive = await loadWar();
