@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { initialDiagram } from './diagram';
 import { createDiagramTemplate } from './templates';
 import { normalizeDiagramDocument } from './migrations';
-import { fitDiagramBoundaries, ensureDiagramBoundaries } from './boundaries';
+import { addNodeToBoundary, fitDiagramBoundaries, ensureDiagramBoundaries, removeNodesFromBoundaries, syncNodeBoundaryMembership } from './boundaries';
 
 describe('diagram rendering migration', () => {
   it('enlarges legacy C4 nodes without moving their saved positions', () => {
@@ -47,6 +47,34 @@ describe('diagram rendering migration', () => {
     const doc = ensureDiagramBoundaries(createDiagramTemplate('c4-component'));
     expect(doc.boundaries?.[0].label).toBe('Order API');
     expect(doc.boundaries?.[0].memberNodeIds).toEqual(['controller', 'service', 'payment-adapter', 'repository']);
+  });
+
+  it('keeps new C4 elements inside the right boundary and removes the frame when empty', () => {
+    const addedNode = { id: 'new-service', type: 'service' as const, label: 'Notification Service' };
+    const added = {
+      ...initialDiagram,
+      nodes: [...initialDiagram.nodes, addedNode],
+      layout: { ...initialDiagram.layout, 'new-service': { x: 1200, y: 180, width: 220, height: 112 } },
+    };
+    const scoped = addNodeToBoundary(added, 'new-service');
+    expect(scoped.boundaries?.[0].memberNodeIds).toContain('new-service');
+
+    const withoutMembers = removeNodesFromBoundaries({
+      ...scoped,
+      nodes: scoped.nodes.filter(node => !scoped.boundaries?.[0].memberNodeIds.includes(node.id)),
+      relations: scoped.relations.filter(relation => !scoped.boundaries?.[0].memberNodeIds.includes(relation.sourceId) && !scoped.boundaries?.[0].memberNodeIds.includes(relation.targetId)),
+      layout: Object.fromEntries(Object.entries(scoped.layout).filter(([id]) => !scoped.boundaries?.[0].memberNodeIds.includes(id))),
+    }, scoped.boundaries?.[0].memberNodeIds ?? []);
+    expect(withoutMembers.boundaries ?? []).toEqual([]);
+  });
+
+  it('removes elements from a C4 boundary after their type changes out of scope', () => {
+    const changed = {
+      ...initialDiagram,
+      nodes: initialDiagram.nodes.map(node => node.id === 'api' ? { ...node, type: 'external' as const } : node),
+    };
+    const synced = syncNodeBoundaryMembership(changed, 'api');
+    expect(synced.boundaries?.[0].memberNodeIds).not.toContain('api');
   });
 
   it('does not add graph boundaries to sequence diagrams', () => {
