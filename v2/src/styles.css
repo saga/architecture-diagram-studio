@@ -158,3 +158,16 @@ button:disabled { opacity: .58; cursor: wait; }
 .preview-accept { background: #425bc7; border: 1px solid #425bc7; color: #fff; }
 .preview-accept:hover { background: #354caf; }
 .preview-pill { white-space: nowrap; }
+
+
+.connected-relations { border-top: 1px solid #edf0f4; margin-top: 13px; padding-top: 5px; }
+.connected-relation { border: 1px solid #edf0f4; border-radius: 7px; padding: 8px; margin-top: 7px; background: #fcfcfd; }
+.connected-relation-direction { display: flex; align-items: flex-start; gap: 5px; font-size: 8px; line-height: 1.5; color: #718094; overflow-wrap: anywhere; }
+.connected-relation-direction span:first-child, .connected-relation-direction span:last-child { min-width: 0; flex: 1; }
+.connected-relation-direction .relation-arrow { flex: 0 0 auto; color: #9da8b8; }
+.relation-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 6px; }
+.relation-actions button { background: white; border: 1px solid #e2e7ee; border-radius: 5px; padding: 4px 6px; color: #738195; font-size: 8px; }
+.relation-actions button:hover { border-color: #c6d0ee; color: #354daf; background: #f8f9ff; }
+.relation-actions button:last-child { color: #aa6262; }
+.relation-actions button:last-child:hover { border-color: #f0dede; background: #fff7f7; }
+.empty-relations { color: #a0a9b5; font-size: 9px; line-height: 1.5; padding: 6px 1px; }

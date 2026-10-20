@@ -45,6 +45,7 @@ export default function App() {
   const [isLayoutting, setIsLayoutting] = useState(false);
   const [relationTargetId, setRelationTargetId] = useState("");
   const [relationLabel, setRelationLabel] = useState("");
+  const [relationLabelDrafts, setRelationLabelDrafts] = useState<Record<string, string>>({});
   const chatEndRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -213,6 +214,44 @@ export default function App() {
     if (document.kind !== "sequence") void runLayout(next);
   }
 
+  function commitRelationLabel(relationId: string) {
+    const current = document.relations.find((relation) => relation.id === relationId);
+    if (!current) return;
+    const label = relationLabelDrafts[relationId] ?? current.label;
+    setRelationLabelDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[relationId];
+      return next;
+    });
+    if (label === current.label) return;
+    const next = {
+      ...document,
+      relations: document.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation)
+    };
+    commitDocument(next, "已更新关系标签");
+  }
+
+  function removeRelation(relationId: string) {
+    const next = { ...document, relations: document.relations.filter((relation) => relation.id !== relationId) };
+    setRelationLabelDrafts((drafts) => {
+      const updated = { ...drafts };
+      delete updated[relationId];
+      return updated;
+    });
+    commitDocument(next, "已删除一条关系");
+  }
+
+  function reverseRelation(relationId: string) {
+    const next = {
+      ...document,
+      relations: document.relations.map((relation) => relation.id === relationId
+        ? { ...relation, source: relation.target, target: relation.source, points: [] }
+        : relation)
+    };
+    commitDocument(next, "已反转关系方向");
+    if (document.kind !== "sequence") void runLayout(next);
+  }
+
   function removeSelectedNode() {
     if (!selectedNode) return;
     const next: DiagramDocument = {
@@ -375,6 +414,31 @@ export default function App() {
                 </select>
                 <input className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
                 <button className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</button>
+              </div>
+              <div className="connected-relations">
+                <div className="field-label">关联关系（{document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length}）</div>
+                {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).map((relation) => (
+                  <div className="connected-relation" key={relation.id}>
+                    <div className="connected-relation-direction">
+                      <span>{document.nodes.find((node) => node.id === relation.source)?.name || relation.source}</span>
+                      <span className="relation-arrow">→</span>
+                      <span>{document.nodes.find((node) => node.id === relation.target)?.name || relation.target}</span>
+                    </div>
+                    <input
+                      className="text-field relation-label-field"
+                      value={relationLabelDrafts[relation.id] ?? relation.label}
+                      placeholder="关系标签…"
+                      onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [relation.id]: event.target.value }))}
+                      onBlur={() => commitRelationLabel(relation.id)}
+                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
+                    />
+                    <div className="relation-actions">
+                      <button type="button" title="反转方向" onClick={() => reverseRelation(relation.id)}>↔ 方向</button>
+                      <button type="button" title="删除关系" onClick={() => removeRelation(relation.id)}>删除</button>
+                    </div>
+                  </div>
+                ))}
+                {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">当前元素没有关联线。</div>}
               </div>
               <button className="delete-node-button" onClick={removeSelectedNode}>删除此元素</button>
             </div>
