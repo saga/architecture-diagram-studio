@@ -21,6 +21,7 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
       nodes: [],
       relations: [],
       layout: {},
+      boundaries: [],
       sequence: {
         participants: input.sequence.participants.map((participant) => ({ ...participant })),
         messages: input.sequence.messages.map((message) => ({ ...message })),
