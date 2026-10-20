@@ -587,6 +587,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
       draft.title=title.slice(0,200);result={title:draft.title};break;
     }
     case 'request_layout': {
+      if(draft.kind==='sequence')return res.status(409).json({error:'UML Sequence layout is driven by participant order and message chronology; graph auto-layout is not applicable.'});
       layoutRequestId+=1;result={requested:true,layoutRequestId,reason:stringArg('reason')??'Requested by VS Code Copilot'};break;
     }
     default:return res.status(400).json({error:'Unknown diagram operation.'});
