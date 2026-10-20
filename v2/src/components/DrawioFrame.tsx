@@ -46,6 +46,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         }), window.location.origin);
       }
       if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
+        if (data.xml === lastSent.current) return;
         lastSent.current = data.xml;
         onDocumentChange(fromDrawioXml(data.xml, document), data.xml);
       }
