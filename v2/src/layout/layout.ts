@@ -7,29 +7,34 @@ const elk = new ELK();
 function center(node: DiagramNode): Point {
   return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
 }
-function routeRelations(doc: DiagramDocument): DiagramDocument {
+function routeRelations(doc: DiagramDocument, routeVariant = 0): DiagramDocument {
   const lookup = new Map(doc.nodes.map((node) => [node.id, node]));
   const relations = doc.relations.map((relation, index) => {
     const source = lookup.get(relation.source), target = lookup.get(relation.target);
     if (!source || !target || doc.kind === "sequence") return { ...relation, points: [] };
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
-    const lane = 24 + (index % 3) * 12;
+    const lane = 22 + ((index + routeVariant) % 4) * 12;
     let start: Point, end: Point, points: Point[] = [];
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
       if (dy >= 0) {
         start = { x: s.x, y: source.y + source.height };
         end = { x: t.x, y: target.y };
-        points = [{ x: start.x, y: start.y + lane }, { x: end.x, y: start.y + lane }, { x: end.x, y: end.y - lane }];
+        const channelY = start.y + lane;
+        points = [{ x: start.x, y: channelY }, { x: end.x, y: channelY }, { x: end.x, y: end.y - Math.min(lane, Math.max(8, Math.abs(dy) / 3)) }];
       } else {
         start = { x: s.x, y: source.y };
         end = { x: t.x, y: target.y + target.height };
-        points = [{ x: start.x, y: start.y - lane }, { x: end.x, y: start.y - lane }, { x: end.x, y: end.y + lane }];
+        const channelY = start.y - lane;
+        points = [{ x: start.x, y: channelY }, { x: end.x, y: channelY }, { x: end.x, y: end.y + Math.min(lane, Math.max(8, Math.abs(dy) / 3)) }];
       }
     } else if (dx >= 0) {
       start = { x: source.x + source.width, y: s.y };
       end = { x: target.x, y: t.y };
-      const midX = Math.max(start.x + lane, (start.x + end.x) / 2);
+      const gap = Math.max(1, end.x - start.x);
+      const fractions = [0.34, 0.5, 0.66, 0.42];
+      const fraction = fractions[(index + routeVariant) % fractions.length];
+      const midX = start.x + Math.max(1, Math.min(gap - 1, gap * fraction));
       points = [{ x: midX, y: start.y }, { x: midX, y: end.y }];
     } else {
       start = { x: source.x, y: s.y };
@@ -203,7 +208,7 @@ function layoutSequence(doc: DiagramDocument): DiagramDocument {
   };
 }
 
-function repairOverlaps(doc: DiagramDocument): DiagramDocument {
+function repairOverlaps(doc: DiagramDocument, routeVariant = 0): DiagramDocument {
   const nodes = doc.nodes.map((node) => ({ ...node }));
   for (let pass = 0; pass < 3; pass++) {
     let changed = false;
@@ -220,14 +225,28 @@ function repairOverlaps(doc: DiagramDocument): DiagramDocument {
     }
     if (!changed) break;
   }
-  return routeRelations({ ...doc, nodes });
+  return routeRelations({ ...doc, nodes }, routeVariant);
 }
 
 export async function layoutDiagram(document: DiagramDocument): Promise<DiagramDocument> {
-  let laidOut = document.kind === "sequence" ? layoutSequence(document) : await layoutLayered(document);
-  laidOut = repairOverlaps(laidOut);
-  if (evaluateLayout(laidOut).metrics.nodeOverlaps > 0) laidOut = repairOverlaps(laidOut);
-  return laidOut;
+  const initial = document.kind === "sequence" ? layoutSequence(document) : await layoutLayered(document);
+  let best = repairOverlaps(initial, 0);
+  let bestReport = evaluateLayout(best);
+  for (let variant = 1; variant <= 3; variant++) {
+    const candidate = repairOverlaps({ ...initial, nodes: best.nodes.map((node) => ({ ...node })) }, variant);
+    const report = evaluateLayout(candidate);
+    if (report.score > bestReport.score) {
+      best = candidate;
+      bestReport = report;
+    }
+    if (
+      bestReport.metrics.nodeOverlaps === 0 &&
+      bestReport.metrics.edgeNodeIntersections === 0 &&
+      bestReport.metrics.edgeCrossings === 0 &&
+      bestReport.metrics.labelCollisions === 0
+    ) break;
+  }
+  return best;
 }
 
 export function moveNode(document: DiagramDocument, id: string, x: number, y: number): DiagramDocument {
