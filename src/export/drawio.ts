@@ -120,10 +120,11 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
   if(sourceX===undefined||targetX===undefined||rowY===undefined)continue;
   const isReturn=message.kind==='return';
   const isAsync=message.kind==='async';
-  const edgeStyle='edgeStyle=none;html=1;rounded=0;endArrow='+(isReturn||isAsync?'open':'block')+';endFill='+(isReturn||isAsync?'0':'1')+';dashed='+(isReturn?'1':'0')+';dashPattern=5 4;strokeColor='+(isAsync?'#0f766e':'#536b86')+';strokeWidth=1.5;fontColor=#344b66;fontFamily=Arial;fontSize=11;labelBackgroundColor=#ffffff;align=center;verticalAlign=middle;';
+  const edgeStyle='edgeStyle=none;html=1;rounded=0;endArrow='+(isReturn||isAsync?'open':'block')+';endFill='+(isReturn||isAsync?'0':'1')+';dashed='+(isReturn?'1':'0')+';dashPattern=5 4;strokeColor='+(isAsync?'#0f766e':'#536b86')+';strokeWidth=1.5;fontColor=#344b66;fontFamily=Arial;fontSize=11;labelBackgroundColor=#ffffff;align=center;verticalLabelPosition=top;verticalAlign=bottom;';
   let geometry='<mxPoint x="'+number(sourceX)+'" y="'+number(rowY)+'" as="sourcePoint"/><mxPoint x="'+number(targetX)+'" y="'+number(rowY)+'" as="targetPoint"/>';
   if(Math.abs(sourceX-targetX)<1){
-   geometry='<mxPoint x="'+number(sourceX)+'" y="'+number(rowY)+'" as="sourcePoint"/><Array as="points"><mxPoint x="'+number(sourceX+40)+'" y="'+number(rowY)+'"/><mxPoint x="'+number(sourceX+44)+'" y="'+number(rowY-22)+'"/></Array><mxPoint x="'+number(targetX)+'" y="'+number(rowY-24)+'" as="targetPoint"/>';
+   // Match the browser's rectangular self-call loop and keep every segment orthogonal.
+   geometry='<mxPoint x="'+number(sourceX)+'" y="'+number(rowY)+'" as="sourcePoint"/><Array as="points"><mxPoint x="'+number(sourceX+40)+'" y="'+number(rowY)+'"/><mxPoint x="'+number(sourceX+40)+'" y="'+number(rowY-22)+'"/></Array><mxPoint x="'+number(targetX)+'" y="'+number(rowY-22)+'" as="targetPoint"/>';
   }
   cells.push('<mxCell id="'+xml(message.id)+'" value="'+xml(sequenceMessageLabel(message))+'" style="'+edgeStyle+'" edge="1" parent="1"><mxGeometry relative="1" as="geometry">'+geometry+'</mxGeometry></mxCell>');
  }
