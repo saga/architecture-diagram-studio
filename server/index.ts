@@ -4,11 +4,12 @@ import path from 'node:path';
 import express from 'express';
 import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
-import { type DiagramDocument, type DiagramNode, type DiagramRelation, type SequenceMessage, type SequenceParticipant, type SequenceFragment, type DiagramKind } from '../src/model/diagram.js';
+import { type DiagramDocument, type DiagramNode, type DiagramRelation, type SequenceMessage, type SequenceParticipant, type SequenceFragment, type SequenceActivation, type DiagramKind } from '../src/model/diagram.js';
 import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, type StoredChatMessage } from './persistence.js';
 import { validateDiagram } from '../src/model/validate.js';
 import { addNodeToBoundary, removeNodesFromBoundaries, syncNodeBoundaryMembership } from '../src/model/boundaries.js';
 import { createDiagramTemplate } from '../src/model/templates.js';
+import { sequenceActivationIssue, sequenceActivationKey } from '../src/model/sequence.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MODEL = process.env.COPILOT_MODEL?.trim() || 'gpt-5';
@@ -337,6 +338,63 @@ function buildTools(state: ChatState) {
     },
   });
 
+  const addSequenceActivation = defineTool('add_sequence_activation', {
+    description: 'Create an activation bar for a participant across an inclusive, chronological range of sequence messages.',
+    parameters: { type: 'object', properties: {
+      participantId: { type: 'string' }, startMessageId: { type: 'string' }, endMessageId: { type: 'string' },
+    }, required: ['participantId','startMessageId','endMessageId'] },
+    handler: async (args: SequenceActivation) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence) return toolError('Switch to a UML Sequence diagram before adding an activation.');
+      const issue = sequenceActivationIssue(sequence, args);
+      if (issue) return toolError(issue);
+      sequence.activations ??= [];
+      sequence.activations.push({ ...args });
+      return { ok: true, activation: args };
+    },
+  });
+
+  const updateSequenceActivation = defineTool('update_sequence_activation', {
+    description: 'Change the participant or inclusive message range of an existing activation bar.',
+    parameters: { type: 'object', properties: {
+      participantId: { type: 'string' }, startMessageId: { type: 'string' }, endMessageId: { type: 'string' },
+      newParticipantId: { type: 'string' }, newStartMessageId: { type: 'string' }, newEndMessageId: { type: 'string' },
+    }, required: ['participantId','startMessageId','endMessageId'] },
+    handler: async (args: { participantId: string; startMessageId: string; endMessageId: string; newParticipantId?: string; newStartMessageId?: string; newEndMessageId?: string }) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence?.activations) return toolError('Switch to a UML Sequence diagram before editing an activation.');
+      const currentKey = sequenceActivationKey(args);
+      const index = sequence.activations.findIndex((activation) => sequenceActivationKey(activation) === currentKey);
+      if (index < 0) return toolError('Sequence activation not found.');
+      const current = sequence.activations[index];
+      const next: SequenceActivation = {
+        participantId: args.newParticipantId ?? current.participantId,
+        startMessageId: args.newStartMessageId ?? current.startMessageId,
+        endMessageId: args.newEndMessageId ?? current.endMessageId,
+      };
+      const issue = sequenceActivationIssue(sequence, next, currentKey);
+      if (issue) return toolError(issue);
+      sequence.activations[index] = next;
+      return { ok: true, activation: next };
+    },
+  });
+
+  const deleteSequenceActivation = defineTool('delete_sequence_activation', {
+    description: 'Delete an activation by its participant and message range.',
+    parameters: { type: 'object', properties: {
+      participantId: { type: 'string' }, startMessageId: { type: 'string' }, endMessageId: { type: 'string' },
+    }, required: ['participantId','startMessageId','endMessageId'] },
+    handler: async (args: SequenceActivation) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence?.activations) return toolError('Switch to a UML Sequence diagram before deleting an activation.');
+      const key = sequenceActivationKey(args);
+      const index = sequence.activations.findIndex((activation) => sequenceActivationKey(activation) === key);
+      if (index < 0) return toolError('Sequence activation not found.');
+      const [deleted] = sequence.activations.splice(index, 1);
+      return { ok: true, deletedActivation: deleted };
+    },
+  });
+
   const addSequenceFragment = defineTool('add_sequence_fragment', {
     description: 'Add a UML sequence fragment frame (alt, opt, loop, or par) around an inclusive range of messages, optionally with a guard condition.',
     parameters: { type: 'object', properties: {
@@ -372,7 +430,7 @@ function buildTools(state: ChatState) {
     },
   });
 
-    return [setDiagramKind,addNode,updateNode,removeNode,addRelation,updateRelation,removeRelation,addSequenceParticipant,updateSequenceParticipant,deleteSequenceParticipant,addSequenceMessage,updateSequenceMessage,deleteSequenceMessage,addSequenceFragment,deleteSequenceFragment,setTitle,requestLayout];
+    return [setDiagramKind,addNode,updateNode,removeNode,addRelation,updateRelation,removeRelation,addSequenceParticipant,updateSequenceParticipant,deleteSequenceParticipant,addSequenceMessage,updateSequenceMessage,deleteSequenceMessage,addSequenceActivation,updateSequenceActivation,deleteSequenceActivation,addSequenceFragment,deleteSequenceFragment,setTitle,requestLayout];
 }
 
 const app=express();
