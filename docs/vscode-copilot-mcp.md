@@ -9,7 +9,7 @@ Architecture Diagram Studio exposes its active diagram through a local stdio MCP
 - Authenticate the existing Copilot SDK runtime as described in the root README.
 - Start the Studio with `npm run dev` and open the editor in a browser. Keep it open while using the MCP tools.
 
-The repository includes `.vscode/mcp.json`. After installing dependencies, reload VS Code or run **MCP: List Servers**, then start/restart **architecture-diagram-studio** if necessary. Choose the Local or Copilot agent experience that supports workspace MCP servers and approve the server when prompted.
+The repository includes `.vscode/mcp.json`, which launches the server directly with `node --import tsx server/mcp.ts` (rather than through `npm run`, whose banner would interfere with stdio protocol output). After installing dependencies, reload VS Code or run **MCP: List Servers**, then start/restart **architecture-diagram-studio** if necessary. Choose the Local or Copilot agent experience that supports workspace MCP servers and approve the server when prompted.
 
 The MCP process uses stdio for protocol messages. Do not add console output to stdout in `server/mcp.ts`; diagnostics must go to stderr. It calls the Studio API at `http://127.0.0.1:3001`. Override that address with `ARCHITECTURE_DIAGRAM_API` only if the local API is intentionally configured elsewhere.
 
