@@ -22,11 +22,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: v2/package.json
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Type check
         run: npm run typecheck
       - name: Test layout and intent rules
         run: npm test
-      - name: Build app and verify pinned local Draw.io bundle
-        run: npm run build
+      - name: Download pinned Draw.io archive for CI build
+        working-directory: v2
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output /tmp/draw.war \
+            https://github.com/jgraph/drawio/releases/download/v32.0.2/draw.war
+          echo "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7  /tmp/draw.war" | sha256sum --check
+      - name: Build app with verified local Draw.io bundle
+        run: DRAWIO_WAR=/tmp/draw.war npm run build
