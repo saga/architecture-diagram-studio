@@ -21,9 +21,15 @@ export function normalizeSequenceRanges(sequence: SequenceDiagramData): Sequence
     }
     return range;
   };
+  const normalizedActivations = sequence.activations?.map(normalizeRange);
+  // Swapping message order can make two previously distinct intervals identical.
+  // Keep the first occurrence rather than leaving a model that cannot be exported.
+  const uniqueActivations = normalizedActivations
+    ? [...new Map(normalizedActivations.map((activation) => [sequenceActivationKey(activation), activation] as const)).values()]
+    : undefined;
   return {
     ...sequence,
-    ...(sequence.activations ? { activations: sequence.activations.map(normalizeRange) } : {}),
+    ...(uniqueActivations ? { activations: uniqueActivations } : {}),
     ...(sequence.fragments ? { fragments: sequence.fragments.map(normalizeRange) } : {}),
   };
 }
