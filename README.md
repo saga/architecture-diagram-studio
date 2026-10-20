@@ -22,6 +22,7 @@ npm run build
 
 - React + TypeScript + React Flow editor.
 - Example C4 Container view with people, services, database, and an external system.
+- Add service nodes, rename selected elements, delete elements, and create relations by connecting node handles.
 - ELK layered layout as an explicit action; export does not invoke layout.
 - Persisted browser-local diagram snapshot and current node geometry.
 - Reset-to-example action.
@@ -51,7 +52,7 @@ npm run build
 
 ## Known gaps
 
-- Diagram semantics are currently sample data; users cannot yet create/edit all node and relation fields in the UI.
+- Diagram semantics start from sample data; the UI supports basic service creation, node renaming/deletion, and relation creation, but not full property editing or relation-label editing.
 - Persistence is browser-local only; there is no named project library or import/open workflow yet.
 - Sequence diagrams and their ordered messages, activations, and alt/opt/loop fragments are not implemented.
 - Nested C4 boundaries and relationship waypoint editing are not implemented.
