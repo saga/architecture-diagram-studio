@@ -10,6 +10,8 @@ export interface AgentTraceRecord {
   traceId?: string;
   turnId?: string;
   parentEventId?: string;
+  sequence?: number;
+  payloadComplete?: boolean;
   category?: string;
   type: string;
   status?: string;
@@ -127,6 +129,7 @@ export function readAgentTraces(sessionIds: string[], limit = 200, traceId?: str
   return rows.reverse().map((row) => ({
     id:String(row.id),timestamp:String(row.timestamp),sessionId:String(row.session_id),traceId:String(row.trace_id),
     ...(row.turn_id ? {turnId:String(row.turn_id)} : {}),...(row.parent_event_id ? {parentEventId:String(row.parent_event_id)} : {}),
+    sequence:Number(row.sequence),payloadComplete:Number(row.payload_complete)===1,
     category:String(row.category),type:String(row.type),...(row.status ? {status:String(row.status)} : {}),
     ...(row.duration_ms !== null ? {durationMs:Number(row.duration_ms)} : {}),
     ...(row.provider ? {provider:String(row.provider)} : {}),...(row.model ? {model:String(row.model)} : {}),
