@@ -1,6 +1,7 @@
 import type { DiagramDocument, DiagramNode, SequenceMessage } from '../model/diagram';
 import { validateDiagram } from '../model/validate';
 import { ensureEdgeGeometry, relationPortIds } from '../model/routing';
+import { ensureDiagramBoundaries } from '../model/boundaries';
 
 const xml=(v:string)=>v.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
 const number=(v:number)=>Number.isFinite(v)?String(Math.round(v*100)/100):'0';
@@ -142,8 +143,13 @@ export function exportDrawio(doc:DiagramDocument):string{
  const errors=validateDiagram(doc).filter(issue=>issue.severity==='error');
  if(errors.length) throw new Error('Cannot export invalid diagram:\n'+errors.map(issue=>issue.message).join('\n'));
  if(doc.kind==='sequence')return exportSequenceDrawio(doc);
- const routed=ensureEdgeGeometry(doc);
+ const routed=ensureEdgeGeometry(ensureDiagramBoundaries(doc));
  const cells=['<mxCell id="0"/>','<mxCell id="1" parent="0"/>'];
+ for(const boundary of routed.boundaries??[]){
+  const label='<div style="font-family:Arial,sans-serif;text-align:left;color:#1168bd;"><div style="font-size:12px;font-weight:700;line-height:1.2;">'+htmlText(boundary.label)+'</div><div style="font-size:9px;font-style:italic;color:#647b94;line-height:1.2;margin-top:3px;">'+htmlText(boundary.description??'Software system boundary')+'</div></div>';
+  const boundaryStyle='rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1168bd;strokeWidth=1.5;dashed=1;verticalAlign=top;align=left;fontStyle=1;fontSize=12;fontColor=#1168bd;spacingTop=7;spacingLeft=10;container=0;collapsible=0;';
+  cells.push('<mxCell id="'+xml('diagram-boundary-'+boundary.id)+'" value="'+xml(label)+'" style="'+boundaryStyle+'" vertex="1" parent="1"><mxGeometry x="'+number(boundary.x)+'" y="'+number(boundary.y)+'" width="'+number(boundary.width)+'" height="'+number(boundary.height)+'" as="geometry"/></mxCell>');
+ }
  const pageWidth=Math.max(1169,...routed.nodes.map(node=>(routed.layout[node.id]?.x??0)+(routed.layout[node.id]?.width??220)+80));
  const pageHeight=Math.max(827,...routed.nodes.map(node=>(routed.layout[node.id]?.y??0)+(routed.layout[node.id]?.height??112)+80));
  for(const n of routed.nodes){
