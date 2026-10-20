@@ -50,7 +50,7 @@ Implemented in the current editor:
 
 Not yet implemented or verified:
 - General-purpose context extraction from requirements and source documents.
-- Direct editing of activation start/end intervals and fragment message range/participant bounds in the sidebar.
+- Activation start/end intervals are editable in the sidebar. Direct editing of fragment message range and participant bounds remains a follow-up.
 - Automated opening/rendering of exported files in diagrams.net and screenshot-based visual regression.
 - Pixel-level parity across browser and diagrams.net renderers.
 
