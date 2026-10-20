@@ -34,6 +34,7 @@ function Editor(){
  const snapshot=useCallback(():DiagramDocument=>({...doc,layout:Object.fromEntries(nodes.map(n=>[n.id,{x:n.position.x,y:n.position.y,width:Number(n.measured?.width??n.style?.width??180),height:Number(n.measured?.height??n.style?.height??84)}]))}),[doc,nodes]);
  const syncRevisionRef=useRef<number|null>(null);
  const lastSyncedDocumentRef=useRef('');
+ const lastLayoutRequestIdRef=useRef(0);
  const syncWriteRef=useRef<Promise<void>>(Promise.resolve());
  const syncContextRef=useRef({snapshot:()=>doc,layoutEngine,layoutConfig});
  syncContextRef.current={snapshot,layoutEngine,layoutConfig};
@@ -42,9 +43,9 @@ function Editor(){
   const synchronize=async()=>{
    try{
     const response=await fetch('/api/diagram');if(!response.ok)return;
-    const remote=await response.json() as {diagram:DiagramDocument|null;revision:number;requestAutoLayout?:boolean};if(!active)return;
+    const remote=await response.json() as {diagram:DiagramDocument|null;revision:number;layoutRequestId?:number};if(!active)return;
     if(syncRevisionRef.current===null){
-     syncRevisionRef.current=remote.revision;
+     syncRevisionRef.current=remote.revision;lastLayoutRequestIdRef.current=remote.layoutRequestId??0;
      if(remote.diagram){const serialized=JSON.stringify(remote.diagram);lastSyncedDocumentRef.current=serialized;setDoc(remote.diagram);const flow=flowData(remote.diagram);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Synchronized with the local VS Code Copilot bridge.');}
      else{const local=syncContextRef.current.snapshot();const serialized=JSON.stringify(local);const seeded=await fetch('/api/diagram',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({diagram:local,expectedRevision:remote.revision})});if(seeded.ok){const saved=await seeded.json() as {revision:number};syncRevisionRef.current=saved.revision;lastSyncedDocumentRef.current=serialized;}}
      return;
