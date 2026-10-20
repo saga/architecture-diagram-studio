@@ -4,7 +4,7 @@ A React Flow-based architecture diagram editor with a versioned diagram model, n
 
 ## Current status
 
-MVP implementation in progress. The app provides an editable C4 Container example, four selectable auto-layout engines with five ELK algorithms, per-edge ports and route geometry, six editor themes, local Express persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
+MVP implementation in progress. The app supports C4 Context, Container, and Component templates plus a UML Sequence template, with separate C4 and sequence models/renderers/export paths. C4 uses semantic cards, explicit system-boundary frames, endpoint ports and shared bend-point geometry; sequence diagrams use participant lifelines, ordered call/return/async messages, activations and alt/opt/loop/par fragments. Copilot SDK and VS Code MCP expose kind-aware sequence tools. Agent trace opens as a full-page searchable inspector. Business-context extraction and automated browser-to-diagrams.net visual round-trip remain future work; pixel-identical rendering is not guaranteed across independent renderers.
 
 ## Quick start
 
@@ -45,7 +45,7 @@ npm run build
 
 ## VS Code Copilot integration (MCP)
 
-The workspace includes `.vscode/mcp.json`. Run `npm install`, start `npm run dev`, and open the browser editor before asking VS Code Copilot to inspect or change the active diagram. VS Code starts the stdio server directly with `node --import tsx server/mcp.ts` so stdout remains reserved for MCP protocol messages. The tools use the local API at `127.0.0.1:3001` to read or mutate the same diagram visible in the browser. Available tools cover diagram retrieval, node and relationship CRUD, title updates, validation, and requesting the currently selected layout engine. See [`docs/vscode-copilot-mcp.md`](docs/vscode-copilot-mcp.md) for setup, limitations, and security boundaries.
+The workspace includes `.vscode/mcp.json`. Run `npm install`, start `npm run dev`, and open the browser editor before asking VS Code Copilot to inspect or change the active diagram. VS Code starts the stdio server directly with `node --import tsx server/mcp.ts` so stdout remains reserved for MCP protocol messages. The tools use the local API at `127.0.0.1:3001` to read or mutate the same diagram visible in the browser. Available tools cover diagram retrieval, diagram-kind switching, kind-aware C4 node/relationship CRUD, sequence participant/message/fragment operations, title updates, validation, and requesting graph layout for C4 views. See [`docs/vscode-copilot-mcp.md`](docs/vscode-copilot-mcp.md) for setup, limitations, and security boundaries.
 
 
 
