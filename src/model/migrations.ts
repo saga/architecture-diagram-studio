@@ -26,8 +26,8 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
       sequence: normalizeSequenceRanges({
         participants: input.sequence.participants.map((participant) => ({ ...participant })),
         messages: input.sequence.messages.map((message) => ({ ...message })),
-        ...(input.sequence.activations ? { activations: input.sequence.activations.map((activation) => ({ ...activation })) } : {}),
-        ...(input.sequence.fragments ? { fragments: input.sequence.fragments.map((fragment) => ({ ...fragment })) } : {}),
+        ...(Array.isArray(input.sequence.activations) ? { activations: input.sequence.activations.map((activation) => ({ ...activation })) } : {}),
+        ...(Array.isArray(input.sequence.fragments) ? { fragments: input.sequence.fragments.map((fragment) => ({ ...fragment })) } : {}),
       }),
     };
   }
