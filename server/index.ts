@@ -246,6 +246,9 @@ app.post('/api/diagram/mutate',(req,res)=>{
   if(!sharedDiagram)return res.status(409).json({error:'No active diagram. Open Architecture Diagram Studio in a browser first.'});
   const operation=typeof req.body?.operation==='string'?req.body.operation:'';
   const args=req.body?.args&&typeof req.body.args==='object'?req.body.args as Record<string,unknown>:{};
+  const previousDiagram=sharedDiagram;
+  const previousRevision=diagramRevision;
+  const previousLayoutRequestId=layoutRequestId;
   const draft=structuredClone(sharedDiagram);
   const stringArg=(key:string)=>typeof args[key]==='string'?args[key] as string:undefined;
   const id=stringArg('id');
@@ -301,7 +304,8 @@ app.post('/api/diagram/mutate',(req,res)=>{
   const errors=validateDiagram(draft).filter((issue)=>issue.severity==='error');
   if(errors.length)return res.status(400).json({error:'Mutation rejected: '+errors.map((issue)=>issue.message).join(' ')});
   if(operation!=='request_layout'){sharedDiagram=draft;diagramRevision+=1;}
-  persistStore();
+  try { persistStore(); }
+  catch (error) { sharedDiagram=previousDiagram; diagramRevision=previousRevision; layoutRequestId=previousLayoutRequestId; throw error; }
   recordTrace('vscode-mcp','mcp.tool.completed',{operation,args,result,revision:diagramRevision,layoutRequestId},{traceId:(req as typeof req & {traceId?:string}).traceId,category:'mcp-tool',status:'completed'});
   return res.json({ok:true,operation,revision:diagramRevision,result,layoutRequestId});
 });
