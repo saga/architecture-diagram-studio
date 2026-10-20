@@ -119,7 +119,7 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
   const add = (nodeId: string, portId: string, side: DiagramPortSide) => {
     const nodePorts = portMaps.get(nodeId);
     if (!nodePorts || nodePorts.has(portId)) return;
-    nodePorts.set(portId, { id: portId, side, x: 0, y: 0 });
+    nodePorts.set(portId, { id: portId, side, x: Number.NaN, y: Number.NaN });
   };
 
   for (const relation of doc.relations) {
@@ -131,10 +131,10 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
   for (const node of doc.nodes) {
     const ports = portMaps.get(node.id)!;
     if (![...ports.values()].some((port) => port.id.startsWith('out-'))) {
-      ports.set('out-default-' + node.id, { id: 'out-default-' + node.id, side: sides.source, x: 0, y: 0 });
+      ports.set('out-default-' + node.id, { id: 'out-default-' + node.id, side: sides.source, x: Number.NaN, y: Number.NaN });
     }
     if (![...ports.values()].some((port) => port.id.startsWith('in-'))) {
-      ports.set('in-default-' + node.id, { id: 'in-default-' + node.id, side: sides.target, x: 0, y: 0 });
+      ports.set('in-default-' + node.id, { id: 'in-default-' + node.id, side: sides.target, x: Number.NaN, y: Number.NaN });
     }
 
     const oldGeometry = dimensions(doc, node.id);
