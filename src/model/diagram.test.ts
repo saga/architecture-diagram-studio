@@ -91,6 +91,12 @@ describe('draw.io export', () => {
     expect(xml).toContain('name="Order Platform — Container View"');
   });
 
+  it('uses semantic green database and dashed amber external-system styles in native C4 export', () => {
+    const xml = exportDrawio(initialDiagram);
+    expect(xml).toContain('fillColor=#e6f5ec;strokeColor=#39805b;fontColor=#214b37;');
+    expect(xml).toContain('fillColor=#fff4e5;strokeColor=#c7832e;dashed=1;fontColor=#6e4714;');
+  });
+
   it('exports C4 semantic roles as C4 cards rather than UML stick figures or database cylinders', () => {
     const xml = exportDrawio(initialDiagram);
     expect(xml).toContain('«Person»');
