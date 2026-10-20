@@ -13,6 +13,9 @@ import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
+import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
+import { clearDiagnosticEntries, readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
+import type { DiagnosticEntry } from "./diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type SavedAISettings = { baseUrl: string; model: string };
@@ -47,6 +50,10 @@ export default function App() {
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
+  const [activePage, setActivePage] = useState<WorkspacePage>("studio");
+  const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
+  const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
+  const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
   const [studioZoom, setStudioZoom] = useState(1);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -54,7 +61,6 @@ export default function App() {
   const [aiBaseUrl, setAiBaseUrl] = useState(savedAISettings.baseUrl);
   const [aiModel, setAiModel] = useState(savedAISettings.model);
   const [aiApiKey, setAiApiKey] = useState("");
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", id: 1, text: "可以直接说布局意图，例如「所有 external 放到右侧」「数据库放底部」「所有线改成虚线」「曲线改成折线」。目前使用本地确定性规则，不会假装已调用云端模型。" }
   ]);
@@ -79,7 +85,40 @@ export default function App() {
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
 
   useEffect(() => {
+    const refreshTraces = () => setTraceEntries(readDiagnosticEntries());
+    const handleWindowError = (event: ErrorEvent) => {
+      recordDiagnostic("runtime.window.error", "未捕获浏览器运行时错误", {
+        errorMessage: event.message, fileName: event.filename, line: event.lineno, column: event.colno
+      }, "error");
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      recordDiagnostic("runtime.unhandled_rejection", "出现未处理的 Promise rejection", {
+        reasonType: reason instanceof Error ? reason.name : typeof reason,
+        reasonMessage: reason instanceof Error ? reason.message : String(reason).slice(0, 250)
+      }, "error");
+    };
+    window.addEventListener("studio:diagnostic", refreshTraces);
+    window.addEventListener("studio:diagnostic-clear", refreshTraces);
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    recordDiagnostic("app.started", "V2 工作区启动", {
+      diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length
+    });
+    return () => {
+      window.removeEventListener("studio:diagnostic", refreshTraces);
+      window.removeEventListener("studio:diagnostic-clear", refreshTraces);
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
+    const startedAt = Date.now();
+    recordDiagnostic("layout.initial.start", "启动时运行本地布局", {
+      diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length
+    });
     layoutDiagram(document).then((laidOut) => {
       if (!active) return;
       setDocument(laidOut);
@@ -87,7 +126,14 @@ export default function App() {
       historyIndexRef.current = 0;
       setCanUndo(false);
       setCanRedo(false);
+      recordDiagnostic("layout.initial.completed", "启动布局完成", {
+        durationMs: Date.now() - startedAt, nodeCount: laidOut.nodes.length, relationCount: laidOut.relations.length
+      });
     }).catch((error: unknown) => {
+      recordDiagnostic("layout.initial.failed", "启动布局失败", {
+        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
       if (active) setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error)));
     });
     return () => { active = false; };
@@ -113,14 +159,31 @@ export default function App() {
     setDocument(next);
     setRevision((value) => value + 1);
     setLastAction(action);
+    recordDiagnostic("diagram.change.committed", "正式图形文档已更新", {
+      action, diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
+      hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml)
+    });
   }, []);
 
   const runLayout = useCallback(async (source: DiagramDocument = document) => {
+    const startedAt = Date.now();
+    recordDiagnostic("layout.run.started", "开始重新计算布局、路由和重叠修复", {
+      diagramKind: source.kind, nodeCount: source.nodes.length, relationCount: source.relations.length,
+      routing: source.layout.routing, profile: source.layout.profile
+    });
     setIsLayoutting(true);
     try {
       const next = await layoutDiagram(source);
+      recordDiagnostic("layout.run.completed", "布局计算成功", {
+        durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length,
+        routing: next.layout.routing, profile: next.layout.profile
+      });
       commitDocument(next, "已重新计算布局、路由并运行重叠修复");
     } catch (error) {
+      recordDiagnostic("layout.run.failed", "布局计算失败", {
+        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
       setLastAction("布局失败：" + (error instanceof Error ? error.message : String(error)));
     } finally {
       setIsLayoutting(false);
@@ -170,6 +233,12 @@ export default function App() {
   async function sendIntent() {
     const text = chatInput.trim();
     if (!text || chatBusy) return;
+    const startedAt = Date.now();
+    recordDiagnostic("copilot.request.started", "开始处理布局意图", {
+      configuredModel: Boolean(aiBaseUrl.trim() && aiModel.trim()), model: aiModel.trim() || "local-rules",
+      diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
+      inputLength: text.length
+    });
     setMessages((items) => [...items, { role: "user", id: Date.now(), text }]);
     setChatInput("");
     setChatBusy(true);
@@ -177,6 +246,9 @@ export default function App() {
       let effectiveText = text;
       let modelReply = "";
       if (aiBaseUrl.trim() && aiModel.trim()) {
+        recordDiagnostic("copilot.model.request", "请求兼容模型生成受限布局计划", {
+          model: aiModel.trim(), baseUrlConfigured: true, inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
+        });
         const plan = await requestAIIntentPlan(
           { baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey },
           text,
@@ -188,20 +260,31 @@ export default function App() {
           }
         );
         modelReply = plan.reply;
+        recordDiagnostic("copilot.model.response", "已收到模型布局计划", {
+          model: aiModel.trim(), commandCount: plan.commands.length, replyLength: plan.reply.length
+        });
         if (!plan.commands.length) {
+          recordDiagnostic("copilot.plan.empty", "模型未返回可执行布局指令，未修改正式文档", {}, "warn");
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "未执行修改。 " + (modelReply || "这个请求没有匹配到当前支持的安全布局操作。") }]);
           return;
         }
         effectiveText = plan.commands.join("；");
       }
       const result = await applyIntent(document, effectiveText);
+      recordDiagnostic(result.changed ? "copilot.intent.matched" : "copilot.intent.no_change",
+        result.changed ? "布局意图已映射到可执行规则" : "布局意图没有匹配到可执行规则",
+        { summary: result.summary, changed: result.changed, requiresLayout: result.requiresLayout });
       if (result.changed) {
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
         setViewMode("studio");
         const previewQuality = evaluateLayout(result.document);
         const prefix = modelReply ? modelReply + " " : "";
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查画布后应用或丢弃。" }]);
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查后应用或丢弃。" }]);
+        recordDiagnostic("copilot.preview.created", "已生成待确认的布局预览", {
+          durationMs: Date.now() - startedAt, qualityScore: previewQuality.score,
+          nodeCount: result.document.nodes.length, relationCount: result.document.relations.length
+        });
       } else {
         const reply = modelReply
           ? "没有应用任何修改。 " + modelReply + "（模型计划未匹配到可执行的布局操作。）"
@@ -209,8 +292,15 @@ export default function App() {
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: reply }]);
       }
     } catch (error) {
+      recordDiagnostic("copilot.request.failed", "处理布局意图失败，没有提交修改", {
+        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
       setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "没有提交修改：" + (error instanceof Error ? error.message : String(error)) }]);
     } finally {
+      recordDiagnostic("copilot.request.finished", "布局意图处理流程结束", {
+        durationMs: Date.now() - startedAt, busy: false
+      });
       setChatBusy(false);
     }
   }
@@ -219,19 +309,17 @@ export default function App() {
     const next = { baseUrl: aiBaseUrl.trim().replace(/\/+$/, ""), model: aiModel.trim() };
     setAiBaseUrl(next.baseUrl);
     setAiModel(next.model);
+    let saved = true;
     try {
       window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next));
     } catch {
+      saved = false;
       setLastAction("无法保存模型接口设置；当前页面仍可使用已输入的配置");
     }
-    setAiSettingsOpen(false);
-    setMessages((items) => [...items, {
-      role: "assistant",
-      id: Date.now() + 3,
-      text: next.baseUrl && next.model
-        ? "模型接口已配置。API Key只保存在当前页面内存，不会写入浏览器存储。"
-        : "已切回本地规则模式；未配置的模型接口不会被调用。"
-    }]);
+    recordDiagnostic("settings.model.saved", saved ? "模型接口配置已保存" : "模型接口配置无法写入浏览器存储", {
+      baseUrlConfigured: Boolean(next.baseUrl), model: next.model || "local-rules", apiKeyPresent: Boolean(aiApiKey), persisted: saved
+    }, saved ? "info" : "warn");
+    if (saved) setLastAction(next.baseUrl && next.model ? "模型接口配置已保存" : "已切回本地规则模式");
   }
 
   function clearAISettings() {
@@ -239,8 +327,8 @@ export default function App() {
     setAiModel("");
     setAiApiKey("");
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Ignore unavailable storage. */ }
-    setAiSettingsOpen(false);
     setLastAction("已切回本地规则模式");
+    recordDiagnostic("settings.model.cleared", "已清除持久模型配置并切换到本地规则", {}, "warn");
   }
 
   function addSequenceFragment() {
@@ -475,10 +563,15 @@ export default function App() {
     const filename = document.title.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
     setLastAction("已导出原生 .drawio 文件");
+    recordDiagnostic("drawio.export.completed", "已导出 .drawio 文件", {
+      filename, xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length
+    });
   }
 
   async function importDiagramFile(file: File | undefined) {
     if (!file) return;
+    const startedAt = Date.now();
+    recordDiagnostic("drawio.import.started", "开始导入 Draw.io 文件", { filename: file.name, bytes: file.size });
     try {
       const xml = await file.text();
       const empty: DiagramDocument = { ...document, id: newId("imported"), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
@@ -490,11 +583,78 @@ export default function App() {
       const next = await layoutDiagram(parsed);
       setSelectedNodeId(next.nodes[0]?.id || null);
       commitDocument(next, "已导入 " + file.name + "，解析 " + next.nodes.length + " 个节点与 " + next.relations.length + " 条关系");
+      recordDiagnostic("drawio.import.completed", "Draw.io 文件解析并导入完成", {
+        durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length
+      });
     } catch (error) {
+      recordDiagnostic("drawio.import.failed", "导入 Draw.io 文件失败", {
+        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
       setLastAction("导入失败：" + (error instanceof Error ? error.message : String(error)));
     } finally {
       if (importFileRef.current) importFileRef.current.value = "";
     }
+  }
+
+  async function checkDrawioStatus() {
+    setDrawioStatus("checking");
+    setDrawioStatusMessage("检查本地资源清单与编辑器入口…");
+    const startedAt = Date.now();
+    recordDiagnostic("drawio.healthcheck.started", "手动检查本地 Draw.io 资源", {
+      manifestUrl: "/drawio/studio-bundle.json", entryUrl: "/drawio/index.html"
+    });
+    try {
+      const [manifestResponse, entryResponse] = await Promise.all([
+        fetch("/drawio/studio-bundle.json", { cache: "no-store" }),
+        fetch("/drawio/index.html", { method: "HEAD", cache: "no-store" })
+      ]);
+      if (!manifestResponse.ok || !entryResponse.ok) {
+        const message = "manifest HTTP " + manifestResponse.status + "；index.html HTTP " + entryResponse.status;
+        setDrawioStatus("missing");
+        setDrawioStatusMessage(message);
+        recordDiagnostic("drawio.healthcheck.missing", "Draw.io 本地资源不可用", {
+          manifestStatus: manifestResponse.status, indexStatus: entryResponse.status,
+          durationMs: Date.now() - startedAt
+        }, "error");
+        return;
+      }
+      const manifest = await manifestResponse.json() as { version?: string; sha256?: string };
+      const matches = manifest.version === "v32.0.2" && manifest.sha256 === "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
+      if (!matches) {
+        setDrawioStatus("missing");
+        setDrawioStatusMessage("资源已响应，但版本或 SHA-256 与固定版本不一致。");
+        recordDiagnostic("drawio.healthcheck.mismatch", "Draw.io 资源清单不匹配", {
+          installedVersion: manifest.version ?? null, checksumMatches: manifest.sha256 === "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7",
+          durationMs: Date.now() - startedAt
+        }, "error");
+        return;
+      }
+      setDrawioStatus("ready");
+      setDrawioStatusMessage("v32.0.2 资源与 SHA-256 清单匹配；index.html HTTP " + entryResponse.status + "。此检查不代替 iframe embed 初始化握手。");
+      recordDiagnostic("drawio.healthcheck.ready", "Draw.io 本地资源检查通过", {
+        version: manifest.version, indexStatus: entryResponse.status, durationMs: Date.now() - startedAt
+      });
+    } catch (error) {
+      setDrawioStatus("error");
+      setDrawioStatusMessage(error instanceof Error ? error.message : String(error));
+      recordDiagnostic("drawio.healthcheck.failed", "检查 Draw.io 本地资源时发生异常", {
+        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+    }
+  }
+
+  function clearTraces() {
+    clearDiagnosticEntries();
+    setTraceEntries([]);
+    recordDiagnostic("trace.cleared", "已清空本地轨迹");
+    setTraceEntries(readDiagnosticEntries());
+  }
+
+  function openPage(page: WorkspacePage) {
+    setActivePage(page);
+    recordDiagnostic("navigation.opened", "打开工作区页面", { page });
   }
 
   return (
@@ -506,17 +666,24 @@ export default function App() {
         </div>
         <div className="topbar-divider" />
         <div className="document-breadcrumb"><span className="crumb-muted">WORKSPACE</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
+        <nav className="workspace-nav" aria-label="工作区页面">
+          {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent 轨迹"], ["settings", "配置"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
+            <button key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</button>
+          )}
+        </nav>
         <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
-        <div className="topbar-actions">
+        {activePage === "studio" ? <div className="topbar-actions">
           <button className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</button>
           <button className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</button>
           <button className="button button-quiet" onClick={resetDiagram}>重置示例</button>
           <button className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</button>
           <button className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</button>
           <button className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</button>
-        </div>
+        </div> : <div className="topbar-actions"><button className="button button-secondary" type="button" onClick={() => openPage("studio")}>返回画布</button></div>}
       </header>
 
+      {activePage === "studio" ? (
+        <>
       <aside className="left-panel">
         <div className="workspace-label">DIAGRAM WORKSPACE</div>
         <div className="side-section">
@@ -709,34 +876,36 @@ export default function App() {
           <div className="style-rule"><span className="style-rule-mark mark-spacing" /><div><b>结构化留白</b><small>{document.layout.nodeSpacing}px node · {document.layout.layerSpacing}px layer</small></div></div>
         </section>
 
-        <section className="copilot-section">
-          <div className="copilot-heading">
-            <div><span className="copilot-mark">✳</span><b>Layout Copilot</b><button type="button" className="ai-settings-toggle" onClick={() => setAiSettingsOpen((open) => !open)}>{aiSettingsOpen ? "关闭设置" : "模型设置"}</button></div>
-            <span className="local-rule-tag">{aiBaseUrl.trim() && aiModel.trim() ? "MODEL + RULES" : "LOCAL RULES"}</span>
-          </div>
-          {aiSettingsOpen && <div className="ai-settings">
-            <div className="ai-settings-title">OpenAI-compatible 接口</div>
-            <label>Base URL<input value={aiBaseUrl} onChange={(event) => setAiBaseUrl(event.target.value)} placeholder="例如：http://localhost:1234/v1" /></label>
-            <label>Model<input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="模型名称" /></label>
-            <label>API Key（可选）<input type="password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="只保留在当前页面内存" autoComplete="off" /></label>
-            <div className="ai-settings-note">模型只负责把自然语言转换为受限布局指令；坐标由本地布局器计算。请求会发送用户输入、图标题和节点名称/角色到该接口。请勿将敏感架构信息发送给未经批准的服务；API Key只保留在当前页面内存。</div>
-            <div className="ai-settings-actions"><button type="button" onClick={clearAISettings}>清除配置</button><button type="button" className="ai-settings-save" onClick={saveAISettings}>保存设置</button></div>
-          </div>}
-          <div className="chat-messages">
-            {messages.map((message) => <div key={message.id} className={"chat-message " + message.role}>
-              {message.role === "assistant" && <span className="assistant-avatar">F</span>}<div className="chat-bubble">{message.text}</div>
-            </div>)}
-            <div ref={chatEndRef} />
-          </div>
-          {previewDocument && <div className="preview-actions"><div className="preview-summary">{previewSummary || "布局预览已生成"}</div><div className="preview-buttons"><button type="button" className="preview-discard" onClick={discardPreview}>丢弃</button><button type="button" className="preview-accept" onClick={acceptPreview}>应用修改</button></div></div>}
-          <form className="chat-input-wrap" onSubmit={(event) => { event.preventDefault(); void sendIntent(); }}>
-            <textarea disabled={Boolean(previewDocument)} value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="例如：把所有 external 移到右侧…" rows={2}
-              onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendIntent(); } }} />
-            <button type="submit" disabled={chatBusy || Boolean(previewDocument) || !chatInput.trim()} aria-label="执行布局指令">↑</button>
-          </form>
-          <div className="copilot-footnote">意图 → 语义约束 → 布局 → 质量检查</div>
-        </section>
       </aside>
+        </>
+      ) : (
+        <WorkspacePages
+          page={activePage}
+          document={document}
+          previewDocument={previewDocument}
+          previewSummary={previewSummary}
+          messages={messages}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          chatBusy={chatBusy}
+          sendIntent={() => void sendIntent()}
+          acceptPreview={acceptPreview}
+          discardPreview={discardPreview}
+          aiBaseUrl={aiBaseUrl}
+          setAiBaseUrl={setAiBaseUrl}
+          aiModel={aiModel}
+          setAiModel={setAiModel}
+          aiApiKey={aiApiKey}
+          setAiApiKey={setAiApiKey}
+          saveAISettings={saveAISettings}
+          clearAISettings={clearAISettings}
+          traceEntries={traceEntries}
+          clearTraces={clearTraces}
+          drawioStatus={drawioStatus}
+          drawioStatusMessage={drawioStatusMessage}
+          checkDrawioStatus={() => void checkDrawioStatus()}
+        />
+      )}
     </div>
   );
 }
