@@ -204,13 +204,62 @@ The Diagram Document remains authoritative. React Flow nodes and edges are proje
 - Text edits and theme changes do not trigger a full layout unless a geometry-affecting dimension change is explicitly requested.
 - Structural changes are reflected in the Diagram Document before a save or export.
 - Full layout remains user-triggered. Export never invokes a layout algorithm.
-- Sequence participant order and message timing are semantic invariants and need a dedicated sequence layout strategy.
+- Sequence participant order and message timing are semantic invariants and are handled by the dedicated sequence renderer; generic graph auto-layout is disabled for that view.
+
+
+## Diagram-kind-specific semantic model
+
+The schema-v1 Diagram Document supports four editor modes while retaining a shared persistence/export boundary:
+
+- C4 Context: people, the system under discussion, external systems, and relationships.
+- C4 Container: people, software systems, containers and dependencies grouped by a system boundary.
+- C4 Component: components and relationships inside a container, with the containing system shown as a boundary.
+- UML Sequence: participants, ordered messages, activations and structured fragments.
+
+The model distinction is explicit: C4 uses DiagramNode / DiagramRelation and an optional DiagramBoundary collection. UML sequence uses sequence.participants, sequence.messages, sequence.activations, and sequence.fragments; its generic nodes, relations and graph layout remain empty. This prevents message ordering from being accidentally rewritten by a graph layout engine.
+
+```mermaid
+flowchart TD
+    Editor[Editor shell] --> Kind{Diagram kind}
+    Kind -->|C4 Context / Container / Component| C4[Diagram nodes + relations + boundaries]
+    Kind -->|UML Sequence| Seq[Participants + ordered messages + activations + fragments]
+    C4 --> C4Layout[ELK / Dagre / D3 graph layout]
+    Seq --> SeqLayout[Participant columns + time-ordered rows]
+    C4Layout --> C4Render[C4 semantic-card renderer]
+    SeqLayout --> SeqRender[Sequence lifeline/message renderer]
+    C4Render --> C4Export[Native editable C4 draw.io XML]
+    SeqRender --> SeqExport[Native editable sequence draw.io XML]
+```
+
+Legacy browser and loopback API documents pass through normalizeDiagramDocument before the current renderer consumes them. For older C4 snapshots, the normalizer enlarges undersized card geometry without moving saved top-left positions, rescales port coordinates if the bounds changed, and reconstructs absent system boundaries. It clears cached routes only when prior geometry becomes incompatible. Sequence snapshots missing sequence data are initialized from the sequence template; C4 boundaries are removed from sequence documents.
+
+## System-boundary consistency
+
+Boundaries are not graph nodes. fitDiagramBoundaries derives their rectangle from current member-node bounds and fixed padding/header dimensions. They are rendered as non-interactive background frames and exported as native dashed draw.io container vertices. Canvas drag, node creation/deletion, Copilot SDK node tools, and REST mutation handlers must keep boundary membership consistent. Layout algorithms only receive semantic graph nodes and relations, not boundary frames.
+
+## Agent trace navigation
+
+Execution events continue to be stored by the local API in the SQLite trace ledger. The browser's Agent trace action switches to a dedicated full-page view instead of rendering JSON in the assistant sidebar. The view provides summary counts, a filter, refresh, status/duration/provider/model metadata, and expandable event payloads. The editor component remains mounted while the trace view is active, so returning to Studio retains the current diagram, selection, chat and active browser session.
+
+## C4 / sequence implementation verification
+
+| Concern | Guardrail |
+|---|---|
+| Old saved C4 bounds | Normalize before initial render and remote API hydration |
+| System boundary membership | Validate every member reference; update membership on add/delete |
+| Sequence ordering | Positive unique message order; UI edit uses swap-based earlier/later controls |
+| Sequence cleanup | Removing a participant removes its messages; removing messages removes dependent activations/fragments |
+| Copilot operations | Diagram-kind guard prevents generic graph mutation of sequence data; sequence-specific tools edit participants/messages/fragments |
+| Export | Kind-dispatched, pure mapping; C4 frame/card mapper and separate sequence lifeline/message mapper |
+| Agent trace | Full-page view, polling only while open, expandable raw event payloads |
+
+Automated typecheck/unit/build remains a release gate. GitHub Actions currently fails before a runner is assigned; a run with runner_id=0 and no steps is not evidence of a build or test result. A browser screenshot comparison and opening representative output in diagrams.net are still necessary for visual acceptance.
 
 ## React Flow / draw.io renderer parity contract
 
 The Diagram Document is the rendering contract for both adapters. `src/model/routing.ts` normalizes old diagrams by deriving stable source/target handle IDs, storing local port positions, and computing deterministic orthogonal bend points without moving nodes. ELK's returned ports and bend points take precedence; Dagre, D3 Hierarchy, and D3 Force use the same fallback router when they do not supply routes. A manual node move invalidates routes touching that node so the editor and next export derive new points from the moved endpoints.
 
-React Flow must use the port IDs and route stored in each relation rather than run an unrelated edge router. Its HTML edge labels are overlaid at the route midpoint; connection handles remain interactive but transparent until hover/selection. Person and database node renderers use dedicated SVG silhouettes matching the native draw.io UML actor and cylinder shapes. Node title and technology use the same size/weight/color hierarchy in both renderers.
+React Flow must use the port IDs and route stored in each relation rather than run an unrelated edge router. Its HTML edge labels are overlaid at the route midpoint; connection handles remain interactive but transparent until hover/selection. C4 nodes use semantic cards and explicit stereotypes rather than UML-only stick-figure or cylinder shapes. C4 boundary frames are separate model objects, recalculated around member nodes and excluded from graph layout and semantic element counts. Node title, technology and description use the same hierarchy in both renderers.
 
 The draw.io exporter uses matching logical bounds, HTML title/subtitle labels, `exitX` / `exitY` / `entryX` / `entryY` anchors, and explicit `<mxPoint>` bend points. For a routed edge it uses `edgeStyle=none` so mxGraph does not independently recalculate the geometry. The exporter may normalize missing ports/routes in a temporary copy of an older document, but it never mutates the saved document, moves nodes, or invokes an auto-layout engine.
 
