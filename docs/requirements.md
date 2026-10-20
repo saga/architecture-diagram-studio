@@ -36,3 +36,19 @@ Generate maintainable software architecture diagrams from business context, allo
 - Arbitrary conversion of every React component into native draw.io shapes.
 - Guaranteed pixel identity for arbitrary fonts, SVG filters, or browser-specific CSS.
 - Autonomous architecture decisions without evidence and review.
+
+## Implementation status (current)
+
+Implemented in the initial MVP:
+- Editable C4 Container sample, node dragging, and explicit ELK auto-layout.
+- Browser-local persistence of the current diagram snapshot and geometry.
+- Validation for duplicate IDs and missing relationship endpoints.
+- Native draw.io export for node geometry, labels, relationships, and optional waypoints.
+- Unit tests and a GitHub Actions workflow for typecheck, test, and production build.
+
+Not yet implemented or verified:
+- General-purpose context extraction from requirements and source documents.
+- Full semantic editing for node/relation creation, deletion, and properties.
+- Sequence diagram editing, including ordering, activations, and alt/opt/loop fragments.
+- Automated opening/rendering of exported files in diagrams.net.
+- Pixel-level visual regression and screenshot parity.
