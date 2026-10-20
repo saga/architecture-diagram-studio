@@ -109,7 +109,7 @@ describe('draw.io export', () => {
     expect(xml).toContain('dashed=1;dashPattern=3 4');
     expect(xml).toContain('msg-1');
     expect(xml).toContain('1. Place order');
-    expect(xml).toContain('activation-api-msg-2');
+    expect(xml).toContain('activation-%5B%22api%22%2C%22msg-2%22%2C%22msg-7%22%5D');
     expect(xml).toContain('fragment-fragment-payment');
     expect(xml).toContain('opt');
     expect(xml).toContain('as="sourcePoint"');
@@ -120,6 +120,14 @@ describe('draw.io export', () => {
     const sequence = createDiagramTemplate('sequence');
     sequence.nodes = [initialDiagram.nodes[0]];
     expect(validateDiagram(sequence).some(issue => issue.code === 'SEQUENCE_GRAPH_DATA_PRESENT')).toBe(true);
+  });
+
+  it('rejects duplicate activation ranges', () => {
+    const sequence = createDiagramTemplate('sequence');
+    const activation = sequence.sequence!.activations![0];
+    sequence.sequence!.activations!.push({ ...activation });
+    expect(validateDiagram(sequence).some(issue => issue.code === 'SEQUENCE_ACTIVATION_DUPLICATE')).toBe(true);
+    expect(() => exportDrawio(sequence)).toThrow(/Activation range .* is duplicated/);
   });
 
   it('rejects activation ranges that end before they start', () => {
