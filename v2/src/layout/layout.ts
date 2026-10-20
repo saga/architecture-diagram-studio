@@ -1,5 +1,5 @@
 import ELK from "elkjs/lib/elk.bundled.js";
-import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
+import type { DiagramDocument, DiagramNode, Point } from "../model/types";
 import { evaluateLayout } from "./quality";
 
 const elk = new ELK();

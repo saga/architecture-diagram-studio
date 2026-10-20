@@ -146,3 +146,15 @@ button:disabled { opacity: .58; cursor: wait; }
 .relation-add-button:hover { background: #eaf0ff; border-color: #cbd5ff; }
 .relation-add-button:disabled { opacity: .5; cursor: not-allowed; }
 .file-input-hidden { display: none; }
+
+
+.preview-pill { display: inline-flex; align-items: center; border: 1px solid #cbd5ff; color: #354daf; background: #f0f3ff; border-radius: 4px; padding: 3px 6px; font: 8px ui-monospace, monospace; letter-spacing: .8px; }
+.preview-actions { margin: 0 0 9px 24px; border: 1px solid #dfe5ff; background: #f7f8ff; border-radius: 8px; padding: 10px; }
+.preview-summary { color: #42527a; font-size: 9px; line-height: 1.6; overflow-wrap: anywhere; }
+.preview-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.preview-buttons button { border-radius: 6px; padding: 6px 9px; font-size: 9px; font-weight: 600; }
+.preview-discard { background: #fff; border: 1px solid #dfe4ec; color: #647286; }
+.preview-discard:hover { background: #f8f9fb; }
+.preview-accept { background: #425bc7; border: 1px solid #425bc7; color: #fff; }
+.preview-accept:hover { background: #354caf; }
+.preview-pill { white-space: nowrap; }

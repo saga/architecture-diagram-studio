@@ -1,3 +1,4 @@
+import { inflateRawSync } from "fflate";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point } from "../model/types";
 
 function plainLabel(value: string): string {
@@ -19,9 +20,31 @@ function visualRoleFromStyle(style: string): DiagramNode["visualRole"] {
   const allowed: DiagramNode["visualRole"][] = ["primary", "secondary", "muted", "external", "highlight"];
   return explicit && allowed.includes(explicit as DiagramNode["visualRole"]) ? explicit as DiagramNode["visualRole"] : "secondary";
 }
+function parseDrawioXml(xml: string): XMLDocument | null {
+  const parser = new DOMParser();
+  let parsed = parser.parseFromString(xml, "application/xml");
+  if (parsed.querySelector("parsererror")) return null;
+  if (parsed.querySelector("mxGraphModel")) return parsed;
+
+  const diagram = parsed.querySelector("mxfile > diagram");
+  const compressed = diagram?.textContent?.trim();
+  if (!compressed) return null;
+  try {
+    const binary = atob(compressed);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const inflated = inflateRawSync(bytes);
+    const decoded = new TextDecoder().decode(inflated);
+    const decodedXml = decodeURIComponent(decoded);
+    parsed = parser.parseFromString(decodedXml, "application/xml");
+    return parsed.querySelector("parsererror") ? null : parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDocument {
-  const parsed = new DOMParser().parseFromString(xml, "application/xml");
-  if (parsed.querySelector("parsererror")) return previous;
+  const parsed = parseDrawioXml(xml);
+  if (!parsed) return previous;
   const cells = Array.from(parsed.querySelectorAll("mxGraphModel root mxCell"));
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const previousRelations = new Map(previous.relations.map((relation) => [relation.id, relation]));

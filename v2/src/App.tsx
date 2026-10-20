@@ -27,6 +27,8 @@ export default function App() {
     }
     return FIXTURES.c4();
   });
+  const [previewDocument, setPreviewDocument] = useState<DiagramDocument | null>(null);
+  const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [chatInput, setChatInput] = useState("");
@@ -35,6 +37,10 @@ export default function App() {
     { role: "assistant", id: 1, text: "可以直接说布局意图，例如「所有 external 放到右侧」「数据库放底部」「所有线改成虚线」「曲线改成折线」。目前使用本地确定性规则，不会假装已调用云端模型。" }
   ]);
   const [revision, setRevision] = useState(1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const historyRef = useRef<DiagramDocument[]>([document]);
+  const historyIndexRef = useRef(0);
   const [lastAction, setLastAction] = useState("已加载 Studio Editorial 示例");
   const [isLayoutting, setIsLayoutting] = useState(false);
   const [relationTargetId, setRelationTargetId] = useState("");
@@ -42,14 +48,23 @@ export default function App() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
-  const quality = useMemo(() => evaluateLayout(document), [document]);
+  const quality = useMemo(() => evaluateLayout(visibleDocument), [visibleDocument]);
   const drawioXml = useMemo(() => toDrawioXml(document), [document]);
 
   useEffect(() => {
     let active = true;
-    layoutDiagram(document).then((laidOut) => { if (active) setDocument(laidOut); })
-      .catch((error: unknown) => { if (active) setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error))); });
+    layoutDiagram(document).then((laidOut) => {
+      if (!active) return;
+      setDocument(laidOut);
+      historyRef.current = [laidOut];
+      historyIndexRef.current = 0;
+      setCanUndo(false);
+      setCanRedo(false);
+    }).catch((error: unknown) => {
+      if (active) setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error)));
+    });
     return () => { active = false; };
   }, []);
   useEffect(() => {
@@ -62,6 +77,13 @@ export default function App() {
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string) => {
+    setPreviewDocument(null);
+    setPreviewSummary("");
+    const nextHistory = [...historyRef.current.slice(0, historyIndexRef.current + 1), next].slice(-50);
+    historyRef.current = nextHistory;
+    historyIndexRef.current = nextHistory.length - 1;
+    setCanUndo(historyIndexRef.current > 0);
+    setCanRedo(false);
     setDocument(next);
     setRevision((value) => value + 1);
     setLastAction(action);
@@ -79,7 +101,37 @@ export default function App() {
     }
   }, [commitDocument, document]);
 
+  function undoDocument() {
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current -= 1;
+    const previous = historyRef.current[historyIndexRef.current];
+    setPreviewDocument(null);
+    setPreviewSummary("");
+    setDocument(previous);
+    setSelectedNodeId((current) => previous.nodes.some((node) => node.id === current) ? current : previous.nodes[0]?.id || null);
+    setCanUndo(historyIndexRef.current > 0);
+    setCanRedo(true);
+    setRevision((value) => value + 1);
+    setLastAction("已撤销到上一版本");
+  }
+
+  function redoDocument() {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current += 1;
+    const next = historyRef.current[historyIndexRef.current];
+    setPreviewDocument(null);
+    setPreviewSummary("");
+    setDocument(next);
+    setSelectedNodeId((current) => next.nodes.some((node) => node.id === current) ? current : next.nodes[0]?.id || null);
+    setCanUndo(historyIndexRef.current > 0);
+    setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
+    setRevision((value) => value + 1);
+    setLastAction("已重做到下一版本");
+  }
+
   function changeKind(kind: DiagramKind) {
+    setPreviewDocument(null);
+    setPreviewSummary("");
     const next = FIXTURES[kind]();
     setSelectedNodeId(next.nodes[0]?.id || null);
     setViewMode("studio");
@@ -96,8 +148,11 @@ export default function App() {
     try {
       const result = await applyIntent(document, text);
       if (result.changed) {
-        commitDocument(result.document, result.summary);
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: result.summary + "。修改已作为一个新版本写入当前文档。" }]);
+        setPreviewDocument(result.document);
+        setPreviewSummary(result.summary);
+        setViewMode("studio");
+        const previewQuality = evaluateLayout(result.document);
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查画布后应用或丢弃。" }]);
       } else {
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: result.summary }]);
       }
@@ -179,6 +234,21 @@ export default function App() {
     void runLayout(next);
   }
 
+  function acceptPreview() {
+    if (!previewDocument) return;
+    const next = previewDocument;
+    const summary = previewSummary || "已应用布局预览";
+    commitDocument(next, summary + "（已应用）");
+    setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "预览已应用，正式文档已更新。" }]);
+  }
+
+  function discardPreview() {
+    if (!previewDocument) return;
+    setPreviewDocument(null);
+    setPreviewSummary("");
+    setLastAction("已丢弃预览，正式文档保持不变");
+  }
+
   function exportDiagram() {
     const filename = document.title.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
@@ -216,10 +286,12 @@ export default function App() {
         <div className="document-breadcrumb"><span className="crumb-muted">WORKSPACE</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
         <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         <div className="topbar-actions">
+          <button className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</button>
+          <button className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</button>
           <button className="button button-quiet" onClick={resetDiagram}>重置示例</button>
           <button className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</button>
-          <button className="button button-secondary" onClick={exportDiagram}><span className="button-icon">↓</span>导出 .drawio</button>
-          <button className="button button-primary" onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</button>
+          <button className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</button>
+          <button className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</button>
         </div>
       </header>
 
@@ -260,17 +332,17 @@ export default function App() {
         <div className="canvas-toolbar">
           <div>
             <div className="canvas-kicker">{document.kind === "c4" ? "SYSTEM ARCHITECTURE" : document.kind === "flowchart" ? "PROCESS DESIGN" : "INTERACTION DESIGN"} <span>/</span> STUDIO EDITORIAL</div>
-            <div className="canvas-title">{document.title}<span className="canvas-subtitle">V2 semantic canvas</span></div>
+            <div className="canvas-title">{visibleDocument.title}<span className="canvas-subtitle">V2 semantic canvas</span>{previewDocument && <span className="preview-pill">PREVIEW</span>}</div>
           </div>
           <div className="canvas-tools">
-            <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
-            <div className="segmented"><button className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
+            <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
+            <div className="segmented"><button disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
           </div>
         </div>
 
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {viewMode === "studio" ? (
-            <DiagramCanvas document={document} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
+            <DiagramCanvas document={visibleDocument} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
               onMoveNode={(id, x, y) => commitDocument(moveNode(document, id, x, y), "已手动移动节点；该位置已锁定")} />
           ) : (
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next) => commitDocument(next, "已从原生 Draw.io 同步修改")} />
@@ -278,7 +350,7 @@ export default function App() {
           <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
           {viewMode === "studio" && <div className="zoom-indicator"><span>−</span><strong>100%</strong><span>＋</span><i /></div>}
         </div>
-        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{document.nodes.length} nodes</span><span>{document.relations.length} relations</span><span>Profile: {document.layout.profile}</span><span>Layout engine: ELK Layered</span></div></div>
+        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout engine: ELK Layered</span></div></div>
       </main>
 
       <aside className="right-panel">
@@ -336,10 +408,11 @@ export default function App() {
             </div>)}
             <div ref={chatEndRef} />
           </div>
+          {previewDocument && <div className="preview-actions"><div className="preview-summary">{previewSummary || "布局预览已生成"}</div><div className="preview-buttons"><button type="button" className="preview-discard" onClick={discardPreview}>丢弃</button><button type="button" className="preview-accept" onClick={acceptPreview}>应用修改</button></div></div>}
           <form className="chat-input-wrap" onSubmit={(event) => { event.preventDefault(); void sendIntent(); }}>
-            <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="例如：把所有 external 移到右侧…" rows={2}
+            <textarea disabled={Boolean(previewDocument)} value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="例如：把所有 external 移到右侧…" rows={2}
               onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendIntent(); } }} />
-            <button type="submit" disabled={chatBusy || !chatInput.trim()} aria-label="执行布局指令">↑</button>
+            <button type="submit" disabled={chatBusy || Boolean(previewDocument) || !chatInput.trim()} aria-label="执行布局指令">↑</button>
           </form>
           <div className="copilot-footnote">意图 → 语义约束 → 布局 → 质量检查</div>
         </section>

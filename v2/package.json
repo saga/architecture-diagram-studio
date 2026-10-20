@@ -13,7 +13,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": { "elkjs": "^0.10.0", "react": "^19.1.0", "react-dom": "^19.1.0" },
+  "dependencies": {
+    "elkjs": "^0.10.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "fflate": "^0.8.2"
+  },
   "devDependencies": {
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.8",
