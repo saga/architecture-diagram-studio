@@ -141,7 +141,8 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
     const requested = new Map((portSpecifications.get(node.id) ?? []).map((port) => [port.id, port]));
     const ports = (node.ports ?? []).map((port) => {
       const expected = requested.get(port.id);
-      const side = (port.layoutOptions?.['org.eclipse.elk.port.side'] as DiagramPortSide | undefined) ?? expected?.side ?? 'RIGHT';
+      // ELK coordinates are port top-lefts; keep the side from our port specification.
+      const side = expected?.side ?? 'RIGHT';
       return {
         id: port.id,
         side,
