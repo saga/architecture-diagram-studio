@@ -53,7 +53,8 @@ describe('draw.io export', () => {
   });
 
   it('uses compatible node shapes, two-level labels, explicit edge routes and anchors', () => {
-    const xml = exportDrawio(initialDiagram);
+    const routedFixture = { ...initialDiagram, relations: initialDiagram.relations.map(relation => relation.id === 'r1' ? { ...relation, waypoints: [{ x: 300, y: 206 }, { x: 320, y: 206 }] } : relation) };
+    const xml = exportDrawio(routedFixture);
     expect(xml).toContain('fillColor=#08427b;strokeColor=#052c52;fontColor=#ffffff;');
     expect(xml).toContain('fillColor=#438dd5;strokeColor=#2d6fae;fontColor=#ffffff;');
     expect(xml).toContain('fontSize=12');
