@@ -10,7 +10,8 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mcp": "tsx server/mcp.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.5",
@@ -23,7 +24,8 @@
     "express": "^5.2.1",
     "@dagrejs/dagre": "^3.1.1",
     "d3-force": "^3.0.0",
-    "d3-hierarchy": "^3.1.2"
+    "d3-hierarchy": "^3.1.2",
+    "@modelcontextprotocol/server": "^2.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
