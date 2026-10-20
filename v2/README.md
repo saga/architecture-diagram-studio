@@ -17,7 +17,7 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 - Standalone Vite + React + TypeScript app.
 - First-class C4, flowchart and sequence fixtures.
 - DiagramDocument V2 semantic model.
-- ELK layered layout, semantic external/storage lanes, deterministic sequence layout, routing repair and node locks.
+- ELK layered layout, semantic external/storage lanes, deterministic sequence layout with call/return-derived activation bars, multi-variant route scoring, routing repair and node locks.
 - Studio Editorial visual system, functional canvas zoom, draggable nodes, and nearest-free-position snapping when a drag would overlap another node.
 - Local Draw.io iframe mode, native editable XML export, and import of plain or compressed Draw.io XML (including Studio semantic metadata). Native XML is kept separately after Draw.io edits so the next model sync does not immediately overwrite unmodeled native styles.
 - Local intent commands for line style, routing, external placement, storage placement, layout direction and lock clearing; individual relations also expose label, direction, routing and dashed/solid controls.
