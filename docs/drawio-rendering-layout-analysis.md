@@ -114,7 +114,7 @@ Web Embed 的官方资料：
 
 Embed Editor 与 Desktop CLI 不可互换。前者是浏览器内的交互式编辑器；后者是本机文件处理程序。不要期待只安装 Desktop，就能把 Desktop 的图形编辑画布直接嵌到普通 React 页面中。
 
-## 5. 推荐方案：现有布局算法 + 原生 XML 样式映射 + Desktop CLI 验证
+## 5. 推荐方案：现有布局算法 + 原生 XML 样式映射 + 本地 draw.io Web 验证
 
 当前阶段不建议因自动布局的外观问题立即迁移整个编辑器。先用最小改动验证是否能达到目标。
 
@@ -230,7 +230,7 @@ Desktop 仓库描述其应用以本地为主要运行方式，不向外部发送
 
 本节分析 [hediet/vscode-drawio](https://github.com/hediet/vscode-drawio)（VS Code 扩展名为 **Draw.io Integration**）的当前公开实现。它提供了一个对本项目很有参考价值的模式：**将 draw.io Web 应用本身打包到宿主应用中，在宿主的 Webview 里运行，而不是用 React Flow 仿制 draw.io 的图形。**
 
-截至本报告日期，仓库的 package.json 显示版本为 1.14.0，扩展声明为非官方集成。具体行为以当前仓库源代码和用户设置为准。
+截至 2026-10-20 检查当前 main 分支时，package.json 的版本字段为 1.17.0，扩展声明为非官方集成。版本字段可能继续变化，具体行为以目标 commit 的源代码和用户设置为准。
 
 ### 9.1 核心结论：它运行的是 draw.io 自己的 Web 编辑器
 
@@ -429,15 +429,6 @@ hediet/vscode-drawio 扩展自身声明 GPL-3.0。本项目应参考其架构和
 
 下一步最有价值的验证是固定一个 draw.io 上游 commit，把 src/main/webapp 完整复制到 Studio 的 public/drawio 路径；用 iframe 加载本地编辑器，连接现有 Diagram IR、布局服务和主题适配器。使用包含长标签、中文字体、数据库/外部系统形状、嵌套边界、多条连接线和自环的固定图，验证离线网络行为、XML 加载/保存往返、主题、布局与视觉回归。
 
-
-
-当前建议顺序如下：
-
-1. **短期：保留 React Flow 与现有布局算法，完成主题到原生 draw.io 样式的映射，并把 Desktop CLI 用于 SVG 渲染、原生文件检查及视觉回归。**
-2. **中期：补足嵌套容器与文件往返，把“用 Desktop 打开”和“重新导入修改后的 XML”做成明确、无静默覆盖的工作流。**
-3. **长期：如果产品确认必须在 Studio 内直接编辑且同时保持 draw.io 原生渲染，再评估 Embed Editor；不要仅因为原生布局好看与否而迁移画布。**
-
-如果最优先的是“Studio 内好用的多种自动布局和视觉主题”，React Flow 仍然有价值。如果最优先的是“Studio 内的画布本身必须由 draw.io 原生渲染”，Embed Editor 更贴近目标。如果最优先的是“本机处理、原生 XML、离线 SVG 导出与自动化验证”，Desktop CLI 是现在就可用的补充能力。
 
 ## 11. 参考资料
 
