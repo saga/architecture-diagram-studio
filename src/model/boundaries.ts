@@ -29,13 +29,33 @@ export function fitDiagramBoundaries(doc: DiagramDocument): DiagramDocument {
   return { ...doc, boundaries };
 }
 
-/** Create a reasonable boundary when upgrading older C4 container/component documents. */
+/** Reconcile saved membership and create a reasonable missing boundary for C4 scope views. */
 export function ensureDiagramBoundaries(doc: DiagramDocument): DiagramDocument {
-  if (doc.kind === 'sequence' || doc.boundaries?.length) return fitDiagramBoundaries(doc);
+  if (doc.kind === 'sequence') return { ...doc, boundaries: [] };
+
+  if (doc.boundaries?.length) {
+    const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
+    const scoped = doc.boundaries
+      .map((boundary) => {
+        const uniqueMembers = [...new Set(boundary.memberNodeIds)].filter((nodeId) => {
+          const node = nodeById.get(nodeId);
+          if (!node) return false;
+          if (doc.kind === 'c4-container') return ['system', 'service', 'database'].includes(node.type);
+          if (doc.kind === 'c4-component') return node.type === 'component';
+          return true;
+        });
+        return { ...boundary, memberNodeIds: uniqueMembers };
+      })
+      .filter((boundary) => boundary.memberNodeIds.length > 0);
+    return fitDiagramBoundaries({ ...doc, boundaries: scoped });
+  }
+
   if (doc.kind !== 'c4-container' && doc.kind !== 'c4-component') return doc;
 
   const memberNodeIds = doc.nodes
-    .filter((node) => ['system', 'service', 'component', 'database'].includes(node.type))
+    .filter((node) => doc.kind === 'c4-container'
+      ? ['system', 'service', 'database'].includes(node.type)
+      : node.type === 'component')
     .map((node) => node.id);
   if (memberNodeIds.length === 0) return doc;
 
