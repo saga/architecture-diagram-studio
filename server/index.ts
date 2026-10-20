@@ -742,7 +742,7 @@ app.post('/api/chat',async(req,res)=>{
             'Use the supplied diagram tools to make concrete edits when the user asks to change the diagram. Do not merely describe edits.',
             'Only change what the user requested. Preserve existing IDs unless changing them is necessary. Add meaningful labels and descriptions. Every relation endpoint must reference an existing node.',
             'For questions or analysis that do not request a change, answer in natural language and do not mutate the diagram.',
-            'The editor supports C4 Context, Container, Component, and UML Sequence views. Use set_diagram_kind when the requested diagram type differs from the active type. C4 edits use diagram node/relation tools; sequence edits use participants, ordered messages, and fragments tools. Do not put graph nodes or relations into a sequence diagram.',
+            'The editor supports C4 Context, Container, Component, and UML Sequence views. Use set_diagram_kind when the requested diagram type differs from the active type. C4 edits use diagram node/relation tools; sequence edits use participants, ordered messages, activation-range and fragment tools. Do not put graph nodes or relations into a sequence diagram.',
             'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
           ].join(' ');
           const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
