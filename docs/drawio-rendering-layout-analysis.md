@@ -430,7 +430,132 @@ hediet/vscode-drawio 扩展自身声明 GPL-3.0。本项目应参考其架构和
 下一步最有价值的验证是固定一个 draw.io 上游 commit，把 src/main/webapp 完整复制到 Studio 的 public/drawio 路径；用 iframe 加载本地编辑器，连接现有 Diagram IR、布局服务和主题适配器。使用包含长标签、中文字体、数据库/外部系统形状、嵌套边界、多条连接线和自环的固定图，验证离线网络行为、XML 加载/保存往返、主题、布局与视觉回归。
 
 
-## 11. 参考资料
+## 11. 官方 drawio-mcp：本地 MCP Tool Server 的能力与边界
+
+本节分析的是 [jgraph/drawio-mcp](https://github.com/jgraph/drawio-mcp) 中的 **MCP Tool Server**，不是托管在 \`https://mcp.draw.io/mcp\` 的 MCP App Server。目标运行方式是本地 STDIO 进程，由 Studio 的 Agent/MCP 客户端启动和通过 stdin/stdout 通信；不采用 remote MCP URL。
+
+### 11.1 它提供什么
+
+官方 Tool Server 发布为 npm 包 [\`@drawio/mcp\`](https://www.npmjs.com/package/@drawio/mcp)，源码目录为 \`mcp-tool-server/\`。按当前仓库 README，它提供：
+
+- \`open_drawio_xml\`：将原生 draw.io XML 修复/规范化后，生成 URL 并在系统默认浏览器中打开 draw.io 编辑器。
+- \`open_drawio_csv\`、\`open_drawio_mermaid\`：将 CSV 或 Mermaid 内容交给 draw.io 网页端转换并打开。
+- \`search_shapes\`：搜索内置图形库，并可补充外部图标服务结果，返回可用于 XML 的原生 style 字符串。
+- \`get_drawio_reference\`：提供 XML / Mermaid 生成规则。
+- \`list_pages\`、\`get_page\`、\`set_page\`：对本地多页 \`.drawio/.xml\` 文件进行页面级查询和更新，不必把整个多页文件交给模型重写。
+
+它还有模型规范化和可选的 ELK / libavoid 处理：规范化 XML 的父子层级、边的 parent 与 geometry，ELK 可重新安排节点并路由连线，libavoid 则在保留节点位置的前提下绕开形状重新路由。注意这两种布局策略的语义不同，不应无条件同时执行。
+
+### 11.2 本地 STDIO 不代表本地渲染
+
+\`npx @drawio/mcp\` 启动的是本地 MCP 进程，但 \`open_drawio_xml\` 默认仍会生成指向 \`https://app.diagrams.net/\` 的链接，并打开外部浏览器标签页。图表 XML 压缩后放在 URL 的 fragment（\`#\`）中；fragment 不会作为 HTTP 请求路径发送给 Web 服务器，但浏览器会加载公共 draw.io 网页代码，并由该网页中的 JavaScript 读取图表。因此，这不是严格离线或 air-gapped 方案，也不是一个能嵌入 Studio React 页面内的画布组件。
+
+可以通过 \`DRAWIO_BASE_URL\` 指向自托管的 draw.io 实例，但这要求另有可访问的 draw.io Web 服务；它不会把 Web 编辑器本身打包进 MCP npm 包。MCP server 返回的是“打开编辑器的动作/URL”，不是嵌入式编辑器会话，也没有与 Studio 画布进行双向同步的宿主协议。
+
+### 11.3 还存在的外部资源依赖
+
+根据上游 README 和源码：
+
+- \`search_shapes\` 的完整形状索引在默认 npm 安装中会从 CDN 获取并按用户缓存；可配置本地索引或其他 URL。
+- 未命中内置形状时，搜索默认还可能请求 draw.io 图标服务；可以用 \`DRAWIO_ICON_SERVICE_URL=off\` 禁用该补充来源。
+- \`postLayout: "elk"\` 第一次使用时会获取 draw.io 的 ELK 布局 bundle；\`routing: "libavoid"\` 也会使用可缓存的路由代码。
+- \`open_drawio_xml\` 的主职责仍是打开网页编辑器。页面级文件工具会访问 MCP 进程有权读写的本地文件。
+
+如果采用它，应固定 npm 版本，并明确 MCP 进程可以访问哪些文件。不要让模型借助 \`set_page\` 对任意路径写文件；在 Studio 内包装文件工具时，应将路径限制在当前项目/工作区允许范围内。若要求无外网运行，还要禁用或自托管上述外部资源，并自托管 draw.io Web 编辑器。
+
+### 11.4 对 Studio 的价值
+
+值得复用的部分是工具语义和 draw.io 专用逻辑，而不是把它误当成画布实现：
+
+1. \`search_shapes\` 与 XML reference 能改善 Agent 对原生 shape/style 的选择。
+2. XML repair / normalization 能作为导入、生成后的校验阶段，减少容器边、缺失 geometry、非法 parent 等常见问题。
+3. ELK 与 libavoid 可作为布局/路由适配器的候选实现，但要先验证对现有 \`DiagramDocument\`、C4 嵌套边界和主题的影响。
+4. \`open_drawio_xml\` 适合“在外部浏览器打开预览/继续编辑”的动作，不适合替代 Studio 内部的画布。
+
+另外，官方仓库的 MCP App Server（\`https://mcp.draw.io/mcp\`）与这里的 Tool Server 是两种不同产品。用户明确要求本地 STDIO 时，不应把 MCP App Server 的远程 endpoint 混进运行依赖。
+
+参考源码：[Tool Server README](https://github.com/jgraph/drawio-mcp/blob/main/mcp-tool-server/README.md)、[Tool Server package.json](https://github.com/jgraph/drawio-mcp/blob/main/mcp-tool-server/package.json)、[Tool Server implementation](https://github.com/jgraph/drawio-mcp/blob/main/mcp-tool-server/src/index.js)。
+
+## 12. smart-drawio-next 的 draw.io 渲染实现
+
+仓库：[yunshenwuchuxun/smart-drawio-next](https://github.com/yunshenwuchuxun/smart-drawio-next)。
+
+### 12.1 结论：网页使用的是公共 Embed Editor，不是离线打包
+
+当前 main 分支的 \`components/DrawioCanvas.jsx\` 明确写有：
+
+\`\`\`js
+const DEFAULT_DRAWIO_ORIGIN = 'https://embed.diagrams.net';
+const DRAWIO_ORIGIN = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN || DEFAULT_DRAWIO_ORIGIN;
+\`\`\`
+
+组件最终创建的 iframe 则直接加载：
+
+\`\`\`jsx
+<iframe
+  src="https://embed.diagrams.net/?embed=1&proto=json&ui=min&modified=0&noSaveBtn=1&noExitBtn=1&saveAndExit=0"
+/>
+\`\`\`
+
+仓库的 package/build 结构没有将 draw.io 的完整 \`src/main/webapp\` 资源随应用打包；真正的绘图编辑器是从 \`embed.diagrams.net\` 加载。因此，**它省掉的是自行维护 draw.io Web 静态资源的工作，不是消除了对 draw.io Web 编辑器的依赖**。这符合官方 Embed 模式的工作方式：使用 iframe 和 \`postMessage\` 与编辑器通信；官方文档将该模式限定为 \`https://embed.diagrams.net\`。
+
+### 12.2 组件如何工作
+
+\`components/DrawioCanvas.jsx\` 负责宿主和 iframe 的桥接：
+
+1. **把 XML 载入编辑器。** 编辑器收到 \`init\` 或 \`ready\` 后，宿主发送 \`{ action: "load", xml, autosave: 1 }\`。
+2. **接收用户修改。** 宿主监听 \`save\` / \`autosave\` 事件，取回 XML 并经 \`onXmlChange\` 同步给 React 状态。
+3. **应用 UI 配置。** \`lib/drawio-styles.js\` 生成 CSS，再经 \`{ action: "configure", config: { css } }\` 消息调整 draw.io 编辑器的菜单栏、工具栏、侧边栏及格式面板外观。
+4. **校验和避免重复加载。** 送入 iframe 前先检查 XML 是否可解析，并记住最近一次载入内容；后续变更可通过 debounce 减少重复加载。
+5. **消息安全检查。** 代码检查 message 的 \`source\` 与允许的 \`origin\`，向 iframe 发送消息时使用具体的 target origin，而不是 \`*\`。
+
+从页面结构看，它是典型的三栏工作流：左侧输入/历史/工具，中央 Monaco XML 编辑器，右侧或主区域 draw.io iframe。生成与样式工具以 XML 为中间格式，应用后的 XML 再交给 iframe 渲染和编辑。
+
+### 12.3 Embed URL 可配置性需要特别核对
+
+当前源码存在一个可疑的不一致：\`NEXT_PUBLIC_DRAWIO_ORIGIN\` 被用于 \`postMessage\` 的 target origin 与消息来源允许列表，但 iframe 的 \`src\` 仍是硬编码的 \`https://embed.diagrams.net/...\`。如果只设置环境变量为自托管地址，iframe 未必会跟着切换，甚至可能因为 target origin 与实际 iframe origin 不一致而导致消息发送失败。不能仅凭环境变量名就认定自托管 Web 编辑器已完整支持；应检查目标 commit 的实现或修正 iframe URL，再做端到端验证。
+
+### 12.4 它的 MCP 与网页画布是分开的
+
+这个项目还发布独立 npm 包 [\`@yunshenwuchuxun/smart-drawio-mcp\`](https://www.npmjs.com/package/@yunshenwuchuxun/smart-drawio-mcp)，以本地 STDIO 运行，提供五个工具：
+
+- \`generate_drawio\`：调用进程环境配置的模型 API，生成并校验 draw.io XML。
+- \`validate_drawio\`：检查 XML 语法、ID、parent 结构及引用。
+- \`repair_drawio\`：修复受支持的缺失闭合标签。
+- \`style_drawio\`：对 XML 应用主题、style pack、预设和绘图技巧。
+- \`list_drawio_options\`：返回支持的类型、主题和选项。
+
+MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不启动网页 iframe、不控制活动编辑器会话，也不负责 PNG/SVG/PDF 渲染。除 \`generate_drawio\` 需要配置 provider 外，校验、修复、样式与选项查询可在没有模型 API 密钥的情况下运行。这个 MCP 包和 Next.js 网站是同一绘图核心的两个入口，不能把它与公共在线画布混为一谈。
+
+### 12.5 隐私、离线与测试证据
+
+- 如果使用公共 Embed URL，draw.io Web 编辑器代码来自公共站点；图表 XML 会通过跨源 \`postMessage\` 传给该 iframe。不能视为“数据从未接触第三方代码”的完全离线边界。
+- 网站本身可以通过 Next.js 自托管，但这不等于 draw.io 编辑器本身也被自托管。需要单独处理 iframe 的来源、CSP、静态资源与版本。
+- 仓库的 [升级路线文档](https://github.com/yunshenwuchuxun/smart-drawio-next/blob/main/docs/upgrade-roadmap.md) 明确记录：浏览器测试使用消息协议替身；一次远程编辑器冒烟在等待窗口内没有收到初始化消息，因此未验证真实远程编辑器的完整渲染/编辑流程。README 中展示的图表经官方 viewer 渲染，不能替代对 iframe 编辑交互的端到端验证。
+
+因此，它是一个很有参考价值的“LLM + XML 工具链 + Embed iframe”实现案例，但不能据此推断它已经解决了离线打包或离线运行。
+
+## 13. 综合判断：对 Architecture Diagram Studio 的影响
+
+这次对比把三个不同问题分开了：
+
+| 目标 | 更合适的方案 | 仍需注意 |
+|---|---|---|
+| 让 Agent 更可靠地生成、修复、规范化及美化原生 XML | 集成本地 STDIO MCP 工具或复用其核心逻辑 | MCP 不提供 Studio 内画布；限制文件路径、外部资源和模型 API 边界 |
+| 尽快实现 draw.io 原生渲染，并接受公共 Web 编辑器 | 参考 smart-drawio-next 的 Embed iframe 模式 | 图表会交给公共 iframe 处理；需处理跨源消息、外部依赖和实际端到端测试 |
+| 在 Studio 页面内直接编辑，并且不依赖公共 draw.io 域名 | 自托管/打包 draw.io Web 编辑器 | 需要管理版本、资源、许可证、CSP 和消息桥；不是一个 MCP 包可以替代的 |
+| 只需要让 Agent 生成一个可编辑 \`.drawio\` 文件，由用户稍后打开 | 本地 MCP + XML 文件工作流 | 不必嵌入画布；独立打开公共编辑器时仍有外部服务依赖 |
+
+**建议的实现顺序：**
+
+1. 先让本地 MCP 成为 Agent 可选的图形能力层，或者把 shape search、XML normalization、样式工具以受控方式复用进 Studio；不应将它作为渲染层。
+2. 建立最小 iframe 原型，按 smart-drawio-next 的方式验证 XML 的加载、保存回传和主题配置。先用公共 Embed URL 完成协议验证，但把服务边界明确标注出来。
+3. 若产品要求离线或限制数据进入公共 Web 编辑器，则将 iframe 的资源来源切换为固定版本的本地/自托管 draw.io Web，再验证同一消息协议。官方 Embed 文档对 \`embed=1\` 的支持范围有约束，所以本地 Web 资源的集成不能只改 URL 就宣称完成。
+4. 无论画布由谁渲染，继续保留 Studio 的 ELK/Dagre/D3 几何与主题转换能力。让 MCP/LLM 负责语义及图形 XML，不要把 DiagramDocument 的唯一真相交给 MCP 进程或浏览器 URL。
+
+本报告的核心决定不变：**本地 MCP 能省掉一部分 Agent/图形 XML 工具开发；smart-drawio-next 证明公共 Embed iframe 可以省掉自行打包 Web 资源的初始工作；但若 Studio 必须保留离线数据边界并提供原生嵌入式编辑器，仍要自托管或打包 draw.io Web。**
+
+## 14. 参考资料
 
 ### 本项目
 
@@ -454,6 +579,18 @@ hediet/vscode-drawio 扩展自身声明 GPL-3.0。本项目应参考其架构和
 - [Binary custom editor provider](https://github.com/hediet/vscode-drawio/blob/main/src/DrawioEditorProviderBinary.ts)
 - [Markdown Viewer integration](https://github.com/hediet/vscode-drawio/blob/main/src/inline-editor/webview/previewInit.js)
 
+### 新增研究：官方 MCP 与 Smart Drawio Next
+
+- [jgraph/drawio-mcp repository](https://github.com/jgraph/drawio-mcp)
+- [MCP Tool Server README](https://github.com/jgraph/drawio-mcp/blob/main/mcp-tool-server/README.md)
+- [MCP Tool Server implementation](https://github.com/jgraph/drawio-mcp/blob/main/mcp-tool-server/src/index.js)
+- [Smart Drawio Next README](https://github.com/yunshenwuchuxun/smart-drawio-next/blob/main/README.md)
+- [Smart Drawio Next DrawioCanvas](https://github.com/yunshenwuchuxun/smart-drawio-next/blob/main/components/DrawioCanvas.jsx)
+- [Smart Drawio Next draw.io styles/configure message](https://github.com/yunshenwuchuxun/smart-drawio-next/blob/main/lib/drawio-styles.js)
+- [Smart Drawio Next local MCP server](https://github.com/yunshenwuchuxun/smart-drawio-next/blob/main/packages/mcp/src/server.js)
+- [Smart Drawio Next upgrade roadmap and test evidence](https://github.com/yunshenwuchuxun/smart-drawio-next/blob/main/docs/upgrade-roadmap.md)
+- [draw.io official Embed mode documentation](https://www.drawio.com/docs/reference/embed-mode/)
+
 ### draw.io / diagrams.net 官方与上游项目
 
 - [drawio-desktop repository](https://github.com/jgraph/drawio-desktop)
@@ -468,4 +605,4 @@ hediet/vscode-drawio 扩展自身声明 GPL-3.0。本项目应参考其架构和
 
 ### 证据边界
 
-本报告核对了项目当前 main 分支的 README、布局和 XML 导出实现，drawio-desktop 上游开发分支的 CLI 参数定义与导出流程，以及 hediet/vscode-drawio 当前 main 分支的 package.json、Webview 工厂、编辑器 Provider 与消息桥接代码。报告总结基于源代码检查；未声称已经在 macOS/Windows 上执行所有 CLI 命令，也未完成 Studio 与 draw.io 的像素级往返验证。实施前必须对计划支持的 draw.io Web/Desktop 版本进行真实集成测试，并核对源码与分发许可。
+本报告还检查了 jgraph/drawio-mcp 的 Tool Server README/package/源码，以及 smart-drawio-next 当前 main 分支的 README、DrawioCanvas、样式 configure 消息、MCP server、升级路线和双向通信设计。关于 smart-drawio-next 的渲染方式，结论直接来自其 iframe src 与消息代码；关于其真实在线编辑器交互，仓库文档本身指出未完成可靠的真实远端编辑器冒烟。报告不是对每个外部服务的运行时抓包，也未执行 Studio 的完整跨源/离线端到端验证。实施前应固定目标版本，执行真实 iframe 消息往返测试、网络出口检查、资源完整性及许可证审查。
