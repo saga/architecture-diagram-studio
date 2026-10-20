@@ -4,7 +4,7 @@ A React Flow-based architecture diagram editor with a versioned diagram model, n
 
 ## Current status
 
-MVP implementation in progress. The app provides an editable C4 Container example, four selectable auto-layout engines (ELK, Dagre, D3-Hierarchy, and D3-Force), browser-local persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
+MVP implementation in progress. The app provides an editable C4 Container example, four selectable auto-layout engines (ELK, Dagre, D3-Hierarchy, and D3-Force), local Express persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ npm run build
 - Two visual styles: the existing Studio theme and an optional Diagram Design-inspired editorial theme with warm paper, restrained burnt-orange accents, hairline borders, minimal shadows, and compact technical labels. The preference is browser-local and does not alter diagram semantics or export geometry. Layout is explicit; export never invokes it.
 - Layout trade-offs: ELK is the default for general architecture graphs and configurable edge routing; Dagre is a fast directed layout; D3-Hierarchy uses a spanning forest for cycles/disconnected nodes, so cross-links do not influence tree placement; D3-Force runs a bounded one-shot simulation for a force-directed arrangement rather than continuously moving nodes.
 - Layout selection is also honored when Copilot requests an automatic layout; current node dimensions and resulting positions are persisted.
-- Persisted browser-local diagram snapshot and current node geometry.
+- Browser local storage remains a recovery cache for the diagram and current node geometry.
 - Reset-to-example action.
 - Validation of duplicate IDs and broken relation references before export.
 - Native draw.io XML export preserving node positions, dimensions, labels, styles, relationships, and optional relation waypoints.
@@ -87,7 +87,7 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 ## Known gaps
 
 - Diagram semantics start from sample data; the UI supports basic service creation, node renaming/deletion, and relation creation, but not full property editing for technology, descriptions, types, and provenance.
-- Persistence is browser-local only; there is no named project library or import/open workflow yet.
+- The active diagram is persisted locally by the Express service, but named projects and a project import/open library are not implemented yet.
 - Sequence diagrams and their ordered messages, activations, and alt/opt/loop fragments are not implemented.
 - Nested C4 boundaries and relationship waypoint editing are not implemented.
 - XML generation has unit-level regression coverage, but opening/rendering in diagrams.net has not been verified by an automated round-trip.
