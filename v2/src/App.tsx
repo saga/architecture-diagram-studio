@@ -62,7 +62,7 @@ export default function App() {
   const [aiModel, setAiModel] = useState(savedAISettings.model);
   const [aiApiKey, setAiApiKey] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", id: 1, text: "可以直接说布局意图，例如「所有 external 放到右侧」「数据库放底部」「所有线改成虚线」「曲线改成折线」。目前使用本地确定性规则，不会假装已调用云端模型。" }
+    { role: "assistant", id: 1, text: "描述想要的布局变化即可，例如「所有 external 移到右侧」「数据库放到底部」或「所有连线改成直角折线」。未配置模型时使用本地规则；配置后会把请求转换为受限的布局指令，并先生成预览供确认。" }
   ]);
   const [revision, setRevision] = useState(1);
   const [canUndo, setCanUndo] = useState(false);
