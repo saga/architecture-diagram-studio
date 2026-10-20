@@ -6,21 +6,36 @@
 |---|---|---|
 | Node position | React Flow logical coordinates are exported as mxGraph geometry | Unit test checks non-integer coordinates |
 | Node dimensions | Measured dimensions are used when available; style/default dimensions are fallback | Unit test checks dimensions |
-| Node labels | Labels and technology are XML-escaped and exported in native cells | Unit test checks escaping |
+| Node labels | Labels and technology are XML-escaped and exported as explicit HTML title/subtitle blocks, avoiding XML-attribute newline normalization | Unit test checks escaping and title/subtitle styling |
 | Relationships | Source/target references and labels are exported as native edges | Model validation rejects missing endpoints |
-| Edge waypoints | Optional model waypoints map to mxGraph points arrays | Unit test checks exported points |
+| Edge waypoints | Shared routing creates deterministic orthogonal routes when no layout engine provides points; ELK bend points are retained and mapped to mxGraph points arrays | Unit tests check route geometry and exported points |
 | Export side effects | Export does not call layout or mutate the document | Export function is pure |
 | Repeatability | Generated modification timestamp is omitted | Unit test checks byte-for-byte stability |
 
 ## Important limitation
 
-Equal coordinates do not imply pixel-identical rendering. React Flow and diagrams.net can use different fonts, line wrapping, shape primitives, stroke placement, label offsets, and edge routers. The current exporter aims to preserve editable geometry and semantics, not screenshot identity.
+Equal coordinates alone do not imply pixel-identical rendering. The adapter now aligns major causes of drift: React Flow's person and database renderers imitate the native draw.io UML actor and cylinder, title/technology are split using the same font hierarchy, endpoint ports are stored in the Diagram Document, and both renderers use the same orthogonal bend points. draw.io export uses `edgeStyle=none` for explicit routes rather than asking mxGraph to independently re-route them. Remaining differences can still come from font metrics, SVG/shape primitives, zoom, and application-specific label placement; a rendered integration test is required before making a pixel-identity claim.
 
 For a requirement that is genuinely pixel-level, first define which output is authoritative:
 
 1. **Editable diagram:** native draw.io shapes and edges; accept renderer-specific visual differences.
 2. **Exact visual appearance:** embed a generated SVG as a background/image; this sacrifices native editability of the depicted elements.
 3. **Hybrid:** native cells for normal editing plus an optional SVG reference/render for visual comparison.
+
+
+## Shared rendering contract
+
+| Visual element | React Flow | draw.io | Shared source |
+|---|---|---|---|
+| Node extent | Logical x/y/width/height | mxGraph vertex geometry | `DiagramDocument.layout` |
+| Person | SVG actor icon + label below its bounds | Native `umlActor` shape | Node type, label, geometry, stroke/fill tokens |
+| Database | SVG cylinder outline and top ellipse | Native `cylinder3` shape | Node type, label, geometry, stroke/fill tokens |
+| Technology subtitle | 10 px muted second row | Explicit HTML subtitle row | `DiagramNode.label` + `technology` |
+| Edge endpoints | Named React Flow handles | `exitX` / `exitY` / `entryX` / `entryY` | `sourceHandleId`, `targetHandleId`, node port geometry |
+| Edge path | Custom SVG polyline through stored waypoints | `mxPoint` array with `edgeStyle=none` | `DiagramRelation.waypoints` |
+| Edge label | HTML overlay at path midpoint | Native mxGraph edge label | Relation label and shared logical path |
+
+Legacy version-1 documents with no port fields/routes are normalized in a temporary copy. This does not move nodes, mutate persisted state, or invoke an auto-layout algorithm. Manual node movement invalidates connected routes so they are recalculated from the current handle positions.
 
 ## Next verification stages
 
