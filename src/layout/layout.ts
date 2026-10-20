@@ -32,8 +32,8 @@ export const LAYOUT_ENGINES: Array<{ value: LayoutEngine; label: string; hint: s
 ];
 
 const elk = new ELK();
-const DEFAULT_WIDTH = 190;
-const DEFAULT_HEIGHT = 84;
+const DEFAULT_WIDTH = 220;
+const DEFAULT_HEIGHT = 112;
 const PORT_SIZE = 8;
 
 function dimensions(doc: DiagramDocument, id: string): NodeLayout {
