@@ -85,7 +85,7 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
  const xById=new Map(participants.map((participant,index)=>[participant.id,participantLeft+index*(participantWidth+participantGap)+participantWidth/2] as const));
  const yById=new Map(messages.map((message,index)=>[message.id,rowTop+index*rowGap+30] as const));
  const cells=['<mxCell id="0"/>','<mxCell id="1" parent="0"/>'];
- const finalY=rowTop+Math.max(messages.length,1)*rowGap+50;
+ const finalY=16+Math.max(520,rowTop+messages.length*rowGap+76);
  // Lifelines are free-standing dotted edges so the header and messages remain editable native cells.
  for(const participant of participants){
   const center=xById.get(participant.id)!;
@@ -100,7 +100,7 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
   const endX=xById.get(fragment.participantEndId??participants[participants.length-1]?.id)??startX;
   const x=Math.min(startX,endX)-participantWidth/2-18;
   const width=Math.max(180,Math.abs(endX-startX)+participantWidth+36);
-  const y=rowTop+startIndex*rowGap+2;
+  const y=rowTop+startIndex*rowGap-14;
   const height=(endIndex-startIndex)*rowGap+58;
   const value='<div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;">'+htmlText(fragment.kind)+' &nbsp; '+htmlText(fragment.title)+'</div>'
     +(fragment.guard?'<div style="font-family:Arial,sans-serif;font-size:10px;font-style:italic;">'+htmlText(fragment.guard)+'</div>':'');
@@ -111,7 +111,7 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
   const endIndex=messages.findIndex(message=>message.id===activation.endMessageId);
   const center=xById.get(activation.participantId);
   if(startIndex<0||endIndex<startIndex||center===undefined)continue;
-  cells.push('<mxCell id="'+xml('activation-'+activation.participantId+'-'+activation.startMessageId)+'" value="" style="rounded=0;html=1;fillColor=#ffffff;strokeColor=#536b86;strokeWidth=1.5;" vertex="1" parent="1"><mxGeometry x="'+number(center-7)+'" y="'+number(rowTop+startIndex*rowGap+16)+'" width="14" height="'+number((endIndex-startIndex)*rowGap+28)+'" as="geometry"/></mxCell>');
+  cells.push('<mxCell id="'+xml('activation-'+activation.participantId+'-'+activation.startMessageId)+'" value="" style="rounded=0;html=1;fillColor=#ffffff;strokeColor=#536b86;strokeWidth=1.5;" vertex="1" parent="1"><mxGeometry x="'+number(center-7)+'" y="'+number(rowTop+startIndex*rowGap+16)+'" width="14" height="'+number((endIndex-startIndex)*rowGap+18)+'" as="geometry"/></mxCell>');
  }
  for(const message of messages){
   const sourceX=xById.get(message.fromParticipantId);
@@ -123,7 +123,7 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
   const edgeStyle='edgeStyle=none;html=1;rounded=0;endArrow='+(isReturn||isAsync?'open':'block')+';endFill='+(isReturn||isAsync?'0':'1')+';dashed='+(isReturn?'1':'0')+';dashPattern=5 4;strokeColor='+(isAsync?'#0f766e':'#536b86')+';strokeWidth=1.5;fontColor=#344b66;fontFamily=Arial;fontSize=11;labelBackgroundColor=#ffffff;align=center;verticalAlign=middle;';
   let geometry='<mxPoint x="'+number(sourceX)+'" y="'+number(rowY)+'" as="sourcePoint"/><mxPoint x="'+number(targetX)+'" y="'+number(rowY)+'" as="targetPoint"/>';
   if(Math.abs(sourceX-targetX)<1){
-   geometry='<mxPoint x="'+number(sourceX)+'" y="'+number(rowY)+'" as="sourcePoint"/><Array as="points"><mxPoint x="'+number(sourceX+44)+'" y="'+number(rowY)+'"/><mxPoint x="'+number(sourceX+44)+'" y="'+number(rowY-24)+'"/></Array><mxPoint x="'+number(targetX)+'" y="'+number(rowY-24)+'" as="targetPoint"/>';
+   geometry='<mxPoint x="'+number(sourceX)+'" y="'+number(rowY)+'" as="sourcePoint"/><Array as="points"><mxPoint x="'+number(sourceX+40)+'" y="'+number(rowY)+'"/><mxPoint x="'+number(sourceX+44)+'" y="'+number(rowY-22)+'"/></Array><mxPoint x="'+number(targetX)+'" y="'+number(rowY-24)+'" as="targetPoint"/>';
   }
   cells.push('<mxCell id="'+xml(message.id)+'" value="'+xml(sequenceMessageLabel(message))+'" style="'+edgeStyle+'" edge="1" parent="1"><mxGeometry relative="1" as="geometry">'+geometry+'</mxGeometry></mxCell>');
  }
