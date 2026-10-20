@@ -279,6 +279,7 @@ function layoutForce(doc: DiagramDocument, config: LayoutConfig['force']): Diagr
 }
 
 export async function applyLayout(doc: DiagramDocument, engine: LayoutEngine, config: LayoutConfig = DEFAULT_LAYOUT_CONFIG): Promise<DiagramDocument> {
+  if (doc.kind === 'sequence') throw new Error('UML Sequence layout is based on participant order and chronological message rows; graph auto-layout is not applicable.');
   validateLayoutInput(doc);
   switch (engine) {
     case 'elk': return layoutElk(doc, config.elk);
