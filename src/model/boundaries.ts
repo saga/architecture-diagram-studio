@@ -52,30 +52,41 @@ export function ensureDiagramBoundaries(doc: DiagramDocument): DiagramDocument {
   return fitDiagramBoundaries({ ...doc, boundaries: [boundary] });
 }
 
-/** Add newly created C4 elements to the diagram's active system boundary when appropriate. */
-export function addNodeToBoundary(doc: DiagramDocument, nodeId: string): DiagramDocument {
+/** Reconcile one element's membership with the current diagram-kind containment rules. */
+export function syncNodeBoundaryMembership(doc: DiagramDocument, nodeId: string): DiagramDocument {
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   if (!node || (doc.kind !== 'c4-container' && doc.kind !== 'c4-component')) return doc;
+
   const eligible = doc.kind === 'c4-container'
     ? ['system', 'service', 'database'].includes(node.type)
     : node.type === 'component';
-  if (!eligible) return doc;
-  const scoped = ensureDiagramBoundaries(doc);
-  const firstId = scoped.boundaries?.[0]?.id;
-  if (!firstId) return scoped;
-  const boundaries = scoped.boundaries!.map((boundary) => boundary.id !== firstId
+  const withoutNode = (doc.boundaries ?? []).map((boundary) => ({
+    ...boundary,
+    memberNodeIds: boundary.memberNodeIds.filter((id) => id !== nodeId),
+  }));
+  const scoped = { ...doc, boundaries: withoutNode };
+  if (!eligible) return fitDiagramBoundaries(scoped);
+
+  const withBoundary = ensureDiagramBoundaries(scoped);
+  const firstId = withBoundary.boundaries?.[0]?.id;
+  if (!firstId) return withBoundary;
+  const boundaries = withBoundary.boundaries!.map((boundary) => boundary.id !== firstId
     ? boundary
-    : { ...boundary, memberNodeIds: boundary.memberNodeIds.includes(nodeId) ? boundary.memberNodeIds : [...boundary.memberNodeIds, nodeId] });
-  return fitDiagramBoundaries({ ...scoped, boundaries });
+    : { ...boundary, memberNodeIds: [...boundary.memberNodeIds, nodeId] });
+  return fitDiagramBoundaries({ ...withBoundary, boundaries });
+}
+
+/** Add newly created C4 elements to the diagram's active system boundary when appropriate. */
+export function addNodeToBoundary(doc: DiagramDocument, nodeId: string): DiagramDocument {
+  return syncNodeBoundaryMembership(doc, nodeId);
 }
 
 /** Keep boundary membership valid when the user or assistant deletes semantic nodes. */
 export function removeNodesFromBoundaries(doc: DiagramDocument, nodeIds: Iterable<string>): DiagramDocument {
   const removed = new Set(nodeIds);
   if (!doc.boundaries?.length) return doc;
-  const boundaries = doc.boundaries.map((boundary) => ({
-    ...boundary,
-    memberNodeIds: boundary.memberNodeIds.filter((id) => !removed.has(id)),
-  }));
+  const boundaries = doc.boundaries
+    .map((boundary) => ({ ...boundary, memberNodeIds: boundary.memberNodeIds.filter((id) => !removed.has(id)) }))
+    .filter((boundary) => boundary.memberNodeIds.length > 0);
   return fitDiagramBoundaries({ ...doc, boundaries });
 }
