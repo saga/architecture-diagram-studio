@@ -29,16 +29,22 @@ function persistStore(): void {
     chats: Object.fromEntries(chatHistories),
   });
 }
-function recordTrace(sessionId: string, type: string, data: unknown): void {
-  try {
-    const serialized = JSON.stringify(data ?? {});
-    const safeData: unknown = serialized.length > 30_000
-      ? { truncated: true, preview: serialized.slice(0, 30_000), originalLength: serialized.length }
-      : JSON.parse(serialized);
-    appendAgentTrace({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, type, data: safeData });
-  } catch (error) {
-    console.error('[architecture-diagram-studio] Could not record agent trace:', error);
-  }
+interface TraceContext { traceId: string; turnId: string; failure?: string }
+function recordTrace(sessionId: string, type: string, data: unknown, context: Partial<TraceContext> & { category?: string; status?: string; durationMs?: number; provider?: string; model?: string; parentEventId?: string } = {}): string {
+  const id = crypto.randomUUID();
+  // Trace writes are part of the operation's audit boundary. Let failures reach the caller.
+  appendAgentTrace({
+    id, timestamp: new Date().toISOString(), sessionId, type, data,
+    ...(context.traceId ? {traceId:context.traceId} : {}),
+    ...(context.turnId ? {turnId:context.turnId} : {}),
+    ...(context.parentEventId ? {parentEventId:context.parentEventId} : {}),
+    ...(context.category ? {category:context.category} : {}),
+    ...(context.status ? {status:context.status} : {}),
+    ...(context.durationMs !== undefined ? {durationMs:context.durationMs} : {}),
+    ...(context.provider ? {provider:context.provider} : {}),
+    ...(context.model ? {model:context.model} : {}),
+  });
+  return id;
 }
 function saveChatMessage(sessionId: string, role: StoredChatMessage['role'], content: string): void {
   const history = chatHistories.get(sessionId) ?? [];
@@ -46,7 +52,7 @@ function saveChatMessage(sessionId: string, role: StoredChatMessage['role'], con
   chatHistories.set(sessionId, history.slice(-1000));
   persistStore();
 }
-interface ManagedSession { session: CopilotSession; state: ChatState; busy: boolean }
+interface ManagedSession { session: CopilotSession; state: ChatState; busy: boolean; traceContext: TraceContext }
 const sessions = new Map<string, ManagedSession>();
 const pendingSessions = new Map<string, Promise<ManagedSession>>();
 let client: CopilotClient | undefined;
@@ -302,8 +308,11 @@ app.post('/api/chat',async(req,res)=>{
   const incomingErrors=validateDiagram(incoming).filter((issue)=>issue.severity==='error');
   if(incomingErrors.length) return res.status(400).json({error:'Diagram is invalid: '+incomingErrors.map((x)=>x.message).join(' ')});
   const history=Array.isArray(req.body?.history)?req.body.history.filter((m:unknown)=>!!m&&typeof m==='object'&&((m as {role?:unknown}).role==='user'||(m as {role?:unknown}).role==='assistant')&&typeof (m as {content?:unknown}).content==='string').slice(-12) as Array<{role:'user'|'assistant';content:string}>:[];
+  const turnId=crypto.randomUUID();
+  const traceId=turnId;
+  const turnStartedAt=Date.now();
   saveChatMessage(chatSessionId,'user',prompt);
-  recordTrace(chatSessionId,'turn.requested',{prompt,diagramRevision,nodes:incoming.nodes.length,relations:incoming.relations.length,model:MODEL});
+  recordTrace(chatSessionId,'turn.requested',{prompt,diagramRevision,nodes:incoming.nodes.length,relations:incoming.relations.length,model:MODEL},{traceId,turnId,category:'turn',status:'started',provider:'github-copilot-sdk',model:MODEL});
   let managed=sessions.get(chatSessionId);
   const isNewSession=!managed;
   let claimedBusySlot=false;
@@ -323,16 +332,19 @@ app.post('/api/chat',async(req,res)=>{
             'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
           ].join(' ');
           const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
+          const traceContext: TraceContext = {traceId:'',turnId:''};
           session.on((event) => {
-            if (event.ephemeral) return;
-            // Keep every durable SDK event, but never persist model reasoning text.
-            if (event.type.includes('reasoning')) {
-              recordTrace(chatSessionId,event.type,{contentOmitted:true});
-              return;
+            if (event.ephemeral || !traceContext.traceId) return;
+            try {
+              // Record SDK lifecycle/tool events, but never store model reasoning content.
+              const data = event.type.toLowerCase().includes('reasoning') ? {contentOmitted:true} : event.data;
+              recordTrace(chatSessionId,event.type,data,{...traceContext,category:'copilot-sdk',provider:'github-copilot-sdk',model:MODEL});
+            } catch (error) {
+              traceContext.failure = error instanceof Error ? error.message : String(error);
+              console.error('[architecture-diagram-studio] Agent event could not be persisted; this turn will not be reported as successful.',error);
             }
-            recordTrace(chatSessionId,event.type,event.data);
           });
-          const created:ManagedSession={session,state,busy:false};
+          const created:ManagedSession={session,state,busy:false,traceContext};
           sessions.set(chatSessionId,created);
           return created;
         })();
@@ -345,6 +357,10 @@ app.post('/api/chat',async(req,res)=>{
     claimedBusySlot=true;
     managed.state.diagram=structuredClone(incoming);
     managed.state.requestAutoLayout=false;
+    managed.traceContext.traceId=traceId;
+    managed.traceContext.turnId=turnId;
+    managed.traceContext.failure=undefined;
+    recordTrace(chatSessionId,'turn.execution_started',{diagramRevision},{traceId,turnId,category:'turn',status:'started',provider:'github-copilot-sdk',model:MODEL});
     const promptWithSnapshot=[
       ...(isNewSession&&history.length?['Previous conversation (context only; the current user request below takes precedence):',...history.map((m)=>m.role.toUpperCase()+': '+m.content),''] : []),
       'Current authoritative diagram document (JSON):',
@@ -354,20 +370,22 @@ app.post('/api/chat',async(req,res)=>{
       prompt,
     ].join('\n');
     const result=await managed.session.sendAndWait({prompt:promptWithSnapshot});
+    if(managed.traceContext.failure) throw new Error('Agent execution trace could not be saved; this turn is marked incomplete. '+managed.traceContext.failure);
     const errors=ensureValid(managed.state);
-    if(errors){const message='Copilot produced an invalid diagram; changes were not applied. '+errors;saveChatMessage(chatSessionId,'assistant',message);recordTrace(chatSessionId,'turn.failed',{error:message,reason:'diagram_validation'});return res.status(500).json({error:message});}
+    if(errors){const message='Copilot produced an invalid diagram; changes were not applied. '+errors;saveChatMessage(chatSessionId,'assistant',message);recordTrace(chatSessionId,'turn.failed',{error:message,reason:'diagram_validation'},{traceId,turnId,category:'turn',status:'failed',durationMs:Date.now()-turnStartedAt,provider:'github-copilot-sdk',model:MODEL});return res.status(500).json({error:message});}
     const content=(result as {data?:{content?:string}}|undefined)?.data?.content??'Done.';
     sharedDiagram=structuredClone(managed.state.diagram);
     diagramRevision+=1;
     persistStore();
-    recordTrace(chatSessionId,'diagram.persisted',{revision:diagramRevision,nodeCount:sharedDiagram.nodes.length,relationCount:sharedDiagram.relations.length});
+    recordTrace(chatSessionId,'diagram.persisted',{revision:diagramRevision,nodeCount:sharedDiagram.nodes.length,relationCount:sharedDiagram.relations.length},{traceId,turnId,category:'diagram',status:'completed',provider:'github-copilot-sdk',model:MODEL});
     saveChatMessage(chatSessionId,'assistant',content);
-    recordTrace(chatSessionId,'turn.completed',{content,requestAutoLayout:managed.state.requestAutoLayout,nodeCount:managed.state.diagram.nodes.length,relationCount:managed.state.diagram.relations.length});
+    recordTrace(chatSessionId,'turn.completed',{content,requestAutoLayout:managed.state.requestAutoLayout,nodeCount:managed.state.diagram.nodes.length,relationCount:managed.state.diagram.relations.length},{traceId,turnId,category:'turn',status:'completed',durationMs:Date.now()-turnStartedAt,provider:'github-copilot-sdk',model:MODEL});
+    managed.traceContext.traceId='';managed.traceContext.turnId='';
     return res.json({content,diagram:managed.state.diagram,requestAutoLayout:managed.state.requestAutoLayout,model:MODEL});
   }catch(error){
     const message=error instanceof Error?error.message:String(error);
     saveChatMessage(chatSessionId,'assistant','I could not complete that request: '+message);
-    recordTrace(chatSessionId,'turn.failed',{error:message});
+    recordTrace(chatSessionId,'turn.failed',{error:message},{traceId,turnId,category:'turn',status:'failed',durationMs:Date.now()-turnStartedAt,provider:'github-copilot-sdk',model:MODEL});
     return res.status(502).json({error:'Copilot request failed: '+message});
   }finally{
     if(claimedBusySlot){const current=sessions.get(chatSessionId);if(current) current.busy=false;}
