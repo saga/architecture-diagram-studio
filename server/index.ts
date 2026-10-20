@@ -269,7 +269,7 @@ function buildTools(state: ChatState) {
       sequence.messages = sequence.messages.filter((message) => message.fromParticipantId !== args.id && message.toParticipantId !== args.id);
       const messageIds = new Set(sequence.messages.map((message) => message.id));
       sequence.activations = sequence.activations?.filter((activation) => activation.participantId !== args.id && messageIds.has(activation.startMessageId) && messageIds.has(activation.endMessageId));
-      sequence.fragments = sequence.fragments?.filter((fragment) => messageIds.has(fragment.startMessageId) && messageIds.has(fragment.endMessageId));
+      sequence.fragments = sequence.fragments?.filter((fragment) => messageIds.has(fragment.startMessageId) && messageIds.has(fragment.endMessageId) && (!fragment.participantStartId || sequence.participants.some((participant) => participant.id === fragment.participantStartId)) && (!fragment.participantEndId || sequence.participants.some((participant) => participant.id === fragment.participantEndId)));
       return { ok: true, deletedParticipantId: args.id, messageCount: sequence.messages.length };
     },
   });
