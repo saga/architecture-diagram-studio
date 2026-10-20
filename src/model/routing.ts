@@ -111,9 +111,19 @@ export function orthogonalWaypoints(
  */
 export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirection = 'RIGHT'): DiagramDocument {
   const sides = directionalSides(direction);
+  const referencedPorts = new Map<string, Set<string>>();
+  for (const node of doc.nodes) referencedPorts.set(node.id, new Set<string>());
+  for (const relation of doc.relations) {
+    const ids = relationPortIds(relation);
+    referencedPorts.get(relation.sourceId)?.add(ids.source);
+    referencedPorts.get(relation.targetId)?.add(ids.target);
+  }
   const portMaps = new Map<string, Map<string, DiagramPortLayout>>();
   for (const node of doc.nodes) {
-    portMaps.set(node.id, new Map((doc.layout[node.id]?.ports ?? []).map((port) => [port.id, { ...port }])));
+    const referenced = referencedPorts.get(node.id) ?? new Set<string>();
+    portMaps.set(node.id, new Map((doc.layout[node.id]?.ports ?? [])
+      .filter((port) => referenced.has(port.id))
+      .map((port) => [port.id, { ...port }])));
   }
 
   const add = (nodeId: string, portId: string, side: DiagramPortSide) => {
