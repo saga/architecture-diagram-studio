@@ -4,7 +4,7 @@ Architecture Diagram Studio exposes its active diagram through a local stdio MCP
 
 ## Requirements and startup
 
-- Node.js 22.13+ and npm.
+- Node.js 22.13+, TypeScript 6+, and npm.
 - Install dependencies with `npm install`.
 - Authenticate the existing Copilot SDK runtime as described in the root README.
 - Start the Studio with `npm run dev` and open the editor in a browser. Keep it open while using the MCP tools.
