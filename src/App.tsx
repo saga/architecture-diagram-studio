@@ -144,20 +144,27 @@ function Editor(){
  const saveVariant=useCallback(()=>{const name=newVariantName.trim();if(!name){setStatus('Enter a name for the new layout variant.');return;}const id='variant-'+Date.now();const variant={id,name,config:JSON.parse(JSON.stringify(layoutConfig)) as LayoutConfig};setLayoutVariants(prev=>[...prev,variant]);setActiveVariantId(id);setNewVariantName('');setStatus('Saved layout variant “'+name+'”.');},[newVariantName,layoutConfig]);
  const deleteVariant=useCallback(()=>{if(layoutVariants.length<=1){setStatus('Keep at least one layout variant.');return;}const remaining=layoutVariants.filter(v=>v.id!==activeVariantId);setLayoutVariants(remaining);setActiveVariantId(remaining[0].id);setLayoutConfig(remaining[0].config);setStatus('Layout variant deleted.');},[layoutVariants,activeVariantId]);
  const onNodesChange=useCallback((c:NodeChange[])=>{
-  setNodes(ns=>applyNodeChanges(c,ns));
+  const changedNodes=applyNodeChanges(c,nodes);
   const removed=c.filter(change=>change.type==='remove').map(change=>change.id);
-  if(removed.length){
-   const ids=new Set(removed);
-   setDoc(prev=>({...prev,nodes:prev.nodes.filter(n=>!ids.has(n.id)),relations:prev.relations.filter(r=>!ids.has(r.sourceId)&&!ids.has(r.targetId)),layout:Object.fromEntries(Object.entries(prev.layout).filter(([id])=>!ids.has(id)))}));
-   setEdges(es=>es.filter(edge=>!ids.has(edge.source)&&!ids.has(edge.target)));
-   setSelectedNodeId(null);setSelectedRelationId(null);
-  }
- },[]);
+  if(!removed.length){setNodes(changedNodes);return;}
+  const ids=new Set(removed);
+  const current=snapshotFromCanvas(doc,changedNodes);
+  const next:DiagramDocument={...current,nodes:current.nodes.filter(n=>!ids.has(n.id)),relations:current.relations.filter(r=>!ids.has(r.sourceId)&&!ids.has(r.targetId)),layout:Object.fromEntries(Object.entries(current.layout).filter(([id])=>!ids.has(id)))};
+  const flow=flowData(next,layoutEngine,layoutConfig);
+  setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);
+  setSelectedNodeId(null);setSelectedRelationId(null);
+ },[doc,nodes,layoutEngine,layoutConfig]);
  const onEdgesChange=useCallback((c:EdgeChange[])=>{
-  setEdges(es=>applyEdgeChanges(c,es));
+  const changedEdges=applyEdgeChanges(c,edges);
   const removed=c.filter(change=>change.type==='remove').map(change=>change.id);
-  if(removed.length){const ids=new Set(removed);setDoc(prev=>({...prev,relations:prev.relations.filter(r=>!ids.has(r.id))}));setSelectedRelationId(current=>current&&ids.has(current)?null:current);}
- },[]);
+  if(!removed.length){setEdges(changedEdges);return;}
+  const ids=new Set(removed);
+  const current=snapshotFromCanvas(doc,nodes);
+  const next:DiagramDocument={...current,relations:current.relations.filter(r=>!ids.has(r.id))};
+  const flow=flowData(next,layoutEngine,layoutConfig);
+  setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);
+  setSelectedRelationId(currentId=>currentId&&ids.has(currentId)?null:currentId);
+ },[doc,nodes,edges,layoutEngine,layoutConfig]);
  const onConnect=useCallback((connection:Connection)=>{if(!connection.source||!connection.target)return;const id='relation-'+Date.now();const relation={id,sourceId:connection.source,targetId:connection.target,sourceHandleId:connection.sourceHandle??undefined,targetHandleId:connection.targetHandle??undefined,label:'New relation'};setEdges(es=>addEdge({id,source:relation.sourceId,target:relation.targetId,sourceHandle:relation.sourceHandleId,targetHandle:relation.targetHandleId,label:relation.label,type:'architecture',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#64748b',strokeWidth:1.5}},es));setDoc(prev=>({...prev,relations:[...prev.relations,relation]}));setStatus('Relation added.');},[]);
  const addService=useCallback(()=>{const id='service-'+Date.now();const position={x:80+(nodes.length%4)*230,y:100+Math.floor(nodes.length/4)*140};const item={id,type:'service' as const,label:'New Service',technology:'Technology TBD'};const nextDoc={...doc,nodes:[...doc.nodes,item],layout:{...doc.layout,[id]:{...position,width:190,height:84}}};const node=flowData(nextDoc,layoutEngine,layoutConfig).nodes.find(n=>n.id===id)!;setDoc(prev=>({...prev,nodes:[...prev.nodes,item],layout:{...prev.layout,[id]:{...position,width:190,height:84}}}));setNodes(ns=>[...ns,node]);setSelectedNodeId(id);setStatus('Service added. Select and edit its label below.');},[doc,nodes.length,layoutEngine,layoutConfig]);
  const renameSelectedNode=useCallback((label:string)=>{if(!selectedNodeId)return;setDoc(prev=>({...prev,nodes:prev.nodes.map(n=>n.id===selectedNodeId?{...n,label}:n)}));setNodes(ns=>ns.map(n=>n.id===selectedNodeId?{...n,data:{...n.data,label}}:n));},[selectedNodeId,selectedNode?.technology]);
