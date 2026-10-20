@@ -3,6 +3,7 @@ import { createC4Fixture, createFlowFixture, createSequenceFixture } from "./mod
 import { interpretIntent } from "./intent/applyIntent";
 import { mxEdgeStyle, relationPaint } from "./design/styles";
 import { parseAIIntentPlan } from "./intent/aiProvider";
+import { isDiagramDocument } from "./model/types";
 
 describe("V2 semantic fixtures and intents", () => {
   it("keeps first-class diagram types limited to C4, flowchart and sequence", () => {
@@ -59,5 +60,12 @@ describe("V2 semantic fixtures and intents", () => {
       commands: ["所有关系线改成虚线", "删除所有节点"],
       reply: "完成"
     }))).toThrow("白名单");
+  });
+
+  it("validates local documents before restoring them", () => {
+    const document = createC4Fixture();
+    expect(isDiagramDocument(document)).toBe(true);
+    expect(isDiagramDocument({ ...document, layout: undefined })).toBe(false);
+    expect(isDiagramDocument({ ...document, nodes: [{ id: "broken" }] })).toBe(false);
   });
 });

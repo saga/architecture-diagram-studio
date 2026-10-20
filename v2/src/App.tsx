@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { layoutDiagram, moveNode } from "./layout/layout";
@@ -33,8 +34,8 @@ export default function App() {
     try {
       const saved = window.localStorage.getItem("architecture-diagram-studio:v2:document");
       if (saved) {
-        const parsed = JSON.parse(saved) as DiagramDocument;
-        if (parsed.schemaVersion === 2 && Array.isArray(parsed.nodes) && Array.isArray(parsed.relations) && ["c4", "flowchart", "sequence"].includes(parsed.kind)) return parsed;
+        const parsed: unknown = JSON.parse(saved);
+        if (isDiagramDocument(parsed)) return parsed;
       }
     } catch {
       // Browser storage may be disabled or contain an older draft; use the sample instead.
