@@ -342,6 +342,43 @@ function Editor(){
  const moveSequenceMessage=useCallback((messageId:string,delta:-1|1)=>{const sequence=doc.sequence;if(doc.kind!=='sequence'||!sequence)return;const ordered=[...sequence.messages].sort((a,b)=>a.order-b.order);const index=ordered.findIndex(message=>message.id===messageId);const adjacent=ordered[index+delta];const current=ordered[index];if(index<0||!adjacent||!current)return;const messages=sequence.messages.map(message=>message.id===current.id?{...message,order:adjacent.order}:message.id===adjacent.id?{...message,order:current.order}:message);const next={...doc,sequence:{...sequence,messages}};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedSequenceMessageId(messageId);setSelectedSequenceFragmentId(null);setStatus('Sequence message order updated.');},[doc,layoutEngine,layoutConfig]);
  const addSequenceMessage=useCallback(()=>{const sequence=doc.sequence;if(doc.kind!=='sequence'||!sequence||sequence.participants.length<2){setStatus('Add at least two participants before adding a message.');return;}const ordered=[...sequence.messages].sort((a,b)=>a.order-b.order);const previous=ordered[ordered.length-1];const from=sequence.participants.find(p=>p.id===previous?.toParticipantId)??sequence.participants[0];const to=sequence.participants.find(p=>p.id!==from.id)??sequence.participants[1];const message:SequenceMessage={id:'msg-'+crypto.randomUUID(),fromParticipantId:from.id,toParticipantId:to.id,label:'New message',kind:'call',order:Math.max(0,...ordered.map(m=>m.order))+1};const next={...doc,sequence:{...sequence,messages:[...sequence.messages,message]}};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedSequenceMessageId(message.id);setSelectedSequenceParticipantId(null);setSelectedSequenceFragmentId(null);setStatus('Message added at the end of the sequence.');},[doc,layoutEngine,layoutConfig]);
  const deleteSequenceMessage=useCallback(()=>{if(!selectedSequenceMessageId||!doc.sequence)return;const sequence={...doc.sequence,messages:doc.sequence.messages.filter(m=>m.id!==selectedSequenceMessageId),activations:doc.sequence.activations?.filter(a=>a.startMessageId!==selectedSequenceMessageId&&a.endMessageId!==selectedSequenceMessageId),fragments:doc.sequence.fragments?.filter(f=>f.startMessageId!==selectedSequenceMessageId&&f.endMessageId!==selectedSequenceMessageId)};const next={...doc,sequence};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedSequenceMessageId(null);setSelectedSequenceFragmentId(null);setStatus('Sequence message removed.');},[selectedSequenceMessageId,doc,layoutEngine,layoutConfig]);
+ const addSequenceActivation=useCallback(()=>{
+  const sequence=doc.sequence;
+  if(doc.kind!=='sequence'||!sequence||sequence.messages.length===0){setStatus('Add sequence messages before creating an activation.');return;}
+  const ordered=[...sequence.messages].sort((a,b)=>a.order-b.order);
+  const startMessage=ordered[0],endMessage=ordered[ordered.length-1];
+  const participant=sequence.participants.find(candidate=>!(sequence.activations??[]).some(activation=>activation.participantId===candidate.id&&activation.startMessageId===startMessage.id&&activation.endMessageId===endMessage.id));
+  if(!participant){setStatus('Every participant already has an activation across this full message range. Choose a narrower range in an existing activation.');return;}
+  const activation:SequenceActivation={participantId:participant.id,startMessageId:startMessage.id,endMessageId:endMessage.id};
+  const issue=sequenceActivationIssue(sequence,activation);
+  if(issue){setStatus(issue);return;}
+  const next={...doc,sequence:{...sequence,activations:[...(sequence.activations??[]),activation]}};
+  const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);
+  setSelectedSequenceActivationKey(sequenceActivationKey(activation));setSelectedSequenceParticipantId(null);setSelectedSequenceMessageId(null);setSelectedSequenceFragmentId(null);setSelectedNodeId(null);setSelectedRelationId(null);
+  setStatus('Sequence activation added.');
+ },[doc,layoutEngine,layoutConfig]);
+ const updateSequenceActivation=useCallback((currentKey:string,patch:Partial<SequenceActivation>)=>{
+  const sequence=doc.sequence;
+  if(doc.kind!=='sequence'||!sequence)return;
+  const current=sequence.activations?.find(activation=>sequenceActivationKey(activation)===currentKey);
+  if(!current)return;
+  const next:SequenceActivation={...current,...patch};
+  const start=sequence.messages.find(message=>message.id===next.startMessageId);
+  const end=sequence.messages.find(message=>message.id===next.endMessageId);
+  if(patch.startMessageId&&start&&end&&start.order>end.order)next.endMessageId=next.startMessageId;
+  if(patch.endMessageId&&start&&end&&end.order<start.order)next.startMessageId=next.endMessageId;
+  const issue=sequenceActivationIssue(sequence,next,currentKey);
+  if(issue){setStatus(issue);return;}
+  const nextSequence={...sequence,activations:(sequence.activations??[]).map(activation=>sequenceActivationKey(activation)===currentKey?next:activation)};
+  const nextDoc={...doc,sequence:nextSequence};
+  const flow=flowData(nextDoc,layoutEngine,layoutConfig);setDoc(nextDoc);setNodes(flow.nodes);setEdges(flow.edges);
+  setSelectedSequenceActivationKey(sequenceActivationKey(next));setStatus('Sequence activation updated.');
+ },[doc,layoutEngine,layoutConfig]);
+ const deleteSequenceActivation=useCallback(()=>{
+  if(!selectedSequenceActivationKey||!doc.sequence)return;
+  const next={...doc,sequence:{...doc.sequence,activations:doc.sequence.activations?.filter(activation=>sequenceActivationKey(activation)!==selectedSequenceActivationKey)}};
+  const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedSequenceActivationKey(null);setStatus('Sequence activation removed.');
+ },[selectedSequenceActivationKey,doc,layoutEngine,layoutConfig]);
  const addSequenceFragment=useCallback(()=>{const sequence=doc.sequence;if(doc.kind!=='sequence'||!sequence||sequence.messages.length===0){setStatus('Add sequence messages before creating a fragment.');return;}const ordered=[...sequence.messages].sort((a,b)=>a.order-b.order);const first=ordered[0],last=ordered[ordered.length-1];const fragment:SequenceFragment={id:'fragment-'+crypto.randomUUID(),kind:'opt',title:'Optional flow',guard:'[condition]',startMessageId:first.id,endMessageId:last.id,...(sequence.participants[0]?{participantStartId:sequence.participants[0].id}:{}),...(sequence.participants.length>1?{participantEndId:sequence.participants[sequence.participants.length-1].id}:{})};const next={...doc,sequence:{...sequence,fragments:[...(sequence.fragments??[]),fragment]}};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedSequenceFragmentId(fragment.id);setSelectedSequenceParticipantId(null);setSelectedSequenceMessageId(null);setStatus('Sequence fragment added around the current message range.');},[doc,layoutEngine,layoutConfig]);
  const updateSequenceFragment=useCallback((fragmentId:string,patch:Partial<Pick<SequenceFragment,'kind'|'title'|'guard'>>)=>{const next={...doc,sequence:doc.sequence?{...doc.sequence,fragments:doc.sequence.fragments?.map(fragment=>fragment.id===fragmentId?{...fragment,...patch}:fragment)}:undefined};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);},[doc,layoutEngine,layoutConfig]);
  const deleteSequenceFragment=useCallback(()=>{if(!selectedSequenceFragmentId||!doc.sequence)return;const next={...doc,sequence:{...doc.sequence,fragments:doc.sequence.fragments?.filter(fragment=>fragment.id!==selectedSequenceFragmentId)}};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedSequenceFragmentId(null);setStatus('Sequence fragment removed.');},[selectedSequenceFragmentId,doc,layoutEngine,layoutConfig]);
