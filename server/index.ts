@@ -325,8 +325,12 @@ app.post('/api/chat',async(req,res)=>{
           const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
           session.on((event) => {
             if (event.ephemeral) return;
-            const auditableTypes = new Set(['assistant.message','user.message','tool.execution_start','tool.execution_complete','session.error','assistant.turn_start','assistant.turn_end','session.shutdown']);
-            if (auditableTypes.has(event.type)) recordTrace(chatSessionId,event.type,event.data);
+            // Keep every durable SDK event, but never persist model reasoning text.
+            if (event.type.includes('reasoning')) {
+              recordTrace(chatSessionId,event.type,{contentOmitted:true});
+              return;
+            }
+            recordTrace(chatSessionId,event.type,event.data);
           });
           const created:ManagedSession={session,state,busy:false};
           sessions.set(chatSessionId,created);
