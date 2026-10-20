@@ -19,12 +19,12 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 - DiagramDocument V2 semantic model.
 - ELK layered layout, semantic external/storage lanes, deterministic sequence layout, routing repair and node locks.
 - Studio Editorial visual system and draggable Studio preview.
-- Local Draw.io iframe mode, native editable XML export, and read-back of saved Draw.io XML.
+- Local Draw.io iframe mode, native editable XML export, and import of plain or compressed Draw.io XML (including Studio semantic metadata).
 - Local intent commands for line style, routing, external placement, storage placement, layout direction and lock clearing.
-- Deterministic layout-quality measurements and regression tests.
+- Reviewable intent previews (apply/discard), 50-step in-session undo/redo, browser-local document persistence, deterministic layout-quality measurements, and regression tests.
 
 ## Intentional boundary
 
-The chat currently uses a local deterministic intent interpreter, not an LLM. This keeps the canvas usable without API keys and prevents the UI from claiming a model was called when it was not. An LLM provider and preview/commit orchestration can be added behind the same intent interface.
+The chat currently uses a local deterministic intent interpreter, not an LLM. This keeps the canvas usable without API keys and prevents the UI from claiming a model was called when it was not. Changes are previewed before they are committed. A model provider can be added behind the same intent interface without letting the model directly write node coordinates.
 
 Draw.io web assets are generated into public/drawio at build time and are not committed as a bulky binary payload. No online fallback is configured. In offline deployments the archive must be supplied once during the build or included in the deployment artefacts.

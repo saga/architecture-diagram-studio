@@ -4,7 +4,11 @@ import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point } f
 function plainLabel(value: string): string {
   const container = document.createElement("div");
   container.innerHTML = value;
-  return (container.textContent || container.innerText || value).replace(/\s+/g, " ").trim();
+  // Studio-exported labels contain title, technology and description in separate divs.
+  // Editing a Draw.io node should update its title without concatenating those fields.
+  const firstBlock = container.querySelector("div");
+  const text = firstBlock ? (firstBlock.textContent || firstBlock.innerText || "") : (container.textContent || container.innerText || value);
+  return text.replace(/\s+/g, " ").trim();
 }
 function roleFromStyle(style: string): NodeRole {
   const explicit = style.match(/(?:^|;)studioRole=([^;]+)/)?.[1];
@@ -46,12 +50,15 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const parsed = parseDrawioXml(xml);
   if (!parsed) return previous;
   const cells = Array.from(parsed.querySelectorAll("mxGraphModel root mxCell"));
+  const currentCellIds = new Set(cells.map((cell) => cell.getAttribute("id") || ""));
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const previousRelations = new Map(previous.relations.map((relation) => [relation.id, relation]));
   const boundaryIds = new Set(previous.boundaries.map((boundary) => boundary.id));
   const nodes: DiagramNode[] = [];
   const relations: DiagramRelation[] = [];
-  const importedBoundaries = [...previous.boundaries];
+  const importedBoundaries = previous.boundaries
+    .filter((boundary) => currentCellIds.has(boundary.id))
+    .map((boundary) => ({ ...boundary, members: [...boundary.members] }));
   for (const cell of cells) {
     const id = cell.getAttribute("id") || "";
     if (!id || id === "0" || id === "1" || id.endsWith("__lifelineEnd") ||
@@ -100,5 +107,10 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   }
   if (nodes.length === 0) return previous;
   const relationList = relations.length ? relations : previous.relations.filter((relation) => nodes.some((node) => node.id === relation.source) && nodes.some((node) => node.id === relation.target));
-  return { ...previous, nodes, relations: relationList, boundaries: importedBoundaries };
+  const importedNodeIds = new Set(nodes.map((node) => node.id));
+  const boundaries = importedBoundaries.map((boundary) => ({
+    ...boundary,
+    members: boundary.members.filter((id) => importedNodeIds.has(id))
+  }));
+  return { ...previous, nodes, relations: relationList, boundaries };
 }

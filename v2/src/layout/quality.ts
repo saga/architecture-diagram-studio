@@ -4,8 +4,6 @@ function overlaps(a: { x: number; y: number; width: number; height: number }, b:
   return a.x < b.x + b.width + gap && a.x + a.width + gap > b.x &&
     a.y < b.y + b.height + gap && a.y + a.height + gap > b.y;
 }
-function isHorizontal(a: Point, b: Point): boolean { return Math.abs(a.y - b.y) < 0.001; }
-function isVertical(a: Point, b: Point): boolean { return Math.abs(a.x - b.x) < 0.001; }
 function cross(a: Point, b: Point, c: Point): number {
   return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
