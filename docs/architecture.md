@@ -158,3 +158,50 @@ sequenceDiagram
 ```
 
 The MCP server uses stdio for protocol traffic and keeps diagnostics on stderr. The API remains bound to `127.0.0.1`; this bridge is a local single-active-editor workflow, not a remote or multi-user collaboration service. See [VS Code Copilot MCP setup](vscode-copilot-mcp.md) and [ADR 0005](adr/0005-vscode-copilot-mcp.md).
+
+## Layout capability matrix
+
+| Engine / algorithm | Best fit | Direction / controls | Known constraints |
+|---|---|---|---|
+| ELK Layered (default) | C4, dependency and directed architecture graphs | Four directions; node/layer spacing; edge routing; ports; seed | Most architecture-oriented default; exact geometry differs from draw.io |
+| ELK Mr. Tree | Rooted tree structures | Algorithm-specific support for direction/ports | Tree assumption may be a poor fit for dense cyclic graphs |
+| ELK Radial | Hub-and-spoke / central system diagrams | Radial arrangement; selected options may be ignored | Not a substitute for layered dependency order |
+| ELK Stress | General relationship maps | Stress iteration limit and supported graph options | Optimizes a different visual objective than layer ordering |
+| ELK Force | Force-directed arrangement | Iterations, seed, and supported force options | May not preserve a directional architecture narrative |
+| Dagre | Fast directed graphs | LR / RL / TB / BT, node spacing, rank spacing, margin | Simpler constraints than ELK; no layout-generated port routing in this adapter |
+| D3 Hierarchy | Trees and forests | Four directions, sibling/layer/component spacing | Uses a spanning forest; cross-links do not affect placement |
+| D3 Force | Connected / exploratory graph | Link distance and strength, repulsion, collision, fixed tick budget | One-shot bounded simulation; not continuous physics |
+
+ELK options use the engine's supported option set. A common settings panel does not mean every option applies to every ELK algorithm. The UI keeps direction near Auto Layout and detailed settings in the Advanced dialog. Layout selection only changes configuration; Auto Layout is the explicit geometry-changing action.
+
+## Port and route data flow
+
+```mermaid
+flowchart LR
+  IR[Diagram Document] --> Spec[ELK graph and port adapter]
+  Spec --> Engine[Selected layout algorithm]
+  Engine --> Geometry[Node positions, port positions, edge bend points]
+  Geometry --> IR2[Updated Diagram Document]
+  IR2 --> RF[React Flow port handles and routed edges]
+  IR2 --> Drawio[draw.io endpoint anchors and waypoints]
+```
+
+The Diagram Document remains authoritative. React Flow nodes and edges are projections for interaction, and structural canvas changes must be applied to the document before persistence/export. Optional port fields are backward compatible with saved schema-version-1 diagrams. The exporter consumes saved geometry and does not rerun layout. Theme colors and node treatments are editor-only presets; draw.io has its own explicit style mapping.
+
+## Architecture review findings
+
+| Priority | Finding | Treatment |
+|---|---|---|
+| High | Canvas state and semantic Diagram Document are duplicated; deletion must update both representations | Canvas removal handlers now synchronize semantic nodes/relations and clear dependent geometry |
+| High | Layout settings previously did not control the rendered route, and ports were not represented in the IR | Port metadata and edge waypoints now cross the layout, React Flow, persistence, and draw.io adapter boundaries; regression tests cover layout variants and exported anchors |
+| Medium | App.tsx still coordinates editor, persistence sync, settings, chat, and trace presentation | Keep the current change bounded; split the canvas adapter and settings components in a later focused refactor |
+| Medium | Browser-to-API revision polling and Copilot sessions are single-editor/process-oriented, not collaboration-safe | Keep the API loopback-only; use optimistic revision checks; do not advertise multi-user consistency |
+| Medium | Persisted JSON is versioned but only the envelope is checked at load time | Deep schema validation/migrations for the persisted diagram remain a hardening item |
+| Medium | No automated visual round-trip proves identical React Flow and draw.io rendering | Test semantic geometry and inspect exported files; pixel identity is not guaranteed across renderers |
+
+## Layout and presentation policy
+
+- Text edits and theme changes do not trigger a full layout unless a geometry-affecting dimension change is explicitly requested.
+- Structural changes are reflected in the Diagram Document before a save or export.
+- Full layout remains user-triggered. Export never invokes a layout algorithm.
+- Sequence participant order and message timing are semantic invariants and need a dedicated sequence layout strategy.
