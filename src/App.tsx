@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent,type CSSProperties} from 'react';
-import {Background,BaseEdge,Controls,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,addEdge,getSmoothStepPath,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
+import {Background,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,getSmoothStepPath,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
 import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type LayoutDirection,type LayoutEngine} from './layout/layout';
 import {initialDiagram,type DiagramDocument,type DiagramPortLayout,type DiagramPortSide,type DiagramNode} from './model/diagram';
+import {ensureEdgeGeometry,layoutDirectionFor,orthogonalWaypoints,relationPortIds} from './model/routing';
 import {validateDiagram} from './model/validate';
 import {downloadDrawio} from './export/drawio';
 type ChatMessage={id:string;role:'user'|'assistant';content:string};
@@ -39,91 +40,49 @@ type ArchitectureNodeData={label:string;technology?:string;nodeType:DiagramNode[
 type ArchitectureFlowNode=Node<ArchitectureNodeData,'architecture'>;
 function ArchitectureNode({data}:NodeProps<ArchitectureFlowNode>){
  return <>
+  {data.nodeType==='person'&&<svg className="actor-illustration" viewBox="0 0 170 72" preserveAspectRatio="none" aria-hidden="true">
+   <ellipse cx="85" cy="10" rx="13" ry="7" fill="#eaf2ff" stroke="#4976b8" strokeWidth="1.5"/>
+   <path d="M85 17 L85 44 M0 28 L170 28 M85 44 L0 70 M85 44 L170 70" fill="none" stroke="#4976b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>}
   {data.ports.map(port=><Handle key={port.id} id={port.id} type={port.id.startsWith('out-')?'source':'target'} position={reactFlowPosition(port.side)} style={portStyle(port)} className="architecture-port" />)}
   <div className="node-label"><strong>{data.label}</strong>{data.technology&&<small>{data.technology}</small>}</div>
  </>;
 }
 function ArchitectureEdge(props:EdgeProps<Edge>){
- const {id,sourceX,sourceY,targetX,targetY,data,markerStart,markerEnd,style,label,labelStyle,labelShowBg,labelBgStyle,labelBgPadding,labelBgBorderRadius}=props;
- const waypoints=(data as {waypoints?:Array<{x:number;y:number}>}|undefined)?.waypoints;
- let path:string;let labelX=(sourceX+targetX)/2;let labelY=(sourceY+targetY)/2;
- if(Array.isArray(waypoints)){
-  const points=[{x:sourceX,y:sourceY},...waypoints,{x:targetX,y:targetY}];
-  path=points.map((point,index)=>(index===0?'M ':' L ')+point.x+' '+point.y).join('');
-  let total=0;
-  for(let i=1;i<points.length;i++)total+=Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y);
-  let remaining=total/2;
-  for(let i=1;i<points.length;i++){
-   const from=points[i-1],to=points[i],length=Math.hypot(to.x-from.x,to.y-from.y);
-   if(length>=remaining&&length>0){const ratio=remaining/length;labelX=from.x+(to.x-from.x)*ratio;labelY=from.y+(to.y-from.y)*ratio;break;}
-   remaining-=length;
-  }
- }else{
-  const route=getSmoothStepPath({sourceX,sourceY,targetX,targetY,borderRadius:12,offset:20});
-  path=route[0];labelX=route[1];labelY=route[2];
+ const {id,sourceX,sourceY,targetX,targetY,data,markerStart,markerEnd,style,label}=props;
+ const routeData=(data??{}) as {waypoints?:Array<{x:number;y:number}>;sourcePortSide?:DiagramPortSide;targetPortSide?:DiagramPortSide};
+ const waypoints=Array.isArray(routeData.waypoints)?routeData.waypoints:orthogonalWaypoints(
+  {x:sourceX,y:sourceY},{x:targetX,y:targetY},routeData.sourcePortSide??'RIGHT',routeData.targetPortSide??'LEFT',
+ );
+ const points=[{x:sourceX,y:sourceY},...waypoints,{x:targetX,y:targetY}];
+ const path=points.map((point,index)=>(index===0?'M ':' L ')+point.x+' '+point.y).join('');
+ let total=0;
+ for(let i=1;i<points.length;i++)total+=Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y);
+ let labelX=(sourceX+targetX)/2;let labelY=(sourceY+targetY)/2;let remaining=total/2;
+ for(let i=1;i<points.length;i++){
+  const from=points[i-1],to=points[i],length=Math.hypot(to.x-from.x,to.y-from.y);
+  if(length>=remaining&&length>0){const ratio=remaining/length;labelX=from.x+(to.x-from.x)*ratio;labelY=from.y+(to.y-from.y)*ratio;break;}
+  remaining-=length;
  }
- return <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} label={label} labelX={labelX} labelY={labelY} labelStyle={labelStyle} labelShowBg={labelShowBg} labelBgStyle={labelBgStyle} labelBgPadding={labelBgPadding} labelBgBorderRadius={labelBgBorderRadius}/>;
+ return <>
+  <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style}/>
+  {label&&<EdgeLabelRenderer><div className="architecture-edge-label nodrag nopan" style={{position:'absolute',transform:'translate(-50%, -50%) translate('+labelX+'px, '+labelY+'px)'}}>{label}</div></EdgeLabelRenderer>}
+ </>;
 }
 const nodeTypes={architecture:ArchitectureNode};
 const edgeTypes={architecture:ArchitectureEdge};
 function flowData(doc:DiagramDocument,engine:LayoutEngine='elk',config:LayoutConfig=DEFAULT_LAYOUT_CONFIG){
- const storedPorts=new Map(doc.nodes.map(n=>[n.id,doc.layout[n.id]?.ports??[]]));
- const entries=new Map<string,Map<string,{id:string;side:DiagramPortSide}>>();
- const addPort=(nodeId:string,id:string,side:DiagramPortSide)=>{
-  let nodePorts=entries.get(nodeId);if(!nodePorts){nodePorts=new Map();entries.set(nodeId,nodePorts);}
-  if(!nodePorts.has(id))nodePorts.set(id,{id,side});
- };
- const direction:LayoutDirection=engine==='elk'?config.elk.direction:engine==='hierarchy'?config.hierarchy.direction:engine==='dagre'?({LR:'RIGHT',RL:'LEFT',TB:'DOWN',BT:'UP'} as const)[config.dagre.direction]:'RIGHT';
- const sourceSide:DiagramPortSide=direction==='LEFT'?'LEFT':direction==='DOWN'?'BOTTOM':direction==='UP'?'TOP':'RIGHT';
- const targetSide=oppositeSide(sourceSide);
- const center=(id:string)=>{const g=doc.layout[id]??{x:0,y:0,width:190,height:84};return {x:g.x+g.width/2,y:g.y+g.height/2};};
- const facingSide=(from:string,to:string):DiagramPortSide=>{
-  const a=center(from),b=center(to),dx=b.x-a.x,dy=b.y-a.y;
-  return Math.abs(dx)>=Math.abs(dy)?(dx>=0?'RIGHT':'LEFT'):(dy>=0?'BOTTOM':'TOP');
- };
- for(const relation of doc.relations){
-  if(!doc.nodes.some(n=>n.id===relation.sourceId)||!doc.nodes.some(n=>n.id===relation.targetId))continue;
-  const ids={source:relation.sourceHandleId??'out-'+relation.id,target:relation.targetHandleId??'in-'+relation.id};
-  const storedSource=storedPorts.get(relation.sourceId)?.find(p=>p.id===ids.source);
-  const storedTarget=storedPorts.get(relation.targetId)?.find(p=>p.id===ids.target);
-  const actualSource=engine==='force'?facingSide(relation.sourceId,relation.targetId):sourceSide;
-  const actualTarget=engine==='force'?oppositeSide(facingSide(relation.sourceId,relation.targetId)):targetSide;
-  addPort(relation.sourceId,ids.source,storedSource?.side??actualSource);
-  addPort(relation.targetId,ids.target,storedTarget?.side??actualTarget);
- }
- for(const node of doc.nodes){
-  const ports=entries.get(node.id)??new Map<string,{id:string;side:DiagramPortSide}>();
-  if(!Array.from(ports.values()).some(p=>p.id.startsWith('out-')))ports.set('out-default-'+node.id,{id:'out-default-'+node.id,side:sourceSide});
-  if(!Array.from(ports.values()).some(p=>p.id.startsWith('in-')))ports.set('in-default-'+node.id,{id:'in-default-'+node.id,side:targetSide});
-  entries.set(node.id,ports);
- }
- const portsByNode=new Map<string,DiagramPortLayout[]>();
- for(const node of doc.nodes){
-  const g=doc.layout[node.id]??{x:0,y:0,width:190,height:84};
-  const saved=new Map(storedPorts.get(node.id)!.map(port=>[port.id,port]));
-  const all=Array.from((entries.get(node.id)??new Map()).values());
-  const sides:DiagramPortSide[]=['LEFT','RIGHT','TOP','BOTTOM'];
-  const ports:DiagramPortLayout[]=[];
-  for(const side of sides){
-   const group=all.filter(p=>p.side===side);
-   group.forEach((entry,index)=>{
-    const old=saved.get(entry.id);
-    const fallback:DiagramPortLayout=side==='LEFT'?{id:entry.id,side,x:0,y:g.height*(index+1)/(group.length+1)}
-     :side==='RIGHT'?{id:entry.id,side,x:g.width,y:g.height*(index+1)/(group.length+1)}
-     :side==='TOP'?{id:entry.id,side,x:g.width*(index+1)/(group.length+1),y:0}
-     :{id:entry.id,side,x:g.width*(index+1)/(group.length+1),y:g.height};
-    ports.push(old&&old.side===side&&Number.isFinite(old.x)&&Number.isFinite(old.y)?old:fallback);
-   });
-  }
-  portsByNode.set(node.id,ports);
- }
- const nodes:Node[]=doc.nodes.map(n=>{
-  const g=doc.layout[n.id]??{x:50,y:50,width:180,height:84};
-  return {id:n.id,position:{x:g.x,y:g.y},style:{width:g.width,height:g.height},data:{label:n.label,technology:n.technology,nodeType:n.type,ports:portsByNode.get(n.id)??[]},type:'architecture',className:'diagram-node node-'+n.type};
+ const direction=layoutDirectionFor(engine,config);
+ const routed=ensureEdgeGeometry(doc,direction);
+ const nodes:Node[]=routed.nodes.map(n=>{
+  const g=routed.layout[n.id]??{x:50,y:50,width:180,height:84};
+  return {id:n.id,position:{x:g.x,y:g.y},style:{width:g.width,height:g.height},data:{label:n.label,technology:n.technology,nodeType:n.type,ports:g.ports??[]},type:'architecture',className:'diagram-node node-'+n.type};
  });
- const edges:Edge[]=doc.relations.map(e=>{
-  const ids={source:e.sourceHandleId??'out-'+e.id,target:e.targetHandleId??'in-'+e.id};
-  return {id:e.id,source:e.sourceId,target:e.targetId,sourceHandle:ids.source,targetHandle:ids.target,label:e.label,type:'architecture',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#64748b',strokeWidth:1.5},labelStyle:{fill:'#475569',fontSize:11},labelBgStyle:{fill:'#fff',fillOpacity:.92},data:{waypoints:e.waypoints}};
+ const edges:Edge[]=routed.relations.map(relation=>{
+  const ids=relationPortIds(relation);
+  const sourcePort=routed.layout[relation.sourceId]?.ports?.find(port=>port.id===ids.source);
+  const targetPort=routed.layout[relation.targetId]?.ports?.find(port=>port.id===ids.target);
+  return {id:relation.id,source:relation.sourceId,target:relation.targetId,sourceHandle:ids.source,targetHandle:ids.target,label:relation.label,type:'architecture',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#64748b',strokeWidth:1.5,strokeLinecap:'square',strokeLinejoin:'round'},labelStyle:{fill:'#475569',fontSize:11},data:{waypoints:relation.waypoints,sourcePortSide:sourcePort?.side,targetPortSide:targetPort?.side}};
  });
  return {nodes,edges};
 }
