@@ -403,9 +403,11 @@ app.post('/api/chat',async(req,res)=>{
     const errors=ensureValid(managed.state);
     if(errors){const message='Copilot produced an invalid diagram; changes were not applied. '+errors;saveChatMessage(chatSessionId,'assistant',message);recordTrace(chatSessionId,'turn.failed',{error:message,reason:'diagram_validation'},{traceId,turnId,category:'turn',status:'failed',durationMs:Date.now()-turnStartedAt,provider:'github-copilot-sdk',model:MODEL});return res.status(500).json({error:message});}
     const content=(result as {data?:{content?:string}}|undefined)?.data?.content??'Done.';
+    const previousDiagram=sharedDiagram;
+    const previousRevision=diagramRevision;
     sharedDiagram=structuredClone(managed.state.diagram);
     diagramRevision+=1;
-    persistStore();
+    try { persistStore(); } catch (error) { sharedDiagram=previousDiagram; diagramRevision=previousRevision; throw error; }
     recordTrace(chatSessionId,'diagram.persisted',{revision:diagramRevision,nodeCount:sharedDiagram.nodes.length,relationCount:sharedDiagram.relations.length},{traceId,turnId,category:'diagram',status:'completed',provider:'github-copilot-sdk',model:MODEL});
     saveChatMessage(chatSessionId,'assistant',content);
     recordTrace(chatSessionId,'turn.completed',{content,requestAutoLayout:managed.state.requestAutoLayout,nodeCount:managed.state.diagram.nodes.length,relationCount:managed.state.diagram.relations.length},{traceId,turnId,category:'turn',status:'completed',durationMs:Date.now()-turnStartedAt,provider:'github-copilot-sdk',model:MODEL});
