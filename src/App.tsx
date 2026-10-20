@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent,type CSSProperties} from 'react';
-import {Background,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
+import {Background,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,useUpdateNodeInternals,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
 import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type LayoutDirection,type LayoutEngine} from './layout/layout';
 import {initialDiagram,type DiagramDocument,type DiagramPortLayout,type DiagramPortSide,type DiagramNode} from './model/diagram';
 import {ensureEdgeGeometry,layoutDirectionFor,orthogonalWaypoints,relationPortIds} from './model/routing';
@@ -37,7 +37,9 @@ function portStyle(port:DiagramPortLayout):CSSProperties{
 }
 type ArchitectureNodeData={label:string;technology?:string;nodeType:DiagramNode['type'];ports:DiagramPortLayout[]};
 type ArchitectureFlowNode=Node<ArchitectureNodeData,'architecture'>;
-function ArchitectureNode({data}:NodeProps<ArchitectureFlowNode>){
+function ArchitectureNode({id,data}:NodeProps<ArchitectureFlowNode>){
+ const updateNodeInternals=useUpdateNodeInternals();
+ useEffect(()=>{updateNodeInternals(id);},[id,data.ports,updateNodeInternals]);
  return <>
   {data.nodeType==='person'&&<svg className="actor-illustration" viewBox="0 0 170 72" preserveAspectRatio="none" aria-hidden="true">
    <ellipse cx="85" cy="10" rx="13" ry="7" fill="var(--actor-fill, #eaf2ff)" stroke="var(--actor-stroke, #4976b8)" strokeWidth="1.5"/>
