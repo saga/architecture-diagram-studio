@@ -16,7 +16,7 @@ export function normalizeSequenceRanges(sequence: SequenceDiagramData): Sequence
   const normalizeRange = <T extends { startMessageId: string; endMessageId: string }>(range: T): T => {
     const startOrder = orderByMessageId.get(range.startMessageId);
     const endOrder = orderByMessageId.get(range.endMessageId);
-    if (startOrder !== undefined && endOrder !== undefined && startOrder > endOrder) {
+    if (startOrder != null && endOrder != null && startOrder > endOrder) {
       return { ...range, startMessageId: range.endMessageId, endMessageId: range.startMessageId };
     }
     return range;
