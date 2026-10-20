@@ -40,9 +40,9 @@ function portStyle(port:DiagramPortLayout):CSSProperties{
  return {left:port.x,top:'100%'};
 }
 type ArchitectureNodeData={label:string;technology?:string;description?:string;nodeType:DiagramNode['type'];ports:DiagramPortLayout[]};
-type SequenceParticipantNodeData=SequenceParticipant&{totalHeight:number};
+type SequenceParticipantNodeData=SequenceParticipant&{totalHeight:number;[key:string]:unknown};
 type SequenceParticipantFlowNode=Node<SequenceParticipantNodeData,'sequenceParticipant'>;
-type SequenceMessageNodeData=SequenceMessage&{width:number;direction:'forward'|'reverse'|'self'};
+type SequenceMessageNodeData=SequenceMessage&{width:number;direction:'forward'|'reverse'|'self';[key:string]:unknown};
 type SequenceMessageFlowNode=Node<SequenceMessageNodeData,'sequenceMessage'>;
 type SequenceActivationNodeData={participantId:string};
 type SequenceActivationFlowNode=Node<SequenceActivationNodeData,'sequenceActivation'>;
