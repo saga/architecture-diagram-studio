@@ -11,7 +11,7 @@ const URL = "https://github.com/jgraph/drawio/releases/download/v32.0.2/draw.war
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEST = path.join(ROOT, "public", "drawio");
 const STAMP = path.join(DEST, ".version");
-function log(message) { console.log("[drawio-bundle] " + message); }
+function log(message) { console.log("[drawio-bundle] " + new Date().toISOString() + " " + message); }
 
 function readEntries(buffer) {
   const signature = 0x06054b50;
@@ -24,7 +24,7 @@ function readEntries(buffer) {
   let offset = buffer.readUInt32LE(end + 16);
   const entries = [];
   for (let i = 0; i < count; i++) {
-    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Invalid ZIP central directory.");
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Invalid ZIP central directory at byte " + offset + ".");
     const method = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
     const nameLength = buffer.readUInt16LE(offset + 28);
@@ -48,14 +48,23 @@ async function loadWar() {
   if (process.env.DRAWIO_WAR) {
     const file = path.resolve(process.env.DRAWIO_WAR);
     if (!fs.existsSync(file)) throw new Error("DRAWIO_WAR does not exist: " + file);
-    log("Using offline archive " + file);
+    const stats = fs.statSync(file);
+    log("Offline archive selected: path=" + file + ", bytes=" + stats.size);
     return fs.readFileSync(file);
   }
-  log("Downloading Draw.io " + VERSION + " for build-time bundling (not runtime use)...");
+  const startedAt = Date.now();
+  log("Downloading the pinned Draw.io release for build-time bundling. No runtime network access is required.");
+  log("GET " + URL);
   const response = await fetch(URL);
-  if (!response.ok) throw new Error("Download failed with HTTP " + response.status + ". Set DRAWIO_WAR to a local archive in offline environments.");
-  return Buffer.from(await response.arrayBuffer());
+  log("Download response: status=" + response.status + " " + response.statusText +
+      ", content-length=" + (response.headers.get("content-length") || "unknown"));
+  if (!response.ok) throw new Error("Download failed with HTTP " + response.status + " " + response.statusText +
+    ". Set DRAWIO_WAR to a local archive in offline environments.");
+  const archive = Buffer.from(await response.arrayBuffer());
+  log("Download complete: bytes=" + archive.length + ", durationMs=" + (Date.now() - startedAt));
+  return archive;
 }
+
 function hasValidBundle() {
   try {
     if (fs.readFileSync(STAMP, "utf8").trim() !== VERSION) return false;
@@ -68,33 +77,58 @@ function hasValidBundle() {
 }
 
 async function main() {
+  const startedAt = Date.now();
+  log("Bundle validation started: version=" + VERSION + ", destination=" + DEST);
   if (hasValidBundle()) {
-    log("Pinned assets and checksum manifest verified; no download needed.");
+    const manifest = JSON.parse(fs.readFileSync(path.join(DEST, "studio-bundle.json"), "utf8"));
+    const entry = fs.statSync(path.join(DEST, "index.html"));
+    log("Bundle cache hit: version=" + manifest.version + ", sha256=" + manifest.sha256 +
+      ", indexHtmlBytes=" + entry.size + ". No download or extraction required.");
     return;
   }
+
+  log("Bundle cache miss: version stamp, index.html, or checksum manifest is absent or invalid.");
   const archive = await loadWar();
+  log("Archive received: bytes=" + archive.length);
   const digest = crypto.createHash("sha256").update(archive).digest("hex");
-  if (digest !== SHA256) throw new Error("Checksum mismatch for draw.war. Expected " + SHA256 + ", got " + digest + ". The archive was not installed.");
+  log("Archive SHA-256: " + digest);
+  if (digest !== SHA256) {
+    throw new Error("Checksum mismatch for draw.war. Expected " + SHA256 + ", got " + digest + ". The archive was not installed.");
+  }
+  log("SHA-256 verified. Parsing ZIP central directory.");
+  const entries = readEntries(archive);
+  log("ZIP parsed: fileEntries=" + entries.length);
+
   const temp = DEST + ".tmp-" + process.pid;
   fs.rmSync(temp, { recursive: true, force: true });
   fs.mkdirSync(temp, { recursive: true });
   let written = 0;
-  for (const entry of readEntries(archive)) {
-    if (entry.name.startsWith("WEB-INF/") || entry.name.startsWith("META-INF/")) continue;
+  let skipped = 0;
+  let extractedBytes = 0;
+  for (const entry of entries) {
+    if (entry.name.startsWith("WEB-INF/") || entry.name.startsWith("META-INF/")) { skipped++; continue; }
     const target = path.resolve(temp, entry.name);
     if (!target.startsWith(temp + path.sep)) throw new Error("Unsafe archive path: " + entry.name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, entry.data);
     written++;
+    extractedBytes += entry.data.length;
   }
+
   fs.writeFileSync(path.join(temp, ".version"), VERSION + "\n");
   fs.writeFileSync(path.join(temp, "studio-bundle.json"), JSON.stringify({ version: VERSION, sha256: SHA256 }, null, 2) + "\n");
-  if (!fs.existsSync(path.join(temp, "index.html"))) throw new Error("The archive did not contain the Draw.io web entry point.");
+  const entryPath = path.join(temp, "index.html");
+  if (!fs.existsSync(entryPath)) throw new Error("The archive did not contain the Draw.io web entry point.");
+  log("Extraction validated: index.html bytes=" + fs.statSync(entryPath).size + ", files=" + written +
+      ", skippedMetadata=" + skipped + ", extractedBytes=" + extractedBytes);
   fs.rmSync(DEST, { recursive: true, force: true });
   fs.renameSync(temp, DEST);
-  log("Installed " + written + " web assets into public/drawio. Runtime now serves them locally.");
+  log("Install complete: output=" + DEST + ", version=" + VERSION + ", files=" + written +
+      ", elapsedMs=" + (Date.now() - startedAt));
 }
+
 main().catch((error) => {
-  console.error("[drawio-bundle] " + (error instanceof Error ? error.message : String(error)));
+  const message = error instanceof Error ? (error.stack || error.message) : String(error);
+  console.error("[drawio-bundle] " + new Date().toISOString() + " FAILED\n" + message);
   process.exitCode = 1;
 });
