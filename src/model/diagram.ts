@@ -94,10 +94,10 @@ export const initialDiagram: DiagramDocument = {
     { id: 'r4', sourceId: 'api', targetId: 'payment', label: 'Authorizes payment' }
   ],
   layout: {
-    customer: { x: 50, y: 170, width: 170, height: 84 },
-    web: { x: 310, y: 170, width: 190, height: 84 },
-    api: { x: 600, y: 170, width: 190, height: 84 },
-    db: { x: 900, y: 80, width: 190, height: 84 },
-    payment: { x: 900, y: 280, width: 190, height: 84 }
+    customer: { x: 50, y: 170, width: 220, height: 112 },
+    web: { x: 350, y: 170, width: 220, height: 112 },
+    api: { x: 670, y: 170, width: 220, height: 112 },
+    db: { x: 1010, y: 50, width: 220, height: 112 },
+    payment: { x: 1010, y: 320, width: 220, height: 112 }
   }
 };
