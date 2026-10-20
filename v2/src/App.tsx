@@ -547,7 +547,7 @@ export default function App() {
             <label>API Key（可选）<input type="password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="只保留在当前页面内存" autoComplete="off" /></label>
             <div className="ai-settings-note">模型只负责把自然语言转换为受限布局指令；坐标由本地布局器计算。请求会发送用户输入、图标题和节点名称/角色到该接口。请勿将敏感架构信息发送给未经批准的服务；API Key只保留在当前页面内存。</div>
             <div className="ai-settings-actions"><button type="button" onClick={clearAISettings}>清除配置</button><button type="button" className="ai-settings-save" onClick={saveAISettings}>保存设置</button></div>
-          </div>
+          </div>}
           <div className="chat-messages">
             {messages.map((message) => <div key={message.id} className={"chat-message " + message.role}>
               {message.role === "assistant" && <span className="assistant-avatar">F</span>}<div className="chat-bubble">{message.text}</div>
