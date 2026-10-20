@@ -105,10 +105,10 @@ function ensureValid(state: ChatState): string | undefined {
 
 function buildTools(state: ChatState) {
   const addNode = defineTool('add_diagram_node', {
-    description: 'Add a person, system, service, database, or external system to the current diagram. Choose a stable unique ID using letters, numbers, underscore, or hyphen.',
+    description: 'Add a person, software system, container, component, database, or external system to a C4 diagram. Choose a stable unique ID using letters, numbers, underscore, or hyphen.',
     parameters: { type: 'object', properties: {
       id: { type: 'string', description: 'Unique machine ID, e.g. notification_service' },
-      type: { type: 'string', enum: ['person','system','service','component','database','external','boundary'], description: 'C4 element type' },
+      type: { type: 'string', enum: ['person','system','service','component','database','external'], description: 'C4 element type' },
       label: { type: 'string', description: 'Human-readable element name' },
       description: { type: 'string' }, technology: { type: 'string' },
     }, required: ['id','type','label'] },
@@ -501,7 +501,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
   let draft=structuredClone(sharedDiagram);
   const stringArg=(key:string)=>typeof args[key]==='string'?args[key] as string:undefined;
   const id=stringArg('id');
-  const nodeTypes=['person','system','service','component','database','external','boundary'];
+  const nodeTypes=['person','system','service','component','database','external'];
   const relationKinds=['sync','async','data'];
   const hasAnyId=(candidate:string)=>draft.nodes.some((node)=>node.id===candidate)||draft.relations.some((relation)=>relation.id===candidate)||(draft.boundaries??[]).some((boundary)=>boundary.id===candidate)||(draft.sequence?.participants??[]).some((participant)=>participant.id===candidate)||(draft.sequence?.messages??[]).some((message)=>message.id===candidate)||(draft.sequence?.fragments??[]).some((fragment)=>fragment.id===candidate);
   let result:unknown;
