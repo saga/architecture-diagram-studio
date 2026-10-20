@@ -41,3 +41,38 @@
 .theme-editorial .live-dot{background:#bf4520}
 .theme-editorial .property-panel{background:#f5f5f5;border-color:rgba(45,49,66,.18);border-radius:4px}
 .theme-editorial .property-input,.theme-editorial .danger-button{border-radius:4px}
+
+
+/* Layout configuration dialog and reusable variants */
+.settings-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.48);backdrop-filter:blur(3px)}
+.settings-dialog{width:min(940px,calc(100vw - 40px));max-height:min(900px,calc(100vh - 40px));display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid #dce3ed;border-radius:14px;box-shadow:0 24px 80px #0f172a33;color:#172033}
+.settings-heading{display:flex;justify-content:space-between;gap:24px;padding:24px 26px 18px;border-bottom:1px solid #e8edf4}
+.settings-heading h2{font-size:22px;letter-spacing:-.5px;margin:7px 0}
+.settings-heading p{font-size:12px;line-height:1.6;color:#718096;margin:0;max-width:650px}
+.settings-close{width:32px;height:32px;flex-shrink:0;border:1px solid #d8e0eb;border-radius:8px;background:#fff;color:#64748b;font-size:23px;cursor:pointer}
+.variant-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:16px 26px 10px}
+.variant-toolbar label,.variant-save label{display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:700;color:#64748b;min-width:0}
+.settings-select{height:35px;min-width:210px;padding:0 10px;border:1px solid #d8e0eb;border-radius:7px;background:#fff;color:#24344c;font:inherit;font-size:12px}
+.variant-save{display:flex;gap:9px;padding:0 26px 15px;border-bottom:1px solid #e8edf4}
+.variant-save .property-input{height:36px;flex:1}
+.variant-save .primary-button{height:36px;white-space:nowrap}
+.settings-scroll{overflow:auto;padding:4px 26px 18px}
+.engine-settings{padding:17px 0 18px;border-bottom:1px solid #edf0f5}
+.engine-settings:last-child{border-bottom:0}
+.engine-settings-title{display:flex;align-items:baseline;gap:12px;margin-bottom:13px}
+.engine-settings-title h3{font-size:13px;margin:0;color:#24344c}
+.engine-settings-title span{font-size:10px;color:#8793a5}
+.settings-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.settings-grid label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:10px;font-weight:700;color:#68778d}
+.settings-input{width:100%;height:34px;min-width:0;padding:0 8px;border:1px solid #d8e0eb;border-radius:7px;background:#fff;color:#24344c;font:inherit;font-size:12px;font-weight:500}
+.settings-input:focus,.settings-select:focus{outline:2px solid #c3d8f8;border-color:#6b91c9}
+.settings-footer{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px 26px;border-top:1px solid #e8edf4;background:#fbfcfe}
+.settings-footer>span{font-size:10px;line-height:1.5;color:#7a879b}
+.settings-footer .primary-button{flex-shrink:0}
+.variant-toolbar .secondary-button:disabled{opacity:.4;cursor:not-allowed}
+.theme-editorial .settings-dialog{background:#f5f5f5;border-color:#bfc0c0;border-radius:4px;box-shadow:0 24px 80px #2d314222;color:#2d3142}
+.theme-editorial .settings-heading,.theme-editorial .variant-save,.theme-editorial .settings-footer,.theme-editorial .engine-settings{border-color:rgba(45,49,66,.14)}
+.theme-editorial .settings-heading h2,.theme-editorial .engine-settings-title h3{color:#2d3142}
+.theme-editorial .settings-input,.theme-editorial .settings-select,.theme-editorial .settings-close,.theme-editorial .variant-save .property-input{background:#f5f5f5;border-color:#bfc0c0;border-radius:4px;color:#2d3142}
+.theme-editorial .settings-footer{background:#ececec}
+@media(max-width:760px){.settings-backdrop{padding:8px}.settings-dialog{width:100%;max-height:calc(100vh - 16px)}.settings-heading,.variant-toolbar,.variant-save,.settings-scroll,.settings-footer{padding-left:14px;padding-right:14px}.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.engine-settings-title{align-items:flex-start;flex-direction:column;gap:4px}.settings-footer{align-items:flex-start;flex-direction:column}.variant-save{flex-wrap:wrap}.variant-save .property-input{flex-basis:100%}}
