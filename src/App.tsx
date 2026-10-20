@@ -4,7 +4,7 @@ import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type 
 import {initialDiagram,type DiagramDocument,type DiagramKind,type DiagramPortLayout,type DiagramPortSide,type DiagramNode,type SequenceParticipant,type SequenceMessage,type SequenceFragment,type SequenceActivation} from './model/diagram';
 import {createDiagramTemplate} from './model/templates';
 import {isDiagramKind,normalizeDiagramDocument} from './model/migrations';
-import {sequenceActivationIssue,sequenceActivationKey} from './model/sequence';
+import {sequenceActivationDomId,sequenceActivationIssue,sequenceActivationKey} from './model/sequence';
 import {addNodeToBoundary,fitDiagramBoundaries,removeNodesFromBoundaries} from './model/boundaries';
 import {ensureEdgeGeometry,layoutDirectionFor,orthogonalWaypoints,relationPortIds} from './model/routing';
 import {validateDiagram} from './model/validate';
@@ -168,7 +168,7 @@ function sequenceFlowData(doc:DiagramDocument):{nodes:Node[];edges:Edge[]}{
   const endIndex=messages.findIndex(message=>message.id===activation.endMessageId);
   const x=participantX.get(activation.participantId);
   if(startIndex<0||endIndex<startIndex||x===undefined)continue;
-  nodes.push({id:'activation-'+activation.participantId+'-'+activation.startMessageId,type:'sequenceActivation',className:'sequence-activation-node',position:{x:x+participantWidth/2-7,y:rowTop+startIndex*rowGap+17},style:{width:14,height:(endIndex-startIndex)*rowGap+18},data:{participantId:activation.participantId},draggable:false,selectable:false,connectable:false,zIndex:2});
+  nodes.push({id:sequenceActivationDomId(activation),type:'sequenceActivation',className:'sequence-activation-node',position:{x:x+participantWidth/2-7,y:rowTop+startIndex*rowGap+17},style:{width:14,height:(endIndex-startIndex)*rowGap+18},data:{participantId:activation.participantId},draggable:false,selectable:false,connectable:false,zIndex:2});
  }
  messages.forEach(message=>{
   const fromIndex=participants.findIndex(participant=>participant.id===message.fromParticipantId);
