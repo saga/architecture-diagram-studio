@@ -5,7 +5,7 @@ import { sequenceActivationIssue, sequenceActivationKey } from './sequence';
 describe('sequence activation invariants', () => {
   it('uses a stable key for a participant message interval', () => {
     expect(sequenceActivationKey({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-5' }))
-      .toBe('api|msg-2|msg-5');
+      .toBe('["api","msg-2","msg-5"]');
   });
 
   it('rejects missing participants/messages and reversed ranges', () => {
