@@ -59,3 +59,42 @@ Geometry mapping alone cannot guarantee pixel identity: text metrics, font avail
 - Structural changes should trigger local layout where possible.
 - Full layout is an explicit user action.
 - Sequence ordering is a semantic invariant and must not be delegated to a generic graph layout algorithm.
+
+## Copilot chat edit path
+
+The browser never gives the model direct access to React Flow internals or the filesystem. The model receives the current versioned Diagram Document and can invoke only the diagram-specific tools registered by the local API. Tool handlers mutate a request-scoped semantic draft; validation runs before the draft is returned to the browser.
+
+```mermaid
+sequenceDiagram
+  actor Architect
+  participant Chat as React Chat Panel
+  participant API as Local Express API
+  participant SDK as Copilot SDK Session
+  participant Tools as Diagram Tool Handlers
+  participant IR as Diagram Document
+  participant Layout as ELK Layout
+  Architect->>Chat: Describe a diagram change
+  Chat->>API: Prompt + current diagram + recent history
+  API->>SDK: Send prompt with authoritative diagram snapshot
+  SDK->>Tools: add/update/delete node or relation
+  Tools->>IR: Apply validated semantic mutation
+  Tools-->>SDK: Operation result
+  SDK-->>API: Final response
+  API->>API: Validate IDs and relation endpoints
+  API-->>Chat: Response + updated diagram snapshot
+  opt Model requests auto-layout
+    Chat->>Layout: Layout updated graph
+    Layout-->>Chat: New logical coordinates
+  end
+  Chat->>IR: Replace editor document
+  Chat-->>Architect: Show explanation and updated diagram
+```
+
+### Tool boundary
+
+- The SDK client is long-lived; sessions are retained per browser chat ID in process memory.
+- Session tools are limited to node CRUD, relation CRUD, title updates, and an explicit request for ELK layout. No shell, filesystem, or repository tools are registered.
+- The browser sends the current diagram on each turn; it is authoritative over stale model context.
+- Model edits are applied to a draft and validated before the API returns them. The browser applies the complete document snapshot, rather than trying to infer changes from natural-language text.
+- If the API process restarts, the browser sends recent conversation history to seed a new SDK session. The runtime session itself is not durably resumed.
+- The local API binds to loopback; do not expose it directly to a network without adding authentication and request authorization.
