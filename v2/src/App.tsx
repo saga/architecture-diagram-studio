@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { isDiagramDocument } from "./model/types";
-import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment } from "./model/types";
+import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { layoutDiagram, moveNode } from "./layout/layout";
 import { evaluateLayout } from "./layout/quality";
@@ -329,7 +329,7 @@ export default function App() {
         if ((nextRole === "storage" || nextRole === "data") && !layoutHints.preferredSide) {
           layoutHints.preferredSide = "BOTTOM";
         }
-        const visualRole = nextRole === "external" || nextRole === "vendor"
+        const visualRole: VisualRole = nextRole === "external" || nextRole === "vendor"
           ? "external"
           : node.visualRole === "external" ? "secondary" : node.visualRole;
         return { ...node, ...patch, visualRole, layoutHints };
