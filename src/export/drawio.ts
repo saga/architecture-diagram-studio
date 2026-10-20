@@ -55,14 +55,14 @@ function portAnchorStyle(
  */
 function sequenceParticipantStyle(role: 'actor'|'system'|'container'|'database'|'external'):string{
  const common='whiteSpace=wrap;html=1;rounded=1;arcSize=6;strokeWidth=1.5;fontFamily=Arial;fontSize=12;align=center;verticalAlign=middle;spacing=6;';
- if(role==='actor')return common+'fillColor=#f3f7fd;strokeColor=#4976b8;fontColor=#24344b;';
+ if(role==='actor')return 'shape=umlActor;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontFamily=Arial;fontSize=12;strokeColor=#4976b8;fillColor=none;fontColor=#24344b;';
  if(role==='database')return common+'fillColor=#edf8f0;strokeColor=#39805b;fontColor=#24344b;';
  if(role==='external')return common+'fillColor=#fff7e9;strokeColor=#b7791f;dashed=1;fontColor=#24344b;';
  return common+'fillColor=#ffffff;strokeColor=#60738c;fontColor=#24344b;';
 }
 const sequenceParticipantLabel=(label:string,technology:string|undefined,role:'actor'|'system'|'container'|'database'|'external')=>{
  const roleName=role==='actor'?'Actor':role==='system'?'System':role==='container'?'Container':role==='database'?'Database':'External System';
- const tag='<div style="font-size:9px;font-style:italic;line-height:1.2;color:#687d95;">'+htmlText(roleName)+'</div>';
+ const tag=role==='actor'?'':'<div style="font-size:9px;font-style:italic;line-height:1.2;color:#687d95;">'+htmlText(roleName)+'</div>';
  const title='<div style="font-size:12px;font-weight:700;line-height:1.25;margin-top:4px;">'+htmlText(label)+'</div>';
  const subtitle=technology?'<div style="font-size:10px;line-height:1.2;color:#748196;margin-top:4px;">'+htmlText(technology)+'</div>':'';
  return '<div style="font-family:Arial,sans-serif;text-align:center;color:#24344b;white-space:normal;overflow-wrap:anywhere;">'+tag+title+subtitle+'</div>';
@@ -90,7 +90,8 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
  // Lifelines are free-standing dotted edges so the header and messages remain editable native cells.
  for(const participant of participants){
   const center=xById.get(participant.id)!;
-  cells.push('<mxCell id="'+xml('lifeline-'+participant.id)+'" style="edgeStyle=none;html=1;endArrow=none;dashed=1;dashPattern=3 4;strokeColor=#8a9bb0;strokeWidth=1.5;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="'+number(center)+'" y="'+number(headerTop+65)+'" as="sourcePoint"/><mxPoint x="'+number(center)+'" y="'+number(finalY)+'" as="targetPoint"/></mxGeometry></mxCell>');
+  const lifelineTop=headerTop+(participant.role==='actor'?43:65);
+  cells.push('<mxCell id="'+xml('lifeline-'+participant.id)+'" style="edgeStyle=none;html=1;endArrow=none;dashed=1;dashPattern=3 4;strokeColor=#8a9bb0;strokeWidth=1.5;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="'+number(center)+'" y="'+number(lifelineTop)+'" as="sourcePoint"/><mxPoint x="'+number(center)+'" y="'+number(finalY)+'" as="targetPoint"/></mxGeometry></mxCell>');
  }
  // Fragment frames and activation rectangles sit behind the messages.
  for(const fragment of sequence.fragments??[]){
