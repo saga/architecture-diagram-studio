@@ -160,7 +160,9 @@ app.post('/api/chat',async(req,res)=>{
   if(!incoming||incoming.schemaVersion!==1||!Array.isArray(incoming.nodes)||!Array.isArray(incoming.relations)||!incoming.layout||typeof incoming.layout!=='object') return res.status(400).json({error:'Invalid diagram document.'});
   const incomingErrors=validateDiagram(incoming).filter((issue)=>issue.severity==='error');
   if(incomingErrors.length) return res.status(400).json({error:'Diagram is invalid: '+incomingErrors.map((x)=>x.message).join(' ')});
+  const history=Array.isArray(req.body?.history)?req.body.history.filter((m:unknown)=>!!m&&typeof m==='object'&&((m as {role?:unknown}).role==='user'||(m as {role?:unknown}).role==='assistant')&&typeof (m as {content?:unknown}).content==='string').slice(-12) as Array<{role:'user'|'assistant';content:string}>:[];
   let managed=sessions.get(chatSessionId);
+  const isNewSession=!managed;
   if(managed?.busy) return res.status(409).json({error:'This chat is already processing a request.'});
   try{
     if(!managed){
@@ -181,6 +183,7 @@ app.post('/api/chat',async(req,res)=>{
     managed.state.requestAutoLayout=false;
     managed.busy=true;
     const promptWithSnapshot=[
+      ...(isNewSession&&history.length?['Previous conversation (context only; the current user request below takes precedence):',...history.map((m)=>m.role.toUpperCase()+': '+m.content),''] : []),
       'Current authoritative diagram document (JSON):',
       JSON.stringify(managed.state.diagram),
       '',
