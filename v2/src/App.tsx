@@ -343,7 +343,7 @@ export default function App() {
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {viewMode === "studio" ? (
             <DiagramCanvas document={visibleDocument} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
-              onMoveNode={(id, x, y) => commitDocument(moveNode(document, id, x, y), "已手动移动节点；该位置已锁定")} />
+              onMoveNode={(id, x, y) => commitDocument(moveNode(visibleDocument, id, x, y), "已手动移动节点；该位置已锁定")} />
           ) : (
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next) => commitDocument(next, "已从原生 Draw.io 同步修改")} />
           )}

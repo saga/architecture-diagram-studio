@@ -12,6 +12,8 @@ function routeRelations(doc: DiagramDocument): DiagramDocument {
   const relations = doc.relations.map((relation, index) => {
     const source = lookup.get(relation.source), target = lookup.get(relation.target);
     if (!source || !target || doc.kind === "sequence") return { ...relation, points: [] };
+    const routing = relation.routing || doc.layout.routing;
+    if (routing === "polyline") return { ...relation, points: [] };
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
     const lane = 24 + (index % 3) * 12;
@@ -42,11 +44,46 @@ function routeRelations(doc: DiagramDocument): DiagramDocument {
   return { ...doc, relations };
 }
 
+function applyC4SemanticRanks(doc: DiagramDocument): DiagramDocument {
+  if (doc.kind !== "c4" || doc.layout.direction !== "RIGHT") return doc;
+  const defaultRank: Record<string, number> = {
+    actor: 0, source: 0,
+    ui: 1,
+    entry: 2,
+    domain: 3, business: 3, service: 3,
+    api: 4, worker: 4
+  };
+  const ranked = new Map<number, DiagramNode[]>();
+  for (const node of doc.nodes) {
+    if (node.layoutHints?.locked || ["external", "vendor", "storage", "data", "infra"].includes(node.role)) continue;
+    const rank = node.layoutHints?.preferredRank ?? defaultRank[node.role] ?? 3;
+    const group = ranked.get(rank) || [];
+    group.push(node);
+    ranked.set(rank, group);
+  }
+  let x = 48;
+  const nodes = doc.nodes.map((node) => ({ ...node }));
+  for (const rank of [...ranked.keys()].sort((a, b) => a - b)) {
+    const group = ranked.get(rank)!;
+    group.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
+    const width = Math.max(...group.map((node) => node.width));
+    let y = 56;
+    for (const item of group) {
+      const node = nodes.find((candidate) => candidate.id === item.id)!;
+      node.x = x;
+      node.y = Math.max(y, node.y);
+      y = node.y + node.height + doc.layout.nodeSpacing;
+    }
+    x += width + doc.layout.layerSpacing;
+  }
+  return { ...doc, nodes };
+}
+
 function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   const nodes = doc.nodes.map((n) => ({ ...n, layoutHints: { ...(n.layoutHints || {}) } }));
   if (doc.kind === "sequence") return { ...doc, nodes };
   const unlocked = nodes.filter((n) => !n.layoutHints?.locked);
-  const internal = unlocked.filter((n) => n.role !== "external" && n.role !== "vendor");
+  const internal = unlocked.filter((n) => !["external", "vendor", "storage", "data", "infra"].includes(n.role));
   const maxX = Math.max(0, ...internal.map((n) => n.x + n.width));
   const maxY = Math.max(0, ...internal.map((n) => n.y + n.height));
   const external = unlocked.filter((n) => n.layoutHints?.preferredSide === "RIGHT" || ((n.role === "external" || n.role === "vendor") && doc.layout.externalSide === "RIGHT"));
@@ -60,10 +97,12 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   storage.sort((a, b) => a.x - b.x);
   infra.sort((a, b) => a.name.localeCompare(b.name));
   const infraY = Math.max(maxY + 40, ...external.map((n) => n.y + n.height + 32));
-  infra.forEach((n, i) => { n.x = i * (n.width + doc.layout.nodeSpacing); n.y = infraY; });
+  let infraX = 0;
+  infra.forEach((n) => { n.x = infraX; n.y = infraY; infraX += n.width + doc.layout.nodeSpacing; });
   const maxInfraHeight = Math.max(0, ...infra.map((n) => n.height));
   const storageY = Math.max(infraY + (infra.length ? maxInfraHeight + 36 : 56), ...external.map((n) => n.y + n.height + 64));
-  storage.forEach((n, i) => { n.x = i * (n.width + doc.layout.nodeSpacing); n.y = storageY; });
+  let storageX = 0;
+  storage.forEach((n) => { n.x = storageX; n.y = storageY; storageX += n.width + doc.layout.nodeSpacing; });
   return {
     ...doc,
     nodes: nodes.map((n) => {
@@ -116,7 +155,10 @@ async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
     })
   };
   if (doc.kind === "flowchart") next = applyFlowLanes(next);
-  else next = applySemanticLanes(next);
+  else {
+    next = applyC4SemanticRanks(next);
+    next = applySemanticLanes(next);
+  }
   return routeRelations(next);
 }
 
@@ -141,7 +183,11 @@ function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
 }
 
 function layoutSequence(doc: DiagramDocument): DiagramDocument {
-  const order = doc.sequence?.participants || doc.nodes.map((node) => node.id);
+  const declaredOrder = doc.sequence?.participants || [];
+  const order = [
+    ...declaredOrder.filter((id) => doc.nodes.some((node) => node.id === id)),
+    ...doc.nodes.map((node) => node.id).filter((id) => !declaredOrder.includes(id))
+  ];
   const nodes = doc.nodes.map((node) => {
     if (node.layoutHints?.locked) return node;
     const index = Math.max(0, order.indexOf(node.id));
@@ -150,7 +196,13 @@ function layoutSequence(doc: DiagramDocument): DiagramDocument {
   const relations = [...doc.relations]
     .sort((a, b) => (a.sequenceOrder ?? 0) - (b.sequenceOrder ?? 0))
     .map((relation, index) => ({ ...relation, sequenceOrder: relation.sequenceOrder ?? index, points: [] }));
-  return { ...doc, nodes, relations, layout: { ...doc.layout, direction: "RIGHT", routing: "polyline" } };
+  return {
+    ...doc,
+    nodes,
+    relations,
+    sequence: { ...(doc.sequence || { participants: [] }), participants: order },
+    layout: { ...doc.layout, direction: "RIGHT", routing: "polyline" }
+  };
 }
 
 function repairOverlaps(doc: DiagramDocument): DiagramDocument {

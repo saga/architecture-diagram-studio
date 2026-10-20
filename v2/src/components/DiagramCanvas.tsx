@@ -42,7 +42,28 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
     }
   }
   const all = [start, ...points, end];
-  const d = all.map((point, index) => (index === 0 ? "M " : "L ") + point.x + " " + point.y).join(" ");
+  const routing = relation.routing || document.layout.routing;
+  let d = "M " + all[0].x + " " + all[0].y;
+  if (routing === "curved" && all.length > 2) {
+    for (let i = 1; i < all.length - 1; i++) {
+      const previous = all[i - 1], current = all[i], next = all[i + 1];
+      const beforeLength = Math.hypot(previous.x - current.x, previous.y - current.y);
+      const afterLength = Math.hypot(next.x - current.x, next.y - current.y);
+      const radius = Math.min(18, beforeLength / 2, afterLength / 2);
+      const before = {
+        x: current.x + (previous.x - current.x) * radius / Math.max(beforeLength, 0.001),
+        y: current.y + (previous.y - current.y) * radius / Math.max(beforeLength, 0.001)
+      };
+      const after = {
+        x: current.x + (next.x - current.x) * radius / Math.max(afterLength, 0.001),
+        y: current.y + (next.y - current.y) * radius / Math.max(afterLength, 0.001)
+      };
+      d += " L " + before.x + " " + before.y + " Q " + current.x + " " + current.y + " " + after.x + " " + after.y;
+    }
+    d += " L " + all[all.length - 1].x + " " + all[all.length - 1].y;
+  } else {
+    d = all.map((point, index) => (index === 0 ? "M " : "L ") + point.x + " " + point.y).join(" ");
+  }
   let length = 0;
   for (let i = 0; i < all.length - 1; i++) length += Math.hypot(all[i + 1].x - all[i].x, all[i + 1].y - all[i].y);
   let remaining = length / 2, label = all[0];

@@ -6,18 +6,44 @@ function overlaps(a: { x: number; y: number; width: number; height: number }, b:
 }
 function isHorizontal(a: Point, b: Point): boolean { return Math.abs(a.y - b.y) < 0.001; }
 function isVertical(a: Point, b: Point): boolean { return Math.abs(a.x - b.x) < 0.001; }
+function cross(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+function onSegment(a: Point, b: Point, p: Point): boolean {
+  return p.x >= Math.min(a.x, b.x) - 0.001 && p.x <= Math.max(a.x, b.x) + 0.001 &&
+    p.y >= Math.min(a.y, b.y) - 0.001 && p.y <= Math.max(a.y, b.y) + 0.001;
+}
 function intersects(a: Point, b: Point, c: Point, d: Point): boolean {
-  if (isHorizontal(a, b) && isVertical(c, d)) {
-    return c.x > Math.min(a.x, b.x) && c.x < Math.max(a.x, b.x) && a.y > Math.min(c.y, d.y) && a.y < Math.max(c.y, d.y);
-  }
-  if (isVertical(a, b) && isHorizontal(c, d)) return intersects(c, d, a, b);
-  if (isHorizontal(a, b) && isHorizontal(c, d) && Math.abs(a.y - c.y) < 0.001) {
-    return Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) < Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x));
-  }
-  if (isVertical(a, b) && isVertical(c, d) && Math.abs(a.x - c.x) < 0.001) {
-    return Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)) < Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y));
-  }
+  const o1 = cross(a, b, c), o2 = cross(a, b, d);
+  const o3 = cross(c, d, a), o4 = cross(c, d, b);
+  if ((o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) &&
+      (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0)) return true;
+  if (Math.abs(o1) <= 0.001 && onSegment(a, b, c)) return true;
+  if (Math.abs(o2) <= 0.001 && onSegment(a, b, d)) return true;
+  if (Math.abs(o3) <= 0.001 && onSegment(c, d, a)) return true;
+  if (Math.abs(o4) <= 0.001 && onSegment(c, d, b)) return true;
   return false;
+}
+function segmentIntersectsRect(a: Point, b: Point, rect: { x: number; y: number; width: number; height: number }): boolean {
+  let tMin = 0, tMax = 1;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const p = [-dx, dx, -dy, dy];
+  const q = [a.x - rect.x, rect.x + rect.width - a.x, a.y - rect.y, rect.y + rect.height - a.y];
+  for (let i = 0; i < 4; i++) {
+    if (Math.abs(p[i]) < 0.001) {
+      if (q[i] < 0) return false;
+      continue;
+    }
+    const ratio = q[i] / p[i];
+    if (p[i] < 0) {
+      if (ratio > tMax) return false;
+      tMin = Math.max(tMin, ratio);
+    } else {
+      if (ratio < tMin) return false;
+      tMax = Math.min(tMax, ratio);
+    }
+  }
+  return tMin < tMax && tMax > 0 && tMin < 1;
 }
 function pathFor(doc: DiagramDocument, id: string): Point[] {
   const edge = doc.relations.find((relation) => relation.id === id);
@@ -96,6 +122,20 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       }
     }
   }
+  for (const edge of doc.relations) {
+    if (!doc.nodes.some((node) => node.id === edge.source) || !doc.nodes.some((node) => node.id === edge.target)) {
+      errors.push({ code: "invalid-relation", severity: "error", message: "Relation " + edge.id + " references a missing source or target node", relationIds: [edge.id] });
+    }
+  }
+  for (const boundary of doc.boundaries) {
+    const missing = boundary.members.filter((id) => !doc.nodes.some((node) => node.id === id));
+    if (missing.length) {
+      errors.push({ code: "invalid-boundary-member", severity: "error", message: "Boundary " + boundary.name + " contains missing node(s): " + missing.join(", ") });
+    }
+  }
+  for (const node of doc.nodes) {
+    if (node.x < 0 || node.y < 0) errors.push({ code: "negative-position", severity: "error", message: node.name + " is positioned outside the canvas", nodeIds: [node.id] });
+  }
   const paths = doc.relations.map((edge) => ({ id: edge.id, points: pathFor(doc, edge.id) }));
   for (const path of paths) {
     const edge = doc.relations.find((item) => item.id === path.id);
@@ -103,9 +143,7 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       const a = path.points[i], b = path.points[i + 1];
       const hit = doc.nodes.some((node) => {
         if (!edge || node.id === edge.source || node.id === edge.target) return false;
-        if (isHorizontal(a, b)) return a.y > node.y && a.y < node.y + node.height && Math.max(Math.min(a.x, b.x), node.x) < Math.min(Math.max(a.x, b.x), node.x + node.width);
-        if (isVertical(a, b)) return a.x > node.x && a.x < node.x + node.width && Math.max(Math.min(a.y, b.y), node.y) < Math.min(Math.max(a.y, b.y), node.y + node.height);
-        return false;
+        return segmentIntersectsRect(a, b, node);
       });
       if (hit) edgeNodeIntersections++;
     }
@@ -142,7 +180,7 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   const occupancy = doc.nodes.reduce((sum, n) => sum + n.width * n.height, 0) / area;
   const whitespaceScore = Math.max(0, Math.min(1, 1 - Math.abs(occupancy - 0.18) * 2));
   const densityScore = Math.max(0, Math.min(1, 1 - doc.nodes.length / 32));
-  if (edgeNodeIntersections) warnings.push({ code: "edge-through-node", severity: "warning", message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node" });
+  if (edgeNodeIntersections) errors.push({ code: "edge-through-node", severity: "error", message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node" });
   if (edgeCrossings) warnings.push({ code: "edge-crossing", severity: "warning", message: edgeCrossings + " possible edge crossing(s)" });
   if (labelCollisions) warnings.push({ code: "label-collision", severity: "warning", message: labelCollisions + " estimated edge-label collision(s)" });
   if (disconnectedComponents) warnings.push({ code: "disconnected-components", severity: "warning", message: disconnectedComponents + " disconnected component(s) beyond the first" });
