@@ -16,6 +16,7 @@ const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/;
 interface ChatState { diagram: DiagramDocument; requestAutoLayout: boolean }
 interface ManagedSession { session: CopilotSession; state: ChatState; busy: boolean }
 const sessions = new Map<string, ManagedSession>();
+const pendingSessions = new Map<string, Promise<ManagedSession>>();
 let client: CopilotClient | undefined;
 let clientStart: Promise<CopilotClient> | undefined;
 
@@ -162,22 +163,34 @@ app.post('/api/chat',async(req,res)=>{
   const history=Array.isArray(req.body?.history)?req.body.history.filter((m:unknown)=>!!m&&typeof m==='object'&&((m as {role?:unknown}).role==='user'||(m as {role?:unknown}).role==='assistant')&&typeof (m as {content?:unknown}).content==='string').slice(-12) as Array<{role:'user'|'assistant';content:string}>:[];
   let managed=sessions.get(chatSessionId);
   const isNewSession=!managed;
+  let claimedBusySlot=false;
   if(managed?.busy) return res.status(409).json({error:'This chat is already processing a request.'});
   try{
     if(!managed){
-      const state:ChatState={diagram:structuredClone(incoming),requestAutoLayout:false};
-      const sdk=await getClient();
-      const systemMessage=[
-        'You are the architecture-diagram assistant in Architecture Diagram Studio.',
-        'Use the supplied diagram tools to make concrete edits when the user asks to change the diagram. Do not merely describe edits.',
-        'Only change what the user requested. Preserve existing IDs unless changing them is necessary. Add meaningful labels and descriptions. Every relation endpoint must reference an existing node.',
-        'For questions or analysis that do not request a change, answer in natural language and do not mutate the diagram.',
-        'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
-      ].join(' ');
-      const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},tools:buildTools(state)});
-      managed={session,state,busy:false};
-      sessions.set(chatSessionId,managed);
+      let pending=pendingSessions.get(chatSessionId);
+      if(!pending){
+        pending=(async()=>{
+          const state:ChatState={diagram:structuredClone(incoming),requestAutoLayout:false};
+          const sdk=await getClient();
+          const systemMessage=[
+            'You are the architecture-diagram assistant in Architecture Diagram Studio.',
+            'Use the supplied diagram tools to make concrete edits when the user asks to change the diagram. Do not merely describe edits.',
+            'Only change what the user requested. Preserve existing IDs unless changing them is necessary. Add meaningful labels and descriptions. Every relation endpoint must reference an existing node.',
+            'For questions or analysis that do not request a change, answer in natural language and do not mutate the diagram.',
+            'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
+          ].join(' ');
+          const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},tools:buildTools(state)});
+          const created:ManagedSession={session,state,busy:false};
+          sessions.set(chatSessionId,created);
+          return created;
+        })();
+        pendingSessions.set(chatSessionId,pending);
+      }
+      try{managed=await pending;}finally{if(pendingSessions.get(chatSessionId)===pending)pendingSessions.delete(chatSessionId);}
     }
+    if(managed.busy) return res.status(409).json({error:'This chat is already processing a request.'});
+    managed.busy=true;
+    claimedBusySlot=true;
     managed.state.diagram=structuredClone(incoming);
     managed.state.requestAutoLayout=false;
     managed.busy=true;
@@ -198,8 +211,7 @@ app.post('/api/chat',async(req,res)=>{
     const message=error instanceof Error?error.message:String(error);
     return res.status(502).json({error:'Copilot request failed: '+message});
   }finally{
-    const current=sessions.get(chatSessionId);
-    if(current) current.busy=false;
+    if(claimedBusySlot){const current=sessions.get(chatSessionId);if(current) current.busy=false;}
   }
 });
 
