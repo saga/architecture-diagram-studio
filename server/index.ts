@@ -154,7 +154,9 @@ app.use(express.json({limit:'1mb'}));
 app.get('/api/health',(_req,res)=>res.json({ok:true,provider:'copilot-sdk',model:MODEL,connected:!!client}));
 
 app.get('/api/diagram',(_req,res)=>{
-  res.json({diagram:sharedDiagram??null,revision:diagramRevision,requestAutoLayout:sharedAutoLayoutRequested});
+  const requestAutoLayout=sharedAutoLayoutRequested;
+  sharedAutoLayoutRequested=false;
+  res.json({diagram:sharedDiagram??null,revision:diagramRevision,requestAutoLayout});
 });
 
 app.put('/api/diagram',(req,res)=>{
