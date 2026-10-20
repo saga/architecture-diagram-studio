@@ -27,7 +27,7 @@ export function createDiagramTemplate(kind: DiagramKind): DiagramDocument {
         { id: 'context-order-identity', sourceId: 'order-platform', targetId: 'identity', label: 'Authenticates customers' },
       ],
       layout: {
-        customer: { x: 60, y: 220, width: 205, height: 105 },
+        customer: { x: 60, y: 220, width: 220, height: 112 },
         'order-platform': { x: 390, y: 205, width: 260, height: 130 },
         payment: { x: 800, y: 115, width: 230, height: 115 },
         identity: { x: 800, y: 330, width: 230, height: 115 },
