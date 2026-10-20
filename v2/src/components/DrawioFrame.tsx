@@ -16,6 +16,7 @@ interface Props {
 export default function DrawioFrame({ document, xml, onDocumentChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const lastSent = useRef("");
+  const seenEvents = useRef(new Set<string>());
   const [available, setAvailable] = useState<boolean | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
@@ -96,6 +97,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         return;
       }
       if (!data || typeof data !== "object") return;
+      if (typeof data.event === "string" && !seenEvents.current.has(data.event)) {
+        seenEvents.current.add(data.event);
+        recordDiagnostic("drawio.message.first_seen", "首次收到 Draw.io embed 协议事件", {
+          event: data.event, fields: Object.keys(data).slice(0, 20), origin: event.origin
+        });
+      }
 
       if (data.event === "configure") {
         recordDiagnostic("drawio.handshake.configure", "Draw.io 请求配置");
