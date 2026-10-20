@@ -179,7 +179,6 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
   return {
     ...portAware,
     relations: portAware.relations.map((relation) => {
-      if (Array.isArray(relation.waypoints)) return relation;
       const ids = relationPortIds(relation);
       const sourceGeometry = dimensions(portAware, relation.sourceId);
       const targetGeometry = dimensions(portAware, relation.targetId);
@@ -188,11 +187,18 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
       if (!sourcePort || !targetPort) return { ...relation, waypoints: [] };
       const sourceLocal = portPosition(sourcePort, sourceGeometry.width, sourceGeometry.height);
       const targetLocal = portPosition(targetPort, targetGeometry.width, targetGeometry.height);
+      const sourcePoint = { x: sourceGeometry.x + sourceLocal.x, y: sourceGeometry.y + sourceLocal.y };
+      const targetPoint = { x: targetGeometry.x + targetLocal.x, y: targetGeometry.y + targetLocal.y };
+      // A layout algorithm may return an empty bend-point list for an edge that is not straight.
+      // Preserve explicit routes; otherwise build a Manhattan route from the canonical ports.
+      if (Array.isArray(relation.waypoints) && (relation.waypoints.length > 0
+        || Math.abs(sourcePoint.x - targetPoint.x) < 0.5
+        || Math.abs(sourcePoint.y - targetPoint.y) < 0.5)) return relation;
       return {
         ...relation,
         waypoints: orthogonalWaypoints(
-          { x: sourceGeometry.x + sourceLocal.x, y: sourceGeometry.y + sourceLocal.y },
-          { x: targetGeometry.x + targetLocal.x, y: targetGeometry.y + targetLocal.y },
+          sourcePoint,
+          targetPoint,
           getPortSide(sourcePort, sides.source),
           getPortSide(targetPort, sides.target),
         ),
