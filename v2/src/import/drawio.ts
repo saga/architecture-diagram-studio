@@ -75,12 +75,19 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const geometry = cell.querySelector(":scope > mxGeometry");
       const old = previousNodes.get(id);
       if (!geometry) continue;
+      const x = Number(geometry.getAttribute("x") || 0);
+      const y = Number(geometry.getAttribute("y") || 0);
+      const width = Number(geometry.getAttribute("width") || 180);
+      const height = Number(geometry.getAttribute("height") || 78);
+      const positionChanged = Boolean(old && (Math.abs(old.x - x) > 1 || Math.abs(old.y - y) > 1));
       nodes.push({
         ...(old || { id, name: value || "New node", role: roleFromStyle(style), visualRole: visualRoleFromStyle(style), width: 180, height: 78, x: 0, y: 0, layoutHints: {} }),
         name: value || (old ? old.name : "New node"),
-        x: Number(geometry.getAttribute("x") || 0), y: Number(geometry.getAttribute("y") || 0),
-        width: Number(geometry.getAttribute("width") || 180), height: Number(geometry.getAttribute("height") || 78),
-        layoutHints: { ...((old && old.layoutHints) || {}), locked: true }
+        x, y, width, height,
+        layoutHints: {
+          ...((old && old.layoutHints) || {}),
+          locked: old ? Boolean(old.layoutHints?.locked) || positionChanged : false
+        }
       });
     } else if (cell.getAttribute("edge") === "1") {
       if (id.endsWith("__lifeline")) continue;
