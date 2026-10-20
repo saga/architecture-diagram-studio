@@ -202,7 +202,177 @@ function buildTools(state: ChatState) {
     parameters:{type:'object',properties:{reason:{type:'string'}},required:[]},
     handler:async(args:{reason?:string})=>{state.requestAutoLayout=true;return {ok:true,requested:true,reason:args.reason??'Structural changes'};},
   });
-  return [addNode,updateNode,removeNode,addRelation,updateRelation,removeRelation,setTitle,requestLayout];
+  const setDiagramKind = defineTool('set_diagram_kind', {
+    description: 'Switch the active diagram to a C4 Context, Container, Component, or UML Sequence template. Use this before sequence-specific tools when the user asks to create a sequence diagram.',
+    parameters: { type: 'object', properties: { kind: { type: 'string', enum: ['c4-context','c4-container','c4-component','sequence'] }, title: { type: 'string' } }, required: ['kind'] },
+    handler: async (args: { kind: DiagramKind; title?: string }) => {
+      if (state.diagram.kind === args.kind) return { ok: true, kind: args.kind, unchanged: true };
+      const next = createDiagramTemplate(args.kind);
+      if (args.title?.trim()) next.title = args.title.trim().slice(0, 200);
+      state.diagram = next;
+      state.requestAutoLayout = args.kind !== 'sequence';
+      return { ok: true, kind: next.kind, title: next.title, participantCount: next.sequence?.participants.length ?? 0, elementCount: next.nodes.length };
+    },
+  });
+
+  const addSequenceParticipant = defineTool('add_sequence_participant', {
+    description: 'Add an actor, system, container, database, or external system to a UML sequence diagram. Participant order determines the horizontal lifeline order.',
+    parameters: { type: 'object', properties: {
+      id: { type: 'string' }, label: { type: 'string' },
+      role: { type: 'string', enum: ['actor','system','container','database','external'] },
+      technology: { type: 'string' }, description: { type: 'string' },
+    }, required: ['id','label','role'] },
+    handler: async (args: { id: string; label: string; role: SequenceParticipant['role']; technology?: string; description?: string }) => {
+      if (state.diagram.kind !== 'sequence' || !state.diagram.sequence) return toolError('Switch to a UML Sequence diagram before adding a participant.');
+      if (!validId(args.id)) return toolError('Participant ID is invalid.');
+      if (hasId(state, args.id)) return toolError('That ID already exists. Choose a different ID.');
+      if (!args.label.trim()) return toolError('Participant label cannot be empty.');
+      const participant: SequenceParticipant = {
+        id: args.id, label: args.label.trim(), role: args.role,
+        ...(args.technology?.trim() ? { technology: args.technology.trim() } : {}),
+        ...(args.description?.trim() ? { description: args.description.trim() } : {}),
+      };
+      state.diagram.sequence.participants.push(participant);
+      return { ok: true, participant, participantIndex: state.diagram.sequence.participants.length - 1 };
+    },
+  });
+
+  const updateSequenceParticipant = defineTool('update_sequence_participant', {
+    description: 'Update the label, role, technology, or description of a participant in a UML sequence diagram.',
+    parameters: { type: 'object', properties: {
+      id: { type: 'string' }, label: { type: 'string' },
+      role: { type: 'string', enum: ['actor','system','container','database','external'] },
+      technology: { type: 'string' }, description: { type: 'string' },
+    }, required: ['id'] },
+    handler: async (args: { id: string; label?: string; role?: SequenceParticipant['role']; technology?: string; description?: string }) => {
+      const participant = state.diagram.sequence?.participants.find((item) => item.id === args.id);
+      if (state.diagram.kind !== 'sequence' || !participant) return toolError('Sequence participant not found.');
+      if (args.label !== undefined) {
+        if (!args.label.trim()) return toolError('Participant label cannot be empty.');
+        participant.label = args.label.trim();
+      }
+      if (args.role !== undefined) participant.role = args.role;
+      if (args.technology !== undefined) participant.technology = args.technology.trim();
+      if (args.description !== undefined) participant.description = args.description.trim();
+      return { ok: true, participant };
+    },
+  });
+
+  const deleteSequenceParticipant = defineTool('delete_sequence_participant', {
+    description: 'Delete a sequence participant and all messages, activations, and fragments that depend on it.',
+    parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (args: { id: string }) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence?.participants.some((participant) => participant.id === args.id)) return toolError('Sequence participant not found.');
+      sequence.participants = sequence.participants.filter((participant) => participant.id !== args.id);
+      sequence.messages = sequence.messages.filter((message) => message.fromParticipantId !== args.id && message.toParticipantId !== args.id);
+      const messageIds = new Set(sequence.messages.map((message) => message.id));
+      sequence.activations = sequence.activations?.filter((activation) => activation.participantId !== args.id && messageIds.has(activation.startMessageId) && messageIds.has(activation.endMessageId));
+      sequence.fragments = sequence.fragments?.filter((fragment) => messageIds.has(fragment.startMessageId) && messageIds.has(fragment.endMessageId));
+      return { ok: true, deletedParticipantId: args.id, messageCount: sequence.messages.length };
+    },
+  });
+
+  const addSequenceMessage = defineTool('add_sequence_message', {
+    description: 'Add a time-ordered message between two existing sequence participants. The message may be a synchronous call, return, or asynchronous message.',
+    parameters: { type: 'object', properties: {
+      id: { type: 'string' }, fromParticipantId: { type: 'string' }, toParticipantId: { type: 'string' },
+      label: { type: 'string' }, kind: { type: 'string', enum: ['call','return','async'] }, order: { type: 'number' },
+    }, required: ['id','fromParticipantId','toParticipantId','label'] },
+    handler: async (args: { id: string; fromParticipantId: string; toParticipantId: string; label: string; kind?: SequenceMessage['kind']; order?: number }) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence) return toolError('Switch to a UML Sequence diagram before adding a message.');
+      if (!validId(args.id)) return toolError('Message ID is invalid.');
+      if (hasId(state, args.id)) return toolError('That ID already exists. Choose a different ID.');
+      if (!args.label.trim()) return toolError('Message label cannot be empty.');
+      const participantIds = new Set(sequence.participants.map((participant) => participant.id));
+      if (!participantIds.has(args.fromParticipantId) || !participantIds.has(args.toParticipantId)) return toolError('Both source and target participants must exist.');
+      const order = args.order ?? Math.max(0, ...sequence.messages.map((message) => message.order)) + 1;
+      if (!Number.isInteger(order) || order < 1 || sequence.messages.some((message) => message.order === order)) return toolError('Message order must be a unique positive integer.');
+      const message: SequenceMessage = { id: args.id, fromParticipantId: args.fromParticipantId, toParticipantId: args.toParticipantId, label: args.label.trim(), kind: args.kind ?? 'call', order };
+      sequence.messages.push(message);
+      return { ok: true, message };
+    },
+  });
+
+  const updateSequenceMessage = defineTool('update_sequence_message', {
+    description: 'Edit a sequence message label, source/target participant, type, or order.',
+    parameters: { type: 'object', properties: {
+      id: { type: 'string' }, label: { type: 'string' }, fromParticipantId: { type: 'string' }, toParticipantId: { type: 'string' },
+      kind: { type: 'string', enum: ['call','return','async'] }, order: { type: 'number' },
+    }, required: ['id'] },
+    handler: async (args: { id: string; label?: string; fromParticipantId?: string; toParticipantId?: string; kind?: SequenceMessage['kind']; order?: number }) => {
+      const sequence = state.diagram.sequence;
+      const message = sequence?.messages.find((item) => item.id === args.id);
+      if (state.diagram.kind !== 'sequence' || !sequence || !message) return toolError('Sequence message not found.');
+      const participants = new Set(sequence.participants.map((participant) => participant.id));
+      if (args.fromParticipantId && !participants.has(args.fromParticipantId)) return toolError('Source participant not found.');
+      if (args.toParticipantId && !participants.has(args.toParticipantId)) return toolError('Target participant not found.');
+      if (args.label !== undefined) {
+        if (!args.label.trim()) return toolError('Message label cannot be empty.');
+        message.label = args.label.trim();
+      }
+      if (args.fromParticipantId) message.fromParticipantId = args.fromParticipantId;
+      if (args.toParticipantId) message.toParticipantId = args.toParticipantId;
+      if (args.kind) message.kind = args.kind;
+      if (args.order !== undefined) {
+        if (!Number.isInteger(args.order) || args.order < 1 || sequence.messages.some((other) => other.id !== message.id && other.order === args.order)) return toolError('Message order must be a unique positive integer.');
+        message.order = args.order;
+      }
+      return { ok: true, message };
+    },
+  });
+
+  const deleteSequenceMessage = defineTool('delete_sequence_message', {
+    description: 'Delete a sequence message and any activation or fragment whose bounds refer to it.',
+    parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (args: { id: string }) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence?.messages.some((message) => message.id === args.id)) return toolError('Sequence message not found.');
+      sequence.messages = sequence.messages.filter((message) => message.id !== args.id);
+      const ids = new Set(sequence.messages.map((message) => message.id));
+      sequence.activations = sequence.activations?.filter((activation) => ids.has(activation.startMessageId) && ids.has(activation.endMessageId));
+      sequence.fragments = sequence.fragments?.filter((fragment) => ids.has(fragment.startMessageId) && ids.has(fragment.endMessageId));
+      return { ok: true, deletedMessageId: args.id, messageCount: sequence.messages.length };
+    },
+  });
+
+  const addSequenceFragment = defineTool('add_sequence_fragment', {
+    description: 'Add a UML sequence fragment frame (alt, opt, loop, or par) around an inclusive range of messages, optionally with a guard condition.',
+    parameters: { type: 'object', properties: {
+      id: { type: 'string' }, kind: { type: 'string', enum: ['alt','opt','loop','par'] }, title: { type: 'string' }, guard: { type: 'string' },
+      startMessageId: { type: 'string' }, endMessageId: { type: 'string' }, participantStartId: { type: 'string' }, participantEndId: { type: 'string' },
+    }, required: ['id','kind','title','startMessageId','endMessageId'] },
+    handler: async (args: { id: string; kind: SequenceFragment['kind']; title: string; guard?: string; startMessageId: string; endMessageId: string; participantStartId?: string; participantEndId?: string }) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence) return toolError('Switch to a UML Sequence diagram before adding a fragment.');
+      if (!validId(args.id) || hasId(state, args.id)) return toolError('Fragment ID is invalid or already used.');
+      if (!args.title.trim()) return toolError('Fragment title cannot be empty.');
+      const messages = [...sequence.messages].sort((a, b) => a.order - b.order);
+      const start = messages.findIndex((message) => message.id === args.startMessageId);
+      const end = messages.findIndex((message) => message.id === args.endMessageId);
+      if (start < 0 || end < 0 || start > end) return toolError('Fragment start/end must reference messages in chronological order.');
+      const participants = new Set(sequence.participants.map((participant) => participant.id));
+      if (args.participantStartId && !participants.has(args.participantStartId)) return toolError('Fragment start participant not found.');
+      if (args.participantEndId && !participants.has(args.participantEndId)) return toolError('Fragment end participant not found.');
+      const fragment: SequenceFragment = { id: args.id, kind: args.kind, title: args.title.trim(), startMessageId: args.startMessageId, endMessageId: args.endMessageId, ...(args.guard?.trim() ? { guard: args.guard.trim() } : {}), ...(args.participantStartId ? { participantStartId: args.participantStartId } : {}), ...(args.participantEndId ? { participantEndId: args.participantEndId } : {}) };
+      (sequence.fragments ??= []).push(fragment);
+      return { ok: true, fragment };
+    },
+  });
+
+  const deleteSequenceFragment = defineTool('delete_sequence_fragment', {
+    description: 'Delete a UML sequence fragment by ID.',
+    parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (args: { id: string }) => {
+      const sequence = state.diagram.sequence;
+      if (state.diagram.kind !== 'sequence' || !sequence?.fragments?.some((fragment) => fragment.id === args.id)) return toolError('Sequence fragment not found.');
+      sequence.fragments = sequence.fragments.filter((fragment) => fragment.id !== args.id);
+      return { ok: true, deletedFragmentId: args.id };
+    },
+  });
+
+    return [setDiagramKind,addNode,updateNode,removeNode,addRelation,updateRelation,removeRelation,addSequenceParticipant,updateSequenceParticipant,deleteSequenceParticipant,addSequenceMessage,updateSequenceMessage,deleteSequenceMessage,addSequenceFragment,deleteSequenceFragment,setTitle,requestLayout];
 }
 
 const app=express();
@@ -375,6 +545,7 @@ app.post('/api/chat',async(req,res)=>{
             'Use the supplied diagram tools to make concrete edits when the user asks to change the diagram. Do not merely describe edits.',
             'Only change what the user requested. Preserve existing IDs unless changing them is necessary. Add meaningful labels and descriptions. Every relation endpoint must reference an existing node.',
             'For questions or analysis that do not request a change, answer in natural language and do not mutate the diagram.',
+            'The editor supports C4 Context, Container, Component, and UML Sequence views. Use set_diagram_kind when the requested diagram type differs from the active type. C4 edits use diagram node/relation tools; sequence edits use participants, ordered messages, and fragments tools. Do not put graph nodes or relations into a sequence diagram.',
             'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
           ].join(' ');
           const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
