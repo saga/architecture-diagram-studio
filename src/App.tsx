@@ -88,8 +88,8 @@ function SequenceParticipantNode({data}:NodeProps<SequenceParticipantFlowNode>){
   <div className="sequence-lifeline-stem"/>
  </div>;
 }
-function SequenceActivationNode(){
- return <div className="sequence-activation" aria-hidden="true"/>;
+function SequenceActivationNode({data}:NodeProps<SequenceActivationFlowNode>){
+ return <div className="sequence-activation" aria-hidden="true" data-participant={data.participantId}/>;
 }
 function SequenceFragmentNode({data}:NodeProps<SequenceFragmentFlowNode>){
  return <div className={'sequence-fragment fragment-'+data.kind}>
