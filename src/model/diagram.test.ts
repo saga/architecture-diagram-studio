@@ -169,6 +169,14 @@ describe('draw.io export', () => {
     expect(xml).toContain('<mxPoint x="140" y="186" as="sourcePoint"/><Array as="points"><mxPoint x="180" y="186"/><mxPoint x="180" y="164"/></Array><mxPoint x="140" y="164" as="targetPoint"/>');
   });
 
+  it('uses native UML actor shapes for sequence actors, independently of C4 Person cards', () => {
+    const sequence = createDiagramTemplate('sequence');
+    const xml = exportDrawio(sequence);
+    expect(xml).toContain('shape=umlActor;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;');
+    expect(xml).toContain('id="participant-customer"');
+    expect(xml).not.toContain('fillColor=#08427b;strokeColor=#052c52;fontColor=#ffffff;');
+  });
+
   it('rejects sequence messages whose participant references are missing', () => {
     const sequence = createDiagramTemplate('sequence');
     sequence.sequence!.messages[0].toParticipantId = 'missing-participant';
