@@ -51,6 +51,21 @@ function portAnchorStyle(
  * Convert the current semantic + layout snapshot into native mxGraph XML.
  * Export is intentionally pure: no layout, DOM measurement, or implicit geometry changes.
  */
+function sequenceParticipantStyle(role: 'actor'|'system'|'container'|'database'|'external'):string{
+ const common='whiteSpace=wrap;html=1;rounded=1;arcSize=6;strokeWidth=1.5;fontFamily=Arial;fontSize=12;align=center;verticalAlign=middle;spacing=6;';
+ if(role==='actor')return common+'fillColor=#f3f7fd;strokeColor=#4976b8;fontColor=#24344b;';
+ if(role==='database')return common+'fillColor=#edf8f0;strokeColor=#39805b;fontColor=#24344b;';
+ if(role==='external')return common+'fillColor=#fff7e9;strokeColor=#b7791f;dashed=1;fontColor=#24344b;';
+ return common+'fillColor=#ffffff;strokeColor=#60738c;fontColor=#24344b;';
+}
+const sequenceParticipantLabel=(label:string,technology:string|undefined,role:'actor'|'system'|'container'|'database'|'external')=>{
+ const roleName=role==='actor'?'Actor':role==='system'?'System':role==='container'?'Container':role==='database'?'Database':'External System';
+ const tag='<div style="font-size:9px;font-style:italic;line-height:1.2;color:#687d95;">'+htmlText(roleName)+'</div>';
+ const title='<div style="font-size:12px;font-weight:700;line-height:1.25;margin-top:4px;">'+htmlText(label)+'</div>';
+ const subtitle=technology?'<div style="font-size:10px;line-height:1.2;color:#748196;margin-top:4px;">'+htmlText(technology)+'</div>':'';
+ return '<div style="font-family:Arial,sans-serif;text-align:center;color:#24344b;white-space:normal;overflow-wrap:anywhere;">'+tag+title+subtitle+'</div>';
+};
+
 function sequenceMessageLabel(message:SequenceMessage):string{
  return String(message.order)+'. '+message.label;
 }
@@ -113,9 +128,8 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
  }
  for(const participant of participants){
   const center=xById.get(participant.id)!;
-  const roleType:DiagramNode['type']=participant.role==='actor'?'person':participant.role==='system'?'system':participant.role==='database'?'database':participant.role==='external'?'external':'service';
-  const styleText=style(roleType);
-  const label=nodeLabel(participant.label,participant.technology,roleType,participant.description);
+  const styleText=sequenceParticipantStyle(participant.role);
+  const label=sequenceParticipantLabel(participant.label,participant.technology,participant.role);
   cells.push('<mxCell id="'+xml('participant-'+participant.id)+'" value="'+xml(label)+'" style="'+styleText+'" vertex="1" parent="1"><mxGeometry x="'+number(center-participantWidth/2)+'" y="'+number(headerTop)+'" width="'+number(participantWidth)+'" height="64" as="geometry"/></mxCell>');
  }
  const pageWidth=Math.max(1169,participantLeft+participants.length*(participantWidth+participantGap)+80);
@@ -126,10 +140,12 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
 /** Convert the current diagram snapshot into native, editable draw.io XML. */
 export function exportDrawio(doc:DiagramDocument):string{
  const errors=validateDiagram(doc).filter(issue=>issue.severity==='error');
- if(errors.length) throw new Error('Cannot export invalid diagram:\\n'+errors.map(issue=>issue.message).join('\\n'));
+ if(errors.length) throw new Error('Cannot export invalid diagram:\n'+errors.map(issue=>issue.message).join('\n'));
  if(doc.kind==='sequence')return exportSequenceDrawio(doc);
  const routed=ensureEdgeGeometry(doc);
  const cells=['<mxCell id="0"/>','<mxCell id="1" parent="0"/>'];
+ const pageWidth=Math.max(1169,...routed.nodes.map(node=>(routed.layout[node.id]?.x??0)+(routed.layout[node.id]?.width??220)+80));
+ const pageHeight=Math.max(827,...routed.nodes.map(node=>(routed.layout[node.id]?.y??0)+(routed.layout[node.id]?.height??112)+80));
  for(const n of routed.nodes){
   const g=routed.layout[n.id]??{x:0,y:0,width:220,height:112};
   const label=xml(nodeLabel(n.label,n.technology,n.type,n.description));
@@ -147,7 +163,7 @@ export function exportDrawio(doc:DiagramDocument):string{
     +portAnchorStyle(targetPort,targetGeometry,'entry');
   cells.push('<mxCell id="'+xml(e.id)+'" value="'+xml(e.label)+'" style="'+edgeStyle+'" edge="1" parent="1" source="'+xml(e.sourceId)+'" target="'+xml(e.targetId)+'"><mxGeometry relative="1" as="geometry">'+points+'</mxGeometry></mxCell>');
  }
- return '<?xml version="1.0" encoding="UTF-8"?>\n<mxfile host="app.diagrams.net" agent="Architecture Diagram Studio" version="24.7.17" type="device"><diagram id="'+xml(routed.id)+'" name="'+xml(routed.title)+'"><mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0"><root>'+cells.join('')+'</root></mxGraphModel></diagram></mxfile>';
+ return '<?xml version="1.0" encoding="UTF-8"?>\n<mxfile host="app.diagrams.net" agent="Architecture Diagram Studio" version="24.7.17" type="device"><diagram id="'+xml(routed.id)+'" name="'+xml(routed.title)+'"><mxGraphModel dx="'+number(pageWidth)+'" dy="'+number(pageHeight)+'" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="'+number(pageWidth)+'" pageHeight="'+number(pageHeight)+'" math="0" shadow="0"><root>'+cells.join('')+'</root></mxGraphModel></diagram></mxfile>';
 }
 export function downloadDrawio(doc:DiagramDocument):void{
  const blob=new Blob([exportDrawio(doc)],{type:'application/xml;charset=utf-8'});
