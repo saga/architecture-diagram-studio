@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
-import { type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
+import { initialDiagram, type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
 import { validateDiagram } from '../src/model/validate.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -17,6 +17,9 @@ interface ChatState { diagram: DiagramDocument; requestAutoLayout: boolean }
 interface ManagedSession { session: CopilotSession; state: ChatState; busy: boolean }
 const sessions = new Map<string, ManagedSession>();
 const pendingSessions = new Map<string, Promise<ManagedSession>>();
+let sharedDiagram: DiagramDocument | undefined;
+let diagramRevision = 0;
+let sharedAutoLayoutRequested = false;
 let client: CopilotClient | undefined;
 let clientStart: Promise<CopilotClient> | undefined;
 
@@ -149,6 +152,93 @@ const app=express();
 app.disable('x-powered-by');
 app.use(express.json({limit:'1mb'}));
 app.get('/api/health',(_req,res)=>res.json({ok:true,provider:'copilot-sdk',model:MODEL,connected:!!client}));
+
+app.get('/api/diagram',(_req,res)=>{
+  res.json({diagram:sharedDiagram??null,revision:diagramRevision,requestAutoLayout:sharedAutoLayoutRequested});
+});
+
+app.put('/api/diagram',(req,res)=>{
+  const incoming=req.body?.diagram as DiagramDocument|undefined;
+  const expectedRevision=Number(req.body?.expectedRevision);
+  if(!incoming||incoming.schemaVersion!==1||!Array.isArray(incoming.nodes)||!Array.isArray(incoming.relations)||!incoming.layout||typeof incoming.layout!=='object')
+    return res.status(400).json({error:'Invalid diagram document.'});
+  const errors=validateDiagram(incoming).filter((issue)=>issue.severity==='error');
+  if(errors.length)return res.status(400).json({error:'Diagram is invalid: '+errors.map((issue)=>issue.message).join(' ')});
+  if(Number.isFinite(expectedRevision)&&expectedRevision!==diagramRevision)
+    return res.status(409).json({error:'Diagram changed in another client.',revision:diagramRevision});
+  sharedDiagram=structuredClone(incoming);
+  diagramRevision+=1;
+  sharedAutoLayoutRequested=false;
+  return res.json({ok:true,revision:diagramRevision});
+});
+
+app.get('/api/diagram/validate',(_req,res)=>{
+  if(!sharedDiagram)return res.status(409).json({error:'No active diagram. Open Architecture Diagram Studio in a browser first.'});
+  return res.json({valid:validateDiagram(sharedDiagram).every((issue)=>issue.severity!=='error'),issues:validateDiagram(sharedDiagram)});
+});
+
+app.post('/api/diagram/mutate',(req,res)=>{
+  if(!sharedDiagram)return res.status(409).json({error:'No active diagram. Open Architecture Diagram Studio in a browser first.'});
+  const operation=typeof req.body?.operation==='string'?req.body.operation:'';
+  const args=req.body?.args&&typeof req.body.args==='object'?req.body.args as Record<string,unknown>:{};
+  const draft=structuredClone(sharedDiagram);
+  const stringArg=(key:string)=>typeof args[key]==='string'?args[key] as string:undefined;
+  const id=stringArg('id');
+  const nodeTypes=['person','system','service','database','external','boundary'];
+  const relationKinds=['sync','async','data'];
+  const hasAnyId=(candidate:string)=>draft.nodes.some((node)=>node.id===candidate)||draft.relations.some((relation)=>relation.id===candidate);
+  let result:unknown;
+  switch(operation){
+    case 'add_node': {
+      const type=stringArg('type');const label=stringArg('label');const nodeId=id;
+      if(!nodeId||!ID_PATTERN.test(nodeId)||hasAnyId(nodeId))return res.status(400).json({error:'Node ID is invalid or already exists.'});
+      if(!label?.trim()||!type||!nodeTypes.includes(type))return res.status(400).json({error:'Node type and non-empty label are required.'});
+      const node:DiagramNode={id:nodeId,type:type as DiagramNode['type'],label:label.trim(),...(stringArg('description')?{description:stringArg('description')}:{}),...(stringArg('technology')?{technology:stringArg('technology')}:{})};
+      draft.nodes.push(node);const i=draft.nodes.length-1;draft.layout[nodeId]={x:80+(i%4)*230,y:100+Math.floor(i/4)*140,width:190,height:84};result={node};break;
+    }
+    case 'update_node': {
+      const node=draft.nodes.find((item)=>item.id===id);if(!node)return res.status(404).json({error:'Node not found.'});
+      const type=stringArg('type');if(type&&!nodeTypes.includes(type))return res.status(400).json({error:'Unsupported node type.'});
+      for(const key of ['label','description','technology'] as const)if(typeof args[key]==='string')node[key]=args[key] as string;
+      if(type)node.type=type as DiagramNode['type'];result={node};break;
+    }
+    case 'delete_node': {
+      if(!id||!draft.nodes.some((node)=>node.id===id))return res.status(404).json({error:'Node not found.'});
+      draft.nodes=draft.nodes.filter((node)=>node.id!==id);draft.relations=draft.relations.filter((relation)=>relation.sourceId!==id&&relation.targetId!==id);delete draft.layout[id];result={deletedNodeId:id};break;
+    }
+    case 'add_relation': {
+      const relationId=id;const sourceId=stringArg('sourceId');const targetId=stringArg('targetId');const label=stringArg('label');const kind=stringArg('kind');
+      if(!relationId||!ID_PATTERN.test(relationId)||hasAnyId(relationId))return res.status(400).json({error:'Relationship ID is invalid or already exists.'});
+      if(!sourceId||!targetId||!draft.nodes.some((node)=>node.id===sourceId)||!draft.nodes.some((node)=>node.id===targetId))return res.status(400).json({error:'Both relationship endpoints must exist.'});
+      if(!label?.trim())return res.status(400).json({error:'Relationship label cannot be empty.'});
+      if(kind&&!relationKinds.includes(kind))return res.status(400).json({error:'Unsupported relationship kind.'});
+      const relation:DiagramRelation={id:relationId,sourceId,targetId,label:label.trim(),...(kind?{kind:kind as DiagramRelation['kind']}:{})};draft.relations.push(relation);result={relation};break;
+    }
+    case 'update_relation': {
+      const relation=draft.relations.find((item)=>item.id===id);if(!relation)return res.status(404).json({error:'Relationship not found.'});
+      if(typeof args.label==='string')relation.label=args.label;
+      const kind=stringArg('kind');if(kind&&!relationKinds.includes(kind))return res.status(400).json({error:'Unsupported relationship kind.'});
+      if(kind)relation.kind=kind as DiagramRelation['kind'];result={relation};break;
+    }
+    case 'delete_relation': {
+      if(!id||!draft.relations.some((relation)=>relation.id===id))return res.status(404).json({error:'Relationship not found.'});
+      draft.relations=draft.relations.filter((relation)=>relation.id!==id);result={deletedRelationId:id};break;
+    }
+    case 'set_title': {
+      const title=stringArg('title')?.trim();if(!title)return res.status(400).json({error:'Diagram title cannot be empty.'});
+      draft.title=title.slice(0,200);result={title:draft.title};break;
+    }
+    case 'request_layout': {
+      sharedAutoLayoutRequested=true;result={requested:true,reason:stringArg('reason')??'Requested by VS Code Copilot'};break;
+    }
+    default:return res.status(400).json({error:'Unknown diagram operation.'});
+  }
+  const errors=validateDiagram(draft).filter((issue)=>issue.severity==='error');
+  if(errors.length)return res.status(400).json({error:'Mutation rejected: '+errors.map((issue)=>issue.message).join(' ')});
+  if(operation!=='request_layout'){sharedDiagram=draft;diagramRevision+=1;}
+  return res.json({ok:true,operation,revision:diagramRevision,result,requestAutoLayout:sharedAutoLayoutRequested});
+});
+
 
 app.post('/api/chat',async(req,res)=>{
   const prompt=typeof req.body?.prompt==='string'?req.body.prompt.trim():'';
