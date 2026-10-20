@@ -28,3 +28,13 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 The chat works in two modes. Without a provider configured, it uses local deterministic rules and needs no API key. Optionally, configure an OpenAI-compatible Base URL and model in the Copilot panel; the model only converts natural language into a bounded list of supported layout commands. Geometry is still calculated locally, and changes are previewed before commit. The API Key stays in page memory and is not written to localStorage. The configured endpoint must allow requests from the local app origin.
 
 Draw.io web assets are generated into public/drawio at build time and are not committed as a bulky binary payload. No online fallback is configured. In offline deployments the archive must be supplied once during the build or included in the deployment artefacts.
+
+## Workspace pages and diagnostics
+
+The top navigation separates **Studio**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page stores structured events in browser-local storage and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. It is local application telemetry, not a remote LLM tracing service.
+
+While `npm run dev` is running, browser events are also posted to a same-origin, development-only Vite middleware and printed to the terminal as `[studio:v2]` JSON records. The diagnostic payload is bounded and redacts credential-like keys, prompt bodies, and raw XML; it records metadata such as duration, event name, diagram counts, and error summaries.
+
+### Draw.io initialization troubleshooting
+
+The native iframe waits for the Draw.io embed API's `init` event before sending the XML document. The iframe's browser `load` event alone does not mean the editor API is ready. If initialization does not finish, the editor shows a timeout with a retry action. In the **配置** page, use **检查本地 Draw.io** to verify `/drawio/studio-bundle.json` and `/drawio/index.html`; then review `drawio.handshake.*` and `drawio.init.timeout` entries in Agent 轨迹 alongside the terminal output.
