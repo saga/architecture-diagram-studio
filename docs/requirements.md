@@ -48,7 +48,7 @@ Implemented in the initial MVP:
 
 Not yet implemented or verified:
 - General-purpose context extraction from requirements and source documents.
-- Full semantic editing for node/relation creation, deletion, and properties.
+- Full semantic editing for all node/relation properties; the current UI only supports service creation, node rename/delete, and relation creation.
 - Sequence diagram editing, including ordering, activations, and alt/opt/loop fragments.
 - Automated opening/rendering of exported files in diagrams.net.
 - Pixel-level visual regression and screenshot parity.
