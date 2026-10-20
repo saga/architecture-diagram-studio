@@ -8,3 +8,36 @@
 @media(max-width:980px){.workspace{flex-wrap:wrap;overflow:auto}.canvas-area{min-height:520px;flex:1 1 60%}.chat-panel{width:100%;height:360px;border-left:0;border-top:1px solid #e4eaf2}.sidebar{width:210px}.app-shell{height:auto;min-height:100vh}.workspace{min-height:calc(100vh - 72px)}}
 
 .layout-select-label{font-size:10px;font-weight:700;color:#7b8799;white-space:nowrap}.layout-select{height:36px;max-width:150px;padding:0 9px;border:1px solid #d8e0eb;border-radius:8px;background:#fff;color:#34445e;font:inherit;font-size:12px;font-weight:650;cursor:pointer}.layout-select:focus{outline:2px solid #c3d8f8;border-color:#6b91c9}@media(max-width:1180px){.layout-select{max-width:115px}.layout-select-label{display:none}}@media(max-width:840px){.topbar{gap:7px}.topbar .secondary-button,.topbar .primary-button{padding:0 8px;font-size:10px}.layout-select{max-width:94px;font-size:10px}}
+
+
+/* Optional editorial skin inspired by cathrynlavery/diagram-design.
+   Keep this as a presentation preset; the diagram model and export geometry stay unchanged. */
+.app-shell.theme-editorial{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f5f5;color:#2d3142}
+.theme-editorial .topbar,.theme-editorial .sidebar,.theme-editorial .chat-panel{background:#f5f5f5;border-color:rgba(45,49,66,.14)}
+.theme-editorial .brand-mark{border-radius:4px;background:#2d3142;color:#f5f5f5}
+.theme-editorial .primary-button{background:#bf4520;border-color:#bf4520;color:#fff}
+.theme-editorial .secondary-button,.theme-editorial .layout-select{background:#f5f5f5;border-color:#bfc0c0;color:#2d3142;border-radius:4px}
+.theme-editorial .sidebar h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;letter-spacing:-.45px}
+.theme-editorial .eyebrow,.theme-editorial .canvas-toolbar>span:first-child,.theme-editorial .chat-message-role{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1.1px;color:#4f5d75}
+.theme-editorial .kind-pill{border-radius:3px;background:rgba(191,69,32,.08);color:#bf4520}
+.theme-editorial .sidebar-rule,.theme-editorial .topbar,.theme-editorial .chat-header,.theme-editorial .chat-composer{border-color:rgba(45,49,66,.14)}
+.theme-editorial .sidebar-note{border-radius:4px;border-color:rgba(45,49,66,.16);background:#ececec}
+.theme-editorial .canvas-frame{border:0;border-radius:0;background:#f5f5f5}
+.theme-editorial .diagram-node{box-shadow:none!important;border-radius:4px!important;border-color:#2d3142!important;background:#fff!important}
+.theme-editorial .node-person{background:#ececec!important;border-color:#4f5d75!important}
+.theme-editorial .node-database{background:#f5f5f5!important;border-color:#4f5d75!important}
+.theme-editorial .node-external{background:rgba(45,49,66,.03)!important;border-color:rgba(45,49,66,.4)!important;border-style:dashed!important}
+.theme-editorial .node-label{color:#2d3142;font-weight:500}
+.theme-editorial .node-label small{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#4f5d75;font-size:9px}
+.theme-editorial .react-flow__edge-path{stroke:#4f5d75!important;stroke-width:1.1!important}
+.theme-editorial .react-flow__edge-text{fill:#4f5d75!important}
+.theme-editorial .react-flow__controls,.theme-editorial .react-flow__minimap{border-color:rgba(45,49,66,.18)!important;border-radius:4px!important;box-shadow:none!important}
+.theme-editorial .element-row.selected,.theme-editorial .relation-row.selected{background:rgba(191,69,32,.08);border-color:rgba(191,69,32,.28)}
+.theme-editorial .element-row,.theme-editorial .relation-row,.theme-editorial .prompt-examples button{border-radius:4px}
+.theme-editorial .chat-message{background:#ececec;border-color:rgba(45,49,66,.12);border-radius:4px}
+.theme-editorial .chat-message.user{background:rgba(191,69,32,.08);border-color:rgba(191,69,32,.24)}
+.theme-editorial .chat-empty-icon,.theme-editorial .copilot-mark{background:rgba(191,69,32,.08);color:#bf4520;border-radius:4px}
+.theme-editorial .chat-send-button{background:#bf4520;border-color:#bf4520;border-radius:4px}
+.theme-editorial .live-dot{background:#bf4520}
+.theme-editorial .property-panel{background:#f5f5f5;border-color:rgba(45,49,66,.18);border-radius:4px}
+.theme-editorial .property-input,.theme-editorial .danger-button{border-radius:4px}
