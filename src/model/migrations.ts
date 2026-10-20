@@ -1,6 +1,7 @@
 import type { DiagramDocument, DiagramKind, DiagramPortLayout, DiagramPortSide } from './diagram';
 import { createDiagramTemplate } from './templates';
 import { ensureDiagramBoundaries } from './boundaries';
+import { normalizeSequenceRanges } from './sequence';
 
 /**
  * Normalize persisted schema-v1 documents for the current renderer contract.
@@ -22,12 +23,12 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
       relations: [],
       layout: {},
       boundaries: [],
-      sequence: {
+      sequence: normalizeSequenceRanges({
         participants: input.sequence.participants.map((participant) => ({ ...participant })),
         messages: input.sequence.messages.map((message) => ({ ...message })),
         ...(input.sequence.activations ? { activations: input.sequence.activations.map((activation) => ({ ...activation })) } : {}),
         ...(input.sequence.fragments ? { fragments: input.sequence.fragments.map((fragment) => ({ ...fragment })) } : {}),
-      },
+      }),
     };
   }
 
