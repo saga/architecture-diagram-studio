@@ -73,6 +73,7 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 - [ADR 0004: Copilot SDK chat tools](docs/adr/0004-copilot-sdk-chat-tools.md)
 - [VS Code Copilot MCP setup and tool reference](docs/vscode-copilot-mcp.md)
 - [ADR 0005: VS Code Copilot through MCP](docs/adr/0005-vscode-copilot-mcp.md)
+- [ADR 0006: Local persistence and agent execution trace](docs/adr/0006-local-persistence-and-agent-trace.md)
 
 ## Architecture principles
 
