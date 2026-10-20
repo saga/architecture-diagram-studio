@@ -80,12 +80,15 @@ function ArchitectureNode({id,data}:NodeProps<ArchitectureFlowNode>){
  </>;
 }
 function SequenceParticipantNode({data}:NodeProps<SequenceParticipantFlowNode>){
- return <div className="sequence-participant-node" style={{height:data.totalHeight}}>
-  <div className={'sequence-participant-head role-'+data.role}>
-   <span className="sequence-stereotype">{data.role==='actor'?'Actor':data.role==='external'?'External System':data.role==='database'?'Database':data.role==='system'?'System':'Container'}</span>
+ return <div className={'sequence-participant-node'+(data.role==='actor'?' role-actor':'')} style={{height:data.totalHeight}}>
+  {data.role==='actor'?<div className="sequence-actor-head">
+   <svg viewBox="0 0 48 42" aria-hidden="true"><circle cx="24" cy="5.5" r="4" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M24 10 L24 25 M13 16 L35 16 M24 25 L14 39 M24 25 L34 39" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+   <strong>{data.label}</strong>
+  </div>:<div className={'sequence-participant-head role-'+data.role}>
+   <span className="sequence-stereotype">{data.role==='external'?'External System':data.role==='database'?'Database':data.role==='system'?'System':'Container'}</span>
    <strong>{data.label}</strong>
    {data.technology&&<small>{data.technology}</small>}
-  </div>
+  </div>}
   <div className="sequence-lifeline-stem"/>
  </div>;
 }
