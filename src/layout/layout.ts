@@ -71,7 +71,7 @@ function elkPortSpecifications(doc: DiagramDocument, direction: LayoutDirection)
     add(relation.sourceId, ids.source, sides.source);
     add(relation.targetId, ids.target, sides.target);
   }
-  return new Map(Array.from(portsByNode, ([nodeId, ports]) => [nodeId, Array.from(ports.values())]));
+  return new Map(Array.from(portsByNode, ([nodeId, ports]) => [nodeId, Array.from(ports.values())] as const));
 }
 
 function withoutPorts(layout: NodeLayout): Omit<NodeLayout, 'ports'> {
@@ -139,7 +139,7 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
 
   const positions = new Map<string, { x: number; y: number; ports?: DiagramPortLayout[] }>();
   for (const node of result.children ?? []) {
-    const requested = new Map((portSpecifications.get(node.id) ?? []).map((port) => [port.id, port]));
+    const requested = new Map((portSpecifications.get(node.id) ?? []).map((port) => [port.id, port] as const));
     const ports = (node.ports ?? []).map((port) => {
       const expected = requested.get(port.id);
       // ELK coordinates are port top-lefts; keep the side from our port specification.
