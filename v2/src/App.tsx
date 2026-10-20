@@ -5,6 +5,7 @@ import { FIXTURES } from "./model/fixtures";
 import { layoutDiagram, moveNode } from "./layout/layout";
 import { evaluateLayout } from "./layout/quality";
 import { applyIntent } from "./intent/applyIntent";
+import { requestAIIntentPlan } from "./intent/aiProvider";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
@@ -12,6 +13,19 @@ import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
+type SavedAISettings = { baseUrl: string; model: string };
+function loadSavedAISettings(): SavedAISettings {
+  try {
+    const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
+      return { baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : "", model: typeof parsed.model === "string" ? parsed.model : "" };
+    }
+  } catch {
+    // The page can still use deterministic local rules when browser storage is unavailable.
+  }
+  return { baseUrl: "", model: "" };
+}
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
 
 export default function App() {
@@ -33,6 +47,11 @@ export default function App() {
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
+  const [aiBaseUrl, setAiBaseUrl] = useState(savedAISettings.baseUrl);
+  const [aiModel, setAiModel] = useState(savedAISettings.model);
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", id: 1, text: "可以直接说布局意图，例如「所有 external 放到右侧」「数据库放底部」「所有线改成虚线」「曲线改成折线」。目前使用本地确定性规则，不会假装已调用云端模型。" }
   ]);
@@ -147,21 +166,70 @@ export default function App() {
     setChatInput("");
     setChatBusy(true);
     try {
-      const result = await applyIntent(document, text);
+      let effectiveText = text;
+      let modelReply = "";
+      if (aiBaseUrl.trim() && aiModel.trim()) {
+        const plan = await requestAIIntentPlan(
+          { baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey },
+          text,
+          {
+            kind: document.kind,
+            title: document.title,
+            selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
+            nodes: document.nodes.slice(0, 80).map((node) => ({ id: node.id, name: node.name, role: node.role }))
+          }
+        );
+        modelReply = plan.reply;
+        if (!plan.commands.length) {
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: modelReply || "这个请求没有匹配到当前支持的安全布局操作；没有修改图形。" }]);
+          return;
+        }
+        effectiveText = plan.commands.join("；");
+      }
+      const result = await applyIntent(document, effectiveText);
       if (result.changed) {
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
         setViewMode("studio");
         const previewQuality = evaluateLayout(result.document);
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查画布后应用或丢弃。" }]);
+        const prefix = modelReply ? modelReply + " " : "";
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查画布后应用或丢弃。" }]);
       } else {
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: result.summary }]);
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: modelReply || result.summary }]);
       }
     } catch (error) {
       setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "没有提交修改：" + (error instanceof Error ? error.message : String(error)) }]);
     } finally {
       setChatBusy(false);
     }
+  }
+
+  function saveAISettings() {
+    const next = { baseUrl: aiBaseUrl.trim().replace(/\/+$/, ""), model: aiModel.trim() };
+    setAiBaseUrl(next.baseUrl);
+    setAiModel(next.model);
+    try {
+      window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next));
+    } catch {
+      setLastAction("无法保存模型接口设置；当前页面仍可使用已输入的配置");
+    }
+    setAiSettingsOpen(false);
+    setMessages((items) => [...items, {
+      role: "assistant",
+      id: Date.now() + 3,
+      text: next.baseUrl && next.model
+        ? "模型接口已配置。API Key只保存在当前页面内存，不会写入浏览器存储。"
+        : "已切回本地规则模式；未配置的模型接口不会被调用。"
+    }]);
+  }
+
+  function clearAISettings() {
+    setAiBaseUrl("");
+    setAiModel("");
+    setAiApiKey("");
+    try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Ignore unavailable storage. */ }
+    setAiSettingsOpen(false);
+    setLastAction("已切回本地规则模式");
   }
 
   function changeNode(patch: Partial<DiagramNode>) {
@@ -465,7 +533,18 @@ export default function App() {
         </section>
 
         <section className="copilot-section">
-          <div className="copilot-heading"><div><span className="copilot-mark">✳</span><b>Layout Copilot</b></div><span className="local-rule-tag">LOCAL RULES</span></div>
+          <div className="copilot-heading">
+            <div><span className="copilot-mark">✳</span><b>Layout Copilot</b><button type="button" className="ai-settings-toggle" onClick={() => setAiSettingsOpen((open) => !open)}>{aiSettingsOpen ? "关闭设置" : "模型设置"}</button></div>
+            <span className="local-rule-tag">{aiBaseUrl.trim() && aiModel.trim() ? "MODEL + RULES" : "LOCAL RULES"}</span>
+          </div>
+          {aiSettingsOpen && <div className="ai-settings">
+            <div className="ai-settings-title">OpenAI-compatible 接口</div>
+            <label>Base URL<input value={aiBaseUrl} onChange={(event) => setAiBaseUrl(event.target.value)} placeholder="例如：http://localhost:1234/v1" /></label>
+            <label>Model<input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="模型名称" /></label>
+            <label>API Key（可选）<input type="password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="只保留在当前页面内存" autoComplete="off" /></label>
+            <div className="ai-settings-note">模型只负责把自然语言转换为受限布局指令；坐标由本地布局器计算。需确保模型接口允许当前本地页面跨域访问。</div>
+            <div className="ai-settings-actions"><button type="button" onClick={clearAISettings}>清除配置</button><button type="button" className="ai-settings-save" onClick={saveAISettings}>保存设置</button></div>
+          </div>
           <div className="chat-messages">
             {messages.map((message) => <div key={message.id} className={"chat-message " + message.role}>
               {message.role === "assistant" && <span className="assistant-avatar">F</span>}<div className="chat-bubble">{message.text}</div>

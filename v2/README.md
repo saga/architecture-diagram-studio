@@ -25,6 +25,6 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 
 ## Intentional boundary
 
-The chat currently uses a local deterministic intent interpreter, not an LLM. This keeps the canvas usable without API keys and prevents the UI from claiming a model was called when it was not. Changes are previewed before they are committed. A model provider can be added behind the same intent interface without letting the model directly write node coordinates.
+The chat works in two modes. Without a provider configured, it uses local deterministic rules and needs no API key. Optionally, configure an OpenAI-compatible Base URL and model in the Copilot panel; the model only converts natural language into a bounded list of supported layout commands. Geometry is still calculated locally, and changes are previewed before commit. The API Key stays in page memory and is not written to localStorage. The configured endpoint must allow requests from the local app origin.
 
 Draw.io web assets are generated into public/drawio at build time and are not committed as a bulky binary payload. No online fallback is configured. In offline deployments the archive must be supplied once during the build or included in the deployment artefacts.

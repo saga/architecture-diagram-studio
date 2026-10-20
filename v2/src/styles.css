@@ -171,3 +171,16 @@ button:disabled { opacity: .58; cursor: wait; }
 .relation-actions button:last-child { color: #aa6262; }
 .relation-actions button:last-child:hover { border-color: #f0dede; background: #fff7f7; }
 .empty-relations { color: #a0a9b5; font-size: 9px; line-height: 1.5; padding: 6px 1px; }
+
+
+.ai-settings { border: 1px solid #e0e6f4; border-radius: 8px; background: #f9faff; padding: 10px; margin: 10px 0; }
+.ai-settings-title { color: #465673; font-size: 10px; font-weight: 600; margin-bottom: 8px; }
+.ai-settings label { display: block; color: #78869a; font-size: 8px; margin-top: 8px; }
+.ai-settings label input { display: block; width: 100%; border: 1px solid #dfe5ef; border-radius: 5px; background: #fff; padding: 7px; margin-top: 4px; font-size: 9px; color: #43546b; outline: none; }
+.ai-settings label input:focus { border-color: #9caae6; }
+.ai-settings-note { margin-top: 8px; color: #8b97a8; font-size: 8px; line-height: 1.55; }
+.ai-settings-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.ai-settings-actions button { border: 1px solid #dfe4ec; border-radius: 5px; background: #fff; color: #748195; font-size: 8px; padding: 6px 8px; }
+.ai-settings-actions .ai-settings-save { color: white; border-color: #425bc7; background: #425bc7; }
+.ai-settings-toggle { border: 1px solid #e2e7ef; border-radius: 4px; color: #718095; background: #fff; font-size: 8px; padding: 4px 5px; margin-left: 3px; }
+.ai-settings-toggle:hover { background: #f5f7ff; border-color: #d1daf8; color: #354daf; }

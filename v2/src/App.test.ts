@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "./model/fixtures";
 import { interpretIntent } from "./intent/applyIntent";
 import { mxEdgeStyle, relationPaint } from "./design/styles";
+import { parseAIIntentPlan } from "./intent/aiProvider";
 
 describe("V2 semantic fixtures and intents", () => {
   it("keeps first-class diagram types limited to C4, flowchart and sequence", () => {
@@ -38,5 +39,18 @@ describe("V2 semantic fixtures and intents", () => {
     const edge = createSequenceFixture().relations.find((relation) => relation.kind === "return")!;
     expect(relationPaint({ ...edge, dashed: false }).dash).toBe("");
     expect(mxEdgeStyle({ ...edge, dashed: false }, "polyline")).not.toContain("dashed=1");
+  });
+
+  it("bounds model output to a small JSON intent plan", () => {
+    const plan = parseAIIntentPlan(JSON.stringify({
+      commands: ["所有关系线改成虚线", "把所有 external 放到右侧", "x", "y", "z", "q", "ignored"],
+      reply: "按布局指令执行"
+    }));
+    expect(plan.commands).toHaveLength(6);
+    expect(plan.reply).toBe("按布局指令执行");
+  });
+
+  it("rejects unstructured model output instead of applying guesses", () => {
+    expect(() => parseAIIntentPlan("Change all lines and put vendor on right")).toThrow("有效 JSON");
   });
 });
