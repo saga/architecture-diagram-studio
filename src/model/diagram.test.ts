@@ -39,11 +39,11 @@ describe('draw.io export', () => {
         ...initialDiagram.layout,
         customer: {
           ...initialDiagram.layout.customer,
-          ports: [{ id: 'out-r1', side: 'RIGHT' as const, x: 170, y: 42 }],
+          ports: [{ id: 'out-r1', side: 'RIGHT' as const, x: 220, y: 56 }],
         },
         web: {
           ...initialDiagram.layout.web,
-          ports: [{ id: 'in-r1', side: 'LEFT' as const, x: 0, y: 42 }],
+          ports: [{ id: 'in-r1', side: 'LEFT' as const, x: 0, y: 56 }],
         },
       },
     };
