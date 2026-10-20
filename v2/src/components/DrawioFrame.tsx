@@ -19,7 +19,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
       .then(async (response) => {
         if (!response.ok) return false;
         const manifest = await response.json() as { version?: string; sha256?: string };
-        return manifest.version === "v32.0.2" && typeof manifest.sha256 === "string";
+        return manifest.version === "v32.0.2" && manifest.sha256 === "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
       })
       .then((installed) => { if (alive) setAvailable(installed); })
       .catch(() => { if (alive) setAvailable(false); });
