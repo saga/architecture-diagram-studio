@@ -47,10 +47,15 @@ function recordTrace(sessionId: string, type: string, data: unknown, context: Pa
   return id;
 }
 function saveChatMessage(sessionId: string, role: StoredChatMessage['role'], content: string): void {
-  const history = chatHistories.get(sessionId) ?? [];
-  history.push({ id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString() });
-  chatHistories.set(sessionId, history.slice(-1000));
-  persistStore();
+  const previous = chatHistories.get(sessionId);
+  const history = [...(previous ?? []), { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString() }].slice(-1000);
+  chatHistories.set(sessionId, history);
+  try { persistStore(); }
+  catch (error) {
+    if (previous) chatHistories.set(sessionId, previous);
+    else chatHistories.delete(sessionId);
+    throw error;
+  }
 }
 interface ManagedSession { session: CopilotSession; state: ChatState; busy: boolean; traceContext: TraceContext }
 const sessions = new Map<string, ManagedSession>();
