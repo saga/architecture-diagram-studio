@@ -1,4 +1,4 @@
-import { inflateRawSync } from "fflate";
+import { inflateSync } from "fflate";
 import { normalizeSequenceDocument } from "../layout/sequence";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point, SequenceFragment } from "../model/types";
 
@@ -37,7 +37,7 @@ function parseDrawioXml(xml: string): XMLDocument | null {
   try {
     const binary = atob(compressed);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const inflated = inflateRawSync(bytes);
+    const inflated = inflateSync(bytes);
     const decoded = new TextDecoder().decode(inflated);
     const decodedXml = decodeURIComponent(decoded);
     parsed = parser.parseFromString(decodedXml, "application/xml");
