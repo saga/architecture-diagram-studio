@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
-import { type DiagramDocument, type DiagramNode, type DiagramRelation, type SequenceMessage, type SequenceParticipant, type SequenceFragment, type SequenceActivation, type DiagramKind } from '../src/model/diagram.js';
+import { isNodeTypeAllowedForDiagramKind, type DiagramDocument, type DiagramNode, type DiagramRelation, type SequenceMessage, type SequenceParticipant, type SequenceFragment, type SequenceActivation, type DiagramKind } from '../src/model/diagram.js';
 import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, type StoredChatMessage } from './persistence.js';
 import { validateDiagram } from '../src/model/validate.js';
 import { addNodeToBoundary, removeNodesFromBoundaries, syncNodeBoundaryMembership } from '../src/model/boundaries.js';
@@ -114,6 +114,7 @@ function buildTools(state: ChatState) {
     }, required: ['id','type','label'] },
     handler: async (args: {id:string;type:DiagramNode['type'];label:string;description?:string;technology?:string}) => {
       if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
+      if(!isNodeTypeAllowedForDiagramKind(state.diagram.kind,args.type))return toolError('That element type is not valid for the active C4 view. Use people/software systems/external systems in Context, containers/databases in Container, and components for internal elements in Component views. System boundaries are managed separately.');
       if (!validId(args.id)) return toolError('ID must start with a letter or number and contain only letters, numbers, _ or - (max 80 characters).');
       if (hasId(state,args.id)) return toolError('That ID already exists. Choose a different ID.');
       if (!args.label.trim()) return toolError('Label cannot be empty.');
@@ -649,12 +650,14 @@ app.post('/api/diagram/mutate',(req,res)=>{
       const type=stringArg('type');const label=stringArg('label');const nodeId=id;
       if(!nodeId||!ID_PATTERN.test(nodeId)||hasAnyId(nodeId))return res.status(400).json({error:'Node ID is invalid or already exists.'});
       if(!label?.trim()||!type||!nodeTypes.includes(type))return res.status(400).json({error:'Node type and non-empty label are required.'});
+      if(!isNodeTypeAllowedForDiagramKind(draft.kind,type as DiagramNode['type']))return res.status(400).json({error:'That element type is not valid for the active C4 view. System boundaries are separate objects.'});
       const node:DiagramNode={id:nodeId,type:type as DiagramNode['type'],label:label.trim(),...(stringArg('description')?{description:stringArg('description')}:{}),...(stringArg('technology')?{technology:stringArg('technology')}:{})};
       draft.nodes.push(node);const i=draft.nodes.length-1;draft.layout[nodeId]={x:80+(i%4)*260,y:100+Math.floor(i/4)*160,width:220,height:112};Object.assign(draft,addNodeToBoundary(draft,nodeId));result={node};break;
     }
     case 'update_node': {
       const node=draft.nodes.find((item)=>item.id===id);if(!node)return res.status(404).json({error:'Node not found.'});
       const type=stringArg('type');if(type&&!nodeTypes.includes(type))return res.status(400).json({error:'Unsupported node type.'});
+      if(type&&!isNodeTypeAllowedForDiagramKind(draft.kind,type as DiagramNode['type']))return res.status(400).json({error:'That element type is not valid for the active C4 view.'});
       for(const key of ['label','description','technology'] as const)if(typeof args[key]==='string')node[key]=args[key] as string;
       if(type){node.type=type as DiagramNode['type'];Object.assign(draft,syncNodeBoundaryMembership(draft,node.id));}result={node};break;
     }
@@ -748,7 +751,7 @@ app.post('/api/chat',async(req,res)=>{
             'Use the supplied diagram tools to make concrete edits when the user asks to change the diagram. Do not merely describe edits.',
             'Only change what the user requested. Preserve existing IDs unless changing them is necessary. Add meaningful labels and descriptions. Every relation endpoint must reference an existing node.',
             'For questions or analysis that do not request a change, answer in natural language and do not mutate the diagram.',
-            'The editor supports C4 Context, Container, Component, and UML Sequence views. Use set_diagram_kind when the requested diagram type differs from the active type. C4 edits use diagram node/relation tools; sequence edits use participants, ordered messages, activation-range and fragment tools. Do not put graph nodes or relations into a sequence diagram.',
+            'The editor supports C4 Context, Container, Component, and UML Sequence views. Use set_diagram_kind when the requested diagram type differs from the active type. Match C4 element types to the view: Context uses people/software systems/external systems; Container uses containers/databases and external systems; Component uses components for internal elements. System boundaries are separate model objects, not graph nodes. C4 edits use diagram node/relation tools; sequence edits use participants, ordered messages, activation-range and fragment tools. Do not put graph nodes or relations into a sequence diagram.',
             'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
           ].join(' ');
           const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
