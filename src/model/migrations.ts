@@ -1,4 +1,4 @@
-import type { DiagramDocument, DiagramKind } from './diagram';
+import type { DiagramDocument, DiagramKind, DiagramPortLayout, DiagramPortSide } from './diagram';
 import { createDiagramTemplate } from './templates';
 import { ensureDiagramBoundaries } from './boundaries';
 
@@ -32,17 +32,32 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
   }
 
   const layout = { ...input.layout };
-  let geometryChanged = false;
+  const resizedNodeIds = new Set<string>();
   for (const node of input.nodes) {
     const old = layout[node.id] ?? { x: 50, y: 50, width: 220, height: 112 };
     const oldWidth = old.width || 220;
     const oldHeight = old.height || 112;
     const width = Math.max(oldWidth, node.type === 'boundary' ? 260 : 220);
     const height = Math.max(oldHeight, 112);
-    geometryChanged ||= width !== oldWidth || height !== oldHeight;
+    const nodeGeometryChanged = width !== oldWidth || height !== oldHeight;
+    if (nodeGeometryChanged) resizedNodeIds.add(node.id);
+
+    const portsBySide = new Map<DiagramPortSide, DiagramPortLayout[]>();
+    for (const port of old.ports ?? []) {
+      const group = portsBySide.get(port.side) ?? [];
+      group.push(port);
+      portsBySide.set(port.side, group);
+    }
     const ports = old.ports?.map((port) => {
       const x = port.side === 'LEFT' ? 0 : port.side === 'RIGHT' ? width : Math.min(width, Math.max(0, port.x / oldWidth * width));
-      const y = port.side === 'TOP' ? 0 : port.side === 'BOTTOM' ? height : Math.min(height, Math.max(0, port.y / oldHeight * height));
+      let y = port.side === 'TOP' ? 0 : port.side === 'BOTTOM' ? height : Math.min(height, Math.max(0, port.y / oldHeight * height));
+      // Legacy Person ports were anchored to the UML actor's arm. They must move
+      // to the card's ordinary edge positions when the old glyph is migrated.
+      if (nodeGeometryChanged && node.type === 'person' && (port.side === 'LEFT' || port.side === 'RIGHT')) {
+        const group = portsBySide.get(port.side) ?? [];
+        const index = group.findIndex(candidate => candidate.id === port.id);
+        y = height * (index + 1) / (group.length + 1);
+      }
       return { ...port, x, y };
     });
     layout[node.id] = { ...old, width, height, ...(ports ? { ports } : {}) };
@@ -52,7 +67,7 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
     ...input,
     nodes: input.nodes.map((node) => ({ ...node })),
     relations: input.relations.map((relation) => {
-      if (!geometryChanged) return { ...relation };
+      if (!resizedNodeIds.has(relation.sourceId) && !resizedNodeIds.has(relation.targetId)) return { ...relation };
       // Routes calculated against legacy node bounds no longer attach to current port positions.
       const { waypoints: _obsoleteWaypoints, ...semanticRelation } = relation;
       return semanticRelation;
