@@ -172,7 +172,7 @@ function Editor(){
     const remote=await response.json() as {diagram:DiagramDocument|null;revision:number;layoutRequestId?:number};if(!active)return;
     if(syncRevisionRef.current===null){
      syncRevisionRef.current=remote.revision;lastLayoutRequestIdRef.current=remote.layoutRequestId??0;
-     if(remote.diagram){const serialized=JSON.stringify(remote.diagram);lastSyncedDocumentRef.current=serialized;setDoc(remote.diagram);const flow=flowData(remote.diagram);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Synchronized with the local VS Code Copilot bridge.');}
+     if(remote.diagram){const serialized=JSON.stringify(remote.diagram);lastSyncedDocumentRef.current=serialized;setDoc(remote.diagram);const flow=flowData(remote.diagram,syncContextRef.current.layoutEngine,syncContextRef.current.layoutConfig);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Synchronized with the local VS Code Copilot bridge.');}
      else{const local=syncContextRef.current.snapshot();const serialized=JSON.stringify(local);const seeded=await fetch('/api/diagram',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({diagram:local,expectedRevision:remote.revision})});if(seeded.ok){const saved=await seeded.json() as {revision:number};syncRevisionRef.current=saved.revision;lastSyncedDocumentRef.current=serialized;}}
      return;
     }
@@ -182,7 +182,7 @@ function Editor(){
      if(seeded.ok){const saved=await seeded.json() as {revision:number};syncRevisionRef.current=saved.revision;lastSyncedDocumentRef.current=serialized;}
      return;
     }
-    if(remote.revision!==syncRevisionRef.current&&remote.diagram){syncRevisionRef.current=remote.revision;lastSyncedDocumentRef.current=JSON.stringify(remote.diagram);setDoc(remote.diagram);const flow=flowData(remote.diagram);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Diagram updated by VS Code Copilot.');}
+    if(remote.revision!==syncRevisionRef.current&&remote.diagram){syncRevisionRef.current=remote.revision;lastSyncedDocumentRef.current=JSON.stringify(remote.diagram);setDoc(remote.diagram);const flow=flowData(remote.diagram,syncContextRef.current.layoutEngine,syncContextRef.current.layoutConfig);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Diagram updated by VS Code Copilot.');}
     if((remote.layoutRequestId??0)>lastLayoutRequestIdRef.current&&remote.diagram){lastLayoutRequestIdRef.current=remote.layoutRequestId??0;const context=syncContextRef.current;const next=await applyLayout(remote.diagram,context.layoutEngine,context.layoutConfig);if(!active)return;const flow=flowData(next,context.layoutEngine,context.layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Applied the layout requested by VS Code Copilot.');}
    }catch{/* Keep the editor usable while the local API restarts. */}
   };
