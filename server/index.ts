@@ -301,7 +301,8 @@ app.get('/api/agent/traces',(req,res)=>{
   if(!validId(chatSessionId))return res.status(400).json({error:'Invalid chat session ID.'});
   const rawLimit=Number(req.query.limit??200);
   const limit=Number.isFinite(rawLimit)?Math.max(1,Math.min(1000,Math.floor(rawLimit))):200;
-  return res.json({traces:readAgentTraces([chatSessionId,'vscode-mcp','browser-editor'],limit)});
+  const traceId=typeof req.query.traceId==='string'&&validId(req.query.traceId)?req.query.traceId:undefined;
+  return res.json({traces:readAgentTraces([chatSessionId,'vscode-mcp','browser-editor'],limit,traceId)});
 });
 
 app.post('/api/chat',async(req,res)=>{
@@ -323,7 +324,7 @@ app.post('/api/chat',async(req,res)=>{
   let managed=sessions.get(chatSessionId);
   const isNewSession=!managed;
   let claimedBusySlot=false;
-  if(managed?.busy) return res.status(409).json({error:'This chat is already processing a request.'});
+  if(managed?.busy){recordTrace(chatSessionId,'turn.rejected',{reason:'session_busy'},{traceId,turnId,category:'turn',status:'rejected',provider:'github-copilot-sdk',model:MODEL});return res.status(409).json({error:'This chat is already processing a request.'});}
   try{
     if(!managed){
       let pending=pendingSessions.get(chatSessionId);
@@ -395,7 +396,9 @@ app.post('/api/chat',async(req,res)=>{
     recordTrace(chatSessionId,'turn.failed',{error:message},{traceId,turnId,category:'turn',status:'failed',durationMs:Date.now()-turnStartedAt,provider:'github-copilot-sdk',model:MODEL});
     return res.status(502).json({error:'Copilot request failed: '+message});
   }finally{
-    if(claimedBusySlot){const current=sessions.get(chatSessionId);if(current) current.busy=false;}
+    const current=sessions.get(chatSessionId);
+    if(current?.traceContext.turnId===turnId){current.traceContext.traceId='';current.traceContext.turnId='';current.traceContext.failure=undefined;}
+    if(claimedBusySlot&&current) current.busy=false;
   }
 });
 
