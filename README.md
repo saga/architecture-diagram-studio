@@ -22,7 +22,7 @@ npm run build
 
 - React + TypeScript + React Flow editor.
 - Example C4 Container view with people, services, database, and an external system.
-- Add service nodes, rename selected elements, delete elements, and create relations by connecting node handles.
+- Add service nodes, rename/delete elements, create relations by connecting node handles, and select/edit/delete relation labels.
 - ELK layered layout as an explicit action; export does not invoke layout.
 - Persisted browser-local diagram snapshot and current node geometry.
 - Reset-to-example action.
