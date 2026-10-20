@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "../model/fixtures";
-import { layoutDiagram } from "./layout";
+import { layoutDiagram, moveNode } from "./layout";
 import { evaluateLayout } from "./quality";
 import { applyIntent } from "../intent/applyIntent";
 
@@ -32,5 +32,13 @@ describe("V2 diagram-specific layouts", () => {
     const result = await applyIntent(document, "把曲线改成折线");
     expect(result.document.layout.routing).toBe("polyline");
     expect(result.document.relations.some((edge) => (edge.points?.length || 0) > 0)).toBe(true);
+  });
+
+  it("snaps a dragged node to an open grid position when dropped on another node", async () => {
+    const document = await layoutDiagram(createC4Fixture());
+    const [moving, blocker] = document.nodes;
+    const result = moveNode(document, moving.id, blocker.x, blocker.y);
+    expect(evaluateLayout(result).metrics.nodeOverlaps).toBe(0);
+    expect(result.nodes.find((node) => node.id === moving.id)?.layoutHints?.locked).toBe(true);
   });
 });

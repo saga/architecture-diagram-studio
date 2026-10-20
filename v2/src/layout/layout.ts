@@ -250,8 +250,48 @@ export async function layoutDiagram(document: DiagramDocument): Promise<DiagramD
 }
 
 export function moveNode(document: DiagramDocument, id: string, x: number, y: number): DiagramDocument {
+  const moving = document.nodes.find((node) => node.id === id);
+  if (!moving) return document;
+  const others = document.nodes.filter((node) => node.id !== id);
+  let chosenX = Math.max(20, Math.round(x / 8) * 8);
+  let chosenY = Math.max(20, Math.round(y / 8) * 8);
+
+  const isFree = (candidateX: number, candidateY: number) => !others.some((other) =>
+    candidateX < other.x + other.width + 14 &&
+    candidateX + moving.width + 14 > other.x &&
+    candidateY < other.y + other.height + 14 &&
+    candidateY + moving.height + 14 > other.y
+  );
+
+  if (!isFree(chosenX, chosenY)) {
+    const originX = chosenX, originY = chosenY;
+    const step = 24;
+    let found = false;
+    for (let radius = 1; radius <= 60 && !found; radius++) {
+      const candidates: Point[] = [];
+      for (let dx = -radius; dx <= radius; dx++) {
+        candidates.push({ x: originX + dx * step, y: originY - radius * step });
+        candidates.push({ x: originX + dx * step, y: originY + radius * step });
+      }
+      for (let dy = -radius + 1; dy < radius; dy++) {
+        candidates.push({ x: originX - radius * step, y: originY + dy * step });
+        candidates.push({ x: originX + radius * step, y: originY + dy * step });
+      }
+      for (const candidate of candidates) {
+        const candidateX = Math.max(20, candidate.x);
+        const candidateY = Math.max(20, candidate.y);
+        if (isFree(candidateX, candidateY)) {
+          chosenX = candidateX;
+          chosenY = candidateY;
+          found = true;
+          break;
+        }
+      }
+    }
+  }
+
   const nodes = document.nodes.map((node) => node.id === id
-    ? { ...node, x: Math.max(20, x), y: Math.max(20, y), layoutHints: { ...(node.layoutHints || {}), locked: true } }
+    ? { ...node, x: chosenX, y: chosenY, layoutHints: { ...(node.layoutHints || {}), locked: true } }
     : node);
   return routeRelations({ ...document, nodes });
 }
