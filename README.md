@@ -27,6 +27,7 @@ npm run build
 - SDK tool allowlist is limited to diagram operations; the chat agent is not given filesystem, shell, or repository tools.
 - Chat history and current diagram are stored in browser local storage; recent history is sent to reconstruct context if the local API restarts.
 - Four selectable layout engines: ELK layered (default), Dagre directed graph, D3-Hierarchy tree/forest, and D3-Force force-directed layout. Layout is explicit; export never invokes it.
+- Layout trade-offs: ELK is the default for general architecture graphs and orthogonal edge routing; Dagre is a fast directed layout; D3-Hierarchy uses a spanning forest for cycles/disconnected nodes, so cross-links do not influence tree placement; D3-Force runs a bounded one-shot simulation for a force-directed arrangement rather than continuously moving nodes.
 - Layout selection is also honored when Copilot requests an automatic layout; current node dimensions and resulting positions are persisted.
 - Persisted browser-local diagram snapshot and current node geometry.
 - Reset-to-example action.
