@@ -67,9 +67,9 @@ describe('draw.io export', () => {
 
   it('exports C4 semantic roles as C4 cards rather than UML stick figures or database cylinders', () => {
     const xml = exportDrawio(initialDiagram);
-    expect(xml).toContain('&#171;Person&#187;');
-    expect(xml).toContain('&#171;Container&#187;');
-    expect(xml).toContain('&#171;Container · Database&#187;');
+    expect(xml).toContain('«Person»');
+    expect(xml).toContain('«Container»');
+    expect(xml).toContain('«Container · Database»');
     expect(xml).not.toContain('shape=umlActor');
     expect(xml).not.toContain('shape=cylinder3');
   });
