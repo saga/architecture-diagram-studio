@@ -71,7 +71,7 @@ export function syncNodeBoundaryMembership(doc: DiagramDocument, nodeId: string)
   if (!firstId) return withBoundary;
   const boundaries = withBoundary.boundaries!.map((boundary) => boundary.id !== firstId
     ? boundary
-    : { ...boundary, memberNodeIds: [...boundary.memberNodeIds, nodeId] });
+    : { ...boundary, memberNodeIds: boundary.memberNodeIds.includes(nodeId) ? boundary.memberNodeIds : [...boundary.memberNodeIds, nodeId] });
   return fitDiagramBoundaries({ ...withBoundary, boundaries });
 }
 
