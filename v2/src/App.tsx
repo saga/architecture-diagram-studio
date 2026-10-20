@@ -482,13 +482,13 @@ export default function App() {
           <div className="panel-section-heading"><span>SELECTED ELEMENT</span><span className="small-icon">⌗</span></div>
           {selectedNode ? (
             <div className="inspector-form">
-              <div className="field-label">名称</div><input className="text-field" value={selectedNode.name} onChange={(event) => changeNode({ name: event.target.value })} />
+              <div className="field-label">名称</div><input key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">语义角色</div>
               <select className="text-field" value={selectedNode.role} onChange={(event) => changeNode({ role: event.target.value as DiagramNode["role"] })}>
                 {Object.entries(roleLabels).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
               </select>
-              <div className="field-label">技术 / 平台</div><input className="text-field" value={selectedNode.technology || ""} placeholder="例如：Java / Spring" onChange={(event) => changeNode({ technology: event.target.value })} />
-              <div className="field-label">描述</div><textarea className="text-field text-area" value={selectedNode.description || ""} placeholder="此组件的职责…" onChange={(event) => changeNode({ description: event.target.value })} rows={2} />
+              <div className="field-label">技术 / 平台</div><input key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="例如：Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              <div className="field-label">描述</div><textarea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="此组件的职责…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
               <label className="lock-row"><input type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>锁定当前位置</b><small>重排时保留此节点位置</small></span></label>
               <div className="relation-editor">
                 <div className="field-label">建立关系（当前节点 → 目标）</div>
