@@ -259,3 +259,15 @@
 .app-shell.theme-blueprint .diagram-node.node-database .node-label{color:#123b57}
 .app-shell.theme-minimal .diagram-node.node-database .node-label{color:#171717}
 .app-shell.theme-vibrant .diagram-node.node-database .node-label{color:#392047}
+
+
+.app-shell.theme-studio .canvas-frame{background:#fff}
+.app-shell .diagram-node.node-database::before,.app-shell .diagram-node.node-database::after{content:none!important;display:none!important}
+.app-shell .diagram-node .node-label{max-width:100%;overflow-wrap:anywhere}
+.app-shell .architecture-edge-label{border:0}
+
+/* The edge label is a separate HTML overlay in React Flow and uses the same paper color as draw.io. */
+.app-shell.theme-editorial .architecture-edge-label{background:#f5f5f5;color:#4f5d75}
+.app-shell.theme-blueprint .architecture-edge-label{background:#f7fbfe;color:#075985}
+.app-shell.theme-minimal .architecture-edge-label{background:#fff;color:#333}
+.app-shell.theme-vibrant .architecture-edge-label{background:#fffafd;color:#6b21a8}
