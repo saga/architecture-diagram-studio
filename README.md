@@ -8,7 +8,7 @@ MVP implementation in progress. The app provides an editable C4 Container exampl
 
 ## Quick start
 
-Requirements: Node.js 22.13+ and npm. Copilot SDK authentication must be available locally.
+Requirements: Node.js 22.13+, TypeScript 6+, and npm. Copilot SDK authentication must be available locally.
 
 ```bash
 npm install
