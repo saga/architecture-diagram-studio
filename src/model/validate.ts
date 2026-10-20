@@ -10,13 +10,33 @@ export interface ValidationIssue {
 /** Validate the semantic graph before layout or export. Never silently discard invalid references. */
 export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  const diagramKinds = ['c4-context', 'c4-container', 'c4-component', 'sequence'];
+  if (!diagramKinds.includes(doc.kind)) issues.push({ code: 'DIAGRAM_KIND_INVALID', message: 'The diagram kind is not supported.', severity: 'error' });
   const ids = new Set<string>();
+  const nodeTypes = ['person', 'system', 'service', 'component', 'database', 'external', 'boundary'];
   for (const node of doc.nodes) {
     if (!node.id.trim()) issues.push({ code: 'NODE_ID_EMPTY', message: 'A node has an empty ID.', severity: 'error' });
     if (ids.has(node.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate element ID "${node.id}".`, elementId: node.id, severity: 'error' });
     ids.add(node.id);
+    if (!nodeTypes.includes(node.type)) issues.push({ code: 'NODE_TYPE_INVALID', message: `Node "${node.id}" has unsupported type "${node.type}".`, elementId: node.id, severity: 'error' });
     if (!node.label.trim()) issues.push({ code: 'NODE_LABEL_EMPTY', message: `Node "${node.id}" has no label.`, elementId: node.id, severity: 'warning' });
-    if (!doc.layout[node.id]) issues.push({ code: 'LAYOUT_MISSING', message: `Node "${node.id}" has no saved geometry; default geometry will be used.`, elementId: node.id, severity: 'warning' });
+    const geometry = doc.layout[node.id];
+    if (!geometry) {
+      issues.push({ code: 'LAYOUT_MISSING', message: `Node "${node.id}" has no saved geometry; default geometry will be used.`, elementId: node.id, severity: 'warning' });
+    } else {
+      if (![geometry.x, geometry.y, geometry.width, geometry.height].every(Number.isFinite) || geometry.width <= 0 || geometry.height <= 0) {
+        issues.push({ code: 'NODE_GEOMETRY_INVALID', message: `Node "${node.id}" has invalid or non-positive geometry.`, elementId: node.id, severity: 'error' });
+      }
+      const portIds = new Set<string>();
+      for (const port of geometry.ports ?? []) {
+        if (!port.id.trim() || portIds.has(port.id)) issues.push({ code: 'PORT_ID_INVALID', message: `Node "${node.id}" has an empty or duplicate port ID.`, elementId: node.id, severity: 'error' });
+        portIds.add(port.id);
+        if (!['LEFT', 'RIGHT', 'TOP', 'BOTTOM'].includes(port.side)) issues.push({ code: 'PORT_SIDE_INVALID', message: `Port "${port.id}" on node "${node.id}" has unsupported side "${port.side}".`, elementId: node.id, severity: 'error' });
+        if (![port.x, port.y].every(Number.isFinite) || port.x < 0 || port.y < 0 || port.x > geometry.width || port.y > geometry.height) {
+          issues.push({ code: 'PORT_GEOMETRY_INVALID', message: `Port "${port.id}" on node "${node.id}" is outside its node bounds or has non-finite coordinates.`, elementId: node.id, severity: 'error' });
+        }
+      }
+    }
   }
   for (const boundary of doc.boundaries ?? []) {
     if (!boundary.id.trim()) issues.push({ code: 'BOUNDARY_ID_EMPTY', message: 'A C4 system boundary has an empty ID.', severity: 'error' });
@@ -26,7 +46,10 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
     if (![boundary.x, boundary.y, boundary.width, boundary.height].every(Number.isFinite) || boundary.width <= 0 || boundary.height <= 0) {
       issues.push({ code: 'BOUNDARY_GEOMETRY_INVALID', message: `System boundary "${boundary.id}" has invalid geometry.`, elementId: boundary.id, severity: 'error' });
     }
+    const memberIds = new Set<string>();
     for (const nodeId of boundary.memberNodeIds) {
+      if (memberIds.has(nodeId)) issues.push({ code: 'BOUNDARY_MEMBER_DUPLICATE', message: `System boundary "${boundary.id}" lists element "${nodeId}" more than once.`, elementId: boundary.id, severity: 'error' });
+      memberIds.add(nodeId);
       if (!doc.nodes.some((node) => node.id === nodeId)) {
         issues.push({ code: 'BOUNDARY_MEMBER_NOT_FOUND', message: `System boundary "${boundary.id}" refers to missing element "${nodeId}".`, elementId: boundary.id, severity: 'error' });
       }
@@ -34,6 +57,9 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
   }
   for (const relation of doc.relations) {
     if (!relation.id.trim()) issues.push({ code: 'RELATION_ID_EMPTY', message: 'A relation has an empty ID.', severity: 'error' });
+    if (relation.kind && !['sync', 'async', 'data'].includes(relation.kind)) issues.push({ code: 'RELATION_KIND_INVALID', message: `Relation "${relation.id}" has unsupported kind "${relation.kind}".`, elementId: relation.id, severity: 'error' });
+    if (!relation.label.trim()) issues.push({ code: 'RELATION_LABEL_EMPTY', message: `Relation "${relation.id}" has an empty label.`, elementId: relation.id, severity: 'warning' });
+    if (relation.waypoints && relation.waypoints.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) issues.push({ code: 'RELATION_WAYPOINT_INVALID', message: `Relation "${relation.id}" has a non-finite waypoint.`, elementId: relation.id, severity: 'error' });
     if (ids.has(relation.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate element ID "${relation.id}".`, elementId: relation.id, severity: 'error' });
     ids.add(relation.id);
     if (!doc.nodes.some(node => node.id === relation.sourceId)) issues.push({ code: 'SOURCE_NOT_FOUND', message: `Relation "${relation.id}" refers to missing source "${relation.sourceId}".`, elementId: relation.id, severity: 'error' });
@@ -55,6 +81,7 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
       if (ids.has(participant.id) || participantIds.has(participant.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate sequence participant ID "${participant.id}".`, elementId: participant.id, severity: 'error' });
       participantIds.add(participant.id);
       ids.add(participant.id);
+      if (!['actor', 'system', 'container', 'database', 'external'].includes(participant.role)) issues.push({ code: 'SEQUENCE_PARTICIPANT_ROLE_INVALID', message: `Sequence participant "${participant.id}" has unsupported role "${participant.role}".`, elementId: participant.id, severity: 'error' });
       if (!participant.label.trim()) issues.push({ code: 'SEQUENCE_PARTICIPANT_LABEL_EMPTY', message: `Sequence participant "${participant.id}" has no label.`, elementId: participant.id, severity: 'warning' });
     }
 
@@ -65,6 +92,8 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
       if (ids.has(message.id) || messageIds.has(message.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate sequence message ID "${message.id}".`, elementId: message.id, severity: 'error' });
       ids.add(message.id);
       messageIds.add(message.id);
+      if (!['call', 'return', 'async'].includes(message.kind)) issues.push({ code: 'SEQUENCE_MESSAGE_KIND_INVALID', message: `Message "${message.id}" has unsupported kind "${message.kind}".`, elementId: message.id, severity: 'error' });
+      if (!message.label.trim()) issues.push({ code: 'SEQUENCE_MESSAGE_LABEL_EMPTY', message: `Message "${message.id}" has no label.`, elementId: message.id, severity: 'warning' });
       if (!participantIds.has(message.fromParticipantId)) issues.push({ code: 'SEQUENCE_SOURCE_NOT_FOUND', message: `Message "${message.id}" refers to missing source participant "${message.fromParticipantId}".`, elementId: message.id, severity: 'error' });
       if (!participantIds.has(message.toParticipantId)) issues.push({ code: 'SEQUENCE_TARGET_NOT_FOUND', message: `Message "${message.id}" refers to missing target participant "${message.toParticipantId}".`, elementId: message.id, severity: 'error' });
       if (!Number.isInteger(message.order) || message.order < 1) issues.push({ code: 'SEQUENCE_ORDER_INVALID', message: `Message "${message.id}" must have a positive integer order.`, elementId: message.id, severity: 'error' });
@@ -84,6 +113,8 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
     }
     for (const fragment of sequence.fragments ?? []) {
       if (!fragment.id.trim()) issues.push({ code: 'SEQUENCE_FRAGMENT_ID_EMPTY', message: 'A sequence fragment has an empty ID.', severity: 'error' });
+      if (!['alt', 'opt', 'loop', 'par'].includes(fragment.kind)) issues.push({ code: 'SEQUENCE_FRAGMENT_KIND_INVALID', message: `Fragment "${fragment.id}" has unsupported kind "${fragment.kind}".`, elementId: fragment.id, severity: 'error' });
+      if (!fragment.title.trim()) issues.push({ code: 'SEQUENCE_FRAGMENT_TITLE_EMPTY', message: `Fragment "${fragment.id}" has no title.`, elementId: fragment.id, severity: 'warning' });
       if (ids.has(fragment.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate sequence fragment ID "${fragment.id}".`, elementId: fragment.id, severity: 'error' });
       ids.add(fragment.id);
       if (!messageIds.has(fragment.startMessageId) || !messageIds.has(fragment.endMessageId)) issues.push({ code: 'SEQUENCE_FRAGMENT_MESSAGE_NOT_FOUND', message: `Fragment "${fragment.id}" refers to a missing start or end message.`, elementId: fragment.id, severity: 'error' });
