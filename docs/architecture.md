@@ -205,3 +205,13 @@ The Diagram Document remains authoritative. React Flow nodes and edges are proje
 - Structural changes are reflected in the Diagram Document before a save or export.
 - Full layout remains user-triggered. Export never invokes a layout algorithm.
 - Sequence participant order and message timing are semantic invariants and need a dedicated sequence layout strategy.
+
+## React Flow / draw.io renderer parity contract
+
+The Diagram Document is the rendering contract for both adapters. `src/model/routing.ts` normalizes old diagrams by deriving stable source/target handle IDs, storing local port positions, and computing deterministic orthogonal bend points without moving nodes. ELK's returned ports and bend points take precedence; Dagre, D3 Hierarchy, and D3 Force use the same fallback router when they do not supply routes. A manual node move invalidates routes touching that node so the editor and next export derive new points from the moved endpoints.
+
+React Flow must use the port IDs and route stored in each relation rather than run an unrelated edge router. Its HTML edge labels are overlaid at the route midpoint; connection handles remain interactive but transparent until hover/selection. Person and database node renderers use dedicated SVG silhouettes matching the native draw.io UML actor and cylinder shapes. Node title and technology use the same size/weight/color hierarchy in both renderers.
+
+The draw.io exporter uses matching logical bounds, HTML title/subtitle labels, `exitX` / `exitY` / `entryX` / `entryY` anchors, and explicit `<mxPoint>` bend points. For a routed edge it uses `edgeStyle=none` so mxGraph does not independently recalculate the geometry. The exporter may normalize missing ports/routes in a temporary copy of an older document, but it never mutates the saved document, moves nodes, or invokes an auto-layout engine.
+
+The editor background uses two line-grid layers to approximate diagrams.net's minor and major grid. The renderer contract aims for visual equivalence at the same logical zoom and geometry; pixel identity is still subject to browser/Java font metrics and needs a rendered browser-to-diagrams.net integration test.
