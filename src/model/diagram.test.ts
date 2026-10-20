@@ -98,6 +98,32 @@ describe('draw.io export', () => {
     expect(xml).toContain('as="targetPoint"');
   });
 
+  it('rejects mixed graph content in a UML Sequence document', () => {
+    const sequence = createDiagramTemplate('sequence');
+    sequence.nodes = [initialDiagram.nodes[0]];
+    expect(validateDiagram(sequence).some(issue => issue.code === 'SEQUENCE_GRAPH_DATA_PRESENT')).toBe(true);
+  });
+
+  it('rejects activation ranges that end before they start', () => {
+    const sequence = createDiagramTemplate('sequence');
+    const messages = [...sequence.sequence!.messages].sort((a, b) => a.order - b.order);
+    sequence.sequence!.activations = [{
+      participantId: sequence.sequence!.participants[0].id,
+      startMessageId: messages[messages.length - 1].id,
+      endMessageId: messages[0].id,
+    }];
+    expect(validateDiagram(sequence).some(issue => issue.code === 'SEQUENCE_ACTIVATION_ORDER_INVALID')).toBe(true);
+  });
+
+  it('places sequence message labels above the arrow and exports orthogonal self calls', () => {
+    const sequence = createDiagramTemplate('sequence');
+    const message = sequence.sequence!.messages[0];
+    message.fromParticipantId = message.toParticipantId;
+    const xml = exportDrawio(sequence);
+    expect(xml).toContain('verticalLabelPosition=top;verticalAlign=bottom;');
+    expect(xml).toContain('<mxPoint x="140" y="186" as="sourcePoint"/><Array as="points"><mxPoint x="180" y="186"/><mxPoint x="180" y="164"/></Array><mxPoint x="140" y="164" as="targetPoint"/>');
+  });
+
   it('rejects sequence messages whose participant references are missing', () => {
     const sequence = createDiagramTemplate('sequence');
     sequence.sequence!.messages[0].toParticipantId = 'missing-participant';
