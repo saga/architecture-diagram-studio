@@ -397,11 +397,11 @@
 .app-shell.theme-midnight .c4-card-database{--c4-fill:#173d34;--c4-stroke:#4eb48d;--c4-text:#def8eb}
 .app-shell.theme-midnight .c4-card-external{--c4-fill:#49351f;--c4-stroke:#d9a65b;--c4-text:#fff1d8}
 .app-shell.theme-blueprint .diagram-node .c4-card{--c4-fill:#f7fbff;--c4-stroke:#286a99;--c4-text:#173d5b}
-.app-shell.theme-blueprint .c4-card-database{--c4-fill:#e6f5ec;--c4-stroke:#39805b;--c4-text:#214b37}
-.app-shell.theme-blueprint .c4-card-external{--c4-fill:#fff4e5;--c4-stroke:#c7832e;--c4-text:#6e4714}
+.app-shell.theme-blueprint .diagram-node .c4-card-database{--c4-fill:#e6f5ec;--c4-stroke:#39805b;--c4-text:#214b37}
+.app-shell.theme-blueprint .diagram-node .c4-card-external{--c4-fill:#fff4e5;--c4-stroke:#c7832e;--c4-text:#6e4714}
 .app-shell.theme-minimal .diagram-node .c4-card{--c4-fill:#fff;--c4-stroke:#9299a3;--c4-text:#242b35;border-radius:3px!important}
-.app-shell.theme-minimal .c4-card-database{--c4-fill:#f4f7f4;--c4-stroke:#687f70;--c4-text:#263c2f}
-.app-shell.theme-minimal .c4-card-external{--c4-fill:#fffaf1;--c4-stroke:#9b8060;--c4-text:#4e4030}
+.app-shell.theme-minimal .diagram-node .c4-card-database{--c4-fill:#f4f7f4;--c4-stroke:#687f70;--c4-text:#263c2f}
+.app-shell.theme-minimal .diagram-node .c4-card-external{--c4-fill:#fffaf1;--c4-stroke:#9b8060;--c4-text:#4e4030}
 .app-shell.theme-vibrant .c4-card-person{--c4-fill:#4935a2;--c4-stroke:#312176;--c4-text:#fff}
 .app-shell.theme-vibrant .c4-card-system,.app-shell.theme-vibrant .c4-card-service{--c4-fill:#2667c9;--c4-stroke:#164794;--c4-text:#fff}
 .app-shell.theme-vibrant .c4-card-component{--c4-fill:#e5dcff;--c4-stroke:#9d85e3;--c4-text:#37265e}
