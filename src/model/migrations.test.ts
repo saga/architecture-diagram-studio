@@ -31,12 +31,16 @@ describe('diagram rendering migration', () => {
         ...initialDiagram.layout,
         customer: { x: 25, y: 40, width: 170, height: 84, ports: [{ id: 'out-r1', side: 'RIGHT' as const, x: 170, y: 28 }] },
       },
-      relations: [{ ...initialDiagram.relations[0], waypoints: [{ x: 270, y: 68 }, { x: 300, y: 68 }] }, ...initialDiagram.relations.slice(1)],
+      relations: [
+        { ...initialDiagram.relations[0], waypoints: [{ x: 270, y: 68 }, { x: 300, y: 68 }] },
+        { ...initialDiagram.relations[1], waypoints: [{ x: 600, y: 196 }, { x: 640, y: 196 }] },
+        ...initialDiagram.relations.slice(2),
+      ],
     };
     const upgraded = normalizeDiagramDocument(legacy);
     expect(upgraded.layout.customer.ports?.[0]).toMatchObject({ x: 220, y: 56 });
     expect(upgraded.relations[0].waypoints).toBeUndefined();
-    expect(upgraded.relations[1].waypoints).toBeUndefined();
+    expect(upgraded.relations[1].waypoints).toEqual([{ x: 600, y: 196 }, { x: 640, y: 196 }]);
   });
 
   it('resizes a system boundary around member nodes after layout changes', () => {
