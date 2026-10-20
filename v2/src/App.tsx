@@ -74,7 +74,6 @@ export default function App() {
   const [relationTargetId, setRelationTargetId] = useState("");
   const [relationLabel, setRelationLabel] = useState("");
   const [relationLabelDrafts, setRelationLabelDrafts] = useState<Record<string, string>>({});
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
   const visibleDocument = previewDocument || document;
@@ -145,7 +144,6 @@ export default function App() {
       setLastAction("浏览器存储不可用；本次会话仍可继续编辑");
     }
   }, [document]);
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
     setPreviewDocument(null);
@@ -549,6 +547,9 @@ export default function App() {
     const next = previewDocument;
     const summary = previewSummary || "已应用布局预览";
     commitDocument(next, summary + "（已应用）");
+    recordDiagnostic("copilot.preview.applied", "用户确认应用布局预览", {
+      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
+    });
     setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "预览已应用，正式文档已更新。" }]);
   }
 
@@ -557,6 +558,7 @@ export default function App() {
     setPreviewDocument(null);
     setPreviewSummary("");
     setLastAction("已丢弃预览，正式文档保持不变");
+    recordDiagnostic("copilot.preview.discarded", "用户丢弃布局预览，正式文档未改变");
   }
 
   function exportDiagram() {
