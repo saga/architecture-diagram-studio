@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,18 @@ beforeEach(() => {
   dataDirectory = mkdtempSync(path.join(tmpdir(), 'diagram-studio-trace-'));
   process.env.ARCHITECTURE_DIAGRAM_DATA_DIR = dataDirectory;
   vi.resetModules();
+  it('imports old JSONL events into the indexed ledger', async () => {
+    writeFileSync(path.join(dataDirectory, 'agent-traces.jsonl'), JSON.stringify({
+      id: 'legacy-event', timestamp: '2026-10-19T10:00:00.000Z', sessionId: 'chat-old',
+      type: 'turn.completed', data: { content: 'previously saved' },
+    }) + '\\n');
+    const ledger = await import('./trace-ledger.js');
+    const events = ledger.readAgentTraces(['chat-old']);
+    expect(events).toHaveLength(1);
+    expect(events[0].id).toBe('legacy-event');
+    expect(events[0].data).toEqual({ content: 'previously saved' });
+  });
+
 });
 
 afterEach(() => {
