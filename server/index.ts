@@ -106,7 +106,7 @@ function buildTools(state: ChatState) {
     description: 'Add a person, system, service, database, or external system to the current diagram. Choose a stable unique ID using letters, numbers, underscore, or hyphen.',
     parameters: { type: 'object', properties: {
       id: { type: 'string', description: 'Unique machine ID, e.g. notification_service' },
-      type: { type: 'string', enum: ['person','system','service','database','external','boundary'], description: 'C4 element type' },
+      type: { type: 'string', enum: ['person','system','service','component','database','external','boundary'], description: 'C4 element type' },
       label: { type: 'string', description: 'Human-readable element name' },
       description: { type: 'string' }, technology: { type: 'string' },
     }, required: ['id','type','label'] },
@@ -436,13 +436,17 @@ app.post('/api/diagram/mutate',(req,res)=>{
   const previousDiagram=sharedDiagram;
   const previousRevision=diagramRevision;
   const previousLayoutRequestId=layoutRequestId;
-  const draft=structuredClone(sharedDiagram);
+  let draft=structuredClone(sharedDiagram);
   const stringArg=(key:string)=>typeof args[key]==='string'?args[key] as string:undefined;
   const id=stringArg('id');
-  const nodeTypes=['person','system','service','database','external','boundary'];
+  const nodeTypes=['person','system','service','component','database','external','boundary'];
   const relationKinds=['sync','async','data'];
-  const hasAnyId=(candidate:string)=>draft.nodes.some((node)=>node.id===candidate)||draft.relations.some((relation)=>relation.id===candidate);
+  const hasAnyId=(candidate:string)=>draft.nodes.some((node)=>node.id===candidate)||draft.relations.some((relation)=>relation.id===candidate)||(draft.boundaries??[]).some((boundary)=>boundary.id===candidate)||(draft.sequence?.participants??[]).some((participant)=>participant.id===candidate)||(draft.sequence?.messages??[]).some((message)=>message.id===candidate)||(draft.sequence?.fragments??[]).some((fragment)=>fragment.id===candidate);
   let result:unknown;
+  const genericGraphOperations=new Set(['add_node','update_node','delete_node','add_relation','update_relation','delete_relation']);
+  const sequenceOperations=new Set(['add_sequence_participant','update_sequence_participant','delete_sequence_participant','add_sequence_message','update_sequence_message','delete_sequence_message','add_sequence_fragment','delete_sequence_fragment']);
+  if(draft.kind==='sequence'&&genericGraphOperations.has(operation))return res.status(409).json({error:'The active diagram is UML Sequence. Use sequence participant/message/fragment operations, or switch diagram kind first.'});
+  if(draft.kind!=='sequence'&&sequenceOperations.has(operation))return res.status(409).json({error:'Sequence operations require a UML Sequence diagram. Switch diagram kind first.'});
   switch(operation){
     case 'add_node': {
       const type=stringArg('type');const label=stringArg('label');const nodeId=id;
