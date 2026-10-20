@@ -18,6 +18,14 @@ describe('sequence activation invariants', () => {
       .toBe('Activation end must not precede its start.');
   });
 
+  it('builds a unique renderer ID from the participant and both message bounds', async () => {
+    const { sequenceActivationDomId } = await import('./sequence');
+    expect(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-5' }))
+      .toBe('activation-%5B%22api%22%2C%22msg-2%22%2C%22msg-5%22%5D');
+    expect(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-6' }))
+      .not.toBe(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-5' }));
+  });
+
   it('rejects duplicate ranges but allows updating the same activation in place', () => {
     const sequence = createDiagramTemplate('sequence').sequence!;
     const current = sequence.activations![0];
