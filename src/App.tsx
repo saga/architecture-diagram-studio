@@ -6,7 +6,7 @@ import {validateDiagram} from './model/validate';
 import {downloadDrawio} from './export/drawio';
 const elk=new ELK();
 function flowData(doc:DiagramDocument){
- const nodes:Node[]=doc.nodes.map(n=>{const g=doc.layout[n.id];return {id:n.id,position:{x:g.x,y:g.y},style:{width:g.width,height:g.height},data:{label:<div className="node-label"><strong>{n.label}</strong>{n.technology&&<small>{n.technology}</small>}</div>},type:'default',className:'diagram-node node-'+n.type};});
+ const nodes:Node[]=doc.nodes.map(n=>{const g=doc.layout[n.id]??{x:50,y:50,width:180,height:84};return {id:n.id,position:{x:g.x,y:g.y},style:{width:g.width,height:g.height},data:{label:<div className="node-label"><strong>{n.label}</strong>{n.technology&&<small>{n.technology}</small>}</div>},type:'default',className:'diagram-node node-'+n.type};});
  const edges:Edge[]=doc.relations.map(e=>({id:e.id,source:e.sourceId,target:e.targetId,label:e.label,type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#64748b',strokeWidth:1.5},labelStyle:{fill:'#475569',fontSize:11},labelBgStyle:{fill:'#fff',fillOpacity:.92}}));
  return {nodes,edges};
 }
