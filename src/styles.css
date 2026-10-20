@@ -417,3 +417,16 @@
 .app-shell.theme-midnight .sequence-message{color:#92b7e4}
 .app-shell.theme-midnight .sequence-fragment{background:rgba(23,42,64,.62);color:#dcecff;border-color:#6095d6}
 .app-shell.theme-midnight .sequence-fragment-kind{background:#233c58;color:#e4f2ff;border-color:#6095d6}
+
+
+/* UML Sequence actors use actor glyphs; C4 people remain semantic rectangular cards. */
+.app-shell .sequence-actor-head{position:absolute;left:0;right:0;top:0;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:0;color:#4976b8;z-index:2;pointer-events:none}
+.app-shell .sequence-actor-head svg{display:block;width:40px;height:40px;flex:0 0 40px;overflow:visible}
+.app-shell .sequence-actor-head strong{max-width:100%;font:700 11px/1.2 Arial,sans-serif;color:#24344b;text-align:center;overflow-wrap:anywhere;padding:0 3px;background:var(--sequence-actor-label-bg,#fff)}
+.app-shell .sequence-participant-node .sequence-lifeline-stem{z-index:0}
+.app-shell.theme-midnight .sequence-actor-head{color:#92b7e4;--sequence-actor-label-bg:#101b2b}
+.app-shell.theme-midnight .sequence-actor-head strong{color:#e3edf8}
+.app-shell.theme-editorial .sequence-actor-head{color:#2b7180}
+.app-shell.theme-blueprint .sequence-actor-head{color:#286a99}
+.app-shell.theme-minimal .sequence-actor-head{color:#727984}
+.app-shell.theme-vibrant .sequence-actor-head{color:#4935a2}
