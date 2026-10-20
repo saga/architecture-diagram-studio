@@ -56,6 +56,15 @@ describe('shared diagram edge geometry', () => {
     expect(routed.layout.customer.ports?.some((port) => port.id === 'out-r1')).toBe(false);
   });
 
+  it('uses C4 card dimensions when normalizing an element with missing saved geometry', () => {
+    const missingGeometry = {
+      ...initialDiagram,
+      layout: Object.fromEntries(Object.entries(initialDiagram.layout).filter(([id]) => id !== 'api')),
+    };
+    const routed = ensureEdgeGeometry(missingGeometry, 'RIGHT');
+    expect(routed.layout.api).toMatchObject({ width: 220, height: 112 });
+  });
+
   it('centers legacy Person ports for the C4 card renderer', () => {
     const context = createDiagramTemplate('c4-context');
     const routed = ensureEdgeGeometry(context, 'RIGHT');
