@@ -70,7 +70,7 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
       }
       return { ...port, x, y };
     });
-    layout[node.id] = { ...old, x: oldX, y: oldY, width, height, ...(ports.length || sourcePorts.length ? { ports } : {}) };
+    layout[node.id] = { ...old, x: oldX, y: oldY, width, height, ...(old.ports !== undefined ? { ports } : {}) };
   }
 
   const document: DiagramDocument = {
