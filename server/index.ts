@@ -193,7 +193,6 @@ app.post('/api/chat',async(req,res)=>{
     claimedBusySlot=true;
     managed.state.diagram=structuredClone(incoming);
     managed.state.requestAutoLayout=false;
-    managed.busy=true;
     const promptWithSnapshot=[
       ...(isNewSession&&history.length?['Previous conversation (context only; the current user request below takes precedence):',...history.map((m)=>m.role.toUpperCase()+': '+m.content),''] : []),
       'Current authoritative diagram document (JSON):',
