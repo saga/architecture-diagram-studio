@@ -1,4 +1,4 @@
-import type { DiagramDocument } from './diagram';
+import type { DiagramDocument } from './diagram.js';
 
 export interface ValidationIssue {
   code: string;
