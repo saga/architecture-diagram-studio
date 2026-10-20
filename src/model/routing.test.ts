@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initialDiagram } from './diagram';
+import { createDiagramTemplate } from './templates';
 import { ensureEdgeGeometry, orthogonalWaypoints, relationPortIds } from './routing';
 
 describe('shared diagram edge geometry', () => {
@@ -53,6 +54,16 @@ describe('shared diagram edge geometry', () => {
     };
     const routed = ensureEdgeGeometry(withoutFirstEdge, 'RIGHT');
     expect(routed.layout.customer.ports?.some((port) => port.id === 'out-r1')).toBe(false);
+  });
+
+  it('centers legacy Person ports for the C4 card renderer', () => {
+    const context = createDiagramTemplate('c4-context');
+    const routed = ensureEdgeGeometry(context, 'RIGHT');
+    const customer = routed.layout.customer;
+    const port = customer.ports?.find(item => item.id === 'out-context-customer-order');
+    expect(port).toBeDefined();
+    expect(port?.side).toBe('RIGHT');
+    expect(port?.y).toBe(customer.height / 2);
   });
 
   it('uses a straight segment when facing ports align', () => {
