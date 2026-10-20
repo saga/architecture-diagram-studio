@@ -74,7 +74,17 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
       if (!messageIds.has(activation.startMessageId) || !messageIds.has(activation.endMessageId)) issues.push({ code: 'SEQUENCE_ACTIVATION_MESSAGE_NOT_FOUND', message: 'An activation refers to a missing start or end message.', elementId: activation.participantId, severity: 'error' });
     }
     for (const fragment of sequence.fragments ?? []) {
+      if (!fragment.id.trim()) issues.push({ code: 'SEQUENCE_FRAGMENT_ID_EMPTY', message: 'A sequence fragment has an empty ID.', severity: 'error' });
+      if (ids.has(fragment.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate sequence fragment ID "${fragment.id}".`, elementId: fragment.id, severity: 'error' });
+      ids.add(fragment.id);
       if (!messageIds.has(fragment.startMessageId) || !messageIds.has(fragment.endMessageId)) issues.push({ code: 'SEQUENCE_FRAGMENT_MESSAGE_NOT_FOUND', message: `Fragment "${fragment.id}" refers to a missing start or end message.`, elementId: fragment.id, severity: 'error' });
+      else {
+        const start = sequence.messages.find(message => message.id === fragment.startMessageId);
+        const end = sequence.messages.find(message => message.id === fragment.endMessageId);
+        if (start && end && start.order > end.order) issues.push({ code: 'SEQUENCE_FRAGMENT_ORDER_INVALID', message: `Fragment "${fragment.id}" ends before it starts.`, elementId: fragment.id, severity: 'error' });
+      }
+      if (fragment.participantStartId && !participantIds.has(fragment.participantStartId)) issues.push({ code: 'SEQUENCE_FRAGMENT_START_PARTICIPANT_NOT_FOUND', message: `Fragment "${fragment.id}" refers to missing start participant "${fragment.participantStartId}".`, elementId: fragment.id, severity: 'error' });
+      if (fragment.participantEndId && !participantIds.has(fragment.participantEndId)) issues.push({ code: 'SEQUENCE_FRAGMENT_END_PARTICIPANT_NOT_FOUND', message: `Fragment "${fragment.id}" refers to missing end participant "${fragment.participantEndId}".`, elementId: fragment.id, severity: 'error' });
     }
   }
   return issues;
