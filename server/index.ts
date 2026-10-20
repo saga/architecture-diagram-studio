@@ -285,7 +285,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
   if(errors.length)return res.status(400).json({error:'Mutation rejected: '+errors.map((issue)=>issue.message).join(' ')});
   if(operation!=='request_layout'){sharedDiagram=draft;diagramRevision+=1;}
   persistStore();
-  recordTrace('vscode-mcp','mcp.tool.completed',{operation,args,result,revision:diagramRevision,layoutRequestId});
+  recordTrace('vscode-mcp','mcp.tool.completed',{operation,args,result,revision:diagramRevision,layoutRequestId},{traceId:(req as typeof req & {traceId?:string}).traceId,category:'mcp-tool',status:'completed'});
   return res.json({ok:true,operation,revision:diagramRevision,result,layoutRequestId});
 });
 
