@@ -127,7 +127,7 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
           height: PORT_SIZE,
           properties: { side: port.side === 'LEFT' ? 'WEST' : port.side === 'RIGHT' ? 'EAST' : port.side === 'TOP' ? 'NORTH' : 'SOUTH' },
         })),
-        ...(ports.length ? { layoutOptions: { 'org.eclipse.elk.portConstraints': 'FIXED_ORDER' } } : {}),
+        ...(ports.length ? { properties: { 'org.eclipse.elk.portConstraints': 'FIXED_ORDER' } } : {}),
       };
     }),
     edges: doc.relations.map((edge) => {
