@@ -38,7 +38,7 @@ npm run build
 - Reset-to-example action.
 - Validation of duplicate IDs and broken relation references before export.
 - Native draw.io XML export preserving node positions, dimensions, labels, styles, relationships, and optional relation waypoints.
-- React Flow uses draw.io-like SVG silhouettes for person and database nodes, the same title/technology hierarchy, and shared port/orthogonal route geometry. Export writes endpoint anchors and explicit bend points rather than letting a second router choose a different path; handles are hidden except during interaction.
+- C4 editor cards and draw.io cells share semantic role colors, stereotypes and a title/technology/description hierarchy. Boundaries are explicit editable dashed containers. Sequence views use a dedicated participant/lifeline/message/activation/fragment renderer and exporter; C4 route geometry is shared through endpoint ports and bend points.
 - Deterministic XML for a fixed document snapshot; generated timestamps are omitted.
 - Unit tests for validation, geometry/waypoint mapping, escaping, and deterministic export.
 - GitHub Actions workflow for typecheck, tests, and production build.
@@ -51,7 +51,7 @@ The workspace includes `.vscode/mcp.json`. Run `npm install`, start `npm run dev
 
 ## Local persistence and agent trace
 
-The Express service stores the active diagram, revision counters, and chat histories in `~/.architecture-diagram-studio/studio-state.json`; the append-only agent audit ledger is `~/.architecture-diagram-studio/agent-traces.sqlite`. Existing `agent-traces.jsonl` records are imported once into SQLite on startup. Override the directory with `ARCHITECTURE_DIAGRAM_DATA_DIR`. Trace events carry a `traceId`/`turnId`, sequence, lifecycle status, provider/model, duration, and event payload; indexed queries avoid rereading the entire log on each UI refresh. Credential-shaped fields are redacted. Payloads over 1 MiB are explicitly marked as omitted instead of being presented as complete evidence. Trace-write failures are not swallowed, and a turn whose SDK event could not be persisted is not reported as successful. The chat panel's **Agent trace** view refreshes while open. The files can contain prompts, diagram data, and tool arguments/results, so treat them as sensitive local application data. This remains a single-user local store, not a backup service and not a multi-user database.
+The Express service stores the active diagram, revision counters, and chat histories in `~/.architecture-diagram-studio/studio-state.json`; the append-only agent audit ledger is `~/.architecture-diagram-studio/agent-traces.sqlite`. Existing `agent-traces.jsonl` records are imported once into SQLite on startup. Override the directory with `ARCHITECTURE_DIAGRAM_DATA_DIR`. Trace events carry a `traceId`/`turnId`, sequence, lifecycle status, provider/model, duration, and event payload; indexed queries avoid rereading the entire log on each UI refresh. Credential-shaped fields are redacted. Payloads over 1 MiB are explicitly marked as omitted instead of being presented as complete evidence. Trace-write failures are not swallowed, and a turn whose SDK event could not be persisted is not reported as successful. The full-page **Agent execution trace** view refreshes while open and supports search/filter, summary counts, provider/timing metadata and expandable event payloads. The files can contain prompts, diagram data, and tool arguments/results, so treat them as sensitive local application data. This remains a single-user local store, not a backup service and not a multi-user database.
 
 ## Copilot setup
 
@@ -77,6 +77,7 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 - [VS Code Copilot MCP setup and tool reference](docs/vscode-copilot-mcp.md)
 - [ADR 0005: VS Code Copilot through MCP](docs/adr/0005-vscode-copilot-mcp.md)
 - [ADR 0006: Local persistence and agent execution trace](docs/adr/0006-local-persistence-and-agent-trace.md)
+- [ADR 0008: Semantic C4, sequence, and Agent trace](docs/adr/0008-semantic-c4-sequence-and-agent-trace.md)
 
 ## Architecture principles
 
@@ -91,7 +92,7 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 
 - Diagram semantics start from sample data; the UI supports basic service creation, node renaming/deletion, and relation creation, but not full property editing for technology, descriptions, types, and provenance.
 - The active diagram is persisted locally by the Express service, but named projects and a project import/open library are not implemented yet.
-- Sequence diagrams and their ordered messages, activations, and alt/opt/loop fragments are not implemented.
+- Sequence diagrams support participants, call/return/async messages, ordered editing, activation intervals and alt/opt/loop/par fragments. Interactive editing of activation ranges and fragment message bounds remains limited.
 - Nested C4 boundaries and relationship waypoint editing are not implemented.
 - XML generation has unit-level regression coverage, but opening/rendering in diagrams.net has not been verified by an automated round-trip.
 - Browser-to-draw.io pixel parity is not guaranteed; font metrics, shape implementations, and edge routing can differ.
