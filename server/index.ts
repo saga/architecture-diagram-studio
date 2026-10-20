@@ -214,8 +214,15 @@ app.get('/api/diagram/validate',(_req,res)=>{
 });
 
 app.use('/api/diagram/mutate',(req,res,next)=>{
-  res.on('finish',()=>recordTrace('vscode-mcp','mcp.tool.request',{operation:req.body?.operation,args:req.body?.args,status:res.statusCode}));
-  next();
+  const traceId=crypto.randomUUID();
+  try {
+    recordTrace('vscode-mcp','mcp.tool.started',{operation:req.body?.operation,args:req.body?.args},{traceId,category:'mcp-tool',status:'started'});
+    (req as typeof req & {traceId?:string}).traceId=traceId;
+    next();
+  } catch (error) {
+    console.error('[architecture-diagram-studio] Could not persist MCP audit start.',error);
+    res.status(500).json({error:'The operation was not run because its audit record could not be saved.'});
+  }
 });
 
 app.post('/api/diagram/mutate',(req,res)=>{
