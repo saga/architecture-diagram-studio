@@ -70,7 +70,7 @@ export default function WorkspacePages(props: Props) {
             <div>
               <div className="page-eyebrow">LAYOUT COPILOT / SEMANTIC WORKFLOW</div>
               <h1>问问 Layout Copilot</h1>
-              <p>用自然语言说明希望如何组织图形。Copilot 将请求转换为受限布局指令；修改先以预览呈现，确认后才写入正式文档。</p>
+              <p>当前文档：{document.title}。用自然语言说明希望如何组织图形。Copilot 将请求转换为受限布局指令；修改先以预览呈现，确认后才写入正式文档。</p>
             </div>
             <div className="page-hero-status"><i />{aiBaseUrl.trim() && aiModel.trim() ? "兼容模型 + 本地规则" : "本地规则模式"}</div>
           </div>
@@ -199,7 +199,7 @@ export default function WorkspacePages(props: Props) {
           <section className="settings-card settings-logs-card">
             <div className="settings-card-heading"><div className="settings-card-icon">⌘</div><div><h2>终端日志与诊断轨迹</h2><p>浏览器事件 → Vite 开发终端 → 本地轨迹页面</p></div></div>
             <p className="settings-description">运行 <code>npm run dev</code> 后，应用会将带有时间戳、事件名、持续时间和状态的结构化 JSON 日志发到开发服务器，终端会显示为 <code>[studio:v2]</code>。提示词正文、API Key 和原始 XML 会脱敏或省略。</p>
-            <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] {"{"}"receivedAt":"…","level":"info","event":"layout.run.completed","details":{"durationMs":…}{"}"}</code></div>
+            <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] receivedAt=… level=info event=layout.run.completed durationMs=…</code></div>
             <div className="settings-card-actions"><span className="settings-trace-count">{traceEntries.length} 条本地轨迹 · {errorCount} 条错误</span></div>
           </section>
         </div>
