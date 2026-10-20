@@ -2,6 +2,7 @@ import type { DiagramDocument, DiagramNode, SequenceMessage } from '../model/dia
 import { validateDiagram } from '../model/validate';
 import { ensureEdgeGeometry, relationPortIds } from '../model/routing';
 import { ensureDiagramBoundaries } from '../model/boundaries';
+import { sequenceActivationDomId } from '../model/sequence';
 
 const xml=(v:string)=>v.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
 const number=(v:number)=>Number.isFinite(v)?String(Math.round(v*100)/100):'0';
@@ -111,7 +112,7 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
   const endIndex=messages.findIndex(message=>message.id===activation.endMessageId);
   const center=xById.get(activation.participantId);
   if(startIndex<0||endIndex<startIndex||center===undefined)continue;
-  cells.push('<mxCell id="'+xml('activation-'+activation.participantId+'-'+activation.startMessageId)+'" value="" style="rounded=0;html=1;fillColor=#ffffff;strokeColor=#536b86;strokeWidth=1.5;" vertex="1" parent="1"><mxGeometry x="'+number(center-7)+'" y="'+number(rowTop+startIndex*rowGap+16)+'" width="14" height="'+number((endIndex-startIndex)*rowGap+18)+'" as="geometry"/></mxCell>');
+  cells.push('<mxCell id="'+xml(sequenceActivationDomId(activation))+'" value="" style="rounded=0;html=1;fillColor=#ffffff;strokeColor=#536b86;strokeWidth=1.5;" vertex="1" parent="1"><mxGeometry x="'+number(center-7)+'" y="'+number(rowTop+startIndex*rowGap+16)+'" width="14" height="'+number((endIndex-startIndex)*rowGap+18)+'" as="geometry"/></mxCell>');
  }
  for(const message of messages){
   const sourceX=xById.get(message.fromParticipantId);
