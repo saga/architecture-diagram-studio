@@ -6,6 +6,7 @@ import { tokens } from "../design/tokens";
 
 interface Props {
   document: DiagramDocument;
+  zoom: number;
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
@@ -83,7 +84,7 @@ function nodePath(node: DiagramNode, shape: string): string {
   if (shape === "diamond") return "M " + (node.x + node.width / 2) + " " + node.y + " L " + (node.x + node.width) + " " + (node.y + node.height / 2) + " L " + (node.x + node.width / 2) + " " + (node.y + node.height) + " L " + node.x + " " + (node.y + node.height / 2) + " Z";
   return "M " + (node.x + 8) + " " + node.y + " H " + (node.x + node.width - 8) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + 8) + " V " + (node.y + node.height - 8) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - 8) + " " + (node.y + node.height) + " H " + (node.x + 8) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - 8) + " V " + (node.y + 8) + " Q " + node.x + " " + node.y + " " + (node.x + 8) + " " + node.y + " Z";
 }
-export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, onMoveNode }: Props) {
+export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelectNode, onMoveNode }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const frame = useMemo(() => ({
@@ -123,7 +124,7 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
   const displayDoc = { ...document, nodes: displayNodes };
 
   return (
-    <svg ref={svgRef} className="diagram-svg" viewBox={"0 0 " + frame.width + " " + frame.height} preserveAspectRatio="xMidYMid meet"
+    <svg ref={svgRef} className="diagram-svg" viewBox={(frame.width * (1 - 1 / zoom) / 2) + " " + (frame.height * (1 - 1 / zoom) / 2) + " " + (frame.width / zoom) + " " + (frame.height / zoom)} preserveAspectRatio="xMidYMid meet"
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} role="img" aria-label={document.title}>
       <defs>
         <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>

@@ -184,3 +184,11 @@ button:disabled { opacity: .58; cursor: wait; }
 .ai-settings-actions .ai-settings-save { color: white; border-color: #425bc7; background: #425bc7; }
 .ai-settings-toggle { border: 1px solid #e2e7ef; border-radius: 4px; color: #718095; background: #fff; font-size: 8px; padding: 4px 5px; margin-left: 3px; }
 .ai-settings-toggle:hover { background: #f5f7ff; border-color: #d1daf8; color: #354daf; }
+
+
+.zoom-indicator { gap: 4px; padding: 4px; }
+.zoom-indicator button { border: 0; border-radius: 4px; background: transparent; color: #718094; cursor: pointer; display: grid; place-items: center; }
+.zoom-indicator .zoom-control { width: 23px; height: 22px; font-size: 15px; }
+.zoom-indicator .zoom-percent { min-width: 43px; height: 22px; padding: 0 4px; font-size: 9px; font-weight: 600; }
+.zoom-indicator button:hover:not(:disabled) { background: #f1f4fa; color: #354daf; }
+.zoom-indicator button:disabled { opacity: .35; cursor: not-allowed; }

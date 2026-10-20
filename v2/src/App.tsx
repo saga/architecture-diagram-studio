@@ -45,6 +45,7 @@ export default function App() {
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
+  const [studioZoom, setStudioZoom] = useState(1);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
@@ -457,7 +458,7 @@ export default function App() {
 
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {viewMode === "studio" ? (
-            <DiagramCanvas document={visibleDocument} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
+            <DiagramCanvas document={visibleDocument} zoom={studioZoom} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
               onMoveNode={(id, x, y) => {
                 const moved = moveNode(visibleDocument, id, x, y);
                 if (previewDocument) {
@@ -471,7 +472,11 @@ export default function App() {
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "已从原生 Draw.io 同步修改", nativeXml)} />
           )}
           <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
-          {viewMode === "studio" && <div className="zoom-indicator"><span>−</span><strong>100%</strong><span>＋</span><i /></div>}
+          {viewMode === "studio" && <div className="zoom-indicator">
+            <button type="button" className="zoom-control" aria-label="缩小" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</button>
+            <button type="button" className="zoom-percent" aria-label="重置缩放" onClick={() => setStudioZoom(1)}>{Math.round(studioZoom * 100)}%</button>
+            <button type="button" className="zoom-control" aria-label="放大" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</button>
+          </div>}
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout engine: ELK Layered</span></div></div>
       </main>
