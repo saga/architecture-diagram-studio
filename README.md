@@ -26,7 +26,7 @@ npm run build
 - Copilot SDK chat backed by a local Express API, with diagram-specific tools for node/relation CRUD, title changes, and optional ELK layout.
 - Local stdio MCP server for VS Code GitHub Copilot, exposing the active diagram's read/modify/validate/layout-request tools and synchronizing through the same loopback API as the browser editor.
 - SDK tool allowlist is limited to diagram operations; the chat agent is not given filesystem, shell, or repository tools.
-- Chat history and current diagram are stored in browser local storage; recent history is sent to reconstruct context if the local API restarts.
+- The active diagram, revisions, chat histories, and agent trace events are persisted by the local Express service; browser local storage remains a UI cache and offline recovery source.
 - Four selectable layout engines: ELK layered (default), Dagre directed graph, D3-Hierarchy tree/forest, and D3-Force force-directed layout.
 - A Layout settings page exposes the tunable parameters for all four engines, including direction, spacing, edge routing, force strengths, collision behavior, and simulation budget.
 - Reusable named layout variants: edit the active variant, save the current configuration as a new variant, switch between variants, or delete a variant. Variants and the active selection are persisted in browser local storage; defaults are used if stored data is unavailable or invalid.
@@ -44,6 +44,12 @@ npm run build
 ## VS Code Copilot integration (MCP)
 
 The workspace includes `.vscode/mcp.json`. Run `npm install`, start `npm run dev`, and open the browser editor before asking VS Code Copilot to inspect or change the active diagram. VS Code starts the stdio server directly with `node --import tsx server/mcp.ts` so stdout remains reserved for MCP protocol messages. The tools use the local API at `127.0.0.1:3001` to read or mutate the same diagram visible in the browser. Available tools cover diagram retrieval, node and relationship CRUD, title updates, validation, and requesting the currently selected layout engine. See [`docs/vscode-copilot-mcp.md`](docs/vscode-copilot-mcp.md) for setup, limitations, and security boundaries.
+
+
+
+## Local persistence and agent trace
+
+The Express service stores the latest active diagram, revision counters, and chat histories in `~/.architecture-diagram-studio/studio-state.json`; append-only execution events are written to `~/.architecture-diagram-studio/agent-traces.jsonl`. Override the directory with `ARCHITECTURE_DIAGRAM_DATA_DIR`. The directory is created with owner-only permissions where supported, and state snapshots are replaced atomically. The trace captures turn lifecycle, user/assistant messages, tool calls and tool results, failures, and VS Code MCP mutations; model reasoning text and ephemeral streaming deltas are intentionally excluded. The chat panel's **Agent trace** view refreshes while open. These files can contain prompts, diagram data, and tool arguments/results, so treat them as sensitive local application data and remove them explicitly when no longer needed. This is single-user local persistence, not a multi-user database or a backup strategy.
 
 ## Copilot setup
 
@@ -87,5 +93,5 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 - Browser-to-draw.io pixel parity is not guaranteed; font metrics, shape implementations, and edge routing can differ.
 - Business context extraction and evidence/provenance UI are planned, not implemented.
 - Chat uses request/response rather than token-by-token streaming; tool execution is complete before the returned diagram is applied.
-- The SDK session registry and active MCP-shared diagram are in memory; after an API restart, the browser reseeds the active diagram from its local persisted snapshot. The runtime Copilot session itself is not durably restored.
+- The active diagram, chat history, and agent trace log are persisted on disk. Copilot SDK session objects remain process-local and are recreated after an API restart; recent stored conversation is available to rebuild context.
 - MCP synchronization is intended for one active browser editor per local API process; concurrent multi-tab or multi-user collaboration is not supported.
