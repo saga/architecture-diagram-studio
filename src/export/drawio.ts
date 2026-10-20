@@ -12,8 +12,8 @@ const style=(type:DiagramNode['type'])=>{
  if(type==='system')return common+'fillColor=#1168bd;strokeColor=#0b4f92;fontColor=#ffffff;';
  if(type==='service')return common+'fillColor=#438dd5;strokeColor=#2d6fae;fontColor=#ffffff;';
  if(type==='component')return common+'fillColor=#85bbf0;strokeColor=#4c8cc8;fontColor=#102a43;';
- if(type==='database')return common+'fillColor=#438dd5;strokeColor=#2d6fae;fontColor=#ffffff;';
- if(type==='external')return common+'fillColor=#999999;strokeColor=#777777;fontColor=#ffffff;';
+ if(type==='database')return common+'fillColor=#e6f5ec;strokeColor=#39805b;fontColor=#214b37;';
+ if(type==='external')return common+'fillColor=#fff4e5;strokeColor=#c7832e;dashed=1;fontColor=#6e4714;';
  if(type==='boundary')return common+'fillColor=#ffffff;strokeColor=#7b8da4;fontColor=#334e68;';
  return common+'fillColor=#ffffff;strokeColor=#7b8da4;fontColor=#334e68;';
 };
