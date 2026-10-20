@@ -4,10 +4,11 @@ import path from 'node:path';
 import express from 'express';
 import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
-import { type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
+import { type DiagramDocument, type DiagramNode, type DiagramRelation, type SequenceMessage, type SequenceParticipant, type SequenceFragment, type DiagramKind } from '../src/model/diagram.js';
 import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, type StoredChatMessage } from './persistence.js';
 import { validateDiagram } from '../src/model/validate.js';
 import { addNodeToBoundary, removeNodesFromBoundaries } from '../src/model/boundaries.js';
+import { createDiagramTemplate } from '../src/model/templates.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MODEL = process.env.COPILOT_MODEL?.trim() || 'gpt-5';
@@ -87,7 +88,12 @@ function getClient(): Promise<CopilotClient> {
 
 function validId(id: string): boolean { return ID_PATTERN.test(id); }
 function hasId(state: ChatState, id: string): boolean {
-  return state.diagram.nodes.some((n) => n.id === id) || state.diagram.relations.some((r) => r.id === id);
+  return state.diagram.nodes.some((n) => n.id === id)
+    || state.diagram.relations.some((r) => r.id === id)
+    || (state.diagram.boundaries ?? []).some((boundary) => boundary.id === id)
+    || (state.diagram.sequence?.participants ?? []).some((participant) => participant.id === id)
+    || (state.diagram.sequence?.messages ?? []).some((message) => message.id === id)
+    || (state.diagram.sequence?.fragments ?? []).some((fragment) => fragment.id === id);
 }
 function toolError(message: string) { return { ok: false, error: message }; }
 function ensureValid(state: ChatState): string | undefined {
@@ -105,6 +111,7 @@ function buildTools(state: ChatState) {
       description: { type: 'string' }, technology: { type: 'string' },
     }, required: ['id','type','label'] },
     handler: async (args: {id:string;type:DiagramNode['type'];label:string;description?:string;technology?:string}) => {
+      if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
       if (!validId(args.id)) return toolError('ID must start with a letter or number and contain only letters, numbers, _ or - (max 80 characters).');
       if (hasId(state,args.id)) return toolError('That ID already exists. Choose a different ID.');
       if (!args.label.trim()) return toolError('Label cannot be empty.');
@@ -123,6 +130,7 @@ function buildTools(state: ChatState) {
       id:{type:'string'}, label:{type:'string'}, description:{type:'string'}, technology:{type:'string'},
     }, required:['id'] },
     handler: async (args:{id:string;label?:string;description?:string;technology?:string}) => {
+      if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
       const node=state.diagram.nodes.find((n)=>n.id===args.id);
       if(!node) return toolError('Node not found.');
       if(args.label !== undefined) node.label=args.label;
@@ -135,6 +143,7 @@ function buildTools(state: ChatState) {
     description: 'Delete a node and all relations connected to it.',
     parameters:{type:'object',properties:{id:{type:'string'}},required:['id']},
     handler:async(args:{id:string})=>{
+      if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
       if(!state.diagram.nodes.some((n)=>n.id===args.id)) return toolError('Node not found.');
       state.diagram=removeNodesFromBoundaries({
         ...state.diagram,
@@ -152,6 +161,7 @@ function buildTools(state: ChatState) {
       kind:{type:'string',enum:['sync','async','data']},
     },required:['id','sourceId','targetId','label']},
     handler:async(args:{id:string;sourceId:string;targetId:string;label:string;kind?:DiagramRelation['kind']})=>{
+      if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
       if(!validId(args.id)) return toolError('Invalid relation ID.');
       if(hasId(state,args.id)) return toolError('That ID already exists. Choose a different ID.');
       if(!state.diagram.nodes.some((n)=>n.id===args.sourceId)||!state.diagram.nodes.some((n)=>n.id===args.targetId)) return toolError('Both source and target must refer to existing nodes.');
@@ -164,6 +174,7 @@ function buildTools(state: ChatState) {
     description:'Change the label or kind of an existing relationship.',
     parameters:{type:'object',properties:{id:{type:'string'},label:{type:'string'},kind:{type:'string',enum:['sync','async','data']}},required:['id']},
     handler:async(args:{id:string;label?:string;kind?:DiagramRelation['kind']})=>{
+      if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
       const relation=state.diagram.relations.find((r)=>r.id===args.id);
       if(!relation) return toolError('Relation not found.');
       if(args.label!==undefined) relation.label=args.label;
@@ -175,6 +186,7 @@ function buildTools(state: ChatState) {
     description:'Delete an existing relationship by ID.',
     parameters:{type:'object',properties:{id:{type:'string'}},required:['id']},
     handler:async(args:{id:string})=>{
+      if(state.diagram.kind==='sequence') return toolError('This is a sequence diagram. Use sequence participant/message tools, or switch back to a C4 diagram first.');
       if(!state.diagram.relations.some((r)=>r.id===args.id)) return toolError('Relation not found.');
       state.diagram.relations=state.diagram.relations.filter((r)=>r.id!==args.id);
       return {ok:true,deletedRelationId:args.id};
