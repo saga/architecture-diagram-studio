@@ -140,6 +140,21 @@ describe('diagram rendering migration', () => {
     expect(synced.boundaries?.[0].memberNodeIds).not.toContain('api');
   });
 
+  it('does not crash when legacy sequence optional collections are malformed', () => {
+    const sequence = createDiagramTemplate('sequence');
+    const malformed = {
+      ...sequence,
+      sequence: {
+        ...sequence.sequence!,
+        activations: { corrupt: true } as unknown as NonNullable<typeof sequence.sequence>['activations'],
+        fragments: 'corrupt' as unknown as NonNullable<typeof sequence.sequence>['fragments'],
+      },
+    };
+    const normalized = normalizeDiagramDocument(malformed);
+    expect(normalized.sequence?.activations).toBeUndefined();
+    expect(normalized.sequence?.fragments).toBeUndefined();
+  });
+
   it('does not add graph boundaries to sequence diagrams', () => {
     const doc = normalizeDiagramDocument(createDiagramTemplate('sequence'));
     expect(doc.boundaries ?? []).toEqual([]);
