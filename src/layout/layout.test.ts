@@ -3,6 +3,12 @@ import { applyLayout, DEFAULT_LAYOUT_CONFIG, LAYOUT_ENGINES } from './layout';
 import { initialDiagram, type DiagramDocument } from '../model/diagram';
 
 describe('layout engines', () => {
+  it('rejects generic graph auto-layout for UML sequence diagrams', async () => {
+    const { createDiagramTemplate } = await import('../model/templates');
+    await expect(applyLayout(createDiagramTemplate('sequence'), 'elk'))
+      .rejects.toThrow(/UML Sequence layout .* graph auto-layout is not applicable/);
+  });
+
   it.each(LAYOUT_ENGINES.map((engine) => [engine.value, engine.label] as const))(
     '%s returns finite geometry for every node',
     async (engine) => {
