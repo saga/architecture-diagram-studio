@@ -217,6 +217,14 @@ app.use('/api/diagram/mutate',(req,res,next)=>{
   const traceId=crypto.randomUUID();
   try {
     recordTrace('vscode-mcp','mcp.tool.started',{operation:req.body?.operation,args:req.body?.args},{traceId,category:'mcp-tool',status:'started'});
+    res.on('finish',()=>{
+      if(res.statusCode<400)return;
+      try {
+        recordTrace('vscode-mcp','mcp.tool.failed',{operation:req.body?.operation,statusCode:res.statusCode},{traceId,category:'mcp-tool',status:'failed'});
+      } catch (error) {
+        console.error('[architecture-diagram-studio] Could not persist the MCP failure outcome.',error);
+      }
+    });
     (req as typeof req & {traceId?:string}).traceId=traceId;
     next();
   } catch (error) {
