@@ -45,6 +45,10 @@ function ArchitectureNode({id,data}:NodeProps<ArchitectureFlowNode>){
    <ellipse cx="85" cy="11" rx="13" ry="7" fill="var(--actor-fill, #eaf2ff)" stroke="var(--actor-stroke, #4976b8)" strokeWidth="1.5"/>
    <path d="M85 18 L85 49 M0 29 L170 29 M85 49 L0 83 M85 49 L170 83" fill="none" stroke="var(--actor-stroke, #4976b8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>}
+  {data.nodeType==='database'&&<svg className="database-illustration" viewBox="0 0 190 84" preserveAspectRatio="none" aria-hidden="true">
+   <path d="M1 16 L1 65 C1 82 189 82 189 65 L189 16 Z" fill="var(--database-fill, #e6f5ec)" stroke="var(--database-stroke, #39805b)" strokeWidth="1.5"/>
+   <ellipse cx="95" cy="16" rx="94" ry="15" fill="var(--database-fill, #e6f5ec)" stroke="var(--database-stroke, #39805b)" strokeWidth="1.5"/>
+  </svg>}
   {data.ports.map(port=><Handle key={port.id} id={port.id} type={port.id.startsWith('out-')?'source':'target'} position={reactFlowPosition(port.side)} style={portStyle(port)} className="architecture-port" />)}
   <div className="node-label"><strong>{data.label}</strong>{data.technology&&<small>{data.technology}</small>}</div>
  </>;
