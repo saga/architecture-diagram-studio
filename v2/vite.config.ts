@@ -89,7 +89,7 @@ function redactTerminalData(value: unknown, depth = 0): unknown {
   if (typeof value === "object") {
     const output: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value as Record<string, unknown>).slice(0, 40)) {
-      output[key] = /(api.?key|token|secret|password|authorization|prompt|raw.?xml|xml|request.?body|access.?key)/i.test(key)
+      output[key] = /^(api.?key|token|secret|password|authorization|prompt|raw.?xml|xml|request.?body|access.?key)$/i.test(key)
         ? "[redacted]"
         : redactTerminalData(nested, depth + 1);
     }
