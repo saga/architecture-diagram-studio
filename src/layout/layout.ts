@@ -97,13 +97,9 @@ function layoutHierarchy(doc: DiagramDocument): DiagramDocument {
         .map(makeTree),
     };
   };
-  const roots = doc.nodes.filter((node) => !incoming.has(node.id)).map((node) => node.id);
+  const roots = doc.nodes.filter((node) => !incoming.has(node.id));
   const forest: HierarchyItem[] = [];
-  for (const node of doc.nodes) {
-    if (!visited.has(node.id) && (roots.includes(node.id) || roots.length === 0 || visited.size === 0)) {
-      forest.push(makeTree(node.id));
-    }
-  }
+  for (const node of roots) if (!visited.has(node.id)) forest.push(makeTree(node.id));
   // A cycle can leave no root. Add any remaining nodes as roots.
   for (const node of doc.nodes) if (!visited.has(node.id)) forest.push(makeTree(node.id));
 
