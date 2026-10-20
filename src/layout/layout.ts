@@ -47,10 +47,10 @@ async function layoutElk(doc: DiagramDocument): Promise<DiagramDocument> {
     }),
     edges: doc.relations.map((edge) => ({ id: edge.id, sources: [edge.sourceId], targets: [edge.targetId] })),
   });
-  return centerPositions(doc, new Map((result.children ?? []).map((node) => [
+  return centerPositions(doc, new Map<string, { x: number; y: number }>((result.children ?? []).map((node) => [
     node.id,
     { x: node.x ?? 0, y: node.y ?? 0 },
-  ])));
+  ] as const)));
 }
 
 function layoutDagre(doc: DiagramDocument): DiagramDocument {
@@ -63,10 +63,10 @@ function layoutDagre(doc: DiagramDocument): DiagramDocument {
   }
   for (const edge of doc.relations) graph.setEdge(edge.sourceId, edge.targetId, {}, edge.id);
   dagre.layout(graph);
-  return centerPositions(doc, new Map(doc.nodes.map((node) => {
+  return centerPositions(doc, new Map<string, { x: number; y: number }>(doc.nodes.map((node) => {
     const point = graph.node(node.id) as { x: number; y: number };
     const size = dimensions(doc, node.id);
-    return [node.id, { x: point.x - size.width / 2, y: point.y - size.height / 2 }];
+    return [node.id, { x: point.x - size.width / 2, y: point.y - size.height / 2 }] as const;
   })));
 }
 
@@ -155,10 +155,10 @@ function layoutForce(doc: DiagramDocument): DiagramDocument {
   simulation.stop();
   const minX = Math.min(...nodes.map((node) => node.x - node.width / 2));
   const minY = Math.min(...nodes.map((node) => node.y - node.height / 2));
-  return centerPositions(doc, new Map(nodes.map((node) => [
+  return centerPositions(doc, new Map<string, { x: number; y: number }>(nodes.map((node) => [
     node.id,
     { x: node.x - node.width / 2 - minX + 30, y: node.y - node.height / 2 - minY + 30 },
-  ])));
+  ] as const)));
 }
 
 export async function applyLayout(doc: DiagramDocument, engine: LayoutEngine): Promise<DiagramDocument> {
