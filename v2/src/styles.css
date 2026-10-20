@@ -192,3 +192,10 @@ button:disabled { opacity: .58; cursor: wait; }
 .zoom-indicator .zoom-percent { min-width: 43px; height: 22px; padding: 0 4px; font-size: 9px; font-weight: 600; }
 .zoom-indicator button:hover:not(:disabled) { background: #f1f4fa; color: #354daf; }
 .zoom-indicator button:disabled { opacity: .35; cursor: not-allowed; }
+
+
+.relation-style-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
+.relation-style-controls label { display: block; min-width: 0; color: #8a96a6; font-size: 8px; }
+.relation-style-controls select { display: block; width: 100%; margin-top: 4px; border: 1px solid #e2e7ee; border-radius: 5px; padding: 6px 5px; background: #fff; color: #5a6a7e; font-size: 8px; outline: none; }
+.relation-style-controls select:focus { border-color: #aab6e6; }
+.relation-style-controls select:disabled { background: #f6f7f9; color: #a3adba; cursor: not-allowed; }

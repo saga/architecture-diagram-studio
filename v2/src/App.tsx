@@ -330,6 +330,24 @@ export default function App() {
     if (document.kind !== "sequence") void runLayout(next);
   }
 
+  function updateRelationStyle(
+    relationId: string,
+    patch: { dashed?: boolean; routing?: "orthogonal" | "polyline" | "curved" | undefined }
+  ) {
+    const routingChanged = Object.prototype.hasOwnProperty.call(patch, "routing");
+    const next: DiagramDocument = {
+      ...document,
+      relations: document.relations.map((relation) => relation.id === relationId
+        ? { ...relation, ...patch, points: routingChanged ? [] : relation.points }
+        : relation)
+    };
+    if (routingChanged && document.kind !== "sequence") {
+      void runLayout(next);
+      return;
+    }
+    commitDocument(next, routingChanged ? "已更新关系线路由" : "已更新关系线型");
+  }
+
   function removeSelectedNode() {
     if (!selectedNode) return;
     const next: DiagramDocument = {
@@ -522,6 +540,29 @@ export default function App() {
                       onBlur={() => commitRelationLabel(relation.id)}
                       onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
                     />
+                    <div className="relation-style-controls">
+                      <label>路由
+                        <select disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
+                          const value = event.target.value;
+                          updateRelationStyle(relation.id, { routing: value === "inherit" ? undefined : value as "orthogonal" | "polyline" | "curved" });
+                        }}>
+                          <option value="inherit">默认</option>
+                          <option value="orthogonal">直角折线</option>
+                          <option value="polyline">折线</option>
+                          <option value="curved">曲线</option>
+                        </select>
+                      </label>
+                      <label>线型
+                        <select value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
+                          const value = event.target.value;
+                          updateRelationStyle(relation.id, { dashed: value === "inherit" ? undefined : value === "dashed" });
+                        }}>
+                          <option value="inherit">默认</option>
+                          <option value="solid">实线</option>
+                          <option value="dashed">虚线</option>
+                        </select>
+                      </label>
+                    </div>
                     <div className="relation-actions">
                       <button type="button" title="反转方向" onClick={() => reverseRelation(relation.id)}>↔ 方向</button>
                       <button type="button" title="删除关系" onClick={() => removeRelation(relation.id)}>删除</button>
