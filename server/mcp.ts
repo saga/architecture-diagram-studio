@@ -73,6 +73,21 @@ server.registerTool('delete_sequence_message', {
   inputSchema: z.object({ id: z.string().min(1) }),
 }, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('delete_sequence_message', args), null, 2) }] }));
 
+server.registerTool('add_sequence_activation', {
+  description: 'Create an activation bar for a participant across an inclusive chronological range of sequence messages.',
+  inputSchema: z.object({ participantId: z.string().min(1), startMessageId: z.string().min(1), endMessageId: z.string().min(1) }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('add_sequence_activation', args), null, 2) }] }));
+
+server.registerTool('update_sequence_activation', {
+  description: 'Change the participant or start/end message range of an existing sequence activation.',
+  inputSchema: z.object({ participantId: z.string().min(1), startMessageId: z.string().min(1), endMessageId: z.string().min(1), newParticipantId: z.string().optional(), newStartMessageId: z.string().optional(), newEndMessageId: z.string().optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('update_sequence_activation', args), null, 2) }] }));
+
+server.registerTool('delete_sequence_activation', {
+  description: 'Delete an activation by participant and message range.',
+  inputSchema: z.object({ participantId: z.string().min(1), startMessageId: z.string().min(1), endMessageId: z.string().min(1) }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('delete_sequence_activation', args), null, 2) }] }));
+
 server.registerTool('add_sequence_fragment', {
   description: 'Add an alt, opt, loop, or par frame around an inclusive range of sequence messages.',
   inputSchema: z.object({ id: z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), kind: z.enum(['alt','opt','loop','par']), title: z.string().min(1), guard: z.string().optional(), startMessageId: z.string().min(1), endMessageId: z.string().min(1), participantStartId: z.string().optional(), participantEndId: z.string().optional() }),
