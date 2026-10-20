@@ -64,6 +64,17 @@ export interface SequenceDiagramData {
   fragments?: SequenceFragment[];
 }
 
+export interface DiagramBoundary {
+  id: string;
+  label: string;
+  description?: string;
+  memberNodeIds: string[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DiagramDocument {
   schemaVersion: 1;
   id: string;
@@ -72,6 +83,7 @@ export interface DiagramDocument {
   nodes: DiagramNode[];
   relations: DiagramRelation[];
   layout: Record<string, NodeLayout>;
+  boundaries?: DiagramBoundary[];
   sequence?: SequenceDiagramData;
 }
 
@@ -94,10 +106,20 @@ export const initialDiagram: DiagramDocument = {
     { id: 'r4', sourceId: 'api', targetId: 'payment', label: 'Authorizes payment' }
   ],
   layout: {
-    customer: { x: 50, y: 170, width: 220, height: 112 },
-    web: { x: 350, y: 170, width: 220, height: 112 },
-    api: { x: 670, y: 170, width: 220, height: 112 },
-    db: { x: 1010, y: 50, width: 220, height: 112 },
-    payment: { x: 1010, y: 320, width: 220, height: 112 }
-  }
+    customer: { x: 42, y: 200, width: 220, height: 112, ports: [{ id: 'out-r1', side: 'RIGHT', x: 220, y: 56 }] },
+    web: { x: 360, y: 150, width: 220, height: 112, ports: [{ id: 'in-r1', side: 'LEFT', x: 0, y: 56 }, { id: 'out-r2', side: 'RIGHT', x: 220, y: 56 }] },
+    api: { x: 670, y: 150, width: 220, height: 112, ports: [{ id: 'in-r2', side: 'LEFT', x: 0, y: 56 }, { id: 'out-r3', side: 'BOTTOM', x: 110, y: 112 }, { id: 'out-r4', side: 'RIGHT', x: 220, y: 40 }] },
+    db: { x: 670, y: 340, width: 220, height: 112, ports: [{ id: 'in-r3', side: 'TOP', x: 110, y: 0 }] },
+    payment: { x: 1050, y: 150, width: 220, height: 112, ports: [{ id: 'in-r4', side: 'LEFT', x: 0, y: 40 }] }
+  },
+  boundaries: [{
+    id: 'order-platform-boundary',
+    label: 'Order Platform',
+    description: 'Software system boundary',
+    memberNodeIds: ['web', 'api', 'db'],
+    x: 315,
+    y: 80,
+    width: 650,
+    height: 420
+  }]
 };
