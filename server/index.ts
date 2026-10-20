@@ -207,6 +207,11 @@ app.get('/api/diagram/validate',(_req,res)=>{
   return res.json({valid:validateDiagram(sharedDiagram).every((issue)=>issue.severity!=='error'),issues:validateDiagram(sharedDiagram)});
 });
 
+app.use('/api/diagram/mutate',(req,res,next)=>{
+  res.on('finish',()=>recordTrace('vscode-mcp','mcp.tool.request',{operation:req.body?.operation,args:req.body?.args,status:res.statusCode}));
+  next();
+});
+
 app.post('/api/diagram/mutate',(req,res)=>{
   if(!sharedDiagram)return res.status(409).json({error:'No active diagram. Open Architecture Diagram Studio in a browser first.'});
   const operation=typeof req.body?.operation==='string'?req.body.operation:'';
@@ -348,6 +353,10 @@ app.post('/api/chat',async(req,res)=>{
     const errors=ensureValid(managed.state);
     if(errors) return res.status(500).json({error:'Copilot produced an invalid diagram; changes were not applied. '+errors});
     const content=(result as {data?:{content?:string}}|undefined)?.data?.content??'Done.';
+    sharedDiagram=structuredClone(managed.state.diagram);
+    diagramRevision+=1;
+    persistStore();
+    recordTrace(chatSessionId,'diagram.persisted',{revision:diagramRevision,nodeCount:sharedDiagram.nodes.length,relationCount:sharedDiagram.relations.length});
     saveChatMessage(chatSessionId,'assistant',content);
     recordTrace(chatSessionId,'turn.completed',{content,requestAutoLayout:managed.state.requestAutoLayout,nodeCount:managed.state.diagram.nodes.length,relationCount:managed.state.diagram.relations.length});
     return res.json({content,diagram:managed.state.diagram,requestAutoLayout:managed.state.requestAutoLayout,model:MODEL});
