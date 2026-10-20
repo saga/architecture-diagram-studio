@@ -1,10 +1,10 @@
 # Architecture Diagram Studio
 
-A React Flow-based architecture diagram editor with a native draw.io XML export path.
+A React Flow-based architecture diagram editor with a versioned diagram model and a native draw.io XML export path.
 
 ## Current status
 
-Early MVP scaffold. It contains a C4 Container example, editable React Flow nodes, ELK layered auto-layout, and an XML exporter that maps the current logical node geometry to native mxGraph cells. Pixel-identical rendering and sequence-diagram editing are not yet implemented or verified.
+MVP implementation in progress. The current app provides an editable C4 Container example, ELK layered auto-layout, browser-local persistence of the current diagram and node geometry, model validation before export, and deterministic native mxGraph XML generation. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
 
 ## Quick start
 
@@ -14,21 +14,28 @@ Requirements: Node.js 20+ and npm.
 npm install
 npm run dev
 npm run typecheck
+npm test
 npm run build
 ```
 
-## Current features
+## Implemented
 
 - React + TypeScript + React Flow editor.
-- Example C4 Container view with people, services, database, and external system.
-- ELK layered layout action.
-- Export current node geometry and relations to editable `.drawio` XML.
-- Initial product requirements, architecture diagrams, and ADRs.
+- Example C4 Container view with people, services, database, and an external system.
+- ELK layered layout as an explicit action; export does not invoke layout.
+- Persisted browser-local diagram snapshot and current node geometry.
+- Reset-to-example action.
+- Validation of duplicate IDs and broken relation references before export.
+- Native draw.io XML export preserving node positions, dimensions, labels, styles, relationships, and optional relation waypoints.
+- Deterministic XML for a fixed document snapshot; generated timestamps are omitted.
+- Unit tests for validation, geometry/waypoint mapping, escaping, and deterministic export.
+- GitHub Actions workflow for typecheck, tests, and production build.
 
 ## Design documents
 
 - [Product requirements](docs/requirements.md)
 - [Architecture and flow diagrams](docs/architecture.md)
+- [Export fidelity and verification plan](docs/export-fidelity.md)
 - [ADR 0001: Editor-independent IR](docs/adr/0001-editor-independent-ir.md)
 - [ADR 0002: Diagram-specific layout](docs/adr/0002-diagram-specific-layout.md)
 - [ADR 0003: Native-first export](docs/adr/0003-native-first-export.md)
@@ -40,12 +47,14 @@ npm run build
 3. Use graph layout for C4 views and a dedicated constraint-based layout for sequence diagrams.
 4. Prefer editable native draw.io cells; use SVG selectively for complex visual elements.
 5. Track source evidence and uncertainty when context extraction is added.
+6. Validate model invariants before export and keep export deterministic for a fixed snapshot.
 
 ## Known gaps
 
-- No automated tests yet.
-- Manual geometry is currently captured at export time; persistent save/load is not implemented.
-- Edge waypoint editing and export are not implemented.
-- Nested C4 boundaries and sequence-diagram fragments are planned, not implemented.
-- Draw.io XML is generated but has not yet been validated through an automated open/render round-trip.
-- Browser-to-draw.io pixel parity is not guaranteed.
+- Diagram semantics are currently sample data; users cannot yet create/edit all node and relation fields in the UI.
+- Persistence is browser-local only; there is no named project library or import/open workflow yet.
+- Sequence diagrams and their ordered messages, activations, and alt/opt/loop fragments are not implemented.
+- Nested C4 boundaries and relationship waypoint editing are not implemented.
+- XML generation has unit-level regression coverage, but opening/rendering in diagrams.net has not been verified by an automated round-trip.
+- Browser-to-draw.io pixel parity is not guaranteed; font metrics, shape implementations, and edge routing can differ.
+- Business context extraction and evidence/provenance UI are planned, not implemented.
