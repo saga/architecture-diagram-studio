@@ -201,10 +201,12 @@ app.put('/api/diagram',(req,res)=>{
   if(errors.length)return res.status(400).json({error:'Diagram is invalid: '+errors.map((issue)=>issue.message).join(' ')});
   if(Number.isFinite(expectedRevision)&&expectedRevision!==diagramRevision)
     return res.status(409).json({error:'Diagram changed in another client.',revision:diagramRevision});
+  const traceId=crypto.randomUUID();
+  recordTrace('browser-editor','diagram.snapshot_save_started',{expectedRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length},{traceId,category:'diagram',status:'started'});
   sharedDiagram=structuredClone(incoming);
   diagramRevision+=1;
   persistStore();
-  recordTrace('browser-editor','diagram.snapshot_saved',{revision:diagramRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length});
+  recordTrace('browser-editor','diagram.snapshot_saved',{revision:diagramRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length},{traceId,category:'diagram',status:'completed'});
   return res.json({ok:true,revision:diagramRevision});
 });
 
