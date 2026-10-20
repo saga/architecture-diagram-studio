@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent,type CSSProperties} from 'react';
-import {Background,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,getSmoothStepPath,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
+import {Background,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
 import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type LayoutDirection,type LayoutEngine} from './layout/layout';
 import {initialDiagram,type DiagramDocument,type DiagramPortLayout,type DiagramPortSide,type DiagramNode} from './model/diagram';
 import {ensureEdgeGeometry,layoutDirectionFor,orthogonalWaypoints,relationPortIds} from './model/routing';
@@ -28,7 +28,6 @@ function readLayoutVariants():LayoutVariant[]{
  }catch{/* use defaults */}
  return DEFAULT_VARIANTS.map(v=>({...v,config:normalizeLayoutConfig(v.config)}));
 }
-function oppositeSide(side:DiagramPortSide):DiagramPortSide{return side==='LEFT'?'RIGHT':side==='RIGHT'?'LEFT':side==='TOP'?'BOTTOM':'TOP';}
 function reactFlowPosition(side:DiagramPortSide):Position{return side==='LEFT'?Position.Left:side==='RIGHT'?Position.Right:side==='TOP'?Position.Top:Position.Bottom;}
 function portStyle(port:DiagramPortLayout):CSSProperties{
  if(port.side==='LEFT')return {left:0,top:port.y};
@@ -105,7 +104,19 @@ function Editor(){
  const onNodesChange=useCallback((c:NodeChange[])=>{
   const changedNodes=applyNodeChanges(c,nodes);
   const removed=c.filter(change=>change.type==='remove').map(change=>change.id);
-  if(!removed.length){setNodes(changedNodes);return;}
+  if(!removed.length){
+   setNodes(changedNodes);
+   const movedIds=new Set(c.filter(change=>change.type==='position').map(change=>change.id));
+   if(movedIds.size){
+    setDoc(prev=>({...prev,relations:prev.relations.map(relation=>{
+     if(!movedIds.has(relation.sourceId)&&!movedIds.has(relation.targetId))return relation;
+     const {waypoints:_staleWaypoints,...withoutStaleRoute}=relation;
+     return withoutStaleRoute;
+    })}));
+    setEdges(prev=>prev.map(edge=>movedIds.has(edge.source)||movedIds.has(edge.target)?{...edge,data:{...(edge.data??{}),waypoints:undefined}}:edge));
+   }
+   return;
+  }
   const ids=new Set(removed);
   const current=snapshotFromCanvas(doc,changedNodes);
   const next:DiagramDocument={...current,nodes:current.nodes.filter(n=>!ids.has(n.id)),relations:current.relations.filter(r=>!ids.has(r.sourceId)&&!ids.has(r.targetId)),layout:Object.fromEntries(Object.entries(current.layout).filter(([id])=>!ids.has(id)))};
@@ -124,13 +135,13 @@ function Editor(){
   setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);
   setSelectedRelationId(currentId=>currentId&&ids.has(currentId)?null:currentId);
  },[doc,nodes,edges,layoutEngine,layoutConfig]);
- const onConnect=useCallback((connection:Connection)=>{if(!connection.source||!connection.target)return;const id='relation-'+Date.now();const relation={id,sourceId:connection.source,targetId:connection.target,sourceHandleId:connection.sourceHandle??undefined,targetHandleId:connection.targetHandle??undefined,label:'New relation'};setEdges(es=>addEdge({id,source:relation.sourceId,target:relation.targetId,sourceHandle:relation.sourceHandleId,targetHandle:relation.targetHandleId,label:relation.label,type:'architecture',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#64748b',strokeWidth:1.5}},es));setDoc(prev=>({...prev,relations:[...prev.relations,relation]}));setStatus('Relation added.');},[]);
+ const onConnect=useCallback((connection:Connection)=>{if(!connection.source||!connection.target)return;const id='relation-'+crypto.randomUUID();const relation={id,sourceId:connection.source,targetId:connection.target,sourceHandleId:connection.sourceHandle??undefined,targetHandleId:connection.targetHandle??undefined,label:'New relation'};const current=snapshotFromCanvas(doc,nodes);const next=ensureEdgeGeometry({...current,relations:[...current.relations,relation]},layoutDirectionFor(layoutEngine,layoutConfig));const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Relation added.');},[doc,nodes,layoutEngine,layoutConfig]);
  const addService=useCallback(()=>{const id='service-'+Date.now();const position={x:80+(nodes.length%4)*230,y:100+Math.floor(nodes.length/4)*140};const item={id,type:'service' as const,label:'New Service',technology:'Technology TBD'};const nextDoc={...doc,nodes:[...doc.nodes,item],layout:{...doc.layout,[id]:{...position,width:190,height:84}}};const node=flowData(nextDoc,layoutEngine,layoutConfig).nodes.find(n=>n.id===id)!;setDoc(prev=>({...prev,nodes:[...prev.nodes,item],layout:{...prev.layout,[id]:{...position,width:190,height:84}}}));setNodes(ns=>[...ns,node]);setSelectedNodeId(id);setStatus('Service added. Select and edit its label below.');},[doc,nodes.length,layoutEngine,layoutConfig]);
  const renameSelectedNode=useCallback((label:string)=>{if(!selectedNodeId)return;setDoc(prev=>({...prev,nodes:prev.nodes.map(n=>n.id===selectedNodeId?{...n,label}:n)}));setNodes(ns=>ns.map(n=>n.id===selectedNodeId?{...n,data:{...n.data,label}}:n));},[selectedNodeId,selectedNode?.technology]);
  const renameSelectedRelation=useCallback((label:string)=>{if(!selectedRelationId)return;setDoc(prev=>({...prev,relations:prev.relations.map(r=>r.id===selectedRelationId?{...r,label}:r)}));setEdges(es=>es.map(e=>e.id===selectedRelationId?{...e,label}:e));},[selectedRelationId]);
  const deleteSelectedRelation=useCallback(()=>{if(!selectedRelationId)return;const current=snapshotFromCanvas(doc,nodes);const next:DiagramDocument={...current,relations:current.relations.filter(r=>r.id!==selectedRelationId)};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedRelationId(null);setStatus('Relation removed.');},[selectedRelationId,doc,nodes,layoutEngine,layoutConfig]);
  const deleteSelectedNode=useCallback(()=>{if(!selectedNodeId)return;const current=snapshotFromCanvas(doc,nodes);const next:DiagramDocument={...current,nodes:current.nodes.filter(n=>n.id!==selectedNodeId),relations:current.relations.filter(r=>r.sourceId!==selectedNodeId&&r.targetId!==selectedNodeId),layout:Object.fromEntries(Object.entries(current.layout).filter(([id])=>id!==selectedNodeId))};const flow=flowData(next,layoutEngine,layoutConfig);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setSelectedNodeId(null);setSelectedRelationId(null);setStatus('Node and its relations removed.');},[selectedNodeId,doc,nodes,layoutEngine,layoutConfig]);
- const snapshot=useCallback(():DiagramDocument=>snapshotFromCanvas(doc,nodes),[doc,nodes]);
+ const snapshot=useCallback(():DiagramDocument=>ensureEdgeGeometry(snapshotFromCanvas(doc,nodes),layoutDirectionFor(layoutEngine,layoutConfig)),[doc,nodes,layoutEngine,layoutConfig]);
  const syncRevisionRef=useRef<number|null>(null);
  const lastSyncedDocumentRef=useRef('');
  const lastLayoutRequestIdRef=useRef(0);
