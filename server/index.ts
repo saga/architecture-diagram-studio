@@ -9,6 +9,7 @@ import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, ty
 import { validateDiagram } from '../src/model/validate.js';
 import { addNodeToBoundary, removeNodesFromBoundaries, syncNodeBoundaryMembership } from '../src/model/boundaries.js';
 import { createDiagramTemplate } from '../src/model/templates.js';
+import { normalizeDiagramDocument } from '../src/model/migrations.js';
 import { normalizeSequenceRanges, sequenceActivationIssue, sequenceActivationKey } from '../src/model/sequence.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -19,7 +20,7 @@ const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/;
 
 interface ChatState { diagram: DiagramDocument; requestAutoLayout: boolean }
 const persisted = loadStudioStore();
-let sharedDiagram: DiagramDocument | undefined = persisted.diagram ?? undefined;
+let sharedDiagram: DiagramDocument | undefined = persisted.diagram ? normalizeDiagramDocument(persisted.diagram) : undefined;
 let diagramRevision = persisted.revision;
 let layoutRequestId = persisted.layoutRequestId;
 const chatHistories = new Map<string, StoredChatMessage[]>(Object.entries(persisted.chats));
@@ -447,9 +448,10 @@ app.get('/api/diagram',(_req,res)=>{
 app.put('/api/diagram',(req,res)=>{
   const incoming=req.body?.diagram as DiagramDocument|undefined;
   const expectedRevision=Number(req.body?.expectedRevision);
-  if(!incoming||incoming.schemaVersion!==1||!Array.isArray(incoming.nodes)||!Array.isArray(incoming.relations)||!incoming.layout||typeof incoming.layout!=='object')
+  if(!incoming||incoming.schemaVersion!==1||!Array.isArray(incoming.nodes)||!Array.isArray(incoming.relations)||!incoming.layout||typeof incoming.layout!=='object'||Array.isArray(incoming.layout))
     return res.status(400).json({error:'Invalid diagram document.'});
-  const errors=validateDiagram(incoming).filter((issue)=>issue.severity==='error');
+  const normalizedIncoming=normalizeDiagramDocument(incoming);
+  const errors=validateDiagram(normalizedIncoming).filter((issue)=>issue.severity==='error');
   if(errors.length)return res.status(400).json({error:'Diagram is invalid: '+errors.map((issue)=>issue.message).join(' ')});
   if(Number.isFinite(expectedRevision)&&expectedRevision!==diagramRevision)
     return res.status(409).json({error:'Diagram changed in another client.',revision:diagramRevision});
@@ -457,7 +459,7 @@ app.put('/api/diagram',(req,res)=>{
   recordTrace('browser-editor','diagram.snapshot_save_started',{expectedRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length},{traceId,category:'diagram',status:'started'});
   const previousDiagram=sharedDiagram;
   const previousRevision=diagramRevision;
-  sharedDiagram=structuredClone(incoming);
+  sharedDiagram=structuredClone(normalizedIncoming);
   diagramRevision+=1;
   try { persistStore(); } catch (error) { sharedDiagram=previousDiagram; diagramRevision=previousRevision; throw error; }
   recordTrace('browser-editor','diagram.snapshot_saved',{revision:diagramRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length},{traceId,category:'diagram',status:'completed'});
@@ -720,8 +722,9 @@ app.post('/api/chat',async(req,res)=>{
   if(!prompt) return res.status(400).json({error:'Enter a request for the diagram.'});
   if(prompt.length>MAX_PROMPT_CHARS) return res.status(413).json({error:'Prompt is too long (maximum 12,000 characters).'});
   if(!validId(chatSessionId)) return res.status(400).json({error:'Invalid chat session ID.'});
-  if(!incoming||incoming.schemaVersion!==1||!Array.isArray(incoming.nodes)||!Array.isArray(incoming.relations)||!incoming.layout||typeof incoming.layout!=='object') return res.status(400).json({error:'Invalid diagram document.'});
-  const incomingErrors=validateDiagram(incoming).filter((issue)=>issue.severity==='error');
+  if(!incoming||incoming.schemaVersion!==1||!Array.isArray(incoming.nodes)||!Array.isArray(incoming.relations)||!incoming.layout||typeof incoming.layout!=='object'||Array.isArray(incoming.layout)) return res.status(400).json({error:'Invalid diagram document.'});
+  const normalizedIncoming=normalizeDiagramDocument(incoming);
+  const incomingErrors=validateDiagram(normalizedIncoming).filter((issue)=>issue.severity==='error');
   if(incomingErrors.length) return res.status(400).json({error:'Diagram is invalid: '+incomingErrors.map((x)=>x.message).join(' ')});
   const history=Array.isArray(req.body?.history)?req.body.history.filter((m:unknown)=>!!m&&typeof m==='object'&&((m as {role?:unknown}).role==='user'||(m as {role?:unknown}).role==='assistant')&&typeof (m as {content?:unknown}).content==='string').slice(-12) as Array<{role:'user'|'assistant';content:string}>:[];
   const turnId=crypto.randomUUID();
@@ -738,7 +741,7 @@ app.post('/api/chat',async(req,res)=>{
       let pending=pendingSessions.get(chatSessionId);
       if(!pending){
         pending=(async()=>{
-          const state:ChatState={diagram:structuredClone(incoming),requestAutoLayout:false};
+          const state:ChatState={diagram:structuredClone(normalizedIncoming),requestAutoLayout:false};
           const sdk=await getClient();
           const systemMessage=[
             'You are the architecture-diagram assistant in Architecture Diagram Studio.',
@@ -772,7 +775,7 @@ app.post('/api/chat',async(req,res)=>{
     if(managed.busy) return res.status(409).json({error:'This chat is already processing a request.'});
     managed.busy=true;
     claimedBusySlot=true;
-    managed.state.diagram=structuredClone(incoming);
+    managed.state.diagram=structuredClone(normalizedIncoming);
     managed.state.requestAutoLayout=false;
     managed.traceContext.traceId=traceId;
     managed.traceContext.turnId=turnId;
