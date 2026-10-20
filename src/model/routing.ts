@@ -1,8 +1,8 @@
 import type { DiagramDocument, DiagramPortLayout, DiagramPortSide, DiagramRelation, NodeLayout } from './diagram';
 import type { LayoutDirection } from '../layout/layout';
 
-const DEFAULT_WIDTH = 190;
-const DEFAULT_HEIGHT = 84;
+const DEFAULT_WIDTH = 220;
+const DEFAULT_HEIGHT = 112;
 const ROUTE_CLEARANCE = 24;
 
 export function relationPortIds(relation: DiagramRelation): { source: string; target: string } {
