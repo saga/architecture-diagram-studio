@@ -35,7 +35,18 @@ npm run build
 - Unit tests for validation, geometry/waypoint mapping, escaping, and deterministic export.
 - GitHub Actions workflow for typecheck, tests, and production build.
 
-## Copilot setup\n\nThe development command starts the Vite client and the Express Copilot API together. Vite proxies `/api` to `127.0.0.1:3001`. The API binds to loopback only.\n\n1. Sign in to GitHub Copilot through the local Copilot CLI/runtime, or provide `GITHUB_TOKEN` through your shell environment. The SDK client uses the logged-in CLI identity by default.\n2. Copy `.env.example` to `.env` only if you need to override the model or runtime settings. Never commit a real token.\n3. Run `npm run dev`. The editor opens in Vite; the API starts alongside it.\n4. In the chat panel, ask for a concrete edit, for example: “Add a notification service and connect it to the Order API.” The updated diagram is applied to the editor and can then be exported.\n\nThe model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model availability depends on the account and current Copilot CLI runtime. See [`.env.example`](.env.example).\n\n## Design documents
+## Copilot setup
+
+The development command starts the Vite client and the Express Copilot API together. Vite proxies `/api` to `127.0.0.1:3001`. The API binds to loopback only.
+
+1. Sign in to GitHub Copilot through the local Copilot CLI/runtime, or provide `GITHUB_TOKEN` through your shell environment. The SDK client uses the logged-in CLI identity by default.
+2. Copy `.env.example` to `.env` only if you need to override the model or runtime settings. Never commit a real token.
+3. Run `npm run dev`. The editor opens in Vite; the API starts alongside it.
+4. In the chat panel, ask for a concrete edit, for example: “Add a notification service and connect it to the Order API.” The updated diagram is applied to the editor and can then be exported.
+
+The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model availability depends on the account and current Copilot CLI runtime. See [`.env.example`](.env.example).
+
+## Design documents
 
 - [Product requirements](docs/requirements.md)
 - [Architecture and flow diagrams](docs/architecture.md)
@@ -61,4 +72,6 @@ npm run build
 - Nested C4 boundaries and relationship waypoint editing are not implemented.
 - XML generation has unit-level regression coverage, but opening/rendering in diagrams.net has not been verified by an automated round-trip.
 - Browser-to-draw.io pixel parity is not guaranteed; font metrics, shape implementations, and edge routing can differ.
-- Business context extraction and evidence/provenance UI are planned, not implemented.\n- Chat uses request/response rather than token-by-token streaming; tool execution is complete before the returned diagram is applied.\n- The SDK session registry is in memory; after an API restart, recent browser-side conversation history is replayed as context, but the runtime session itself is not durably restored.
+- Business context extraction and evidence/provenance UI are planned, not implemented.
+- Chat uses request/response rather than token-by-token streaming; tool execution is complete before the returned diagram is applied.
+- The SDK session registry is in memory; after an API restart, recent browser-side conversation history is replayed as context, but the runtime session itself is not durably restored.
