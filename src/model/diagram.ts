@@ -1,7 +1,9 @@
 export type DiagramKind = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence';
 export interface DiagramNode { id:string; type:'person'|'system'|'service'|'database'|'external'|'boundary'; label:string; description?:string; technology?:string; parentId?:string; evidenceIds?:string[] }
-export interface DiagramRelation { id:string; sourceId:string; targetId:string; label:string; kind?:'sync'|'async'|'data'; evidenceIds?:string[]; waypoints?:Array<{x:number;y:number}> }
-export interface NodeLayout { x:number; y:number; width:number; height:number; locked?:boolean }
+export interface DiagramRelation { id:string; sourceId:string; targetId:string; label:string; kind?:'sync'|'async'|'data'; sourceHandleId?:string; targetHandleId?:string; evidenceIds?:string[]; waypoints?:Array<{x:number;y:number}> }
+export type DiagramPortSide = 'LEFT'|'RIGHT'|'TOP'|'BOTTOM';
+export interface DiagramPortLayout { id:string; side:DiagramPortSide; x:number; y:number }
+export interface NodeLayout { x:number; y:number; width:number; height:number; locked?:boolean; ports?:DiagramPortLayout[] }
 export interface DiagramDocument { schemaVersion:1; id:string; title:string; kind:DiagramKind; nodes:DiagramNode[]; relations:DiagramRelation[]; layout:Record<string,NodeLayout> }
 export const initialDiagram:DiagramDocument={
  schemaVersion:1,id:'example-order-platform',title:'Order Platform — Container View',kind:'c4-container',
