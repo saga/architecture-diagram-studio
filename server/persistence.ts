@@ -1,4 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendAgentTrace, readAgentTraces, type AgentTraceRecord } from './trace-ledger.js';
+export { appendAgentTrace, readAgentTraces } from './trace-ledger.js';
+export type { AgentTraceRecord } from './trace-ledger.js';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { DiagramDocument } from '../src/model/diagram.js';
@@ -18,13 +21,6 @@ export interface StudioStore {
   chats: Record<string, StoredChatMessage[]>;
 }
 
-export interface AgentTraceRecord {
-  id: string;
-  timestamp: string;
-  sessionId: string;
-  type: string;
-  data: unknown;
-}
 
 const DATA_DIRECTORY = process.env.ARCHITECTURE_DIAGRAM_DATA_DIR?.trim()
   || path.join(homedir(), '.architecture-diagram-studio');
@@ -54,36 +50,10 @@ export function loadStudioStore(): StudioStore {
   }
 }
 
-/** Atomically replace the state snapshot; the append-only trace is stored separately. */
+/** Atomically replace the state snapshot. Agent events live in the indexed SQLite ledger. */
 export function saveStudioStore(store: StudioStore): void {
   ensureDataDirectory();
   const temporaryFile = STORE_FILE + '.' + process.pid + '.tmp';
   writeFileSync(temporaryFile, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
   renameSync(temporaryFile, STORE_FILE);
-}
-
-export function appendAgentTrace(record: AgentTraceRecord): void {
-  ensureDataDirectory();
-  appendFileSync(TRACE_FILE, JSON.stringify(record) + '\n', { encoding: 'utf8', mode: 0o600 });
-}
-
-export function readAgentTraces(sessionIds: string[], limit = 200): AgentTraceRecord[] {
-  try {
-    if (!existsSync(TRACE_FILE)) return [];
-    const allowed = new Set(sessionIds);
-    const lines = readFileSync(TRACE_FILE, 'utf8').split('\n').filter(Boolean);
-    const records: AgentTraceRecord[] = [];
-    for (let index = lines.length - 1; index >= 0 && records.length < limit; index -= 1) {
-      try {
-        const record = JSON.parse(lines[index]) as AgentTraceRecord;
-        if (allowed.has(record.sessionId)) records.push(record);
-      } catch {
-        // Ignore an incomplete/corrupt line and continue reading earlier records.
-      }
-    }
-    return records.reverse();
-  } catch (error) {
-    console.error('[architecture-diagram-studio] Could not read agent trace:', error);
-    return [];
-  }
 }
