@@ -101,13 +101,14 @@ function SequenceFragmentNode({data}:NodeProps<SequenceFragmentFlowNode>){
 function SequenceMessageNode({id,data}:NodeProps<SequenceMessageFlowNode>){
  const markerId='sequence-arrow-'+id.replace(/[^A-Za-z0-9_-]/g,'-');
  const dashed=data.kind==='return';
+ const openArrow=dashed||data.kind==='async';
  const forward=data.direction==='forward';
  const self=data.direction==='self';
- const path=self?'M 8 30 H 48 V 8 H 8':forward?'M 8 30 H '+Math.max(8,data.width-8):'M '+Math.max(8,data.width-8)+' 30 H 8';
+ const path=self?'M 0 30 H 40 V 8 H 0':forward?'M 0 30 H '+data.width:'M '+data.width+' 30 H 0';
  return <div className={'sequence-message sequence-message-'+data.kind}>
   <div className="sequence-message-label">{data.order}. {data.label}</div>
   <svg width={Math.max(18,data.width)} height="40" viewBox={'0 0 '+Math.max(18,data.width)+' 40'} preserveAspectRatio="none" aria-hidden="true">
-   <defs><marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+   <defs><marker id={markerId} markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d={openArrow?"M0,0 L8,4 L0,8":"M0,0 L8,4 L0,8 z"} fill={openArrow?"none":"currentColor"} stroke="currentColor"/></marker></defs>
    <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray={dashed?'5 4':undefined} markerEnd={'url(#'+markerId+')'}/>
   </svg>
  </div>;
@@ -176,7 +177,7 @@ function sequenceFlowData(doc:DiagramDocument):{nodes:Node[];edges:Edge[]}{
   const toCenter=participantX.get(message.toParticipantId)!+participantWidth/2;
   const isSelf=fromIndex===toIndex;
   const width=isSelf?76:Math.abs(toCenter-fromCenter);
-  const x=isSelf?fromCenter-7:Math.min(fromCenter,toCenter);
+  const x=isSelf?fromCenter:Math.min(fromCenter,toCenter);
   nodes.push({id:message.id,type:'sequenceMessage',className:'sequence-message-node',position:{x,y:messageY.get(message.id)!},style:{width:Math.max(18,width),height:40},data:{...message,width:Math.max(18,width),direction:isSelf?'self':fromCenter<toCenter?'forward':'reverse'},draggable:false,selectable:true,connectable:false,zIndex:3});
  });
  return {nodes,edges:[]};
