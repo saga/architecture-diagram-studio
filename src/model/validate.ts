@@ -1,4 +1,5 @@
 import type { DiagramDocument } from './diagram.js';
+import { sequenceActivationKey } from './sequence.js';
 
 export interface ValidationIssue {
   code: string;
@@ -101,7 +102,11 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
       orderValues.add(message.order);
     }
 
+    const activationKeys = new Set<string>();
     for (const activation of sequence.activations ?? []) {
+      const activationKey = sequenceActivationKey(activation);
+      if (activationKeys.has(activationKey)) issues.push({ code: 'SEQUENCE_ACTIVATION_DUPLICATE', message: `Activation range for participant "${activation.participantId}" is duplicated.`, elementId: activation.participantId, severity: 'error' });
+      activationKeys.add(activationKey);
       if (!participantIds.has(activation.participantId)) issues.push({ code: 'SEQUENCE_ACTIVATION_PARTICIPANT_NOT_FOUND', message: `Activation refers to missing participant "${activation.participantId}".`, elementId: activation.participantId, severity: 'error' });
       if (!messageIds.has(activation.startMessageId) || !messageIds.has(activation.endMessageId)) {
         issues.push({ code: 'SEQUENCE_ACTIVATION_MESSAGE_NOT_FOUND', message: 'An activation refers to a missing start or end message.', elementId: activation.participantId, severity: 'error' });
