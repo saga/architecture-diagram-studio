@@ -13,5 +13,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["server/**/*.ts", "src/model/**/*.ts"]
+  "include": ["server/**/*.ts", "src/model/diagram.ts", "src/model/validate.ts"]
 }
