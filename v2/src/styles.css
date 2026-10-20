@@ -139,3 +139,10 @@ button:disabled { opacity: .58; cursor: wait; }
   .topbar { gap: 14px; padding: 0 15px; } .canvas-toolbar { padding-left: 18px; padding-right: 18px; }
   .right-tabs { gap: 12px; padding: 0 13px; } .inspector-section, .quality-section, .design-section { padding-left: 13px; padding-right: 13px; }
 }
+
+.relation-editor { border-top: 1px solid #edf0f4; margin-top: 14px; padding-top: 5px; }
+.relation-label-field { margin-top: 6px; }
+.relation-add-button { width: 100%; margin-top: 6px; border: 1px solid #e0e6ff; background: #f4f6ff; color: #354daf; border-radius: 6px; padding: 7px; font-size: 9px; font-weight: 600; }
+.relation-add-button:hover { background: #eaf0ff; border-color: #cbd5ff; }
+.relation-add-button:disabled { opacity: .5; cursor: not-allowed; }
+.file-input-hidden { display: none; }

@@ -6,6 +6,7 @@ import { layoutDiagram, moveNode } from "./layout/layout";
 import { evaluateLayout } from "./layout/quality";
 import { applyIntent } from "./intent/applyIntent";
 import { downloadText, toDrawioXml } from "./export/drawio";
+import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
@@ -14,7 +15,18 @@ type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
 
 export default function App() {
-  const [document, setDocument] = useState<DiagramDocument>(() => FIXTURES.c4());
+  const [document, setDocument] = useState<DiagramDocument>(() => {
+    try {
+      const saved = window.localStorage.getItem("architecture-diagram-studio:v2:document");
+      if (saved) {
+        const parsed = JSON.parse(saved) as DiagramDocument;
+        if (parsed.schemaVersion === 2 && Array.isArray(parsed.nodes) && Array.isArray(parsed.relations) && ["c4", "flowchart", "sequence"].includes(parsed.kind)) return parsed;
+      }
+    } catch {
+      // Browser storage may be disabled or contain an older draft; use the sample instead.
+    }
+    return FIXTURES.c4();
+  });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [chatInput, setChatInput] = useState("");
@@ -25,7 +37,10 @@ export default function App() {
   const [revision, setRevision] = useState(1);
   const [lastAction, setLastAction] = useState("已加载 Studio Editorial 示例");
   const [isLayoutting, setIsLayoutting] = useState(false);
+  const [relationTargetId, setRelationTargetId] = useState("");
+  const [relationLabel, setRelationLabel] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
   const quality = useMemo(() => evaluateLayout(document), [document]);
@@ -33,10 +48,17 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    layoutDiagram(FIXTURES.c4()).then((laidOut) => { if (active) setDocument(laidOut); })
+    layoutDiagram(document).then((laidOut) => { if (active) setDocument(laidOut); })
       .catch((error: unknown) => { if (active) setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error))); });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("architecture-diagram-studio:v2:document", JSON.stringify(document));
+    } catch {
+      setLastAction("浏览器存储不可用；本次会话仍可继续编辑");
+    }
+  }, [document]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string) => {
@@ -110,6 +132,32 @@ export default function App() {
     void runLayout(next);
   }
 
+  function addRelation() {
+    if (!selectedNode || !relationTargetId || relationTargetId === selectedNode.id) return;
+    const alreadyExists = document.relations.some((relation) =>
+      relation.source === selectedNode.id && relation.target === relationTargetId && relation.label === relationLabel.trim()
+    );
+    if (alreadyExists) {
+      setLastAction("这条关系已经存在");
+      return;
+    }
+    const next: DiagramDocument = {
+      ...document,
+      relations: [...document.relations, {
+        id: newId("relation"),
+        source: selectedNode.id,
+        target: relationTargetId,
+        label: relationLabel.trim(),
+        kind: document.kind === "sequence" ? "call" : "flow",
+        sequenceOrder: document.kind === "sequence" ? document.relations.length : undefined,
+        points: []
+      }]
+    };
+    setRelationLabel("");
+    commitDocument(next, "已建立 " + selectedNode.name + " → " + (document.nodes.find((node) => node.id === relationTargetId)?.name || relationTargetId) + " 的关系");
+    if (document.kind !== "sequence") void runLayout(next);
+  }
+
   function removeSelectedNode() {
     if (!selectedNode) return;
     const next: DiagramDocument = {
@@ -137,6 +185,26 @@ export default function App() {
     setLastAction("已导出原生 .drawio 文件");
   }
 
+  async function importDiagramFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const xml = await file.text();
+      const empty: DiagramDocument = { ...document, id: newId("imported"), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
+      const parsed = fromDrawioXml(xml, empty);
+      if (!parsed.nodes.length) {
+        setLastAction("没有找到可导入的节点；请检查文件是否为有效的 .drawio XML");
+        return;
+      }
+      const next = await layoutDiagram(parsed);
+      setSelectedNodeId(next.nodes[0]?.id || null);
+      commitDocument(next, "已导入 " + file.name + "，解析 " + next.nodes.length + " 个节点与 " + next.relations.length + " 条关系");
+    } catch (error) {
+      setLastAction("导入失败：" + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      if (importFileRef.current) importFileRef.current.value = "";
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -146,8 +214,10 @@ export default function App() {
         </div>
         <div className="topbar-divider" />
         <div className="document-breadcrumb"><span className="crumb-muted">WORKSPACE</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
+        <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         <div className="topbar-actions">
           <button className="button button-quiet" onClick={resetDiagram}>重置示例</button>
+          <button className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</button>
           <button className="button button-secondary" onClick={exportDiagram}><span className="button-icon">↓</span>导出 .drawio</button>
           <button className="button button-primary" onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</button>
         </div>
@@ -225,6 +295,15 @@ export default function App() {
               <div className="field-label">技术 / 平台</div><input className="text-field" value={selectedNode.technology || ""} placeholder="例如：Java / Spring" onChange={(event) => changeNode({ technology: event.target.value })} />
               <div className="field-label">描述</div><textarea className="text-field text-area" value={selectedNode.description || ""} placeholder="此组件的职责…" onChange={(event) => changeNode({ description: event.target.value })} rows={2} />
               <label className="lock-row"><input type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>锁定当前位置</b><small>重排时保留此节点位置</small></span></label>
+              <div className="relation-editor">
+                <div className="field-label">建立关系（当前节点 → 目标）</div>
+                <select className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
+                  <option value="">选择目标节点…</option>
+                  {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                </select>
+                <input className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
+                <button className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</button>
+              </div>
               <button className="delete-node-button" onClick={removeSelectedNode}>删除此元素</button>
             </div>
           ) : <div className="empty-inspector">选择画布中的节点以查看和编辑其属性。</div>}

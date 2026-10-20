@@ -30,12 +30,15 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
   } else {
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      start = { x: dx >= 0 ? source.x + source.width : source.x, y: s.y };
-      end = { x: dx >= 0 ? target.x : target.x + target.width, y: t.y };
-    } else {
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
       start = { x: s.x, y: dy >= 0 ? source.y + source.height : source.y };
       end = { x: t.x, y: dy >= 0 ? target.y : target.y + target.height };
+    } else if (dx >= 0) {
+      start = { x: source.x + source.width, y: s.y };
+      end = { x: target.x, y: t.y };
+    } else {
+      start = { x: source.x, y: s.y };
+      end = { x: target.x + target.width, y: t.y };
     }
   }
   const all = [start, ...points, end];
@@ -59,7 +62,6 @@ function nodePath(node: DiagramNode, shape: string): string {
   if (shape === "diamond") return "M " + (node.x + node.width / 2) + " " + node.y + " L " + (node.x + node.width) + " " + (node.y + node.height / 2) + " L " + (node.x + node.width / 2) + " " + (node.y + node.height) + " L " + node.x + " " + (node.y + node.height / 2) + " Z";
   return "M " + (node.x + 8) + " " + node.y + " H " + (node.x + node.width - 8) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + 8) + " V " + (node.y + node.height - 8) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - 8) + " " + (node.y + node.height) + " H " + (node.x + 8) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - 8) + " V " + (node.y + 8) + " Q " + node.x + " " + node.y + " " + (node.x + 8) + " " + node.y + " Z";
 }
-
 export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, onMoveNode }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -68,19 +70,19 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
     height: Math.max(document.kind === "sequence" ? 820 : 760, ...document.nodes.map((node) => node.y + node.height + 120))
   }), [document.nodes, document.kind]);
 
-  function pointerToDiagram(event: ReactPointerEvent<SVGSVGElement>): Point {
+  function pointerToDiagram(clientX: number, clientY: number): Point {
     const svg = svgRef.current;
     const matrix = svg?.getScreenCTM();
-    if (!svg || !matrix) return { x: event.clientX, y: event.clientY };
+    if (!svg || !matrix) return { x: clientX, y: clientY };
     const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
+    point.x = clientX;
+    point.y = clientY;
     const transformed = point.matrixTransform(matrix.inverse());
     return { x: transformed.x, y: transformed.y };
   }
-  function startDrag(event: ReactPointerEvent<SVGSVGElement>, node: DiagramNode) {
+  function startDrag(event: ReactPointerEvent<SVGGElement>, node: DiagramNode) {
     if (event.button !== 0) return;
-    const point = pointerToDiagram(event);
+    const point = pointerToDiagram(event.clientX, event.clientY);
     setDrag({ id: node.id, offsetX: point.x - node.x, offsetY: point.y - node.y, x: node.x, y: node.y });
     onSelectNode(node.id);
     svgRef.current?.setPointerCapture(event.pointerId);
@@ -88,7 +90,7 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
   }
   function moveDrag(event: ReactPointerEvent<SVGSVGElement>) {
     if (!drag) return;
-    const point = pointerToDiagram(event);
+    const point = pointerToDiagram(event.clientX, event.clientY);
     setDrag({ ...drag, x: Math.max(12, point.x - drag.offsetX), y: Math.max(12, point.y - drag.offsetY) });
   }
   function endDrag() {
@@ -100,19 +102,12 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
   const displayDoc = { ...document, nodes: displayNodes };
 
   return (
-    <svg ref={svgRef} className="diagram-svg" viewBox={"0 0 " + frame.width + " " + frame.height}
-      preserveAspectRatio="xMidYMid meet" onPointerMove={moveDrag} onPointerUp={endDrag}
-      onPointerCancel={endDrag} role="img" aria-label={document.title}>
+    <svg ref={svgRef} className="diagram-svg" viewBox={"0 0 " + frame.width + " " + frame.height} preserveAspectRatio="xMidYMid meet"
+      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} role="img" aria-label={document.title}>
       <defs>
-        <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-          <circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} />
-        </pattern>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B" />
-        </marker>
-        <marker id="arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#778496" strokeWidth="1.2" />
-        </marker>
+        <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B" /></marker>
+        <marker id="arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#778496" strokeWidth="1.2" /></marker>
       </defs>
       <rect width={frame.width} height={frame.height} fill="#FBFCFD" />
       <rect width={frame.width} height={frame.height} fill="url(#studio-grid)" />
@@ -128,21 +123,16 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
           <text x={left + 14} y={top + 17} fontSize="10" fontWeight="600" letterSpacing="1.2" fill="#7E8B9D">{boundary.name.toUpperCase()}</text>
         </g>;
       })}
-      {document.kind === "sequence" && displayNodes.map((node) => (
-        <line key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x}
-          y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#BCC5D1" strokeWidth="1" strokeDasharray="4 6" />
-      ))}
+      {document.kind === "sequence" && displayNodes.map((node) => <line key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#BCC5D1" strokeWidth="1" strokeDasharray="4 6" />)}
       {displayDoc.relations.map((relation) => {
         const path = relationPath(displayDoc, relation);
         if (!path) return null;
         const paint = relationPaint(relation);
-        const strokeDash = relation.dashed ? "5 5" : paint.dash || undefined;
         return <g key={relation.id}>
-          <path d={path.d} fill="none" stroke={paint.stroke} strokeWidth={paint.width} strokeDasharray={strokeDash}
+          <path d={path.d} fill="none" stroke={paint.stroke} strokeWidth={paint.width} strokeDasharray={relation.dashed ? "5 5" : paint.dash || undefined}
             markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" />
           {relation.label && <g>
-            <rect x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12}
-              width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.94" />
+            <rect x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12} width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.94" />
             <text x={path.label.x} y={path.label.y + 1} textAnchor="middle" fontSize="10" fill="#58677A">{relation.label}</text>
           </g>}
         </g>;
@@ -152,8 +142,7 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
         const selected = selectedNodeId === node.id;
         const titleY = node.y + (node.description || node.technology ? 28 : node.height / 2 + 4);
         return <g key={node.id} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
-          onPointerDown={(event) => startDrag(event, node)}
-          onClick={(event) => { event.stopPropagation(); onSelectNode(node.id); }} style={{ cursor: "grab" }}>
+          onPointerDown={(event) => startDrag(event, node)} onClick={(event) => { event.stopPropagation(); onSelectNode(node.id); }} style={{ cursor: "grab" }}>
           <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2 : 1.2} />
           <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.45 : 0.9} />
           <text x={node.x + 17} y={titleY + 1} fontSize="13" fontWeight="600" fill={paint.text}>{node.name.length > 25 ? node.name.slice(0, 24) + "…" : node.name}</text>

@@ -25,15 +25,69 @@ function pathFor(doc: DiagramDocument, id: string): Point[] {
   const source = doc.nodes.find((node) => node.id === edge.source);
   const target = doc.nodes.find((node) => node.id === edge.target);
   if (!source || !target) return [];
-  const s = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
-  const t = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
-  return [s, ...(edge.points || []), t];
+  if (doc.kind === "sequence") {
+    const order = edge.sequenceOrder ?? 0;
+    const y = 148 + order * 72;
+    const sourceX = source.x + source.width / 2;
+    const targetX = target.x + target.width / 2;
+    return [
+      { x: sourceX + (targetX >= sourceX ? 1 : -1) * source.width * 0.42, y },
+      { x: targetX + (targetX >= sourceX ? -1 : 1) * target.width * 0.42, y }
+    ];
+  }
+  const sc = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
+  const tc = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+  const dx = tc.x - sc.x, dy = tc.y - sc.y;
+  let start: Point, end: Point;
+  if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
+    start = { x: sc.x, y: dy >= 0 ? source.y + source.height : source.y };
+    end = { x: tc.x, y: dy >= 0 ? target.y : target.y + target.height };
+  } else if (dx >= 0) {
+    start = { x: source.x + source.width, y: sc.y };
+    end = { x: target.x, y: tc.y };
+  } else {
+    start = { x: source.x, y: sc.y };
+    end = { x: target.x + target.width, y: tc.y };
+  }
+  return [start, ...(edge.points || []), end];
+}
+function countComponents(doc: DiagramDocument): number {
+  if (!doc.nodes.length) return 0;
+  const adjacency = new Map(doc.nodes.map((node) => [node.id, new Set<string>()]));
+  for (const edge of doc.relations) {
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  }
+  const visited = new Set<string>();
+  let count = 0;
+  for (const node of doc.nodes) {
+    if (visited.has(node.id)) continue;
+    count++;
+    const stack = [node.id];
+    visited.add(node.id);
+    while (stack.length) {
+      const id = stack.pop()!;
+      for (const next of adjacency.get(id) || []) {
+        if (!visited.has(next)) { visited.add(next); stack.push(next); }
+      }
+    }
+  }
+  return count;
+}
+function labelBoxes(doc: DiagramDocument): Array<{ relationId: string; x: number; y: number; width: number; height: number }> {
+  return doc.relations.filter((edge) => edge.label.trim()).flatMap((edge) => {
+    const path = pathFor(doc, edge.id);
+    if (path.length < 2) return [];
+    const a = path[Math.floor((path.length - 1) / 2)], b = path[Math.ceil((path.length - 1) / 2)];
+    const width = Math.max(36, Math.min(240, edge.label.length * 6.2));
+    return [{ relationId: edge.id, x: (a.x + b.x) / 2 - width / 2, y: (a.y + b.y) / 2 - 12, width, height: 19 }];
+  });
 }
 
 export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   const errors: QualityIssue[] = [];
   const warnings: QualityIssue[] = [];
-  let nodeOverlaps = 0, edgeNodeIntersections = 0, edgeCrossings = 0;
+  let nodeOverlaps = 0, edgeNodeIntersections = 0, edgeCrossings = 0, labelCollisions = 0;
   for (let i = 0; i < doc.nodes.length; i++) {
     for (let j = i + 1; j < doc.nodes.length; j++) {
       if (overlaps(doc.nodes[i], doc.nodes[j], 2)) {
@@ -42,13 +96,13 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       }
     }
   }
-  const paths = doc.relations.map((relation) => ({ id: relation.id, points: pathFor(doc, relation.id) }));
+  const paths = doc.relations.map((edge) => ({ id: edge.id, points: pathFor(doc, edge.id) }));
   for (const path of paths) {
-    const relation = doc.relations.find((item) => item.id === path.id);
+    const edge = doc.relations.find((item) => item.id === path.id);
     for (let i = 0; i < path.points.length - 1; i++) {
       const a = path.points[i], b = path.points[i + 1];
       const hit = doc.nodes.some((node) => {
-        if (!relation || node.id === relation.source || node.id === relation.target) return false;
+        if (!edge || node.id === edge.source || node.id === edge.target) return false;
         if (isHorizontal(a, b)) return a.y > node.y && a.y < node.y + node.height && Math.max(Math.min(a.x, b.x), node.x) < Math.min(Math.max(a.x, b.x), node.x + node.width);
         if (isVertical(a, b)) return a.x > node.x && a.x < node.x + node.width && Math.max(Math.min(a.y, b.y), node.y) < Math.min(Math.max(a.y, b.y), node.y + node.height);
         return false;
@@ -70,6 +124,18 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       if (crossed) edgeCrossings++;
     }
   }
+  const boxes = labelBoxes(doc);
+  for (let i = 0; i < boxes.length; i++) {
+    const current = boxes[i];
+    const edge = doc.relations.find((item) => item.id === current.relationId);
+    const collidesWithNode = doc.nodes.some((node) =>
+      node.id !== edge?.source && node.id !== edge?.target &&
+      overlaps(current, node, 0)
+    );
+    const collidesWithLabel = boxes.slice(i + 1).some((other) => overlaps(current, other, 2));
+    if (collidesWithNode || collidesWithLabel) labelCollisions++;
+  }
+  const disconnectedComponents = Math.max(0, countComponents(doc) - 1);
   const alignmentScore = Math.max(0, 1 - nodeOverlaps / Math.max(1, doc.nodes.length));
   const xs = doc.nodes.map((n) => n.x), ys = doc.nodes.map((n) => n.y);
   const area = Math.max(1, (Math.max(...xs, 1) - Math.min(...xs, 0) + 240) * (Math.max(...ys, 1) - Math.min(...ys, 0) + 200));
@@ -78,12 +144,13 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   const densityScore = Math.max(0, Math.min(1, 1 - doc.nodes.length / 32));
   if (edgeNodeIntersections) warnings.push({ code: "edge-through-node", severity: "warning", message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node" });
   if (edgeCrossings) warnings.push({ code: "edge-crossing", severity: "warning", message: edgeCrossings + " possible edge crossing(s)" });
-  const score = Math.max(0, Math.round(100 - nodeOverlaps * 80 - edgeNodeIntersections * 100 - edgeCrossings * 12 + alignmentScore * 8 + whitespaceScore * 6 + densityScore * 4));
+  if (labelCollisions) warnings.push({ code: "label-collision", severity: "warning", message: labelCollisions + " estimated edge-label collision(s)" });
+  if (disconnectedComponents) warnings.push({ code: "disconnected-components", severity: "warning", message: disconnectedComponents + " disconnected component(s) beyond the first" });
+  const score = Math.max(0, Math.round(100 - nodeOverlaps * 80 - edgeNodeIntersections * 100 - edgeCrossings * 12 - labelCollisions * 20 - disconnectedComponents * 4 + alignmentScore * 8 + whitespaceScore * 6 + densityScore * 4));
   return {
     score, errors, warnings,
     metrics: {
-      nodeOverlaps, edgeNodeIntersections, edgeCrossings, labelCollisions: 0,
-      disconnectedComponents: 0,
+      nodeOverlaps, edgeNodeIntersections, edgeCrossings, labelCollisions, disconnectedComponents,
       alignmentScore: Math.round(alignmentScore * 100) / 100,
       whitespaceScore: Math.round(whitespaceScore * 100) / 100,
       densityScore: Math.round(densityScore * 100) / 100

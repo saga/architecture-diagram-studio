@@ -22,8 +22,11 @@ function vertexXml(node: DiagramNode): string {
 }
 function edgeXml(relation: DiagramRelation, routing: string, source = relation.source, target = relation.target): string {
   const label = relation.label ? esc(relation.label) : "";
+  const sequenceMetadata = source !== relation.source || target !== relation.target
+    ? ";studioSource=" + esc(relation.source) + ";studioTarget=" + esc(relation.target)
+    : "";
   return "<mxCell id=\"" + esc(relation.id) + "\" value=\"" + label + "\" style=\"" +
-    esc(mxEdgeStyle(relation, routing)) + "\" edge=\"1\" parent=\"1\" source=\"" + esc(source) +
+    esc(mxEdgeStyle(relation, routing) + sequenceMetadata) + "\" edge=\"1\" parent=\"1\" source=\"" + esc(source) +
     "\" target=\"" + esc(target) + "\"><mxGeometry relative=\"1\" as=\"geometry\">" +
     pointXml(relation.points || []) + "</mxGeometry></mxCell>";
 }
@@ -35,7 +38,8 @@ function boundaryXml(doc: DiagramDocument, boundary: DiagramDocument["boundaries
   const minY = Math.min(...members.map((n) => n.y)) - padding - 14;
   const maxX = Math.max(...members.map((n) => n.x + n.width)) + padding;
   const maxY = Math.max(...members.map((n) => n.y + n.height)) + padding;
-  const style = "rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#D3DAE4;strokeWidth=1;dashed=1;dashPattern=3 5;fontColor=#78869A;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=7;";
+  const membersAttribute = boundary.members.join(",");
+  const style = "rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#D3DAE4;strokeWidth=1;dashed=1;dashPattern=3 5;fontColor=#78869A;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=7;studioBoundary=1;studioMembers=" + membersAttribute + ";";
   return "<mxCell id=\"" + esc(boundary.id) + "\" value=\"" + esc(boundary.name.toUpperCase()) + "\" style=\"" + esc(style) +
     "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" + Math.round(minX) + "\" y=\"" + Math.round(minY) + "\" width=\"" +
     Math.round(maxX - minX) + "\" height=\"" + Math.round(maxY - minY) + "\" as=\"geometry\"/></mxCell>";

@@ -16,7 +16,7 @@ function routeRelations(doc: DiagramDocument): DiagramDocument {
     const dx = t.x - s.x, dy = t.y - s.y;
     const lane = 24 + (index % 3) * 12;
     let start: Point, end: Point, points: Point[] = [];
-    if (Math.abs(dy) > Math.abs(dx) * 1.15 && Math.abs(dy) > 40) {
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
       if (dy >= 0) {
         start = { x: s.x, y: source.y + source.height };
         end = { x: t.x, y: target.y };
@@ -46,8 +46,9 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   const nodes = doc.nodes.map((n) => ({ ...n, layoutHints: { ...(n.layoutHints || {}) } }));
   if (doc.kind === "sequence") return { ...doc, nodes };
   const unlocked = nodes.filter((n) => !n.layoutHints?.locked);
-  const maxX = Math.max(0, ...unlocked.filter((n) => n.role !== "external" && n.role !== "vendor").map((n) => n.x + n.width));
-  const maxY = Math.max(0, ...unlocked.filter((n) => n.role !== "external" && n.role !== "vendor").map((n) => n.y + n.height));
+  const internal = unlocked.filter((n) => n.role !== "external" && n.role !== "vendor");
+  const maxX = Math.max(0, ...internal.map((n) => n.x + n.width));
+  const maxY = Math.max(0, ...internal.map((n) => n.y + n.height));
   const external = unlocked.filter((n) => n.layoutHints?.preferredSide === "RIGHT" || ((n.role === "external" || n.role === "vendor") && doc.layout.externalSide === "RIGHT"));
   const storage = unlocked.filter((n) => n.layoutHints?.preferredSide === "BOTTOM" || ((n.role === "storage" || n.role === "data") && doc.layout.storageSide === "BOTTOM"));
   const infra = unlocked.filter((n) => n.role === "infra");
@@ -57,10 +58,12 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   external.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
   external.forEach((n, i) => { n.x = maxX + doc.layout.layerSpacing; n.y = 74 + i * (n.height + doc.layout.nodeSpacing); });
   storage.sort((a, b) => a.x - b.x);
-  const storageY = Math.max(maxY + 96, ...external.map((n) => n.y + n.height + 64));
-  storage.forEach((n, i) => { n.x = i * (n.width + doc.layout.nodeSpacing); n.y = storageY; });
   infra.sort((a, b) => a.name.localeCompare(b.name));
-  infra.forEach((n, i) => { n.x = i * (n.width + doc.layout.nodeSpacing); n.y = storageY - n.height - 36; });
+  const infraY = Math.max(maxY + 40, ...external.map((n) => n.y + n.height + 32));
+  infra.forEach((n, i) => { n.x = i * (n.width + doc.layout.nodeSpacing); n.y = infraY; });
+  const maxInfraHeight = Math.max(0, ...infra.map((n) => n.height));
+  const storageY = Math.max(infraY + (infra.length ? maxInfraHeight + 36 : 56), ...external.map((n) => n.y + n.height + 64));
+  storage.forEach((n, i) => { n.x = i * (n.width + doc.layout.nodeSpacing); n.y = storageY; });
   return {
     ...doc,
     nodes: nodes.map((n) => {
@@ -100,12 +103,9 @@ async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
       "elk.layered.cycleBreaking.strategy": "GREEDY",
       "elk.layered.thoroughness": "15"
     },
-    children,
-    edges
+    children, edges
   };
-  const result = await elk.layout(graph as never) as {
-    children?: Array<{ id: string; x?: number; y?: number }>;
-  };
+  const result = await elk.layout(graph as never) as { children?: Array<{ id: string; x?: number; y?: number }> };
   const byId = new Map((result.children || []).map((node) => [node.id, node]));
   let next: DiagramDocument = {
     ...doc,

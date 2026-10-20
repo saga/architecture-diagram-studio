@@ -49,7 +49,7 @@ export function mxNodeStyle(node: DiagramNode): string {
   return shape + "whiteSpace=wrap;html=1;fillColor=" + paint.fill +
     ";strokeColor=" + paint.stroke + ";strokeWidth=1;fontColor=" + paint.text +
     ";fontSize=13;fontFamily=Arial;align=left;verticalAlign=middle;spacingLeft=13;spacingRight=10;" +
-    "spacingTop=8;spacingBottom=8;shadow=0;";
+    "spacingTop=8;spacingBottom=8;shadow=0;studioRole=" + node.role + ";studioVisualRole=" + node.visualRole + ";";
 }
 
 export function mxEdgeStyle(relation: DiagramRelation, routing: string): string {
