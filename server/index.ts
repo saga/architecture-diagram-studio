@@ -19,7 +19,7 @@ const sessions = new Map<string, ManagedSession>();
 const pendingSessions = new Map<string, Promise<ManagedSession>>();
 let sharedDiagram: DiagramDocument | undefined;
 let diagramRevision = 0;
-let sharedAutoLayoutRequested = false;
+let layoutRequestId = 0;
 let client: CopilotClient | undefined;
 let clientStart: Promise<CopilotClient> | undefined;
 
@@ -170,7 +170,6 @@ app.put('/api/diagram',(req,res)=>{
     return res.status(409).json({error:'Diagram changed in another client.',revision:diagramRevision});
   sharedDiagram=structuredClone(incoming);
   diagramRevision+=1;
-  sharedAutoLayoutRequested=false;
   return res.json({ok:true,revision:diagramRevision});
 });
 
@@ -231,14 +230,14 @@ app.post('/api/diagram/mutate',(req,res)=>{
       draft.title=title.slice(0,200);result={title:draft.title};break;
     }
     case 'request_layout': {
-      sharedAutoLayoutRequested=true;result={requested:true,reason:stringArg('reason')??'Requested by VS Code Copilot'};break;
+      layoutRequestId+=1;result={requested:true,layoutRequestId,reason:stringArg('reason')??'Requested by VS Code Copilot'};break;
     }
     default:return res.status(400).json({error:'Unknown diagram operation.'});
   }
   const errors=validateDiagram(draft).filter((issue)=>issue.severity==='error');
   if(errors.length)return res.status(400).json({error:'Mutation rejected: '+errors.map((issue)=>issue.message).join(' ')});
   if(operation!=='request_layout'){sharedDiagram=draft;diagramRevision+=1;}
-  return res.json({ok:true,operation,revision:diagramRevision,result,requestAutoLayout:sharedAutoLayoutRequested});
+  return res.json({ok:true,operation,revision:diagramRevision,result,layoutRequestId});
 });
 
 
