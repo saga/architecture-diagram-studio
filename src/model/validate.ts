@@ -18,6 +18,20 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
     if (!node.label.trim()) issues.push({ code: 'NODE_LABEL_EMPTY', message: `Node "${node.id}" has no label.`, elementId: node.id, severity: 'warning' });
     if (!doc.layout[node.id]) issues.push({ code: 'LAYOUT_MISSING', message: `Node "${node.id}" has no saved geometry; default geometry will be used.`, elementId: node.id, severity: 'warning' });
   }
+  for (const boundary of doc.boundaries ?? []) {
+    if (!boundary.id.trim()) issues.push({ code: 'BOUNDARY_ID_EMPTY', message: 'A C4 system boundary has an empty ID.', severity: 'error' });
+    if (ids.has(boundary.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate diagram element ID "${boundary.id}".`, elementId: boundary.id, severity: 'error' });
+    ids.add(boundary.id);
+    if (!boundary.label.trim()) issues.push({ code: 'BOUNDARY_LABEL_EMPTY', message: `System boundary "${boundary.id}" has no label.`, elementId: boundary.id, severity: 'warning' });
+    if (![boundary.x, boundary.y, boundary.width, boundary.height].every(Number.isFinite) || boundary.width <= 0 || boundary.height <= 0) {
+      issues.push({ code: 'BOUNDARY_GEOMETRY_INVALID', message: `System boundary "${boundary.id}" has invalid geometry.`, elementId: boundary.id, severity: 'error' });
+    }
+    for (const nodeId of boundary.memberNodeIds) {
+      if (!doc.nodes.some((node) => node.id === nodeId)) {
+        issues.push({ code: 'BOUNDARY_MEMBER_NOT_FOUND', message: `System boundary "${boundary.id}" refers to missing element "${nodeId}".`, elementId: boundary.id, severity: 'error' });
+      }
+    }
+  }
   for (const relation of doc.relations) {
     if (!relation.id.trim()) issues.push({ code: 'RELATION_ID_EMPTY', message: 'A relation has an empty ID.', severity: 'error' });
     if (ids.has(relation.id)) issues.push({ code: 'DUPLICATE_ID', message: `Duplicate element ID "${relation.id}".`, elementId: relation.id, severity: 'error' });
