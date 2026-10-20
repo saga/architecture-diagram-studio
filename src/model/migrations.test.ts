@@ -24,6 +24,21 @@ describe('diagram rendering migration', () => {
     expect(upgraded.boundaries?.[0].memberNodeIds).toEqual(['web', 'api', 'db']);
   });
 
+  it('moves legacy UML actor anchors to the center of the new C4 Person card', () => {
+    const legacy = {
+      ...initialDiagram,
+      layout: {
+        ...initialDiagram.layout,
+        customer: { x: 25, y: 40, width: 170, height: 84, ports: [{ id: 'out-r1', side: 'RIGHT' as const, x: 170, y: 28 }] },
+      },
+      relations: [{ ...initialDiagram.relations[0], waypoints: [{ x: 270, y: 68 }, { x: 300, y: 68 }] }, ...initialDiagram.relations.slice(1)],
+    };
+    const upgraded = normalizeDiagramDocument(legacy);
+    expect(upgraded.layout.customer.ports?.[0]).toMatchObject({ x: 220, y: 56 });
+    expect(upgraded.relations[0].waypoints).toBeUndefined();
+    expect(upgraded.relations[1].waypoints).toBeUndefined();
+  });
+
   it('resizes a system boundary around member nodes after layout changes', () => {
     const moved = {
       ...initialDiagram,
