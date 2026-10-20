@@ -555,7 +555,127 @@ MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不
 
 本报告的核心决定不变：**本地 MCP 能省掉一部分 Agent/图形 XML 工具开发；smart-drawio-next 证明公共 Embed iframe 可以省掉自行打包 Web 资源的初始工作；但若 Studio 必须保留离线数据边界并提供原生嵌入式编辑器，仍要自托管或打包 draw.io Web。**
 
-## 14. 参考资料
+## 14. lgazo/drawio-mcp-server：本地托管 draw.io Web 应用与实时 MCP 桥接
+
+仓库：[lgazo/drawio-mcp-server](https://github.com/lgazo/drawio-mcp-server)。
+
+### 14.1 结论：本地自托管，但默认不是预先打包的离线安装包
+
+这是值得研究的另一种路线：**MCP Server 在本机 HTTP 服务上托管 draw.io Web 应用，并通过注入的 draw.io 插件和本地 WebSocket，让 Agent 实时操作已打开的画布。** 内置编辑器不使用 \`embed.diagrams.net\` 作为画布页面，也不要求用户安装 draw.io Desktop。
+
+但需要区分“本地托管”和“随 npm 包预先打包”：
+
+- npm 包默认只发布编译后的 MCP Server；draw.io 的完整 Web 资源不是固定版本地全部包含在 npm 包内。
+- 首次启用内置编辑器且缓存不存在时，Server 会向 GitHub 的 \`jgraph/drawio\` releases API 查询最新发布版，下载其中的 \`draw.war\` 并解压到本机用户缓存目录中的 \`webapp/\`。
+- Server 删除 \`WEB-INF\` 和 \`META-INF\` 等不需要的 Java Web 后端内容，保留浏览器端静态应用资源，然后从本机 HTTP 地址提供这些文件。
+- 如果缓存资源存在且版本满足兼容矩阵，正常启动会复用缓存；资源缺失或版本超出支持范围时才重新下载。
+
+因此它采用的是 **运行时获取资源 + 本机持久缓存 + 本地 Web 托管**，而不是默认交付一个已经固定版本且可从零开始断网安装的离线包。首次初始化和触发版本更新时需要网络。缓存准备好后可以尝试离线运行；严格离线部署应预置受控版本的资源，并在禁网条件下验证。
+
+源码证据：
+
+- [Server package.json](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/package.json)：发布文件清单只有 \`build\`。
+- [资源下载与 WAR 解压](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/assets/downloader.ts)：查询最新 Release、下载 \`draw.war\`、解压并清理。
+- [资源缓存路径](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/assets/manager.ts)：默认缓存目录名为 \`drawio-mcp-server\`，资源位于 \`webapp/\`，可用 \`--asset-path\` 指定目录。
+- [缓存与版本兼容检查](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/assets/auto-refresh.ts)：缓存缺失或版本不兼容时重新下载；支持范围见 [matrix.ts](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/drawio-compat/matrix.ts)。
+
+### 14.2 怎么启动：本地 STDIO MCP + 本地编辑器 HTTP 服务
+
+最小 MCP Host 配置如下，MCP 通过本地 STDIO 启动，不需要配置远程 MCP URL：
+
+\`\`\`json
+{
+  "mcpServers": {
+    "drawio": {
+      "command": "npx",
+      "args": ["-y", "drawio-mcp-server", "--editor"]
+    }
+  }
+}
+\`\`\`
+
+重启 MCP Host 后打开 \`http://localhost:3000/\`。
+
+这会启动三个本机通道：
+
+1. **MCP Host → Node Server：STDIO。** Agent 通过本地 MCP 连接调用工具。
+2. **浏览器 → 内置编辑器：HTTP。** 默认 3000 端口提供 draw.io Web 页面和静态资源。
+3. **浏览器中的 draw.io 插件 → Node Server：WebSocket。** 默认 3333 端口传递实时工具请求、结果与文档状态。
+
+注意：\`--editor\` 会启用本地编辑器 HTTP endpoint，也会启用相应的 HTTP 服务。因此它不是 remote MCP，但也不只是单纯的 STDIO 进程。默认绑定地址由操作系统选择；若只允许本机连接，建议检查并显式设置 \`--host 127.0.0.1\`，不要意外暴露到局域网。配置细节见 [CONFIG.md — Built-in Editor](https://github.com/lgazo/drawio-mcp-server/blob/main/CONFIG.md#built-in-editor)。
+
+### 14.3 怎么渲染：浏览器运行 draw.io 原生 Web 前端
+
+它用的是 draw.io 官方浏览器端编辑器本身，不是 MCP Server 自己绘图，也不是服务端重新实现 SVG/Canvas 渲染。
+
+内置编辑器的请求路径如下：
+
+1. 浏览器访问本地 Server 的 \`/\`。
+2. Server 将根路径重定向到 \`/index.html?offline=1&local=1\`。
+3. Server 把请求映射到缓存的 draw.io \`webapp/\`，返回原生 \`index.html\`、\`js/app.min.js\`、样式、图形库、图片和其他静态资源。
+4. 返回 HTML 时，Server 会注入 \`/js/mcp-plugin.js\`。这个插件随 Server 的构建产物发布，无需另外安装浏览器扩展。
+5. 浏览器执行 draw.io 官方前端代码，由它管理图形模型并完成真实画布渲染。
+
+关键源码：
+
+- [本地编辑器路由与静态文件服务](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/index.ts)：编辑器入口、缓存资源映射、插件注入与 \`offline=1&local=1\`。
+- [MCP 插件入口](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-plugin/src/plugin.ts)：等待 \`window.Draw\`，再通过 \`window.Draw.loadPlugin(...)\` 安装插件、菜单和 WebSocket 通信。
+- [WebSocket 管理器](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-plugin/src/websocketManager.ts)：连接、消息收发、心跳和重连。
+
+\`offline=1&local=1\` 表明该项目以 draw.io 的本地/离线模式启动，但**不能仅凭 URL 参数就声称所有功能已通过完全断网验证**。严格离线场景仍应检查浏览器 Network 请求，并在禁网后测试首次加载、刷新、图形库、导入和导出。
+
+### 14.4 MCP 如何操作实际打开的画布
+
+这不是单纯生成 XML 并把它塞进浏览器 URL 的工具。核心是通过插件对已连接的 draw.io document 进行实时操作：
+
+1. Agent 调用 \`add-cell-of-shape\`、\`edit-cell\`、\`add-edge\`、\`set-cell-parent\`、\`create-page\` 等工具。
+2. Node Server 将带请求 ID 的工具消息发到内部事件总线，再路由到目标 draw.io document 的 WebSocket 连接。
+3. 注入插件在 draw.io 页面内接收命令，调用编辑器内部 API 修改图形模型、节点、边、页面或图层。
+4. 插件将结果经 WebSocket 按请求 ID 回传，Server 再将其作为 MCP 工具结果返回。
+5. 多标签页时可以先调用 \`list-documents\`，再用 \`target_document\` 指定目标；页面工具通过 \`target_page\` 选择页面。同一文档上的实时操作有 FIFO 排队，避免并发 Agent 在同一标签页里交错切换页面和修改图形。
+
+工具还支持页面/图层管理、图形库发现、导入导出和文档保存。导出通过当前 draw.io 实例的原生导出逻辑返回 SVG、PNG 或 XML，可选保存到本机文件。也就是说，图表由真正的 draw.io 编辑器管理与渲染。
+
+参考：[Tools Reference](https://github.com/lgazo/drawio-mcp-server/blob/main/TOOLS.md)、[MCP 工具事件桥](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/tool.ts)、[Server/WebSocket 桥接](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/index.ts)。
+
+### 14.5 另一个模式：连接用户已打开的 draw.io 浏览器标签页
+
+项目也可以不开内置编辑器，而是：
+
+1. 用户打开公共或其他可用的 draw.io Web 页面。
+2. 安装项目提供的浏览器扩展。
+3. 扩展连接本机 Server 的 WebSocket。
+4. MCP 工具直接操作这个已打开的文档。
+
+此模式不是本地自托管渲染：编辑器页面仍由对应网站提供，且需要浏览器扩展。项目的 draw.io Desktop/Electron 插件则仍属实验性实现，README 记录了上游 CSP 限制，不能把它视为已可靠可用的 Desktop 集成。
+
+### 14.6 对 Architecture Diagram Studio 的价值与限制
+
+这个仓库比 XML 生成器 MCP 更贴近 Studio 的交互式编辑目标：它示范了如何在本地托管 draw.io Web、注入插件，并让 MCP 直接操作这一个编辑器实例。它是很有价值的技术参考，也值得做一个最小集成原型。
+
+但不应不加区分地把整个项目塞进 Studio：
+
+- 当前 Studio 的版本化 \`DiagramDocument\` 更适合作为业务语义与持久化权威模型。若 live draw.io 成为编辑器状态持有者，必须把保存后的 XML、几何和关系回传，避免数据库、IR 与画布内容不一致。
+- 可先复用其本机静态托管、插件注入与消息桥接模式，同时保留 Studio 的业务模型、布局算法、主题与持久化。
+- 它默认从 GitHub Release 下载动态的“最新版本” WAR。可复现和企业离线部署应将资源改为固定 release/commit 的内部镜像或预置缓存，避免在部署过程中无意升级编辑器版本。
+- WebSocket 是可操作真实图表的控制通道。应限制监听范围，检查连接来源和可访问的文档；不要把服务暴露给不受信任的网络客户端。
+
+### 14.7 小结
+
+| 问题 | 结论 |
+|---|---|
+| 是否使用 \`embed.diagrams.net\` 作为内置画布？ | 否；内置模式从本机 HTTP 服务加载 Web 资源。 |
+| 是否自托管？ | 是，缓存中的 draw.io Web 应用由本机 Server 提供。 |
+| 完整 draw.io Web 是否默认预装在 npm 包里？ | 否；资源在首次/需要更新时从官方 \`draw.war\` 下载并缓存。 |
+| 是否能从零开始完全断网安装？ | 默认不能；干净缓存需要下载。 |
+| 缓存后能否断网运行？ | 设计上复用本地资源，但仍应禁网测试确认完整边界。 |
+| 是否需要 Desktop？ | 内置 Web 模式不需要，渲染由浏览器中的 draw.io 前端完成。 |
+| MCP 是否只能生成 XML？ | 否，可实时操作已连接的 draw.io 页面，并使用其原生导出功能。 |
+| 是否应直接替换 Studio 的 DiagramDocument？ | 不建议；需先解决持久化权威源、双向同步、资源版本和路径安全。 |
+
+建议把它作为本报告中最值得原型验证的“本地 draw.io Web + MCP live-control bridge”方案。它更接近 Studio 内的原生交互式编辑，同时免于在 Studio 前端复刻 draw.io 的形状和渲染逻辑；但默认的运行时下载方式仍不等于固定版本的离线分发包。
+
+## 15. 参考资料
 
 ### 本项目
 
@@ -578,6 +698,20 @@ MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不
 - [Text custom editor provider](https://github.com/hediet/vscode-drawio/blob/main/src/DrawioEditorProviderText.ts)
 - [Binary custom editor provider](https://github.com/hediet/vscode-drawio/blob/main/src/DrawioEditorProviderBinary.ts)
 - [Markdown Viewer integration](https://github.com/hediet/vscode-drawio/blob/main/src/inline-editor/webview/previewInit.js)
+
+### 新增研究：lgazo/drawio-mcp-server
+
+- [lgazo/drawio-mcp-server README](https://github.com/lgazo/drawio-mcp-server/blob/main/README.md)
+- [Server configuration: built-in editor](https://github.com/lgazo/drawio-mcp-server/blob/main/CONFIG.md#built-in-editor)
+- [Server package metadata](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/package.json)
+- [Asset downloader and WAR extraction](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/assets/downloader.ts)
+- [Asset cache manager](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/assets/manager.ts)
+- [Asset compatibility refresh logic](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/assets/auto-refresh.ts)
+- [Editor routes, local static assets and WebSocket bridge](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/index.ts)
+- [Draw.io plugin entry](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-plugin/src/plugin.ts)
+- [WebSocket manager](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-plugin/src/websocketManager.ts)
+- [Tools Reference](https://github.com/lgazo/drawio-mcp-server/blob/main/TOOLS.md)
+- [Tool event bridge](https://github.com/lgazo/drawio-mcp-server/blob/main/packages/drawio-mcp-server/src/tool.ts)
 
 ### 新增研究：官方 MCP 与 Smart Drawio Next
 
@@ -605,4 +739,4 @@ MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不
 
 ### 证据边界
 
-本报告还检查了 jgraph/drawio-mcp 的 Tool Server README/package/源码，以及 smart-drawio-next 当前 main 分支的 README、DrawioCanvas、样式 configure 消息、MCP server、升级路线和双向通信设计。关于 smart-drawio-next 的渲染方式，结论直接来自其 iframe src 与消息代码；关于其真实在线编辑器交互，仓库文档本身指出未完成可靠的真实远端编辑器冒烟。报告不是对每个外部服务的运行时抓包，也未执行 Studio 的完整跨源/离线端到端验证。实施前应固定目标版本，执行真实 iframe 消息往返测试、网络出口检查、资源完整性及许可证审查。
+本报告还检查了 jgraph/drawio-mcp 的 Tool Server README/package/源码、smart-drawio-next 当前 main 分支的 README 与 DrawioCanvas，以及 lgazo/drawio-mcp-server 的资源下载器、缓存/兼容策略、本地 editor routes、注入插件、WebSocket 桥和工具定义。关于 lgazo 方案是否预先打包资源，结论来自 npm 文件清单与运行时下载代码；关于严格离线能力，并未把 URL 参数当作证据，仍需实际在禁网环境做启动与交互测试。报告未执行 Studio 的完整集成或资源网络抓包。实施前应固定目标版本，执行真实工具请求/画布响应往返测试、网络出口检查、资源完整性及许可证审查。
