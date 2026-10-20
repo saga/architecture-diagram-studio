@@ -56,6 +56,33 @@ sequenceDiagram
 
 The Express service persists the active diagram, revision metadata, and chat history to a local atomic JSON snapshot. Agent lifecycle and tool events are stored in an indexed SQLite audit ledger with trace/turn correlation, sequence, status, duration, and provider/model metadata. Legacy JSONL events are imported once; credential-shaped fields are redacted, and oversized payloads are explicitly marked incomplete. See [ADR 0006](adr/0006-local-persistence-and-agent-trace.md).
 
+## Agent trajectory and audit lifecycle
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant UI as Vite / React UI
+  participant API as Express API
+  participant SDK as Copilot SDK
+  participant Ledger as SQLite Trace Ledger
+  User->>UI: Submit a diagram request
+  UI->>API: Prompt + chat ID + diagram snapshot
+  API->>Ledger: turn.requested (traceId, turnId)
+  API->>SDK: Send prompt with authoritative diagram
+  loop Durable SDK events
+    SDK-->>API: Message / tool lifecycle event
+    API->>Ledger: Append sequenced event
+  end
+  SDK-->>API: Turn result
+  API->>API: Validate and persist diagram snapshot
+  API->>Ledger: turn.completed or turn.failed
+  API-->>UI: Result + updated diagram
+  UI->>Ledger: Query recent indexed events
+  Ledger-->>UI: Events with status and correlation IDs
+```
+
+Each turn uses a correlation ID, and every stored event has a monotonically assigned sequence within that trace. Credential-shaped fields are redacted before persistence. If an SDK event cannot be written, the API does not report that turn as successful. Payloads over the 1 MiB record limit are explicitly marked incomplete.
+
 ## Geometry fidelity
 Use logical canvas coordinates rather than screen pixels multiplied by zoom. Convert React Flow node origins to draw.io top-left geometry. Save measured dimensions and manual edge waypoints. Never rerun layout during export.
 
