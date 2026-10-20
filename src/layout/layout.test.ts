@@ -32,7 +32,7 @@ describe('layout engines', () => {
     for (const engine of LAYOUT_ENGINES) {
       const result = await applyLayout(initialDiagram, engine.value, config);
       expect(result.nodes.map((node) => node.id)).toEqual(initialDiagram.nodes.map((node) => node.id));
-      expect(result.relations).toEqual(initialDiagram.relations);
+      expect(result.relations.map(({ waypoints: _waypoints, ...relation }) => relation)).toEqual(initialDiagram.relations);
       for (const node of result.nodes) {
         expect(Number.isFinite(result.layout[node.id].x)).toBe(true);
         expect(Number.isFinite(result.layout[node.id].y)).toBe(true);
