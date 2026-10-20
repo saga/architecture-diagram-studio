@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/server';
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 
 const API_BASE = (process.env.ARCHITECTURE_DIAGRAM_API ?? 'http://127.0.0.1:3001').replace(/\/$/, '');
@@ -105,8 +105,4 @@ server.registerTool('request_diagram_auto_layout', {
   inputSchema: z.object({ reason: z.string().optional() }),
 }, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('request_layout', args), null, 2) }] }));
 
-const transport = new StdioServerTransport();
-server.connect(transport).catch((error: unknown) => {
-  console.error('[architecture-diagram-studio-mcp] failed to start:', error);
-  process.exitCode = 1;
-});
+serveStdio(() => server);
