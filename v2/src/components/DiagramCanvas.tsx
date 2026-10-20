@@ -150,7 +150,7 @@ export default function DiagramCanvas({ document, selectedNodeId, onSelectNode, 
         if (!path) return null;
         const paint = relationPaint(relation);
         return <g key={relation.id}>
-          <path d={path.d} fill="none" stroke={paint.stroke} strokeWidth={paint.width} strokeDasharray={relation.dashed ? "5 5" : paint.dash || undefined}
+          <path d={path.d} fill="none" stroke={paint.stroke} strokeWidth={paint.width} strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
             markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" />
           {relation.label && <g>
             <rect x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12} width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.94" />

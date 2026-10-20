@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "./model/fixtures";
 import { interpretIntent } from "./intent/applyIntent";
+import { mxEdgeStyle, relationPaint } from "./design/styles";
 
 describe("V2 semantic fixtures and intents", () => {
   it("keeps first-class diagram types limited to C4, flowchart and sequence", () => {
@@ -31,5 +32,11 @@ describe("V2 semantic fixtures and intents", () => {
     const result = interpretIntent(createC4Fixture(), "把所有 external 放到右侧");
     expect(result.requiresLayout).toBe(true);
     expect(result.document.nodes.find((node) => node.role === "external")?.layoutHints?.preferredSide).toBe("RIGHT");
+  });
+
+  it("lets an explicit solid-line command override sequence return defaults", () => {
+    const edge = createSequenceFixture().relations.find((relation) => relation.kind === "return")!;
+    expect(relationPaint({ ...edge, dashed: false }).dash).toBe("");
+    expect(mxEdgeStyle({ ...edge, dashed: false }, "polyline")).not.toContain("dashed=1");
   });
 });

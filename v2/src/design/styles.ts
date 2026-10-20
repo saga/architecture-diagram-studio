@@ -33,7 +33,7 @@ export function nodePaint(node: DiagramNode): NodePaint {
 }
 
 export function relationPaint(relation: DiagramRelation) {
-  if (relation.kind === "return") return { stroke: "#778496", width: 1.2, dash: "5 5", marker: "arrow-open" };
+  if (relation.kind === "return") return { stroke: "#778496", width: 1.2, dash: relation.dashed === false ? "" : "5 5", marker: "arrow-open" };
   if (relation.kind === "async" || relation.kind === "event") return { stroke: "#536D85", width: 1.35, dash: relation.dashed ? "5 5" : "", marker: "arrow-open" };
   return {
     stroke: relation.kind === "dependency" ? "#8A97A8" : "#64748B",
@@ -57,7 +57,8 @@ export function mxEdgeStyle(relation: DiagramRelation, routing: string): string 
   const edgeRouting = relation.routing || routing;
   const route = edgeRouting === "orthogonal" ? "edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;" : "edgeStyle=none;";
   const curve = edgeRouting === "curved" ? "curved=1;rounded=1;" : "rounded=0;";
-  const dashed = relation.dashed || relation.kind === "return" ? "dashed=1;dashPattern=5 5;" : "";
+  const shouldDash = relation.dashed ?? (relation.kind === "return");
+  const dashed = shouldDash ? "dashed=1;dashPattern=5 5;" : "";
   const arrow = relation.kind === "return" || relation.kind === "async" || relation.kind === "event" ? "endArrow=open;endFill=0;" : "endArrow=block;endFill=1;";
   return route + curve + dashed + arrow + "html=1;strokeColor=" + paint.stroke + ";strokeWidth=" + paint.width + ";fontColor=#536276;fontSize=11;labelBackgroundColor=#FFFFFF;";
 }
