@@ -10,13 +10,11 @@ MVP implementation in progress. The app provides an editable C4 Container exampl
 
 Requirements: Node.js 22.13+, TypeScript 6+, and npm. Copilot SDK authentication must be available locally.
 
-```bash
-npm install
-npm run dev
-npm run typecheck
-npm test
-npm run build
-```
+    npm install
+    npm run dev
+    npm run typecheck
+    npm test
+    npm run build
 
 ## Implemented
 
@@ -45,30 +43,29 @@ npm run build
 
 ## VS Code Copilot integration (MCP)
 
-The workspace includes `.vscode/mcp.json`. Run `npm install`, start `npm run dev`, and open the browser editor before asking VS Code Copilot to inspect or change the active diagram. VS Code starts the stdio server directly with `node --import tsx server/mcp.ts` so stdout remains reserved for MCP protocol messages. The tools use the local API at `127.0.0.1:3001` to read or mutate the same diagram visible in the browser. Available tools cover diagram retrieval, node and relationship CRUD, title updates, validation, and requesting the currently selected layout engine. See [`docs/vscode-copilot-mcp.md`](docs/vscode-copilot-mcp.md) for setup, limitations, and security boundaries.
-
-
+The workspace includes the .vscode/mcp.json file. Run npm install, start npm run dev, and open the browser editor before asking VS Code Copilot to inspect or change the active diagram. VS Code starts the stdio server directly with node --import tsx server/mcp.ts so stdout remains reserved for MCP protocol messages. The tools use the local API at 127.0.0.1:3001 to read or mutate the same diagram visible in the browser. Available tools cover diagram retrieval, node and relationship CRUD, title updates, validation, and requesting the currently selected layout engine. See [docs/vscode-copilot-mcp.md](docs/vscode-copilot-mcp.md) for setup, limitations, and security boundaries.
 
 ## Local persistence and agent trace
 
-The Express service stores the active diagram, revision counters, and chat histories in `~/.architecture-diagram-studio/studio-state.json`; the append-only agent audit ledger is `~/.architecture-diagram-studio/agent-traces.sqlite`. Existing `agent-traces.jsonl` records are imported once into SQLite on startup. Override the directory with `ARCHITECTURE_DIAGRAM_DATA_DIR`. Trace events carry a `traceId`/`turnId`, sequence, lifecycle status, provider/model, duration, and event payload; indexed queries avoid rereading the entire log on each UI refresh. Credential-shaped fields are redacted. Payloads over 1 MiB are explicitly marked as omitted instead of being presented as complete evidence. Trace-write failures are not swallowed, and a turn whose SDK event could not be persisted is not reported as successful. The chat panel's **Agent trace** view refreshes while open. The files can contain prompts, diagram data, and tool arguments/results, so treat them as sensitive local application data. This remains a single-user local store, not a backup service or a multi-user database.
+The Express service stores the active diagram, revision counters, and chat histories in ~/.architecture-diagram-studio/studio-state.json; the append-only agent audit ledger is ~/.architecture-diagram-studio/agent-traces.sqlite. Existing agent-traces.jsonl records are imported once into SQLite on startup. Override the directory with ARCHITECTURE_DIAGRAM_DATA_DIR. Trace events carry a traceId/turnId, sequence, lifecycle status, provider/model, duration, and event payload; indexed queries avoid rereading the entire log on each UI refresh. Credential-shaped fields are redacted. Payloads over 1 MiB are explicitly marked as omitted instead of being presented as complete evidence. Trace-write failures are not swallowed, and a turn whose SDK event could not be persisted is not reported as successful. The chat panel's **Agent trace** view refreshes while open. The files can contain prompts, diagram data, and tool arguments/results, so treat them as sensitive local application data. This remains a single-user local store, not a backup service and not a multi-user database.
 
 ## Copilot setup
 
-The development command starts the Vite client and the Express Copilot API together. Vite proxies `/api` to `127.0.0.1:3001`. The API binds to loopback only.
+The development command starts the Vite client and the Express Copilot API together. Vite proxies /api to 127.0.0.1:3001. The API binds to loopback only.
 
-1. Sign in to GitHub Copilot through the local Copilot CLI/runtime, or provide `GITHUB_TOKEN` through your shell environment. The SDK client uses the logged-in CLI identity by default.
-2. Copy `.env.example` to `.env` only if you need to override the model or runtime settings. Never commit a real token.
-3. Run `npm run dev`. The editor opens in Vite; the API starts alongside it.
+1. Sign in to GitHub Copilot through the local Copilot CLI/runtime, or provide GITHUB_TOKEN through your shell environment. The SDK client uses the logged-in CLI identity by default.
+2. Copy .env.example to .env only if you need to override the model or runtime settings. Never commit a real token.
+3. Run npm run dev. The editor opens in Vite; the API starts alongside it.
 4. In the chat panel, ask for a concrete edit, for example: “Add a notification service and connect it to the Order API.” The updated diagram is applied to the editor and can then be exported.
 
-The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model availability depends on the account and current Copilot CLI runtime. See [`.env.example`](.env.example).
+The model defaults to gpt-5 and can be changed with COPILOT_MODEL. Model availability depends on the account and current Copilot CLI runtime. See [.env.example](.env.example).
 
 ## Design documents
 
 - [Product requirements](docs/requirements.md)
 - [Architecture and flow diagrams](docs/architecture.md)
 - [Export fidelity and verification plan](docs/export-fidelity.md)
+- [draw.io rendering, layout and Desktop CLI analysis](docs/drawio-rendering-layout-analysis.md)
 - [ADR 0001: Editor-independent IR](docs/adr/0001-editor-independent-ir.md)
 - [ADR 0002: Diagram-specific layout](docs/adr/0002-diagram-specific-layout.md)
 - [ADR 0003: Native-first export](docs/adr/0003-native-first-export.md)
