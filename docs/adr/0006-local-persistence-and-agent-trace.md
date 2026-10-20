@@ -1,35 +1,38 @@
-# ADR 0006: Local durable state and agent execution trace
+# ADR 0006: Local persistence and agent execution trace
 
 - Status: Accepted
 - Date: 2026-10-20
 
 ## Context
 
-The active diagram and conversation were previously dependent on browser local storage and process memory. Restarting the Express service could lose the shared diagram state, and there was no durable record of agent tool calls or failures. This makes investigation and recovery difficult when Copilot or VS Code MCP performs multiple edits.
+The first trace implementation used JSONL and reread the entire file on every UI refresh. It lacked per-turn correlation, query indexes, credential redaction, and a clear response to trace-write failures. The user's other Saga agent projects follow a stronger rule: persistent audit events are the source of truth; console logs, UI state, and live events are projections. Model and tool attempts must be tied to the owning turn and its outcome.
 
 ## Decision
 
-- Persist the active Diagram Document, revision counters, layout-request counter, and per-chat message history in a local JSON state snapshot under `~/.architecture-diagram-studio` by default.
-- Support `ARCHITECTURE_DIAGRAM_DATA_DIR` to select another local data directory.
-- Write state snapshots through a temporary file and atomic rename; use owner-only file/directory permissions where supported.
-- Append agent events to `agent-traces.jsonl`, including turn start/completion/failure, user and assistant messages, tool invocation arguments/results, and MCP diagram mutations.
-- Expose read-only APIs for restoring chat history and querying recent trace events. Provide an in-product Agent trace panel that refreshes while open.
-- Exclude reasoning-content events and ephemeral streaming deltas; retain operational events needed to reconstruct what the agent attempted and what tools returned.
-- Keep the browser local-storage snapshot as a recovery cache. Do not claim that the Copilot SDK session object itself survives an Express process restart.
+- Keep the active diagram, revision counters, layout-request counter, and chat history in the local atomic state snapshot under `~/.architecture-diagram-studio`; support `ARCHITECTURE_DIAGRAM_DATA_DIR`.
+- Store agent events in `agent-traces.sqlite` using Node.js `node:sqlite`, WAL, and indexes for session/time, trace sequence, and turn ID. Node.js 22.13+ is required; the built-in SQLite API remains experimental in this Node release line.
+- Give each chat turn a stable `traceId` and `turnId`. Each event records its own ID, timestamp, session, trace/turn IDs, sequence, category, type, status, duration when available, provider/model, and structured data. MCP start and completion events share a trace ID.
+- Persist SDK lifecycle and tool events for each active turn. Do not persist model reasoning content or ephemeral stream deltas.
+- Redact credential-shaped fields before persistence. Payloads larger than 1 MiB are explicitly marked incomplete with a size and preview; they must not be represented as complete audit evidence.
+- Do not silently swallow audit write failures. An MCP mutation must not begin if its start event cannot be saved. If an SDK event write fails during a Copilot turn, mark the turn as failed/incomplete instead of returning success.
+- Import existing `agent-traces.jsonl` events once into SQLite, preserving event IDs and payloads where parseable.
+- Expose recent events through a bounded, indexed API and show trace/turn IDs, status, provider/model, and duration in the Agent trace panel.
+- Keep browser local storage as a UI/recovery cache. A live Copilot SDK Session object does not survive an Express restart.
 
 ## Consequences
 
 Positive:
-- The current diagram and chat history survive browser refreshes and local API restarts.
-- Agent operations can be reviewed after the fact, including tool arguments, outcomes, and failures.
-- No database server or native dependency is required for the local single-user workflow.
+- Events can be filtered and ordered without rereading the full log.
+- A reviewer can correlate a request, SDK events, diagram persistence, and MCP mutations using trace IDs.
+- Credential-shaped fields are redacted, and incomplete payloads are labelled rather than silently truncated.
+- Existing JSONL history is migrated rather than discarded.
 
 Trade-offs:
-- JSON snapshot writes are synchronous and appropriate for the current local single-user workload, but a database is preferable if write volume, concurrency, querying, or multi-project support grows.
-- The append-only trace grows until the user archives or removes it; log rotation is a future operational improvement.
-- Trace files can contain prompts, architecture details, and tool results. They must be treated as sensitive local data.
-- This is not a multi-user transaction store, backup service, or durable restoration of live SDK session objects.
+- SQLite writes are synchronous; this suits the current local single-user workload but should be revisited if event volume or concurrency grows substantially.
+- The active diagram/chat snapshot and trace ledger are separate stores, so they are not one cross-file transaction. If trace persistence fails after a diagram snapshot is committed, the request must surface an error and the trace may show an incomplete operation.
+- Trace payloads may contain prompts, architecture details, and tool results. The local data directory must be treated as sensitive.
+- The Copilot SDK session object remains in memory and is recreated after restart.
 
 ## Verification
 
-Run `npm run typecheck`, `npm test`, and `npm run build`. Then restart the API and confirm the diagram and chat history restore; perform a Copilot request and an MCP mutation; inspect the Agent trace panel and `agent-traces.jsonl`.
+Run `npm run typecheck`, `npm test`, and `npm run build`. Test ordering and trace filtering, credential redaction, one-time JSONL migration, malformed state handling, and trace-write failure. Then restart the API and verify diagram/chat recovery, and exercise both Copilot and VS Code MCP operations to confirm their events share trace IDs and record failures as well as successes.
