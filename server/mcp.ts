@@ -102,7 +102,7 @@ server.registerTool('add_diagram_node', {
   description: 'Add a person, system, service, database, external system, or boundary to the active diagram. Use a stable unique ID.',
   inputSchema: z.object({
     id: z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
-    type: z.enum(['person', 'system', 'service', 'component', 'database', 'external', 'boundary']),
+    type: z.enum(['person', 'system', 'service', 'component', 'database', 'external']),
     label: z.string().min(1),
     description: z.string().optional(),
     technology: z.string().optional(),
@@ -116,7 +116,7 @@ server.registerTool('update_diagram_node', {
     label: z.string().optional(),
     description: z.string().optional(),
     technology: z.string().optional(),
-    type: z.enum(['person', 'system', 'service', 'component', 'database', 'external', 'boundary']).optional(),
+    type: z.enum(['person', 'system', 'service', 'component', 'database', 'external']).optional(),
   }),
 }, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('update_node', args), null, 2) }] }));
 
