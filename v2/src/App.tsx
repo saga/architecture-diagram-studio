@@ -130,6 +130,7 @@ export default function App() {
     const previous = historyRef.current[historyIndexRef.current];
     setPreviewDocument(null);
     setPreviewSummary("");
+    setNativeXmlOverride(null);
     setDocument(previous);
     setSelectedNodeId((current) => previous.nodes.some((node) => node.id === current) ? current : previous.nodes[0]?.id || null);
     setCanUndo(historyIndexRef.current > 0);
@@ -144,6 +145,7 @@ export default function App() {
     const next = historyRef.current[historyIndexRef.current];
     setPreviewDocument(null);
     setPreviewSummary("");
+    setNativeXmlOverride(null);
     setDocument(next);
     setSelectedNodeId((current) => next.nodes.some((node) => node.id === current) ? current : next.nodes[0]?.id || null);
     setCanUndo(historyIndexRef.current > 0);
