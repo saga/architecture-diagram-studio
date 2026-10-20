@@ -5,7 +5,6 @@ export function sequenceActivationKey(activation: SequenceActivation): string {
   return JSON.stringify([activation.participantId, activation.startMessageId, activation.endMessageId]);
 }
 
-/** Apply the sequence-model invariants consistently across UI, REST and Copilot tools. */
 /** Stable, renderer-safe DOM/mxGraph cell identity for an activation range. */
 export function sequenceActivationDomId(activation: SequenceActivation): string {
   return 'activation-' + encodeURIComponent(sequenceActivationKey(activation));
