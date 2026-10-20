@@ -351,7 +351,7 @@ app.post('/api/chat',async(req,res)=>{
     ].join('\n');
     const result=await managed.session.sendAndWait({prompt:promptWithSnapshot});
     const errors=ensureValid(managed.state);
-    if(errors) return res.status(500).json({error:'Copilot produced an invalid diagram; changes were not applied. '+errors});
+    if(errors){const message='Copilot produced an invalid diagram; changes were not applied. '+errors;saveChatMessage(chatSessionId,'assistant',message);recordTrace(chatSessionId,'turn.failed',{error:message,reason:'diagram_validation'});return res.status(500).json({error:message});}
     const content=(result as {data?:{content?:string}}|undefined)?.data?.content??'Done.';
     sharedDiagram=structuredClone(managed.state.diagram);
     diagramRevision+=1;
