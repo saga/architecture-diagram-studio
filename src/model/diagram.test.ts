@@ -65,6 +65,13 @@ describe('draw.io export', () => {
     expect(xml).toContain('<Array as="points">');
   });
 
+  it('exports the C4 system boundary as an editable dashed frame behind the elements', () => {
+    const xml = exportDrawio(initialDiagram);
+    expect(xml).toContain('id="diagram-boundary-order-platform-boundary"');
+    expect(xml).toContain('fillColor=none;strokeColor=#1168bd;strokeWidth=1.5;dashed=1;verticalAlign=top;');
+    expect(xml).toContain('name="Order Platform — Container View"');
+  });
+
   it('exports C4 semantic roles as C4 cards rather than UML stick figures or database cylinders', () => {
     const xml = exportDrawio(initialDiagram);
     expect(xml).toContain('«Person»');
