@@ -92,7 +92,7 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 
 - Diagram semantics start from sample data; the UI supports basic service creation, node renaming/deletion, and relation creation, but not full property editing for technology, descriptions, types, and provenance.
 - The active diagram is persisted locally by the Express service, but named projects and a project import/open library are not implemented yet.
-- Sequence diagrams support participants, call/return/async messages, ordered editing, activation intervals and alt/opt/loop/par fragments. Interactive editing of activation ranges and fragment message bounds remains limited.
+- Sequence diagrams support participants, call/return/async messages, ordered editing, editable activation intervals and alt/opt/loop/par fragments. Fragment kind/title/guard are editable; selecting a custom message range or participant span for a fragment remains a follow-up.
 - Nested C4 boundaries and relationship waypoint editing are not implemented.
 - XML generation has unit-level regression coverage, but opening/rendering in diagrams.net has not been verified by an automated round-trip.
 - Browser-to-draw.io pixel parity is not guaranteed; font metrics, shape implementations, and edge routing can differ.
