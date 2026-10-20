@@ -148,6 +148,7 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
     }
 
     const oldGeometry = dimensions(doc, node.id);
+    const nodeModel = doc.nodes.find((item) => item.id === node.id);
     const bySide = new Map<DiagramPortSide, DiagramPortLayout[]>();
     for (const port of ports.values()) {
       const group = bySide.get(port.side) ?? [];
@@ -156,8 +157,11 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
     }
     for (const [side, group] of bySide) {
       group.forEach((port, index) => {
-        const localX = side === 'LEFT' ? 0 : side === 'RIGHT' ? oldGeometry.width : oldGeometry.width * (index + 1) / (group.length + 1);
-        const localY = side === 'TOP' ? 0 : side === 'BOTTOM' ? oldGeometry.height : oldGeometry.height * (index + 1) / (group.length + 1);
+        const fraction = (index + 1) / (group.length + 1);
+        const localX = side === 'LEFT' ? 0 : side === 'RIGHT' ? oldGeometry.width : oldGeometry.width * fraction;
+        // A UML actor's connection anchors sit near the arm line, rather than the center of its full silhouette.
+        const sideYFraction = nodeModel?.type === 'person' ? (group.length === 1 ? 0.34 : 0.24 + fraction * 0.2) : fraction;
+        const localY = side === 'TOP' ? 0 : side === 'BOTTOM' ? oldGeometry.height : oldGeometry.height * sideYFraction;
         if (!Number.isFinite(port.x) || !Number.isFinite(port.y) || (port.x === 0 && port.y === 0 && side !== 'LEFT' && side !== 'TOP')) {
           port.x = localX;
           port.y = localY;
