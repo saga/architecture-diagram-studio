@@ -1,5 +1,6 @@
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { mxEdgeStyle, mxNodeStyle, nodePaint } from "../design/styles";
+import { deriveSequenceActivations } from "../layout/sequence";
 
 function esc(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -59,6 +60,16 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const lifeline: DiagramRelation = { id: node.id + "__lifeline", source: node.id, target: node.id + "__lifelineEnd", label: "", kind: "dependency", dashed: true };
     edges.push("<mxCell id=\"" + esc(lifeline.id) + "\" value=\"\" style=\"edgeStyle=none;dashed=1;dashPattern=3 5;strokeColor=#B8C2D0;strokeWidth=1;endArrow=none;startArrow=none;\" edge=\"1\" parent=\"1\" source=\"" +
       esc(node.id) + "\" target=\"" + esc(node.id + "__lifelineEnd") + "\"><mxGeometry relative=\"1\" as=\"geometry\"/></mxCell>");
+  }
+  for (const activation of deriveSequenceActivations(doc)) {
+    const participant = doc.nodes.find((node) => node.id === activation.participantId);
+    if (!participant) continue;
+    const x = Math.round(participant.x + participant.width / 2 - 7);
+    const y = Math.round(148 + activation.startOrder * 72 + 5);
+    const height = Math.max(12, Math.round((activation.endOrder - activation.startOrder) * 72 - 10));
+    const activationId = activation.id + "__sequenceActivation";
+    vertices.push("<mxCell id=\"" + esc(activationId) + "\" value=\"\" style=\"rounded=0;whiteSpace=wrap;html=1;fillColor=#E7EDF7;strokeColor=#B7C5D9;strokeWidth=1;\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" +
+      x + "\" y=\"" + y + "\" width=\"14\" height=\"" + height + "\" as=\"geometry\"/></mxCell>");
   }
   for (const relation of doc.relations) {
     const source = doc.nodes.find((n) => n.id === relation.source);

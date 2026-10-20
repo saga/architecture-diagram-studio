@@ -63,7 +63,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     const id = cell.getAttribute("id") || "";
     if (!id || id === "0" || id === "1" || id.endsWith("__lifelineEnd") ||
         id.endsWith("__messageSourceAnchor") || id.endsWith("__messageTargetAnchor") ||
-        id.endsWith("__lifeline") || boundaryIds.has(id)) continue;
+        id.endsWith("__lifeline") || id.endsWith("__sequenceActivation") || boundaryIds.has(id)) continue;
     const value = plainLabel(cell.getAttribute("value") || "");
     const style = cell.getAttribute("style") || "";
     if (cell.getAttribute("vertex") === "1") {

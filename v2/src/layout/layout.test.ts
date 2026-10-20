@@ -3,6 +3,8 @@ import { createC4Fixture, createFlowFixture, createSequenceFixture } from "../mo
 import { layoutDiagram, moveNode } from "./layout";
 import { evaluateLayout } from "./quality";
 import { applyIntent } from "../intent/applyIntent";
+import { deriveSequenceActivations } from "./sequence";
+import { toDrawioXml } from "../export/drawio";
 
 async function expectNoNodeOverlap(factory: () => ReturnType<typeof createC4Fixture>) {
   const result = await layoutDiagram(factory());
@@ -23,6 +25,10 @@ describe("V2 diagram-specific layouts", () => {
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
     expect(result.nodes.map((node) => node.x)).toEqual([...result.nodes].map((node) => node.x).sort((a, b) => a - b));
     expect(result.nodes.every((node) => node.y === 54)).toBe(true);
+    const activations = deriveSequenceActivations(result);
+    expect(activations).toHaveLength(4);
+    expect(activations.map((activation) => activation.participantId)).toEqual(["web", "bff", "identity", "session"]);
+    expect(toDrawioXml(result)).toContain("__sequenceActivation");
   });
 
   it("keeps polyline waypoints after a curve-to-polyline layout intent", async () => {

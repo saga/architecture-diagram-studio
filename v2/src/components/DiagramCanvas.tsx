@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
+import { deriveSequenceActivations } from "../layout/sequence";
 
 interface Props {
   document: DiagramDocument;
@@ -146,6 +147,14 @@ export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelect
         </g>;
       })}
       {document.kind === "sequence" && displayNodes.map((node) => <line key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#BCC5D1" strokeWidth="1" strokeDasharray="4 6" />)}
+      {document.kind === "sequence" && deriveSequenceActivations(displayDoc).map((activation) => {
+        const participant = displayNodes.find((node) => node.id === activation.participantId);
+        if (!participant) return null;
+        const y = 148 + activation.startOrder * 72 + 5;
+        const height = Math.max(12, (activation.endOrder - activation.startOrder) * 72 - 10);
+        return <rect key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
+          fill="#E7EDF7" stroke="#B7C5D9" strokeWidth="1" />;
+      })}
       {displayDoc.relations.map((relation) => {
         const path = relationPath(displayDoc, relation);
         if (!path) return null;
