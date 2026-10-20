@@ -54,6 +54,7 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 - [ADR 0001: Editor-independent IR](docs/adr/0001-editor-independent-ir.md)
 - [ADR 0002: Diagram-specific layout](docs/adr/0002-diagram-specific-layout.md)
 - [ADR 0003: Native-first export](docs/adr/0003-native-first-export.md)
+- [ADR 0004: Copilot SDK chat tools](docs/adr/0004-copilot-sdk-chat-tools.md)
 
 ## Architecture principles
 
