@@ -9,6 +9,24 @@ describe('diagram validation', () => {
     expect(validateDiagram(initialDiagram).filter(issue => issue.severity === 'error')).toEqual([]);
   });
 
+  it('rejects invalid node and port geometry before export', () => {
+    const invalid = {
+      ...initialDiagram,
+      layout: {
+        ...initialDiagram.layout,
+        api: {
+          ...initialDiagram.layout.api,
+          width: 0,
+          ports: [{ id: 'out-r4', side: 'RIGHT' as const, x: 240, y: 80 }],
+        },
+      },
+    };
+    const codes = validateDiagram(invalid).map(issue => issue.code);
+    expect(codes).toContain('NODE_GEOMETRY_INVALID');
+    expect(codes).toContain('PORT_GEOMETRY_INVALID');
+    expect(() => exportDrawio(invalid)).toThrow(/invalid or non-positive geometry|outside its node bounds/);
+  });
+
   it('rejects relations that reference missing nodes', () => {
     const invalid = {
       ...initialDiagram,
