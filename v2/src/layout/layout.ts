@@ -1,6 +1,7 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { DiagramDocument, DiagramNode, Point } from "../model/types";
 import { evaluateLayout } from "./quality";
+import { normalizeSequenceDocument } from "./sequence";
 
 const elk = new ELK();
 
@@ -186,25 +187,21 @@ function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
 }
 
 function layoutSequence(doc: DiagramDocument): DiagramDocument {
-  const declaredOrder = doc.sequence?.participants || [];
-  const order = [
-    ...declaredOrder.filter((id) => doc.nodes.some((node) => node.id === id)),
-    ...doc.nodes.map((node) => node.id).filter((id) => !declaredOrder.includes(id))
-  ];
-  const nodes = doc.nodes.map((node) => {
+  const normalized = normalizeSequenceDocument(doc);
+  const order = normalized.sequence?.participants || normalized.nodes.map((node) => node.id);
+  const nodes = normalized.nodes.map((node) => {
     if (node.layoutHints?.locked) return node;
     const index = Math.max(0, order.indexOf(node.id));
     return { ...node, x: 58 + index * 228, y: 54, width: Math.max(150, node.width), height: 58 };
   });
-  const relations = [...doc.relations]
-    .sort((a, b) => (a.sequenceOrder ?? 0) - (b.sequenceOrder ?? 0))
-    .map((relation, index) => ({ ...relation, sequenceOrder: relation.sequenceOrder ?? index, points: [] }));
+  const relations = [...normalized.relations]
+    .map((relation, index) => ({ ...relation, sequenceOrder: index, points: [] }));
   return {
-    ...doc,
+    ...normalized,
     nodes,
     relations,
-    sequence: { ...(doc.sequence || { participants: [] }), participants: order },
-    layout: { ...doc.layout, direction: "RIGHT", routing: "polyline" }
+    sequence: { ...(normalized.sequence || { participants: [] }), participants: order },
+    layout: { ...normalized.layout, direction: "RIGHT", routing: "polyline" }
   };
 }
 

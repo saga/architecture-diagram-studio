@@ -1,4 +1,5 @@
 import { inflateRawSync } from "fflate";
+import { normalizeSequenceDocument } from "../layout/sequence";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point, SequenceFragment } from "../model/types";
 
 function plainLabel(value: string): string {
@@ -150,10 +151,11 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     ],
     fragments: [...importedFragments.values()]
   } : previous.sequence;
-  return {
+  const imported: DiagramDocument = {
     ...previous,
     kind: isSequenceDiagram ? "sequence" : previous.kind,
     layout: isSequenceDiagram ? { ...previous.layout, direction: "RIGHT", routing: "polyline" } : previous.layout,
     nodes, relations: relationList, boundaries, sequence
   };
+  return normalizeSequenceDocument(imported);
 }

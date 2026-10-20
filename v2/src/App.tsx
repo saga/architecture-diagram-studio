@@ -7,6 +7,7 @@ import { layoutDiagram, moveNode } from "./layout/layout";
 import { evaluateLayout } from "./layout/quality";
 import { applyIntent } from "./intent/applyIntent";
 import { requestAIIntentPlan } from "./intent/aiProvider";
+import { normalizeSequenceDocument } from "./layout/sequence";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
@@ -361,7 +362,7 @@ export default function App() {
       setLastAction("这条关系已经存在");
       return;
     }
-    const next: DiagramDocument = {
+    const next = normalizeSequenceDocument({
       ...document,
       relations: [...document.relations, {
         id: newId("relation"),
@@ -372,7 +373,7 @@ export default function App() {
         sequenceOrder: document.kind === "sequence" ? document.relations.length : undefined,
         points: []
       }]
-    };
+    });
     setRelationLabel("");
     commitDocument(next, "已建立 " + selectedNode.name + " → " + (document.nodes.find((node) => node.id === relationTargetId)?.name || relationTargetId) + " 的关系");
     if (document.kind !== "sequence") void runLayout(next);
@@ -396,7 +397,7 @@ export default function App() {
   }
 
   function removeRelation(relationId: string) {
-    const next = { ...document, relations: document.relations.filter((relation) => relation.id !== relationId) };
+    const next = normalizeSequenceDocument({ ...document, relations: document.relations.filter((relation) => relation.id !== relationId) });
     setRelationLabelDrafts((drafts) => {
       const updated = { ...drafts };
       delete updated[relationId];
@@ -436,14 +437,14 @@ export default function App() {
 
   function removeSelectedNode() {
     if (!selectedNode) return;
-    const next: DiagramDocument = {
+    const next = normalizeSequenceDocument({
       ...document,
       nodes: document.nodes.filter((node) => node.id !== selectedNode.id),
       relations: document.relations.filter((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id),
       boundaries: document.boundaries.map((boundary) => ({ ...boundary, members: boundary.members.filter((id) => id !== selectedNode.id) })),
       flow: document.flow ? { ...document.flow, primaryPath: document.flow.primaryPath.filter((id) => id !== selectedNode.id) } : undefined,
       sequence: document.sequence ? { ...document.sequence, participants: document.sequence.participants.filter((id) => id !== selectedNode.id) } : undefined
-    };
+    });
     setSelectedNodeId(next.nodes[0]?.id || null);
     commitDocument(next, "已删除节点及其关系");
   }
