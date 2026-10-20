@@ -50,7 +50,11 @@ sequenceDiagram
 - React Flow adapter maps the IR to interactive nodes and edges and writes geometry changes back.
 - draw.io exporter maps geometry, styles, containment, ports, and edge waypoints to mxGraph XML.
 - Validation checks unique IDs and relationship references before export; unit tests cover model errors, geometry mapping, escaping, and deterministic output.
-- Browser-local persistence stores the current diagram snapshot and geometry. A future project repository/import layer can replace the storage adapter without changing the diagram IR.
+- The Express persistence adapter atomically stores the active diagram, revisions, and chat histories in a local state snapshot; append-only JSONL records capture agent execution events. Browser local storage remains a recovery cache. The runtime Copilot session object itself is not restored after process restart.
+
+## Persistence and agent trace
+
+The Express service persists the active diagram, revision metadata, and chat history to a local atomic JSON snapshot. Agent lifecycle and tool events are appended to a JSONL trace and can be inspected from the chat panel. See [ADR 0006](adr/0006-local-persistence-and-agent-trace.md).
 
 ## Geometry fidelity
 Use logical canvas coordinates rather than screen pixels multiplied by zoom. Convert React Flow node origins to draw.io top-left geometry. Save measured dimensions and manual edge waypoints. Never rerun layout during export.
