@@ -59,14 +59,24 @@ export function createDiagramTemplate(kind: DiagramKind): DiagramDocument {
         { id: 'component-adapter-payment', sourceId: 'payment-adapter', targetId: 'payment', label: 'Payment API' },
       ],
       layout: {
-        web: { x: 40, y: 210, width: 205, height: 112 },
-        controller: { x: 330, y: 210, width: 215, height: 112 },
-        service: { x: 640, y: 210, width: 225, height: 112 },
-        'payment-adapter': { x: 970, y: 85, width: 225, height: 112 },
-        repository: { x: 970, y: 330, width: 225, height: 112 },
+        web: { x: 40, y: 210, width: 220, height: 112 },
+        controller: { x: 330, y: 210, width: 220, height: 112 },
+        service: { x: 640, y: 210, width: 220, height: 112 },
+        'payment-adapter': { x: 970, y: 85, width: 220, height: 112 },
+        repository: { x: 970, y: 330, width: 220, height: 112 },
         database: { x: 1275, y: 330, width: 220, height: 112 },
         payment: { x: 1275, y: 85, width: 220, height: 112 },
       },
+      boundaries: [{
+        id: 'order-api-component-boundary',
+        label: 'Order API',
+        description: 'Components inside the Order API container',
+        memberNodeIds: ['controller', 'service', 'payment-adapter', 'repository'],
+        x: 294,
+        y: 47,
+        width: 932,
+        height: 440,
+      }],
     };
   }
 
