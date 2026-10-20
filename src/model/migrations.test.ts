@@ -68,6 +68,25 @@ describe('diagram rendering migration', () => {
     expect(withoutMembers.boundaries ?? []).toEqual([]);
   });
 
+  it('does not duplicate the first member when rebuilding a missing C4 boundary', () => {
+    const kept = initialDiagram.nodes.filter(node => !['system', 'service', 'component', 'database'].includes(node.type));
+    const keepIds = new Set(kept.map(node => node.id));
+    const base = {
+      ...initialDiagram,
+      nodes: kept,
+      relations: initialDiagram.relations.filter(relation => keepIds.has(relation.sourceId) && keepIds.has(relation.targetId)),
+      layout: Object.fromEntries(Object.entries(initialDiagram.layout).filter(([id]) => keepIds.has(id))),
+      boundaries: [],
+    };
+    const node = { id: 'first-container', type: 'service' as const, label: 'First Container' };
+    const next = addNodeToBoundary({
+      ...base,
+      nodes: [...base.nodes, node],
+      layout: { ...base.layout, [node.id]: { x: 300, y: 100, width: 220, height: 112 } },
+    }, node.id);
+    expect(next.boundaries?.[0].memberNodeIds.filter(id => id === node.id)).toHaveLength(1);
+  });
+
   it('removes elements from a C4 boundary after their type changes out of scope', () => {
     const changed = {
       ...initialDiagram,
