@@ -271,3 +271,103 @@
 .app-shell.theme-blueprint .architecture-edge-label{background:#f7fbfe;color:#075985}
 .app-shell.theme-minimal .architecture-edge-label{background:#fff;color:#333}
 .app-shell.theme-vibrant .architecture-edge-label{background:#fffafd;color:#6b21a8}
+
+
+/* C4 notation uses semantic cards, not UML actor-stick or database-cylinder glyphs. */
+.app-shell .diagram-node{border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;overflow:visible!important}
+.app-shell .diagram-node .c4-card{width:100%;height:100%;min-height:100%;padding:12px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border:1.5px solid var(--c4-stroke);border-radius:7px;background:var(--c4-fill);color:var(--c4-text);font-family:Arial,sans-serif;text-align:center;overflow:hidden;overflow-wrap:anywhere;box-shadow:none}
+.app-shell .c4-card-person{--c4-fill:#08427b;--c4-stroke:#052c52;--c4-text:#fff}
+.app-shell .c4-card-system{--c4-fill:#1168bd;--c4-stroke:#0b4f92;--c4-text:#fff}
+.app-shell .c4-card-service{--c4-fill:#438dd5;--c4-stroke:#2d6fae;--c4-text:#fff}
+.app-shell .c4-card-component{--c4-fill:#85bbf0;--c4-stroke:#4c8cc8;--c4-text:#102a43}
+.app-shell .c4-card-database{--c4-fill:#438dd5;--c4-stroke:#2d6fae;--c4-text:#fff}
+.app-shell .c4-card-external{--c4-fill:#999999;--c4-stroke:#777;--c4-text:#fff}
+.app-shell .c4-card-boundary{--c4-fill:#fff;--c4-stroke:#7b8da4;--c4-text:#334e68}
+.app-shell .c4-stereotype{font-size:10px;font-style:italic;line-height:1.2;font-weight:500;opacity:.94}
+.app-shell .c4-title{font-size:14px;font-weight:700;line-height:1.25;color:inherit;overflow-wrap:anywhere}
+.app-shell .c4-technology{font-size:11px;line-height:1.2;color:inherit;opacity:.92}
+.app-shell .c4-description{font-size:10px;line-height:1.25;color:inherit;opacity:.95}
+.app-shell .diagram-node.node-person .architecture-port{opacity:0}
+.app-shell .diagram-node .architecture-port{z-index:10}
+.app-shell.theme-midnight .diagram-node .c4-card,
+.app-shell.theme-blueprint .diagram-node .c4-card,
+.app-shell.theme-minimal .diagram-node .c4-card,
+.app-shell.theme-vibrant .diagram-node .c4-card{box-shadow:none}
+
+/* UML sequence diagrams are a different notation: participants, dotted lifelines,
+   activation bars and time-ordered message rows. */
+.app-shell .sequence-participant-node{position:relative;width:100%;height:100%;pointer-events:none}
+.app-shell .sequence-participant-head{position:absolute;top:0;left:0;right:0;min-height:64px;padding:9px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1.5px solid #60738c;border-radius:4px;background:#fff;color:#24344b;text-align:center;font-family:Arial,sans-serif;box-shadow:none}
+.app-shell .sequence-participant-head strong{font-size:12px;font-weight:700;line-height:1.25;overflow-wrap:anywhere}
+.app-shell .sequence-participant-head small{font-size:10px;color:#748196;line-height:1.2}
+.app-shell .sequence-stereotype{font-size:9px;font-style:italic;line-height:1.2;color:#687d95}
+.app-shell .sequence-participant-head.role-actor{border-color:#4976b8;background:#f3f7fd}
+.app-shell .sequence-participant-head.role-database{border-color:#39805b;background:#edf8f0}
+.app-shell .sequence-participant-head.role-external{border-style:dashed;border-color:#b7791f;background:#fff7e9}
+.app-shell .sequence-lifeline-stem{position:absolute;left:50%;top:65px;bottom:0;border-left:1.5px dashed #8a9bb0;transform:translateX(-.75px)}
+.app-shell .sequence-activation{height:100%;width:100%;border:1.5px solid #536b86;background:#fff;box-shadow:none}
+.app-shell .sequence-fragment{position:relative;width:100%;height:100%;border:1.5px dashed #7c8da3;border-radius:2px;background:rgba(255,255,255,.35);color:#344b66}
+.app-shell .sequence-fragment-kind{position:absolute;left:-1.5px;top:-1.5px;padding:3px 10px;border:1.5px solid #7c8da3;border-bottom-right-radius:4px;background:#edf2f7;font-size:10px;font-weight:750;text-transform:lowercase}
+.app-shell .sequence-fragment-title{position:absolute;left:62px;top:5px;font-size:10px;font-weight:650}
+.app-shell .sequence-fragment-guard{position:absolute;left:62px;top:22px;font-size:10px;font-style:italic;color:#64748b}
+.app-shell .sequence-message{position:relative;width:100%;height:40px;color:#536b86;overflow:visible}
+.app-shell .sequence-message svg{position:absolute;left:0;top:0;overflow:visible;color:inherit}
+.app-shell .sequence-message-label{position:absolute;z-index:4;left:50%;top:0;transform:translate(-50%,-1px);max-width:calc(100% - 12px);padding:1px 5px;background:#fff;color:#344b66;font:11px/1.25 Arial,sans-serif;text-align:center;white-space:nowrap;overflow:visible}
+.app-shell .sequence-message-return .sequence-message-label{color:#63768d}
+.app-shell .sequence-message-async{color:#0f766e}
+.app-shell .sequence-message-async .sequence-message-label{color:#0f766e}
+.app-shell .sequence-message-node .react-flow__node{overflow:visible}
+.app-shell .sequence-message-node.selected .sequence-message-label{background:#edf3ff;outline:1px solid #c3d6ef;border-radius:3px}
+.app-shell .sequence-message-node{overflow:visible!important;background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+.app-shell .sequence-fragment-node{overflow:visible!important;background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+.app-shell .sequence-activation-node{overflow:visible!important;background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+.app-shell .sequence-participant-node .react-flow__handle{display:none}
+.app-shell .sequence-message-node .react-flow__handle{display:none}
+.app-shell .sequence-fragment-node,.app-shell .sequence-activation-node{pointer-events:none}
+.app-shell .sequence-participant-node{z-index:0}
+.app-shell .sequence-fragment-node{z-index:1}
+.app-shell .sequence-activation-node{z-index:2}
+.app-shell .sequence-message-node{z-index:4}
+
+/* Responsive editor chrome: brand and diagram controls use separate rows so controls never squeeze the canvas. */
+.topbar{height:auto;min-height:80px;display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:9px;padding:9px 18px}
+.topbar-brand-row{display:flex;align-items:center;gap:11px;min-width:0}
+.topbar-controls-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.topbar-brand-row .topbar-spacer{flex:1}
+.topbar-controls-row .toolbar-group{max-width:100%;flex-wrap:wrap}
+.topbar-controls-row .layout-select{min-width:105px}
+.diagram-kind-select{height:31px;border:1px solid #d8e0eb;border-radius:8px;background:#fff;color:#34445e;padding:0 10px;font-size:11px;font-weight:700}
+.workspace{display:flex;flex:1;min-height:0;min-width:0;overflow:hidden}
+.sidebar{flex-shrink:0;min-height:0}
+.canvas-area{min-height:0;min-width:0}
+.canvas-frame{position:relative;min-height:0;min-width:0}
+.chat-panel{min-height:0;min-width:275px;flex-shrink:0}
+@media(max-width:1100px){.chat-panel{width:280px;min-width:260px}.sidebar{width:220px}.topbar-controls-row .toolbar-group-title{display:none}}
+@media(max-width:850px){.topbar-controls-row{align-items:flex-start}.workspace{overflow:auto}.sidebar{width:210px}.chat-panel{width:260px;min-width:260px}}
+
+.trace-app{overflow:hidden}
+.trace-topbar{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:16px;min-height:72px;padding:12px 24px;background:#fff;border-bottom:1px solid #e4eaf2}
+.trace-page{flex:1;min-height:0;overflow:auto;padding:24px clamp(18px,3vw,48px);background:#f6f8fb}
+.trace-page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.trace-page-heading h1{margin:0 0 7px;font-size:24px;letter-spacing:-.5px;color:#172033}
+.trace-page-heading p{margin:0;max-width:720px;color:#6e7d92;font-size:13px;line-height:1.6}
+.trace-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.trace-summary-card{padding:16px 18px;background:#fff;border:1px solid #e0e7f0;border-radius:10px}
+.trace-summary-card span{display:block;color:#748196;font-size:11px;margin-bottom:8px}
+.trace-summary-card strong{font-size:23px;font-variant-numeric:tabular-nums;color:#203653;overflow-wrap:anywhere}
+.trace-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.trace-toolbar input{height:38px;max-width:480px;flex:1;min-width:200px;border:1px solid #d2dce9;border-radius:8px;padding:0 12px;background:#fff;font:inherit;font-size:12px;color:#172033}
+.trace-event-list{display:flex;flex-direction:column;gap:8px}
+.trace-event{background:#fff;border:1px solid #e0e7f0;border-radius:9px;overflow:hidden}
+.trace-event summary{display:grid;grid-template-columns:95px minmax(150px,1fr) minmax(100px,auto) auto;align-items:center;gap:10px;list-style:none;padding:12px 15px;cursor:pointer;font-size:12px;color:#33445c}
+.trace-event summary::-webkit-details-marker{display:none}
+.trace-event summary .trace-event-type{font-size:12px;font-weight:750;color:#203653;overflow-wrap:anywhere}
+.trace-event summary .trace-event-meta{font-size:11px;color:#7a8799;white-space:nowrap}
+.trace-event summary .trace-event-status{display:inline-flex;align-items:center;justify-content:center;min-width:65px;padding:4px 7px;border-radius:5px;background:#eef2f7;color:#546780;font-size:10px;font-weight:700}
+.trace-event summary .trace-event-status.status-failed{background:#fff0ef;color:#a63232}
+.trace-event summary .trace-event-status.status-completed{background:#e9f8f0;color:#23724b}
+.trace-event-body{padding:14px 16px;border-top:1px solid #e6ebf2}
+.trace-event-body .trace-event-context{font-size:11px;line-height:1.7;color:#6d7b90;overflow-wrap:anywhere;margin:0 0 8px}
+.trace-event-body pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f9fc;border:1px solid #e5eaf1;border-radius:6px;padding:12px;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;max-height:520px;overflow:auto}
+.trace-empty{padding:52px 18px;text-align:center;background:#fff;border:1px dashed #cbd6e5;border-radius:10px;color:#7a8799;font-size:13px}
+@media(max-width:780px){.trace-summary-grid{grid-template-columns:1fr}.trace-event summary{grid-template-columns:1fr auto}.trace-event summary .trace-event-meta{white-space:normal}.trace-page-heading{flex-direction:column}}
