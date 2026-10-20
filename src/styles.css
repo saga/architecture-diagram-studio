@@ -379,3 +379,7 @@
 .app-shell .diagram-node.diagram-boundary-node .c4-stereotype{order:2;font-size:9px;color:#647b94}
 .app-shell .diagram-node.diagram-boundary-node .c4-title{order:1;font-size:12px;color:#1168bd;font-weight:750}
 .app-shell .diagram-node.diagram-boundary-node .c4-description{order:3;font-size:9px;color:#647b94}
+
+
+.sequence-message-order-controls{display:flex;align-items:center;gap:7px;margin-top:3px}
+.sequence-message-order-controls .tiny-button:disabled{opacity:.4;cursor:default}
