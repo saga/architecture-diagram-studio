@@ -11,6 +11,24 @@ export function sequenceActivationDomId(activation: SequenceActivation): string 
   return 'activation-' + encodeURIComponent(sequenceActivationKey(activation));
 }
 
+/** Keep activation and fragment boundaries in chronological order after messages move. */
+export function normalizeSequenceRanges(sequence: SequenceDiagramData): SequenceDiagramData {
+  const orderByMessageId = new Map(sequence.messages.map((message) => [message.id, message.order] as const));
+  const normalizeRange = <T extends { startMessageId: string; endMessageId: string }>(range: T): T => {
+    const startOrder = orderByMessageId.get(range.startMessageId);
+    const endOrder = orderByMessageId.get(range.endMessageId);
+    if (startOrder !== undefined && endOrder !== undefined && startOrder > endOrder) {
+      return { ...range, startMessageId: range.endMessageId, endMessageId: range.startMessageId };
+    }
+    return range;
+  };
+  return {
+    ...sequence,
+    ...(sequence.activations ? { activations: sequence.activations.map(normalizeRange) } : {}),
+    ...(sequence.fragments ? { fragments: sequence.fragments.map(normalizeRange) } : {}),
+  };
+}
+
 export function sequenceActivationIssue(
   sequence: SequenceDiagramData,
   activation: SequenceActivation,
