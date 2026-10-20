@@ -1,5 +1,6 @@
 import type { DiagramDocument, DiagramKind } from './diagram';
 import { createDiagramTemplate } from './templates';
+import { ensureDiagramBoundaries } from './boundaries';
 
 /**
  * Normalize persisted schema-v1 documents for the current renderer contract.
@@ -48,8 +49,8 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
     }),
     layout,
   };
-  // Schema-v1 remains compatible; this normalization only adjusts stale renderer geometry.
-  return document;
+  // Schema-v1 remains compatible; this adjusts stale geometry and reconstructs C4 boundaries where absent.
+  return ensureDiagramBoundaries(document);
 }
 
 export function isDiagramKind(value: unknown): value is DiagramKind {
