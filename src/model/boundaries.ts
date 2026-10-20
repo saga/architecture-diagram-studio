@@ -60,10 +60,9 @@ export function syncNodeBoundaryMembership(doc: DiagramDocument, nodeId: string)
   const eligible = doc.kind === 'c4-container'
     ? ['system', 'service', 'database'].includes(node.type)
     : node.type === 'component';
-  const withoutNode = (doc.boundaries ?? []).map((boundary) => ({
-    ...boundary,
-    memberNodeIds: boundary.memberNodeIds.filter((id) => id !== nodeId),
-  }));
+  const withoutNode = (doc.boundaries ?? [])
+    .map((boundary) => ({ ...boundary, memberNodeIds: boundary.memberNodeIds.filter((id) => id !== nodeId) }))
+    .filter((boundary) => boundary.memberNodeIds.length > 0);
   const scoped = { ...doc, boundaries: withoutNode };
   if (!eligible) return fitDiagramBoundaries(scoped);
 
