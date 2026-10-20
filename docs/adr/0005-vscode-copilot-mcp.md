@@ -25,7 +25,7 @@ Positive:
 
 Trade-offs:
 - The Studio API and browser editor must be running for active-diagram operations.
-- The active diagram is currently held in API process memory and seeded from browser-local persistence after a restart; this is not durable server-side project storage.
+- The active diagram and revision metadata are persisted by the Express service. MCP operations write correlated start/completion events to the SQLite audit ledger; browser synchronization remains single-editor only.
 - Synchronization is intended for one active editor, not concurrent multi-tab or multi-user collaboration.
 - A real Copilot-authenticated smoke test is required in a developer's local VS Code environment.
 
