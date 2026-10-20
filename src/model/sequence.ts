@@ -2,7 +2,7 @@ import type { SequenceActivation, SequenceDiagramData } from './diagram';
 
 /** Stable identity for an activation; the model uses references rather than a separate activation ID. */
 export function sequenceActivationKey(activation: SequenceActivation): string {
-  return [activation.participantId, activation.startMessageId, activation.endMessageId].join('|');
+  return JSON.stringify([activation.participantId, activation.startMessageId, activation.endMessageId]);
 }
 
 /** Apply the sequence-model invariants consistently across UI, REST and Copilot tools. */
