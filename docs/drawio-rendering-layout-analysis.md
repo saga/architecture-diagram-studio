@@ -6,13 +6,13 @@
 
 ## 结论摘要
 
-**建议先保留现有 React Flow 画布、布局算法和六种主题，并将 draw.io Desktop CLI 纳入本地处理与验证流程；不要仅为获得自动布局而立即替换画布。**
+**建议优先验证本地打包 draw.io Web 编辑器：保留现有 React Flow 布局算法与六种主题作为几何和样式适配层，使用 draw.io Web 作为原生渲染/交互画布。用户无需安装 Desktop；CLI 只作为可选测试工具。**
 
-本次分析确认，draw.io Desktop 不只是一个桌面 GUI。当前上游仓库的命令行实现支持输入文件、输出文件、XML/SVG/PNG/JPEG/PDF/HTML 导出、布局参数，以及导出前的模型规范化。因此，在用户已经安装 Desktop 的前提下，Studio 可以从本地 Express 服务通过子进程调用 CLI 来处理文件，而不需要先部署在线 Embed Editor。
+draw.io 本身提供 Web 编辑器资源。上游仓库将生产模式使用的 minified bundles 直接提交在 src/main/webapp 中；VS Code Draw.io Integration 扩展通过 Git submodule 固定 draw.io 版本，把这一目录随扩展发布，并在 Webview 中加载。Studio 可以借鉴这种做法，随应用发布固定版本的 draw.io Web 静态资源，在同源 iframe 中运行它，不依赖公共 Embed 服务或本机 Desktop。官方 Getting Started 与 FAQ 说明如何运行和自托管该目录。
 
-但 Desktop CLI 不是长期运行的交互式编辑 API，也不是可嵌入 React 组件中的原生画布。它执行的是文件任务：读入文件，按参数处理或布局，再将结果写入文件。用户在 Desktop GUI 中编辑后，Studio 需要通过显式重新导入、文件监控或刷新流程取得变更。
+Desktop CLI 仍然只是文件任务接口，不是嵌入式交互画布。采用本地打包的 draw.io Web 编辑器后，正常编辑、自动布局和 XML 保存都应通过 Web 编辑器及消息协议完成，不需要启动本机应用。Desktop CLI 仅保留为开发/测试期可选的 SVG 导出和视觉回归工具。
 
-如果需求升级为“Studio 内部的可编辑画布必须直接使用 draw.io 的原生渲染”，那么应单独评估 Web Embed Editor。它通过浏览器 iframe 加载 Web 编辑器并使用消息协议通信；它和本机 Desktop CLI 是两种不同集成方式。
+如果需求是“Studio 内部的可编辑画布必须直接使用 draw.io 原生渲染”，优先评估本地打包的 Web 编辑器，而不是默认走公共在线 Embed。它通过浏览器 iframe 加载项目随附的静态资源并使用消息协议通信；在线/自托管 Embed 与本地打包是两种不同的资源分发方式。
 
 ## 1. 本次要解决的产品问题
 
@@ -333,18 +333,101 @@ hediet/vscode-drawio 的 package.json 声明 GPL-3.0；它包含的 draw.io 子�
 
 还需要固定 draw.io 的版本并建立升级回归测试。每次升级至少验证：初始化、加载和保存 XML、主题与默认样式、形状库、图片资源、自动布局消息、导出 SVG、字体、CSP 和安全隔离。不能因为扩展实现存在，就推断它的全部 Webview 补丁可以无修改用于 Studio。
 
+### 9.9 实际打包怎么做：上游资源、构建步骤与官方文档
+
+先说结论：draw.io Web 应用不需要作为 npm 依赖安装。上游仓库的 Getting Started 说明，生产模式使用已提交到仓库的 minified bundles；只运行应用时，无需执行 npm build。只有修改 draw.io 自身源码并要重建压缩 bundle / WAR 时，才需要上游文档描述的 JDK、Apache Ant 等构建工具。
+
+权威文档：
+
+- [draw.io Wiki：Getting Started](https://github.com/jgraph/drawio/wiki/Getting-Started) —— 如何克隆仓库、运行 src/main/webapp，以及 production/dev 模式的区别。
+- [draw.io Wiki：FAQ](https://github.com/jgraph/drawio/wiki/FAQ) —— 自托管、静态文件托管、离线运行与为什么 minified bundles 直接提交在仓库中。
+- [draw.io Wiki：Building](https://github.com/jgraph/drawio/wiki/Building) —— 修改 draw.io 核心代码后如何重新生成 bundle；只有真正修改 draw.io 本身才需要走此流程。
+- [jgraph/drawio 源码仓库](https://github.com/jgraph/drawio) —— 可复用的 Web 应用源和已经构建好的浏览器资源。
+- [hediet/vscode-drawio 的 .gitmodules](https://github.com/hediet/vscode-drawio/blob/main/.gitmodules) —— 它把 jgraph/drawio 作为 drawio 子模块。
+- [hediet/vscode-drawio 的 package.json](https://github.com/hediet/vscode-drawio/blob/main/package.json) —— package scripts 和发布文件白名单；其中把 drawio/src/main/webapp 下的 JS、连接器、图片、字体/资源、形状库、样式、模板和 index.html 纳入扩展包。
+- [hediet/vscode-drawio 的 DrawioClientFactory.ts](https://github.com/hediet/vscode-drawio/blob/main/src/DrawioClient/DrawioClientFactory.ts) —— 离线模式把扩展内 drawio/src/main/webapp 映射成 Webview URI，再加载本地 editor 页面。
+
+### 9.9.1 推荐的 Studio 资源组织
+
+建议固定一个经过验证的 draw.io 版本/commit，不要每次构建都跟随上游 dev 最新提交。资源可以通过 Git submodule、受控镜像或版本化下载步骤取得。Studio 不需要把 VS Code 扩展本身作为依赖；只借鉴它的资源组织和宿主通信模式。
+
+推荐的发布目录形态：
+
+    public/
+      drawio/
+        index.html
+        js/
+        styles/
+        mxgraph/
+        images/
+        img/
+        resources/
+        plugins/
+        templates/
+        ...其他上游 webapp 文件
+
+最安全的初始策略是完整保留上游 src/main/webapp 目录结构，不要一开始就尝试只挑选部分文件。draw.io 会按需加载其他脚本、shape 库、语言、插件和资源，手工裁剪容易出现功能只在某些图形或语言下失效的问题。
+
+可以用下面的过程准备一个固定版本的资源包：
+
+    git clone --depth 1 https://github.com/jgraph/drawio.git vendor-drawio
+    mkdir -p public/drawio
+    cp -R vendor-drawio/src/main/webapp/. public/drawio/
+
+上面是验证/原型用的简化命令；生产构建应在 CI 中取得并固定指定的 release/commit，记录版本号和上游许可文件，而不是无条件追踪移动的 dev 分支。如果使用 Git submodule，也应把 submodule commit 固定到仓库历史，并在资源准备脚本中复制该 commit 的 webapp 内容。
+
+draw.io 上游的生产 bundle 已经在源码仓库中提交，因此仅使用现成 Web 应用时通常不需要先跑 npm install 或 Webpack 来编译 draw.io。若要修改 draw.io 自身源码，则按上游 Building 文档走 JDK / Ant 构建；Studio 自己的 React / TypeScript 代码仍然照常使用本项目的 Vite build。
+
+### 9.9.2 Studio 如何加载本地编辑器
+
+Vite 默认会把 public 目录中的静态文件复制到生产产物中。因此资源准备步骤完成后，Studio 可以让 iframe 加载本地路径，而不是公共服务，例如：
+
+    /drawio/index.html?embed=1&proto=json&offline=1&configure=1
+
+应用通过 iframe 的 postMessage 协议发送加载图形请求，并接收保存、自动保存和导出等消息。需要明确校验消息来源，只接受本地 draw.io iframe 的消息；发送消息时使用准确的 target origin，不要不加区分地使用通配符。宿主应该负责把接收到的 XML 写回项目的图形文档存储。
+
+要特别注意，offline=1 与“所有内容在本机”的产品目标相符：draw.io 官方 FAQ 说明它会关闭云存储集成，并跳过插件加载。但应以固定版本的真实网络抓包为准，确认没有意外请求公共服务。图形 XML 若引用外部图片或字体，也可能产生单独的网络请求，需要在安全策略中明确处理。
+
+### 9.9.3 什么时候需要重建或重新打包
+
+| 场景 | 需要做什么 |
+|---|---|
+| 只想在 Studio 内显示和编辑 draw.io 文件 | 固定上游版本，复制/发布上游现成 webapp 静态资源；不需要构建 Desktop |
+| 更新 draw.io 版本 | 更新固定的上游 commit/release，复制资源，跑加载/编辑/保存/导出与视觉回归 |
+| 只改 Studio 的主题、布局和 Agent | 改 Studio 的 Theme / Geometry / XML 适配层，不要直接改 draw.io core |
+| 想改 draw.io 自身内部行为 | 阅读上游 Building 文档，按上游要求重建 bundle；评估补丁维护成本 |
+| 只读预览 | 可单独使用 draw.io Viewer 静态资源；不需要加载完整编辑器 UI |
+| 使用 Desktop CLI 批量导出或做辅助测试 | CLI 是开发/测试工具的可选项，不是 Web 编辑器运行依赖 |
+
+### 9.9.4 是否还需要用户安装 Desktop？
+
+不需要。若 Studio 已经随应用发布 draw.io Web 静态资源，并通过 iframe 在 Studio 内运行：
+
+- macOS 和 Windows 用户都不需要安装 draw.io Desktop。
+- 不需要调用本机 draw.io CLI 来完成正常编辑、自动布局、保存或导出 XML。
+- React Flow 当前的 ELK/Dagre/D3 布局算法仍可先算出节点几何，再把结果写进原生 draw.io XML，由 draw.io Web 编辑器负责渲染和后续交互。
+- Desktop CLI 仅作为可选的本地测试/视觉回归辅助工具；即使用户没有安装它，Studio 的核心编辑流程也应完整可用。
+
+真正的运行依赖是你随 Studio 部署的本地静态 draw.io Web 资源和嵌入消息桥接，而不是 Desktop App。
+
+### 9.9.5 许可证与供应链注意事项
+
+优先从 jgraph/drawio 上游取得固定版本的 Web 应用资源，并保留相应许可证与版本来源记录。draw.io 上游 README 声明其代码使用 Apache 2.0，但图标、形状库和模板有额外条款，商标也有使用约束。应按实际打包资源核对许可范围。
+
+hediet/vscode-drawio 扩展自身声明 GPL-3.0。本项目应参考其架构和资源加载方式，但不应在未审查许可证的情况下直接复制扩展源文件。上游 draw.io Web 应用与 VS Code 扩展包装层的许可证不能混为一谈。
+
 ## 10. 最终决策
 
 建议将方案选择按目标拆开，而不是把所有问题压在 React Flow、Desktop CLI 或在线 Embed 的单一选择上。
 
-1. **如果主要问题是生成高质量可编辑 draw.io 文件、做批处理和视觉回归：** 保留 React Flow 与现有布局引擎，扩展原生 XML 样式映射，并用 Desktop CLI 生成 SVG/PNG 对比结果。这是现有架构下风险较小的增量方案。
-2. **如果硬性要求是 Studio 页面里的画布本身必须由 draw.io 原生渲染，且不希望将架构图内容发送到公共服务：** 优先做一个“本地打包 draw.io Web 应用 + iframe + Embed JSON 消息协议”的小型技术验证。VS Code 的 hediet/vscode-drawio 扩展证明了本地打包和宿主消息桥接是一条现实的技术路线；Studio 需要重写 Webview 特有适配，不能直接搬用其代码。
-3. **如果接受公共/自托管 Web Embed：** 使用在线或自托管 Embed Editor 可以避免自己维护本地 Web 资源包，但需评估内容流向、部署方式和版本控制。
-4. **如果只是要本机离线处理和单独打开原生编辑器：** 使用 Desktop CLI + 文件打开/重新导入工作流。它不等于嵌入式画布，也不会与 Studio 中的 React Flow 自动实时同步。
+1. **当前优先方案：本地打包 draw.io Web。** 用户不需要安装 Desktop；将固定版本的 draw.io Web 静态资源发布在 Studio 同源路径，使用 iframe + 受校验的消息协议完成加载、保存和导出。
+2. **布局与样式仍由 Studio 控制。** 保留现有 ELK/Dagre/D3 布局服务，把坐标、端口和边路径写入原生 XML；将六种 Studio 主题转换为 draw.io 原生节点/边样式，不接受 draw.io 默认布局作为唯一布局选项。
+3. **Desktop CLI 是可选开发/测试工具。** 可用于离线 SVG/PNG 输出、批量转换和视觉回归，不是用户运行 Studio 的依赖。
+4. **在线或自托管 Embed 是替代分发方式。** 如果不想随 Studio 发布 draw.io 静态资源，可以考虑在线/自托管服务，但必须评估图形数据的流向和版本管理。
 
 无论选择哪条路线，布局与样式必须是两套独立职责：现有 ELK/Dagre/D3 负责或参与节点位置与连线路径，主题适配器将 Studio 的六种主题转换成 draw.io 原生样式。**不应仅为了原生渲染而接受 draw.io 默认布局的审美，也不应仅为了多布局而放弃原生 XML 与渲染验证。**
 
-下一步最有价值的验证是建立一张包含长标签、中文字体、数据库/外部系统形状、嵌套边界、多条连接线和自环的固定图，分别跑现有 React Flow、Desktop CLI SVG 导出、本地打包 draw.io Web 编辑器三条路线，比较渲染保真、主题可控性、交互复杂度和升级维护成本，再做迁移决定。
+下一步最有价值的验证是固定一个 draw.io 上游 commit，把 src/main/webapp 完整复制到 Studio 的 public/drawio 路径；用 iframe 加载本地编辑器，连接现有 Diagram IR、布局服务和主题适配器。使用包含长标签、中文字体、数据库/外部系统形状、嵌套边界、多条连接线和自环的固定图，验证离线网络行为、XML 加载/保存往返、主题、布局与视觉回归。
 
 
 
