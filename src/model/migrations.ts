@@ -35,21 +35,30 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
   const layout = { ...input.layout };
   const resizedNodeIds = new Set<string>();
   for (const node of input.nodes) {
-    const old = layout[node.id] ?? { x: 50, y: 50, width: 220, height: 112 };
-    const oldWidth = old.width || 220;
-    const oldHeight = old.height || 112;
+    const rawGeometry = layout[node.id] as (typeof layout)[string] | null | undefined;
+    const old = rawGeometry && typeof rawGeometry === 'object'
+      ? rawGeometry
+      : { x: 50, y: 50, width: 220, height: 112 };
+    const oldX = Number.isFinite(old.x) ? old.x : 50;
+    const oldY = Number.isFinite(old.y) ? old.y : 50;
+    const oldWidth = Number.isFinite(old.width) && old.width > 0 ? old.width : 220;
+    const oldHeight = Number.isFinite(old.height) && old.height > 0 ? old.height : 112;
     const width = Math.max(oldWidth, node.type === 'boundary' ? 260 : 220);
     const height = Math.max(oldHeight, 112);
-    const nodeGeometryChanged = width !== oldWidth || height !== oldHeight;
+    const nodeGeometryChanged = oldX !== old.x || oldY !== old.y || width !== old.width || height !== old.height;
     if (nodeGeometryChanged) resizedNodeIds.add(node.id);
 
+    const sourcePorts = Array.isArray(old.ports) ? old.ports : [];
+    const validPorts = sourcePorts.filter((port): port is DiagramPortLayout =>
+      !!port && typeof port.id === 'string' && ['LEFT', 'RIGHT', 'TOP', 'BOTTOM'].includes(port.side)
+      && Number.isFinite(port.x) && Number.isFinite(port.y));
     const portsBySide = new Map<DiagramPortSide, DiagramPortLayout[]>();
-    for (const port of old.ports ?? []) {
+    for (const port of validPorts) {
       const group = portsBySide.get(port.side) ?? [];
       group.push(port);
       portsBySide.set(port.side, group);
     }
-    const ports = old.ports?.map((port) => {
+    const ports = validPorts.map((port) => {
       const x = port.side === 'LEFT' ? 0 : port.side === 'RIGHT' ? width : Math.min(width, Math.max(0, port.x / oldWidth * width));
       let y = port.side === 'TOP' ? 0 : port.side === 'BOTTOM' ? height : Math.min(height, Math.max(0, port.y / oldHeight * height));
       // Legacy Person ports were anchored to the UML actor's arm. They must move
@@ -61,7 +70,7 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
       }
       return { ...port, x, y };
     });
-    layout[node.id] = { ...old, width, height, ...(ports ? { ports } : {}) };
+    layout[node.id] = { ...old, x: oldX, y: oldY, width, height, ...(ports.length || sourcePorts.length ? { ports } : {}) };
   }
 
   const document: DiagramDocument = {
