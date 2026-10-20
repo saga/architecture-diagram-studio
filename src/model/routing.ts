@@ -148,7 +148,6 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
     }
 
     const oldGeometry = dimensions(doc, node.id);
-    const nodeModel = doc.nodes.find((item) => item.id === node.id);
     const bySide = new Map<DiagramPortSide, DiagramPortLayout[]>();
     for (const port of ports.values()) {
       const group = bySide.get(port.side) ?? [];
@@ -159,9 +158,9 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
       group.forEach((port, index) => {
         const fraction = (index + 1) / (group.length + 1);
         const localX = side === 'LEFT' ? 0 : side === 'RIGHT' ? oldGeometry.width : oldGeometry.width * fraction;
-        // A UML actor's connection anchors sit near the arm line, rather than the center of its full silhouette.
-        const sideYFraction = nodeModel?.type === 'person' ? (group.length === 1 ? 0.34 : 0.24 + fraction * 0.2) : fraction;
-        const localY = side === 'TOP' ? 0 : side === 'BOTTOM' ? oldGeometry.height : oldGeometry.height * sideYFraction;
+        // All C4 elements now use rectangular semantic cards. Sequence actors are
+        // rendered by the separate sequence adapter and never pass through this router.
+        const localY = side === 'TOP' ? 0 : side === 'BOTTOM' ? oldGeometry.height : oldGeometry.height * fraction;
         if (!Number.isFinite(port.x) || !Number.isFinite(port.y) || (port.x === 0 && port.y === 0 && side !== 'LEFT' && side !== 'TOP')) {
           port.x = localX;
           port.y = localY;
