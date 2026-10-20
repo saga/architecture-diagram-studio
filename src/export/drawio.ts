@@ -90,7 +90,7 @@ function exportSequenceDrawio(doc:DiagramDocument):string{
  // Lifelines are free-standing dotted edges so the header and messages remain editable native cells.
  for(const participant of participants){
   const center=xById.get(participant.id)!;
-  const lifelineTop=headerTop+(participant.role==='actor'?43:65);
+  const lifelineTop=headerTop+65;
   cells.push('<mxCell id="'+xml('lifeline-'+participant.id)+'" style="edgeStyle=none;html=1;endArrow=none;dashed=1;dashPattern=3 4;strokeColor=#8a9bb0;strokeWidth=1.5;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="'+number(center)+'" y="'+number(lifelineTop)+'" as="sourcePoint"/><mxPoint x="'+number(center)+'" y="'+number(finalY)+'" as="targetPoint"/></mxGeometry></mxCell>');
  }
  // Fragment frames and activation rectangles sit behind the messages.
