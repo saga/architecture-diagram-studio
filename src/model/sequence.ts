@@ -6,6 +6,11 @@ export function sequenceActivationKey(activation: SequenceActivation): string {
 }
 
 /** Apply the sequence-model invariants consistently across UI, REST and Copilot tools. */
+/** Stable, renderer-safe DOM/mxGraph cell identity for an activation range. */
+export function sequenceActivationDomId(activation: SequenceActivation): string {
+  return 'activation-' + encodeURIComponent(sequenceActivationKey(activation));
+}
+
 export function sequenceActivationIssue(
   sequence: SequenceDiagramData,
   activation: SequenceActivation,
