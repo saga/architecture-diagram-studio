@@ -9,7 +9,7 @@ import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, ty
 import { validateDiagram } from '../src/model/validate.js';
 import { addNodeToBoundary, removeNodesFromBoundaries, syncNodeBoundaryMembership } from '../src/model/boundaries.js';
 import { createDiagramTemplate } from '../src/model/templates.js';
-import { sequenceActivationIssue, sequenceActivationKey } from '../src/model/sequence.js';
+import { normalizeSequenceRanges, sequenceActivationIssue, sequenceActivationKey } from '../src/model/sequence.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MODEL = process.env.COPILOT_MODEL?.trim() || 'gpt-5';
@@ -319,6 +319,8 @@ function buildTools(state: ChatState) {
       if (args.order !== undefined) {
         if (!Number.isInteger(args.order) || args.order < 1 || sequence.messages.some((other) => other.id !== message.id && other.order === args.order)) return toolError('Message order must be a unique positive integer.');
         message.order = args.order;
+        state.diagram.sequence = normalizeSequenceRanges(sequence);
+        return { ok: true, message: state.diagram.sequence.messages.find((item) => item.id === message.id) };
       }
       return { ok: true, message };
     },
@@ -573,8 +575,9 @@ app.post('/api/diagram/mutate',(req,res)=>{
         const order=args.order;
         if(!Number.isInteger(order)||order<1||draft.sequence.messages.some(item=>item.id!==id&&item.order===order))return res.status(400).json({error:'Message order must be a unique positive integer.'});
         message.order=order;
+        draft.sequence=normalizeSequenceRanges(draft.sequence);
       }
-      result={message};break;
+      result={message:draft.sequence.messages.find(item=>item.id===id)};break;
     }
     case 'delete_sequence_message': {
       if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before deleting a message.'});
