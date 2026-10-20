@@ -280,8 +280,8 @@
 .app-shell .c4-card-system{--c4-fill:#1168bd;--c4-stroke:#0b4f92;--c4-text:#fff}
 .app-shell .c4-card-service{--c4-fill:#438dd5;--c4-stroke:#2d6fae;--c4-text:#fff}
 .app-shell .c4-card-component{--c4-fill:#85bbf0;--c4-stroke:#4c8cc8;--c4-text:#102a43}
-.app-shell .c4-card-database{--c4-fill:#438dd5;--c4-stroke:#2d6fae;--c4-text:#fff}
-.app-shell .c4-card-external{--c4-fill:#999999;--c4-stroke:#777;--c4-text:#fff}
+.app-shell .c4-card-database{--c4-fill:#e6f5ec;--c4-stroke:#39805b;--c4-text:#214b37}
+.app-shell .c4-card-external{--c4-fill:#fff4e5;--c4-stroke:#c7832e;--c4-text:#6e4714;border-style:dashed!important}
 .app-shell .c4-card-boundary{--c4-fill:#fff;--c4-stroke:#7b8da4;--c4-text:#334e68}
 .app-shell .c4-stereotype{font-size:10px;font-style:italic;line-height:1.2;font-weight:500;opacity:.94}
 .app-shell .c4-title{font-size:14px;font-weight:700;line-height:1.25;color:inherit;overflow-wrap:anywhere}
@@ -383,3 +383,37 @@
 
 .sequence-message-order-controls{display:flex;align-items:center;gap:7px;margin-top:3px}
 .sequence-message-order-controls .tiny-button:disabled{opacity:.4;cursor:default}
+
+
+/* Editor themes also affect diagram notation, not just the page chrome. */
+.app-shell.theme-editorial .c4-card-person{--c4-fill:#1f4b5a;--c4-stroke:#163d49;--c4-text:#fff}
+.app-shell.theme-editorial .c4-card-system,.app-shell.theme-editorial .c4-card-service{--c4-fill:#2b7180;--c4-stroke:#205965;--c4-text:#fff}
+.app-shell.theme-editorial .c4-card-component{--c4-fill:#dceceb;--c4-stroke:#76a7a5;--c4-text:#1f4142}
+.app-shell.theme-editorial .c4-card-database{--c4-fill:#edf2dc;--c4-stroke:#849b51;--c4-text:#465523}
+.app-shell.theme-editorial .c4-card-external{--c4-fill:#f6ead8;--c4-stroke:#b7834c;--c4-text:#6a492a}
+.app-shell.theme-midnight .c4-card-person{--c4-fill:#244b80;--c4-stroke:#72a6ef;--c4-text:#f5f9ff}
+.app-shell.theme-midnight .c4-card-system,.app-shell.theme-midnight .c4-card-service{--c4-fill:#1e3b5b;--c4-stroke:#6095d6;--c4-text:#f5f9ff}
+.app-shell.theme-midnight .c4-card-component{--c4-fill:#24374a;--c4-stroke:#6f9fbd;--c4-text:#e7f1f8}
+.app-shell.theme-midnight .c4-card-database{--c4-fill:#173d34;--c4-stroke:#4eb48d;--c4-text:#def8eb}
+.app-shell.theme-midnight .c4-card-external{--c4-fill:#49351f;--c4-stroke:#d9a65b;--c4-text:#fff1d8}
+.app-shell.theme-blueprint .diagram-node .c4-card{--c4-fill:#f7fbff;--c4-stroke:#286a99;--c4-text:#173d5b}
+.app-shell.theme-blueprint .c4-card-database{--c4-fill:#e6f5ec;--c4-stroke:#39805b;--c4-text:#214b37}
+.app-shell.theme-blueprint .c4-card-external{--c4-fill:#fff4e5;--c4-stroke:#c7832e;--c4-text:#6e4714}
+.app-shell.theme-minimal .diagram-node .c4-card{--c4-fill:#fff;--c4-stroke:#9299a3;--c4-text:#242b35;border-radius:3px!important}
+.app-shell.theme-minimal .c4-card-database{--c4-fill:#f4f7f4;--c4-stroke:#687f70;--c4-text:#263c2f}
+.app-shell.theme-minimal .c4-card-external{--c4-fill:#fffaf1;--c4-stroke:#9b8060;--c4-text:#4e4030}
+.app-shell.theme-vibrant .c4-card-person{--c4-fill:#4935a2;--c4-stroke:#312176;--c4-text:#fff}
+.app-shell.theme-vibrant .c4-card-system,.app-shell.theme-vibrant .c4-card-service{--c4-fill:#2667c9;--c4-stroke:#164794;--c4-text:#fff}
+.app-shell.theme-vibrant .c4-card-component{--c4-fill:#e5dcff;--c4-stroke:#9d85e3;--c4-text:#37265e}
+.app-shell.theme-vibrant .c4-card-database{--c4-fill:#d8f8e8;--c4-stroke:#2f9e71;--c4-text:#135d43}
+.app-shell.theme-vibrant .c4-card-external{--c4-fill:#fff0dd;--c4-stroke:#d97716;--c4-text:#85440b}
+.app-shell.theme-editorial .sequence-participant-head{border-color:#527a7c;background:#f4fbfa;color:#264a4b}
+.app-shell.theme-midnight .sequence-participant-head{border-color:#6095d6;background:#172a40;color:#edf6ff}
+.app-shell.theme-midnight .sequence-participant-head small,.app-shell.theme-midnight .sequence-stereotype{color:#aec8e5}
+.app-shell.theme-blueprint .sequence-participant-head{border-color:#286a99;background:#f7fbff;color:#173d5b}
+.app-shell.theme-minimal .sequence-participant-head{border-color:#9299a3;border-radius:2px;background:#fff;color:#242b35}
+.app-shell.theme-vibrant .sequence-participant-head{border-color:#8f7de2;background:#f6f3ff;color:#3a2c73}
+.app-shell.theme-midnight .sequence-message-label{background:#101b2b;color:#e3edf8}
+.app-shell.theme-midnight .sequence-message{color:#92b7e4}
+.app-shell.theme-midnight .sequence-fragment{background:rgba(23,42,64,.62);color:#dcecff;border-color:#6095d6}
+.app-shell.theme-midnight .sequence-fragment-kind{background:#233c58;color:#e4f2ff;border-color:#6095d6}
