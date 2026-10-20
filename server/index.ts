@@ -199,9 +199,9 @@ function buildTools(state: ChatState) {
     handler:async(args:{title:string})=>{state.diagram.title=args.title.trim()||state.diagram.title;return {ok:true,title:state.diagram.title};},
   });
   const requestLayout = defineTool('request_diagram_auto_layout', {
-    description:'Request the editor to run its ELK auto-layout after applying the requested structural changes. Use only when layout is helpful; users can always adjust positions manually.',
+    description:'Request the editor to run its configured C4 graph layout engine after structural changes. Do not use for UML Sequence views, whose participant order and message chronology define the layout.',
     parameters:{type:'object',properties:{reason:{type:'string'}},required:[]},
-    handler:async(args:{reason?:string})=>{state.requestAutoLayout=true;return {ok:true,requested:true,reason:args.reason??'Structural changes'};},
+    handler:async(args:{reason?:string})=>{if(state.diagram.kind==='sequence')return toolError('UML Sequence uses participant order and message chronology; graph auto-layout is not applicable.');state.requestAutoLayout=true;return {ok:true,requested:true,reason:args.reason??'Structural changes'};},
   });
   const setDiagramKind = defineTool('set_diagram_kind', {
     description: 'Switch the active diagram to a C4 Context, Container, Component, or UML Sequence template. Use this before sequence-specific tools when the user asks to create a sequence diagram.',
