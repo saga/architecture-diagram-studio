@@ -448,6 +448,105 @@ app.post('/api/diagram/mutate',(req,res)=>{
   if(draft.kind==='sequence'&&genericGraphOperations.has(operation))return res.status(409).json({error:'The active diagram is UML Sequence. Use sequence participant/message/fragment operations, or switch diagram kind first.'});
   if(draft.kind!=='sequence'&&sequenceOperations.has(operation))return res.status(409).json({error:'Sequence operations require a UML Sequence diagram. Switch diagram kind first.'});
   switch(operation){
+    case 'set_diagram_kind': {
+      const kind=stringArg('kind');
+      const kinds:DiagramKind[]=['c4-context','c4-container','c4-component','sequence'];
+      if(!kind||!kinds.includes(kind as DiagramKind))return res.status(400).json({error:'Unsupported diagram kind.'});
+      const title=stringArg('title')?.trim();
+      if(draft.kind===kind){if(title)draft.title=title.slice(0,200);result={kind:draft.kind,title:draft.title,unchanged:true};break;}
+      draft=createDiagramTemplate(kind as DiagramKind);
+      if(title)draft.title=title.slice(0,200);
+      result={kind:draft.kind,title:draft.title,nodeCount:draft.nodes.length,participantCount:draft.sequence?.participants.length??0};
+      break;
+    }
+    case 'add_sequence_participant': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before adding a participant.'});
+      const label=stringArg('label')?.trim();const role=stringArg('role');const technology=stringArg('technology')?.trim();const description=stringArg('description')?.trim();
+      const roles:SequenceParticipant['role'][]=['actor','system','container','database','external'];
+      if(!id||!ID_PATTERN.test(id)||hasAnyId(id))return res.status(400).json({error:'Participant ID is invalid or already used.'});
+      if(!label||!role||!roles.includes(role as SequenceParticipant['role']))return res.status(400).json({error:'Participant label and supported role are required.'});
+      const participant:SequenceParticipant={id,label,role:role as SequenceParticipant['role'],...(technology?{technology}:{}),...(description?{description}:{})};
+      draft.sequence.participants.push(participant);result={participant,participantIndex:draft.sequence.participants.length-1};break;
+    }
+    case 'update_sequence_participant': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before editing a participant.'});
+      const participant=draft.sequence.participants.find(item=>item.id===id);if(!participant)return res.status(404).json({error:'Sequence participant not found.'});
+      const label=stringArg('label');const role=stringArg('role');const roles:SequenceParticipant['role'][]=['actor','system','container','database','external'];
+      if(label!==undefined){if(!label.trim())return res.status(400).json({error:'Participant label cannot be empty.'});participant.label=label.trim();}
+      if(role!==undefined){if(!roles.includes(role as SequenceParticipant['role']))return res.status(400).json({error:'Unsupported participant role.'});participant.role=role as SequenceParticipant['role'];}
+      if(typeof args.technology==='string')participant.technology=args.technology.trim();
+      if(typeof args.description==='string')participant.description=args.description.trim();
+      result={participant};break;
+    }
+    case 'delete_sequence_participant': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before deleting a participant.'});
+      if(!id||!draft.sequence.participants.some(item=>item.id===id))return res.status(404).json({error:'Sequence participant not found.'});
+      const sequence=draft.sequence;
+      sequence.participants=sequence.participants.filter(item=>item.id!==id);
+      sequence.messages=sequence.messages.filter(message=>message.fromParticipantId!==id&&message.toParticipantId!==id);
+      const liveMessages=new Set(sequence.messages.map(message=>message.id));
+      sequence.activations=sequence.activations?.filter(activation=>activation.participantId!==id&&liveMessages.has(activation.startMessageId)&&liveMessages.has(activation.endMessageId));
+      sequence.fragments=sequence.fragments?.filter(fragment=>liveMessages.has(fragment.startMessageId)&&liveMessages.has(fragment.endMessageId)&&(!fragment.participantStartId||sequence.participants.some(participant=>participant.id===fragment.participantStartId))&&(!fragment.participantEndId||sequence.participants.some(participant=>participant.id===fragment.participantEndId)));
+      result={deletedParticipantId:id,remainingMessages:sequence.messages.length};break;
+    }
+    case 'add_sequence_message': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before adding a message.'});
+      const fromParticipantId=stringArg('fromParticipantId');const toParticipantId=stringArg('toParticipantId');const label=stringArg('label')?.trim();const kind=stringArg('kind')??'call';
+      const kinds:SequenceMessage['kind'][]=['call','return','async'];
+      if(!id||!ID_PATTERN.test(id)||hasAnyId(id))return res.status(400).json({error:'Message ID is invalid or already used.'});
+      if(!fromParticipantId||!toParticipantId||!draft.sequence.participants.some(p=>p.id===fromParticipantId)||!draft.sequence.participants.some(p=>p.id===toParticipantId))return res.status(400).json({error:'Both message endpoints must reference existing participants.'});
+      if(!label)return res.status(400).json({error:'Message label cannot be empty.'});
+      if(!kinds.includes(kind as SequenceMessage['kind']))return res.status(400).json({error:'Unsupported message kind.'});
+      const order=typeof args.order==='number'?args.order:Math.max(0,...draft.sequence.messages.map(message=>message.order))+1;
+      if(!Number.isInteger(order)||order<1||draft.sequence.messages.some(message=>message.order===order))return res.status(400).json({error:'Message order must be a unique positive integer.'});
+      const message:SequenceMessage={id,fromParticipantId,toParticipantId,label,kind:kind as SequenceMessage['kind'],order};
+      draft.sequence.messages.push(message);result={message};break;
+    }
+    case 'update_sequence_message': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before editing a message.'});
+      const message=draft.sequence.messages.find(item=>item.id===id);if(!message)return res.status(404).json({error:'Sequence message not found.'});
+      const label=stringArg('label');const from=stringArg('fromParticipantId');const to=stringArg('toParticipantId');const kind=stringArg('kind');
+      const kinds:SequenceMessage['kind'][]=['call','return','async'];
+      if(label!==undefined){if(!label.trim())return res.status(400).json({error:'Message label cannot be empty.'});message.label=label.trim();}
+      if(from!==undefined){if(!draft.sequence.participants.some(item=>item.id===from))return res.status(400).json({error:'Source participant not found.'});message.fromParticipantId=from;}
+      if(to!==undefined){if(!draft.sequence.participants.some(item=>item.id===to))return res.status(400).json({error:'Target participant not found.'});message.toParticipantId=to;}
+      if(kind!==undefined){if(!kinds.includes(kind as SequenceMessage['kind']))return res.status(400).json({error:'Unsupported message kind.'});message.kind=kind as SequenceMessage['kind'];}
+      if(typeof args.order==='number'){
+        const order=args.order;
+        if(!Number.isInteger(order)||order<1||draft.sequence.messages.some(item=>item.id!==id&&item.order===order))return res.status(400).json({error:'Message order must be a unique positive integer.'});
+        message.order=order;
+      }
+      result={message};break;
+    }
+    case 'delete_sequence_message': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before deleting a message.'});
+      if(!id||!draft.sequence.messages.some(item=>item.id===id))return res.status(404).json({error:'Sequence message not found.'});
+      const sequence=draft.sequence;sequence.messages=sequence.messages.filter(item=>item.id!==id);
+      const liveMessages=new Set(sequence.messages.map(message=>message.id));
+      sequence.activations=sequence.activations?.filter(activation=>liveMessages.has(activation.startMessageId)&&liveMessages.has(activation.endMessageId));
+      sequence.fragments=sequence.fragments?.filter(fragment=>liveMessages.has(fragment.startMessageId)&&liveMessages.has(fragment.endMessageId));
+      result={deletedMessageId:id};break;
+    }
+    case 'add_sequence_fragment': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before adding a fragment.'});
+      const kind=stringArg('kind');const title=stringArg('title')?.trim();const startMessageId=stringArg('startMessageId');const endMessageId=stringArg('endMessageId');
+      const kinds:SequenceFragment['kind'][]=['alt','opt','loop','par'];
+      if(!id||!ID_PATTERN.test(id)||hasAnyId(id))return res.status(400).json({error:'Fragment ID is invalid or already used.'});
+      if(!kind||!kinds.includes(kind as SequenceFragment['kind'])||!title)return res.status(400).json({error:'Supported fragment kind and non-empty title are required.'});
+      const messages=[...draft.sequence.messages].sort((a,b)=>a.order-b.order);
+      const start=messages.findIndex(message=>message.id===startMessageId);const end=messages.findIndex(message=>message.id===endMessageId);
+      if(start<0||end<start)return res.status(400).json({error:'Fragment start/end must refer to messages in chronological order.'});
+      const participantStartId=stringArg('participantStartId');const participantEndId=stringArg('participantEndId');
+      if(participantStartId&&!draft.sequence.participants.some(p=>p.id===participantStartId))return res.status(400).json({error:'Fragment start participant not found.'});
+      if(participantEndId&&!draft.sequence.participants.some(p=>p.id===participantEndId))return res.status(400).json({error:'Fragment end participant not found.'});
+      const fragment:SequenceFragment={id,kind:kind as SequenceFragment['kind'],title,startMessageId:startMessageId!,endMessageId:endMessageId!,...(stringArg('guard')?.trim()?{guard:stringArg('guard')!.trim()}:{}),...(participantStartId?{participantStartId}:{}),...(participantEndId?{participantEndId}:{})};
+      (draft.sequence.fragments??=[]).push(fragment);result={fragment};break;
+    }
+    case 'delete_sequence_fragment': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before deleting a fragment.'});
+      if(!id||!draft.sequence.fragments?.some(item=>item.id===id))return res.status(404).json({error:'Sequence fragment not found.'});
+      draft.sequence.fragments=draft.sequence.fragments.filter(item=>item.id!==id);result={deletedFragmentId:id};break;
+    }
     case 'add_node': {
       const type=stringArg('type');const label=stringArg('label');const nodeId=id;
       if(!nodeId||!ID_PATTERN.test(nodeId)||hasAnyId(nodeId))return res.status(400).json({error:'Node ID is invalid or already exists.'});
