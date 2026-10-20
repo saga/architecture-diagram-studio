@@ -4,7 +4,7 @@ A React Flow-based architecture diagram editor with a versioned diagram model, n
 
 ## Current status
 
-MVP implementation in progress. The app provides an editable C4 Container example, ELK layered auto-layout, browser-local persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
+MVP implementation in progress. The app provides an editable C4 Container example, four selectable auto-layout engines (ELK, Dagre, D3-Hierarchy, and D3-Force), browser-local persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
 
 ## Quick start
 
@@ -26,7 +26,8 @@ npm run build
 - Copilot SDK chat backed by a local Express API, with diagram-specific tools for node/relation CRUD, title changes, and optional ELK layout.
 - SDK tool allowlist is limited to diagram operations; the chat agent is not given filesystem, shell, or repository tools.
 - Chat history and current diagram are stored in browser local storage; recent history is sent to reconstruct context if the local API restarts.
-- ELK layered layout as an explicit action; export does not invoke layout.
+- Four selectable layout engines: ELK layered (default), Dagre directed graph, D3-Hierarchy tree/forest, and D3-Force force-directed layout. Layout is explicit; export never invokes it.
+- Layout selection is also honored when Copilot requests an automatic layout; current node dimensions and resulting positions are persisted.
 - Persisted browser-local diagram snapshot and current node geometry.
 - Reset-to-example action.
 - Validation of duplicate IDs and broken relation references before export.
