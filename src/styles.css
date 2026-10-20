@@ -242,3 +242,20 @@
 .app-shell.theme-vibrant .diagram-node.node-database{border:1.5px solid #34d399!important;border-radius:50% / 18%!important;background:#ecfdf5!important}
 .app-shell.theme-vibrant .diagram-node.node-database::after{border-bottom-color:#34d399}
 .app-shell.theme-vibrant .architecture-edge-label{background:#fffafd;color:#6b21a8}
+
+
+/* SVG cylinder keeps React Flow geometry and the native draw.io cylinder silhouette aligned. */
+.app-shell.theme-studio{--database-fill:#e6f5ec;--database-stroke:#39805b}
+.app-shell.theme-editorial{--database-fill:#f5f5f5;--database-stroke:#4f5d75}
+.app-shell.theme-midnight{--database-fill:#15392f;--database-stroke:#67d6aa}
+.app-shell.theme-blueprint{--database-fill:#e1f5ec;--database-stroke:#0f766e}
+.app-shell.theme-minimal{--database-fill:#fff;--database-stroke:#333}
+.app-shell.theme-vibrant{--database-fill:#ecfdf5;--database-stroke:#34d399}
+.app-shell .diagram-node.node-database{border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;overflow:visible!important}
+.app-shell .diagram-node.node-database .database-illustration{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible;pointer-events:none}
+.app-shell .diagram-node.node-database .node-label{position:relative;z-index:1;color:#24344b}
+.app-shell.theme-editorial .diagram-node.node-database .node-label{color:#2d3142}
+.app-shell.theme-midnight .diagram-node.node-database .node-label{color:#e5edf8}
+.app-shell.theme-blueprint .diagram-node.node-database .node-label{color:#123b57}
+.app-shell.theme-minimal .diagram-node.node-database .node-label{color:#171717}
+.app-shell.theme-vibrant .diagram-node.node-database .node-label{color:#392047}
