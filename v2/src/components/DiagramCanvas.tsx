@@ -12,7 +12,7 @@ interface Props {
   onSelectNode: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
 }
-interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; }
+interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; originX: number; originY: number; }
 
 function center(node: DiagramNode): Point {
   return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
@@ -106,7 +106,7 @@ export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelect
   function startDrag(event: ReactPointerEvent<SVGGElement>, node: DiagramNode) {
     if (event.button !== 0) return;
     const point = pointerToDiagram(event.clientX, event.clientY);
-    setDrag({ id: node.id, offsetX: point.x - node.x, offsetY: point.y - node.y, x: node.x, y: node.y });
+    setDrag({ id: node.id, offsetX: point.x - node.x, offsetY: point.y - node.y, x: node.x, y: node.y, originX: node.x, originY: node.y });
     onSelectNode(node.id);
     svgRef.current?.setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -118,7 +118,9 @@ export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelect
   }
   function endDrag() {
     if (!drag) return;
-    onMoveNode(drag.id, drag.x, drag.y);
+    if (Math.abs(drag.x - drag.originX) > 2 || Math.abs(drag.y - drag.originY) > 2) {
+      onMoveNode(drag.id, drag.x, drag.y);
+    }
     setDrag(null);
   }
   const displayNodes = document.nodes.map((node) => drag && drag.id === node.id ? { ...node, x: drag.x, y: drag.y } : node);
