@@ -675,7 +675,135 @@ MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不
 
 建议把它作为本报告中最值得原型验证的“本地 draw.io Web + MCP live-control bridge”方案。它更接近 Studio 内的原生交互式编辑，同时免于在 Studio 前端复刻 draw.io 的形状和渲染逻辑；但默认的运行时下载方式仍不等于固定版本的离线分发包。
 
-## 15. 参考资料
+## 15. DayuanJiang/next-ai-draw-io：固定版本的 draw.io 打包、同源渲染与 AI 协作式绘图
+
+仓库：[DayuanJiang/next-ai-draw-io](https://github.com/DayuanJiang/next-ai-draw-io)。
+
+### 15.1 结论：是，而且比“首次运行时下载并缓存”更接近可复现的离线分发
+
+这个项目的主 Web 应用和独立 MCP Server 都会把 draw.io Web 前端的静态资源放进自己的发布产物中。默认不使用 embed.diagrams.net；浏览器从应用自身的 origin 加载 draw.io，因此可以在同源条件下访问编辑器内部对象，做到超出标准 Embed postMessage 协议的交互。
+
+需要区分两个包的资源准备位置：
+
+- **Next.js Web 应用：** npm run dev 和 npm run build 前分别通过 predev / prebuild 运行 scripts/fetch-drawio.mjs，将选定版本的资源准备到 public/drawio/。Next.js 随后从同源的 /drawio/ 提供这些静态文件。
+- **MCP npm 包：** packages/mcp-server 的 build 流程把 draw.io 静态资源写入 packages/mcp-server/dist/drawio/；发布包的 files: ["dist"] 会把编辑器资源与服务代码一起打进 npm 包。所以消费者安装 MCP npm 包后，运行时不需要再下载 draw.io Web 资源。
+- **资源不是整个 WAR 原样塞进网页。** 项目固定 draw.io release 和 WAR 的 SHA-256，只抽取 drawio-files.txt 清单里的浏览器资源，排除 WEB-INF/ 和 META-INF/；同时带上相关许可证与版本标记。
+- 当前 main 分支在 packages/mcp-server/src/drawio-version.json 固定的是 draw.io v32.0.2，并校验对应 WAR 的 SHA-256。此版本是本次源码检查时看到的仓库配置，不代表未来 main 分支永远不变。
+
+相关源码：[Web 应用打包脚本](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/scripts/fetch-drawio.mjs)、[MCP 包打包脚本](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/scripts/fetch-drawio.mjs)、[固定版本与校验和](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/drawio-version.json)、[资源 allowlist](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/drawio-files.txt)。
+
+### 15.2 它怎么做到离线构建和运行
+
+正常联网构建时，脚本下载固定版本的 draw.war，校验 SHA-256，再解压所需文件。若文件已处于目标版本，脚本会跳过重复下载。Web 应用支持通过 NEXT_PUBLIC_DRAWIO_BASE_URL 改用外部 draw.io，但这会走跨域模式并关闭一部分高级功能。
+
+官方文档也说明了不能访问 GitHub 的构建机如何准备资源：
+
+1. 在可联网的机器上下载 drawio-version.json 对应版本的 draw.war。
+2. 按离线部署文档放到 public/drawio/，删除 WEB-INF / META-INF，写入匹配的 .version 标记后再 build；或者在联网环境构建完整镜像，再传进内网。
+3. MCP 包构建脚本支持 DRAWIO_WAR=/path/to/draw.war，也会校验其是否为预期版本；可以预先把 WAR 送到隔离构建机。
+
+这比启动后自行下载“最新版本”更适合企业的固定版本策略。但“draw.io 编辑器前端可离线”不代表 AI 也自动离线：Web 应用若仍使用云端模型，聊天请求仍会访问模型 API。要做完全离线的 AI 绘图，还需使用可达的本地模型或内网推理服务，并检查字体、图形库、图片、遥测等其他资源的网络访问。
+
+文档：[Offline deployment](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/docs/en/offline-deployment.md)，其中还说明精简后的静态 draw.io 不包含图片代理，按外部 URL 插入的图片可能无法出现在导出 PNG/SVG 或版本缩略图中。MCP README 同样指出打包版本省略了少数按需加载的功能，例如组织结构图布局；需要完整 draw.io 服务器功能时可以配置外部 DRAWIO_BASE_URL，但会失去同源专属能力。
+
+### 15.3 怎么渲染：浏览器运行 draw.io 原生前端，应用不自己画一套
+
+画布仍是 draw.io 自己的 index.html、js/app.min.js、图形库、CSS、stencils 和 shapes；Next AI Draw.io 只是把这份 Web 应用作为本地静态资源提供，然后放进 iframe。
+
+默认编辑器地址由 lib/drawio/drawio-config.ts 生成：
+
+- /drawio/index.html（同源的本地副本，考虑 base path）；
+- embed=1、proto=json、configure=1；
+- 配置 ui=simple、语言、主题、工具栏按钮、是否启用自定义 libraries；在特定桌面上下文且使用本地包时加上 offline=1。
+
+components/canvas/drawio-frame.tsx 负责 iframe 生命周期和标准 Embed 消息协议：初始化后发送 load，接收 autosave / export，把主题 CSS 和暗色模式同步到编辑器。同源情况下，它还会主动等待 draw.io 内部的 EditorUi 对象出现，并交给 lib/drawio/editor-bridge.ts。
+
+这个直接桥接是关键区别。由于 iframe 和宿主同源，editor-bridge.ts 可以访问 draw.io 的 EditorUi、mxGraph、编辑器 undo manager、所选 cell、当前 XML 和页面信息，直接做：
+
+- 读取当前真实画布的 XML 和用户手工修改；
+- 读取用户所选的 cell，交给 AI 针对选中内容编辑；
+- 将 AI 改过的 cell 高亮显示；
+- 让一次 AI 修改成为一次可撤销的 canvas change；
+- 替换图形、调整主题及部分 UI 行为，而不需要每次都整页 reload。
+
+如果通过 NEXT_PUBLIC_DRAWIO_BASE_URL 指向另一个 origin，浏览器同源策略不允许读取这些内部对象，系统只能使用 postMessage。项目文档明确说明这种模式会失去修改高亮、选区问答、应用自定义工具栏和用 Ctrl+Z 撤回 AI 修改等功能。
+
+要注意，EditorUi、mxGraph 等属于 draw.io 内部实现，并不是可保证长期兼容的公共 embed API。该项目通过 feature detection 尝试获取内部对象，获取失败时降级到普通工具栏；但要升级 draw.io，仍必须运行集成回归测试。
+
+源码：[drawio-config.ts](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/drawio/drawio-config.ts)、[DrawioFrame](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/components/canvas/drawio-frame.tsx)、[editor-bridge.ts](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/drawio/editor-bridge.ts)。
+
+### 15.4 AI 不是“一次性生成 XML”：新建、局部编辑、流式预览和回滚是分开的
+
+网页应用的 AI 请求在 app/api/chat/route.ts 中通过 Vercel AI SDK 的 streamText 完成，工具定义来自 lib/chat-tools.ts，系统提示词来自 lib/system-prompts.ts。模型 provider 由配置决定；README 列出多个云端和本地 provider，包括 Ollama 与 OpenAI-compatible endpoint。
+
+它把任务分成几种明确的模型工具：
+
+- **display_diagram：** 新建图或重大结构调整，模型输出当前页面所需的原生 mxCell 与可选命名样式，外围 mxfile / mxGraphModel / root 由应用补齐。
+- **edit_diagram：** 对已有图按 cell ID 执行 add / update / delete，适合改标签、移动节点、加关系或调整局部。这样不会因一次小改动就把整张图重新生成，能减少布局漂移。
+- **append_diagram：** 只在新图输出因 token 限制而截断时续写 XML。
+- **get_shape_library：** 按需给模型提供 AWS、Azure、GCP、Kubernetes 等图形库的确切 shape 名和 style 语法，要求模型先查询，不凭名字猜图标写法。
+
+System prompt 把 XML 规则写得很具体：唯一 ID、父子关系、特殊字符转义、容器与坐标、连线出口/入口、避免多条边重合、必要时使用 waypoints、边不能穿过不相关节点、页面范围和标签大小。它要求模型先说简短布局计划，再生成工具调用；编辑时只说明要改什么，不用把整张图重新描述给用户。
+
+网页端的 display_diagram 和 edit_diagram 是 UI 工具，不是在 API route 中直接写文件。它们的参数可以随模型流式响应到达，components/chat/use-diagram-streaming.ts 会抽取已完整生成的 cell / operation，先作为临时预览加载到画布；最终工具处理再进行完整 XML 校验和提交。若模型停止、输出不合法或操作失败，临时预览会回滚。最终提交会记录成一个可撤销版本，而不是让每个流式片段都生成一条历史记录。
+
+每轮对话还会把发送时的画布状态和选区上下文交给模型；用户手工改过图后，模型下一轮会收到新的画布快照，而不是继续按很久以前生成的 XML 猜 cell ID。系统提示词也明确指出当前画布为准，模型在不确定或多轮修改之后可以重新读取图形状态。
+
+源码：[chat route](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/app/api/chat/route.ts)、[工具定义](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/chat-tools.ts)、[系统提示词](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/system-prompts.ts)、[流式预览处理](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/components/chat/use-diagram-streaming.ts)。
+
+### 15.5 MCP 模式：AI 模型在 MCP Host，MCP 负责把工具执行到本地 live canvas
+
+MCP npm 包是 @next-ai-drawio/mcp-server，不是依赖远程 MCP endpoint。客户端通过本地 STDIO 启动它。MCP server 提供本机 HTTP 服务，浏览器打开预览页面；同源的 draw.io iframe 使用已打包的 draw.io 资源。Server 和预览页面同步 XML、选区、版本、截图与导出结果。
+
+它与一般只接受 XML 并返回 URL 的 MCP 不同，工具操作的是同一个可见画布：
+
+1. start_session 打开或恢复会话，返回 drawing guide（绘图规则、XML 结构、图标选择及连线路由）。
+2. AI Host 的模型读取代码/文档，随后调用 create_new_diagram 或 edit_diagram。MCP 本身不需要再配置第二个 LLM 来生成图：执行绘图的模型是 MCP Host 正在使用的 Agent 模型。
+3. get_diagram 读取包含用户手工改动的最新 XML；get_selection 取得用户当前选择的 cell；页面、图形库、文件加载、导出和版本恢复都有对应的工具。
+4. screenshot_diagram 可以把真实渲染结果作为图像返回给模型。对于复杂图，guide 建议在创建或修改后检查截图，再用 edit_diagram 修正重叠和交叉连线。
+5. 新建与局部编辑都有 XML 预处理、验证与图结构检查；edit_diagram 是 all-or-nothing，避免部分操作失败后模型继续建立在半成品状态上。
+6. 服务器跟踪模型最后看到的 XML 与浏览器实时状态。如果用户在中间手工改动了图，内容指纹不再一致，编辑请求会被拒绝并要求先重新读取当前图，避免根据旧 cell ID 覆盖人的修改。
+
+MCP 的工具说明把持久化、版本和回滚也作为工作流的一部分：默认在 ~/.next-ai-drawio/ 保存会话 .drawio 文件及历史记录，保留最近若干版本；用户可以在后续对话中找回旧图并继续编辑。
+
+参考：[MCP README](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/README.md)、[MCP 服务入口/工具定义](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/index.ts)、[绘图指南](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/drawing-guide.ts)、[XML 编辑防陈旧检查](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/edit-gate.ts)、[MCP 历史](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/history.ts)、[会话自动保存](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/persistence.ts)。
+
+### 15.6 值得借鉴到 Architecture Diagram Studio 的设计
+
+这个项目最值得借鉴的不是单独一段提示词，而是让模型以受控方式修改真实的 draw.io 文档，并用实时画布状态形成反馈闭环。
+
+1. **复用固定版本的 Web 资源打包流程。** 用 release + SHA-256 固定版本、allowlist 复制、保留许可证、CI 检查资源清单。Web 应用和 MCP 发布物都可以带上同一套资源，运行时不再去公网下载，也不需要用户安装 Desktop。
+2. **将 draw.io 内部 API 封装成一个明确的 adapter。** 同源 iframe 允许高级功能，但 EditorUi / mxGraph 是内部 API。把直接访问、选区、XML 取回、变更高亮、撤销和版本适配集中在 DrawioAdapter 中，检查可用能力并按版本做真实浏览器回归；不要让业务组件到处直接读写 draw.io 内部字段。
+3. **AI 的工具应有清楚的粒度。** 重大结构调整用“创建/替换”工具；日常修改用按 cell ID 的 add/update/delete 操作；大图支持多页和按需返回 shape catalog。不要每次改一个标签就重新生成全图，也不要要求模型不断发送完整 wrapper XML。
+4. **为流式生成设计临时预览与提交边界。** 可以逐个显示完整 cell 或完整 operation，但临时结果不能写入正式历史；只有整个输出通过校验后才提交为一个版本。失败和用户取消时必须回滚未提交预览。
+5. **把用户手工编辑纳入 Agent 的状态模型。** 在每个 user turn 附上最新的 XML / 页面 / 选区；编辑前检查模型看到的版本是否仍是画布当前版本。若过期，就拒绝修改并要求重读，而不是静默覆盖用户操作。
+6. **构建图形能力的可发现性。** 为 AWS 等复杂 shape 提供可以被 MCP/Agent 调用的 shape library 工具，返回准确 style 语法，并把常见布局及连线规约做成 drawing guide；把“猜图标样式”变为查询工具。
+7. **让模型看结果，而非只相信 XML 校验。** XML 合法不等于图形好看。提供 screenshot 工具和有限的修复回合，让模型检查节点重叠、连线穿过节点、标签过长与布局范围。要同时保留程序化检查，不能将视觉审核完全交给 LLM。
+8. **版本与持久化进入核心流程。** AI 每次成功修改对应一个可撤销版本；保存 XML 和版本元数据时需明确唯一权威状态。画布、Agent 上下文、DiagramDocument/业务语义和文件存储之间应通过一条提交路径保持一致。
+
+对现有 Studio，建议不直接照搬它“draw.io 内部模型就是画布权威”的全部做法：如果项目继续采用版本化 DiagramDocument 作为业务语义与持久化的权威模型，就让 DrawioAdapter 负责把用户/AI 在 draw.io 上的操作转成可校验、可提交的文档更新，并在一次事务中同步 XML、几何和语义关系。**不能让 draw.io iframe、DiagramDocument 和数据库成为三个各自可写、互相猜测的真相来源。**
+
+### 15.7 边界与风险
+
+- 直接访问 EditorUi / mxGraph 带来原生编辑能力，但也会依赖 draw.io 内部实现；升级 draw.io 前必须运行新建、加载、局部编辑、选区、撤销、导入/导出、嵌套容器和中文标签等集成测试。
+- 预先打包的静态 Web 资源让运行时更容易离线，但每次升级需重新审核资源清单、许可证、SHA、体积及缺失的按需功能。
+- 精简版本无通用图片代理。对于依赖外部 URL 的图片，画布、截图与导出可能不一致；优先内嵌图片或在受控源内托管。
+- 公网 AI provider 仍然会接收 prompt、选区及当前图表上下文；若是金融或其他敏感架构图，应评估使用本地模型/内部 Gateway，并避免将敏感内容放入遥测、日志或外部图像服务。
+- 本报告基于对当前 main 分支关键实现和文档的源代码检查，并未在本次任务中独立运行其 Web 应用或 MCP npm 包。源码描述的能力应视为实现分析，而不是本次环境里的端到端测试结果。
+
+### 15.8 小结
+
+| 问题 | 结论 |
+|---|---|
+| 是否自己 host draw.io Web？ | 是，默认从应用同源的静态资源目录提供 draw.io。 |
+| 是否预先离线打包？ | Web build 会准备固定版本资源；MCP npm 包把所选资源发布到 dist/drawio。 |
+| 是否在运行时调用公共 Embed？ | 默认不是；只有配置外部 DRAWIO_BASE_URL / NEXT_PUBLIC_DRAWIO_BASE_URL 才切换到外部服务。 |
+| 怎么渲染？ | 浏览器执行 draw.io 原生 Web 前端；同源时另用内部 editor bridge 控制画布。 |
+| AI 怎么修改图？ | 网页版通过流式工具调用创建/局部编辑；MCP 版本让 Host Agent 使用本地工具实时操作同一个画布。 |
+| 如何确保修改不覆盖用户编辑？ | 传入最新画布与选区，并通过版本/内容指纹检查过期修改。 |
+| 最值得 Studio 借鉴什么？ | 固定版本资源打包、同源 adapter、按 cell 增量修改、流式预览后原子提交、截图自检、版本历史及 stale-edit gate。 |
+
+## 16. 参考资料
 
 ### 本项目
 
@@ -698,6 +826,26 @@ MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不
 - [Text custom editor provider](https://github.com/hediet/vscode-drawio/blob/main/src/DrawioEditorProviderText.ts)
 - [Binary custom editor provider](https://github.com/hediet/vscode-drawio/blob/main/src/DrawioEditorProviderBinary.ts)
 - [Markdown Viewer integration](https://github.com/hediet/vscode-drawio/blob/main/src/inline-editor/webview/previewInit.js)
+
+### 新增研究：DayuanJiang/next-ai-draw-io
+
+- [Next AI Draw.io README](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/README.md)
+- [Offline deployment guide](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/docs/en/offline-deployment.md)
+- [Web app draw.io fetch script](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/scripts/fetch-drawio.mjs)
+- [MCP package metadata](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/package.json)
+- [MCP package draw.io bundling script](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/scripts/fetch-drawio.mjs)
+- [Pinned draw.io release and SHA-256](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/drawio-version.json)
+- [Bundled draw.io file allowlist](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/drawio-files.txt)
+- [DrawioFrame embed host](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/components/canvas/drawio-frame.tsx)
+- [Same-origin editor bridge](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/drawio/editor-bridge.ts)
+- [Draw.io source/config URL builder](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/drawio/drawio-config.ts)
+- [AI chat API route](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/app/api/chat/route.ts)
+- [AI tools](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/chat-tools.ts)
+- [System prompt](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/lib/system-prompts.ts)
+- [Streaming diagram preview](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/components/chat/use-diagram-streaming.ts)
+- [MCP drawing guide](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/drawing-guide.ts)
+- [MCP stale-edit protection](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/edit-gate.ts)
+- [MCP persistence and version history](https://github.com/DayuanJiang/next-ai-draw-io/blob/main/packages/mcp-server/src/persistence.ts)
 
 ### 新增研究：lgazo/drawio-mcp-server
 
@@ -739,4 +887,4 @@ MCP 的结果是未压缩 XML，由调用端决定如何保存或应用；它不
 
 ### 证据边界
 
-本报告还检查了 jgraph/drawio-mcp 的 Tool Server README/package/源码、smart-drawio-next 当前 main 分支的 README 与 DrawioCanvas，以及 lgazo/drawio-mcp-server 的资源下载器、缓存/兼容策略、本地 editor routes、注入插件、WebSocket 桥和工具定义。关于 lgazo 方案是否预先打包资源，结论来自 npm 文件清单与运行时下载代码；关于严格离线能力，并未把 URL 参数当作证据，仍需实际在禁网环境做启动与交互测试。报告未执行 Studio 的完整集成或资源网络抓包。实施前应固定目标版本，执行真实工具请求/画布响应往返测试、网络出口检查、资源完整性及许可证审查。
+本报告还检查了 DayuanJiang/next-ai-draw-io 当前 main 分支的 Web 资源打包脚本、固定版本/SHA、同源 iframe 及 editor bridge、AI chat route/tool definitions/streaming preview，以及 MCP 包的资源 allowlist、工具与持久化逻辑。结论基于源码与项目文档，不表示本次执行了其完整 Web/MCP 集成测试。实施前仍应固定目标版本，执行真实工具请求/画布响应往返测试、网络出口检查、资源完整性及许可证审查。
