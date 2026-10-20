@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM"],
     "types": ["node"],
     "strict": true,
@@ -13,5 +13,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["server/**/*.ts", "src/model/diagram.ts", "src/model/validate.ts"]
+  "include": ["server/**/*.ts", "src/model/diagram.ts", "src/model/validate.ts", "src/model/boundaries.ts", "src/model/migrations.ts", "src/model/sequence.ts", "src/model/templates.ts"]
 }
