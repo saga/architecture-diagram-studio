@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initialDiagram } from './diagram';
+import { createDiagramTemplate } from './templates';
 import { validateDiagram } from './validate';
 import { exportDrawio } from '../export/drawio';
 
@@ -53,15 +54,47 @@ describe('draw.io export', () => {
 
   it('uses compatible node shapes, two-level labels, explicit edge routes and anchors', () => {
     const xml = exportDrawio(initialDiagram);
-    expect(xml).toContain('shape=umlActor');
-    expect(xml).toContain('shape=cylinder3');
-    expect(xml).toContain('fontSize=12;fontColor=#24344b');
-    expect(xml).toContain('&lt;div style=&quot;font-family:Arial,sans-serif;text-align:center;');
-    expect(xml).toContain('font-size:10px;font-weight:400;color:#748196');
-    expect(xml).toContain('edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=1.5;');
-    expect(xml).toContain('exitX=1;exitY=0.5;exitPerimeter=1;');
-    expect(xml).toContain('entryX=0;entryY=0.5;entryPerimeter=1;');
+    expect(xml).toContain('fillColor=#08427b;strokeColor=#052c52;fontColor=#ffffff;');
+    expect(xml).toContain('fillColor=#438dd5;strokeColor=#2d6fae;fontColor=#ffffff;');
+    expect(xml).toContain('fontSize=12');
+    expect(xml).toContain('&lt;div style=&quot;font-family:Arial,sans-serif;text-align:center;color:inherit;');
+    expect(xml).toContain('font-size:11px;font-weight:400;line-height:1.2;');
+    expect(xml).toContain('edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#334e68;strokeWidth=1.5;');
+    expect(xml).toContain('exitX=1;exitY=');
+    expect(xml).toContain('entryX=0;entryY=');
     expect(xml).toContain('<Array as="points">');
+  });
+
+  it('exports C4 semantic roles as C4 cards rather than UML stick figures or database cylinders', () => {
+    const xml = exportDrawio(initialDiagram);
+    expect(xml).toContain('&#171;Person&#187;');
+    expect(xml).toContain('&#171;Container&#187;');
+    expect(xml).toContain('&#171;Container · Database&#187;');
+    expect(xml).not.toContain('shape=umlActor');
+    expect(xml).not.toContain('shape=cylinder3');
+  });
+
+  it('exports a sequence diagram with lifelines, ordered messages, activations and fragments', () => {
+    const sequence = createDiagramTemplate('sequence');
+    expect(validateDiagram(sequence).filter(issue => issue.severity === 'error')).toEqual([]);
+    const xml = exportDrawio(sequence);
+    expect(xml).toContain('UML Sequence Diagram');
+    expect(xml).toContain('lifeline-customer');
+    expect(xml).toContain('dashed=1;dashPattern=3 4');
+    expect(xml).toContain('msg-1');
+    expect(xml).toContain('1. Place order');
+    expect(xml).toContain('activation-api-msg-2');
+    expect(xml).toContain('fragment-fragment-payment');
+    expect(xml).toContain('opt');
+    expect(xml).toContain('as="sourcePoint"');
+    expect(xml).toContain('as="targetPoint"');
+  });
+
+  it('rejects sequence messages whose participant references are missing', () => {
+    const sequence = createDiagramTemplate('sequence');
+    sequence.sequence!.messages[0].toParticipantId = 'missing-participant';
+    expect(validateDiagram(sequence).some(issue => issue.code === 'SEQUENCE_TARGET_NOT_FOUND')).toBe(true);
+    expect(() => exportDrawio(sequence)).toThrow(/missing target participant/);
   });
 
   it('produces stable XML for the same document snapshot', () => {
