@@ -4,7 +4,8 @@ import path from 'node:path';
 import express from 'express';
 import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
-import { initialDiagram, type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
+import { type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
+import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, type StoredChatMessage } from './persistence.js';
 import { validateDiagram } from '../src/model/validate.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -14,12 +15,40 @@ const MAX_PROMPT_CHARS = 12_000;
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/;
 
 interface ChatState { diagram: DiagramDocument; requestAutoLayout: boolean }
+const persisted = loadStudioStore();
+let sharedDiagram: DiagramDocument | undefined = persisted.diagram ?? undefined;
+let diagramRevision = persisted.revision;
+let layoutRequestId = persisted.layoutRequestId;
+const chatHistories = new Map<string, StoredChatMessage[]>(Object.entries(persisted.chats));
+function persistStore(): void {
+  saveStudioStore({
+    version: 1,
+    diagram: sharedDiagram ?? null,
+    revision: diagramRevision,
+    layoutRequestId,
+    chats: Object.fromEntries(chatHistories),
+  });
+}
+function recordTrace(sessionId: string, type: string, data: unknown): void {
+  try {
+    const serialized = JSON.stringify(data ?? {});
+    const safeData: unknown = serialized.length > 30_000
+      ? { truncated: true, preview: serialized.slice(0, 30_000), originalLength: serialized.length }
+      : JSON.parse(serialized);
+    appendAgentTrace({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, type, data: safeData });
+  } catch (error) {
+    console.error('[architecture-diagram-studio] Could not record agent trace:', error);
+  }
+}
+function saveChatMessage(sessionId: string, role: StoredChatMessage['role'], content: string): void {
+  const history = chatHistories.get(sessionId) ?? [];
+  history.push({ id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString() });
+  chatHistories.set(sessionId, history.slice(-1000));
+  persistStore();
+}
 interface ManagedSession { session: CopilotSession; state: ChatState; busy: boolean }
 const sessions = new Map<string, ManagedSession>();
 const pendingSessions = new Map<string, Promise<ManagedSession>>();
-let sharedDiagram: DiagramDocument | undefined;
-let diagramRevision = 0;
-let layoutRequestId = 0;
 let client: CopilotClient | undefined;
 let clientStart: Promise<CopilotClient> | undefined;
 
@@ -168,6 +197,8 @@ app.put('/api/diagram',(req,res)=>{
     return res.status(409).json({error:'Diagram changed in another client.',revision:diagramRevision});
   sharedDiagram=structuredClone(incoming);
   diagramRevision+=1;
+  persistStore();
+  recordTrace('browser-editor','diagram.snapshot_saved',{revision:diagramRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length});
   return res.json({ok:true,revision:diagramRevision});
 });
 
@@ -235,9 +266,25 @@ app.post('/api/diagram/mutate',(req,res)=>{
   const errors=validateDiagram(draft).filter((issue)=>issue.severity==='error');
   if(errors.length)return res.status(400).json({error:'Mutation rejected: '+errors.map((issue)=>issue.message).join(' ')});
   if(operation!=='request_layout'){sharedDiagram=draft;diagramRevision+=1;}
+  persistStore();
+  recordTrace('vscode-mcp','mcp.tool.completed',{operation,args,result,revision:diagramRevision,layoutRequestId});
   return res.json({ok:true,operation,revision:diagramRevision,result,layoutRequestId});
 });
 
+
+app.get('/api/chat/history',(req,res)=>{
+  const chatSessionId=typeof req.query.chatSessionId==='string'?req.query.chatSessionId:'';
+  if(!validId(chatSessionId))return res.status(400).json({error:'Invalid chat session ID.'});
+  return res.json({chatSessionId,messages:chatHistories.get(chatSessionId)??[]});
+});
+
+app.get('/api/agent/traces',(req,res)=>{
+  const chatSessionId=typeof req.query.chatSessionId==='string'?req.query.chatSessionId:'';
+  if(!validId(chatSessionId))return res.status(400).json({error:'Invalid chat session ID.'});
+  const rawLimit=Number(req.query.limit??200);
+  const limit=Number.isFinite(rawLimit)?Math.max(1,Math.min(1000,Math.floor(rawLimit))):200;
+  return res.json({traces:readAgentTraces([chatSessionId,'vscode-mcp','browser-editor'],limit)});
+});
 
 app.post('/api/chat',async(req,res)=>{
   const prompt=typeof req.body?.prompt==='string'?req.body.prompt.trim():'';
@@ -250,6 +297,8 @@ app.post('/api/chat',async(req,res)=>{
   const incomingErrors=validateDiagram(incoming).filter((issue)=>issue.severity==='error');
   if(incomingErrors.length) return res.status(400).json({error:'Diagram is invalid: '+incomingErrors.map((x)=>x.message).join(' ')});
   const history=Array.isArray(req.body?.history)?req.body.history.filter((m:unknown)=>!!m&&typeof m==='object'&&((m as {role?:unknown}).role==='user'||(m as {role?:unknown}).role==='assistant')&&typeof (m as {content?:unknown}).content==='string').slice(-12) as Array<{role:'user'|'assistant';content:string}>:[];
+  saveChatMessage(chatSessionId,'user',prompt);
+  recordTrace(chatSessionId,'turn.requested',{prompt,diagramRevision,nodes:incoming.nodes.length,relations:incoming.relations.length,model:MODEL});
   let managed=sessions.get(chatSessionId);
   const isNewSession=!managed;
   let claimedBusySlot=false;
@@ -269,6 +318,11 @@ app.post('/api/chat',async(req,res)=>{
             'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
           ].join(' ');
           const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
+          session.on((event) => {
+            if (event.ephemeral) return;
+            const auditableTypes = new Set(['assistant.message','user.message','tool.execution_start','tool.execution_complete','session.error','assistant.turn_start','assistant.turn_end','session.shutdown']);
+            if (auditableTypes.has(event.type)) recordTrace(chatSessionId,event.type,event.data);
+          });
           const created:ManagedSession={session,state,busy:false};
           sessions.set(chatSessionId,created);
           return created;
@@ -294,9 +348,13 @@ app.post('/api/chat',async(req,res)=>{
     const errors=ensureValid(managed.state);
     if(errors) return res.status(500).json({error:'Copilot produced an invalid diagram; changes were not applied. '+errors});
     const content=(result as {data?:{content?:string}}|undefined)?.data?.content??'Done.';
+    saveChatMessage(chatSessionId,'assistant',content);
+    recordTrace(chatSessionId,'turn.completed',{content,requestAutoLayout:managed.state.requestAutoLayout,nodeCount:managed.state.diagram.nodes.length,relationCount:managed.state.diagram.relations.length});
     return res.json({content,diagram:managed.state.diagram,requestAutoLayout:managed.state.requestAutoLayout,model:MODEL});
   }catch(error){
     const message=error instanceof Error?error.message:String(error);
+    saveChatMessage(chatSessionId,'assistant','I could not complete that request: '+message);
+    recordTrace(chatSessionId,'turn.failed',{error:message});
     return res.status(502).json({error:'Copilot request failed: '+message});
   }finally{
     if(claimedBusySlot){const current=sessions.get(chatSessionId);if(current) current.busy=false;}
