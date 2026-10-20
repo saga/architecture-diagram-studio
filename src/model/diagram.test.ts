@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { initialDiagram } from './diagram';
+import { initialDiagram, isNodeTypeAllowedForDiagramKind } from './diagram';
 import { createDiagramTemplate } from './templates';
 import { validateDiagram } from './validate';
 import { exportDrawio } from '../export/drawio';
+
+describe('diagram-kind element vocabulary', () => {
+  it('keeps C4 Context, Container, and Component element types distinct', () => {
+    expect(isNodeTypeAllowedForDiagramKind('c4-context', 'person')).toBe(true);
+    expect(isNodeTypeAllowedForDiagramKind('c4-context', 'service')).toBe(false);
+    expect(isNodeTypeAllowedForDiagramKind('c4-container', 'database')).toBe(true);
+    expect(isNodeTypeAllowedForDiagramKind('c4-container', 'component')).toBe(false);
+    expect(isNodeTypeAllowedForDiagramKind('c4-component', 'component')).toBe(true);
+    expect(isNodeTypeAllowedForDiagramKind('c4-component', 'service')).toBe(false);
+    expect(isNodeTypeAllowedForDiagramKind('c4-container', 'boundary')).toBe(false);
+    expect(isNodeTypeAllowedForDiagramKind('sequence', 'service')).toBe(false);
+  });
+});
 
 describe('diagram validation', () => {
   it('accepts the bundled example', () => {
