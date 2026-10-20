@@ -7,7 +7,7 @@ import type { CopilotSession } from '@github/copilot-sdk';
 import { type DiagramDocument, type DiagramNode, type DiagramRelation, type SequenceMessage, type SequenceParticipant, type SequenceFragment, type DiagramKind } from '../src/model/diagram.js';
 import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, type StoredChatMessage } from './persistence.js';
 import { validateDiagram } from '../src/model/validate.js';
-import { addNodeToBoundary, removeNodesFromBoundaries } from '../src/model/boundaries.js';
+import { addNodeToBoundary, removeNodesFromBoundaries, syncNodeBoundaryMembership } from '../src/model/boundaries.js';
 import { createDiagramTemplate } from '../src/model/templates.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -558,7 +558,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
       const node=draft.nodes.find((item)=>item.id===id);if(!node)return res.status(404).json({error:'Node not found.'});
       const type=stringArg('type');if(type&&!nodeTypes.includes(type))return res.status(400).json({error:'Unsupported node type.'});
       for(const key of ['label','description','technology'] as const)if(typeof args[key]==='string')node[key]=args[key] as string;
-      if(type)node.type=type as DiagramNode['type'];result={node};break;
+      if(type){node.type=type as DiagramNode['type'];Object.assign(draft,syncNodeBoundaryMembership(draft,node.id));}result={node};break;
     }
     case 'delete_node': {
       if(!id||!draft.nodes.some((node)=>node.id===id))return res.status(404).json({error:'Node not found.'});
