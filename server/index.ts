@@ -179,7 +179,7 @@ app.post('/api/chat',async(req,res)=>{
             'For questions or analysis that do not request a change, answer in natural language and do not mutate the diagram.',
             'The application has a visual editor and native draw.io exporter. Tool changes are applied to the semantic model and returned to the browser.',
           ].join(' ');
-          const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},tools:buildTools(state)});
+          const session=await sdk.createSession({model:MODEL,streaming:true,systemMessage:{content:systemMessage},availableTools:[],tools:buildTools(state)});
           const created:ManagedSession={session,state,busy:false};
           sessions.set(chatSessionId,created);
           return created;
