@@ -38,6 +38,51 @@ server.registerTool('get_current_diagram', {
   content: [{ type: 'text', text: JSON.stringify(await api('/api/diagram'), null, 2) }],
 }));
 
+server.registerTool('set_diagram_kind', {
+  description: 'Switch the active diagram to C4 Context, C4 Container, C4 Component, or UML Sequence using a matching starter template.',
+  inputSchema: z.object({ kind: z.enum(['c4-context','c4-container','c4-component','sequence']), title: z.string().max(200).optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('set_diagram_kind', args), null, 2) }] }));
+
+server.registerTool('add_sequence_participant', {
+  description: 'Add a participant to the active UML sequence diagram. Participant order determines horizontal lifeline order.',
+  inputSchema: z.object({ id: z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), label: z.string().min(1), role: z.enum(['actor','system','container','database','external']), technology: z.string().optional(), description: z.string().optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('add_sequence_participant', args), null, 2) }] }));
+
+server.registerTool('update_sequence_participant', {
+  description: 'Change a participant name, role, technology or description.',
+  inputSchema: z.object({ id: z.string().min(1), label: z.string().min(1).optional(), role: z.enum(['actor','system','container','database','external']).optional(), technology: z.string().optional(), description: z.string().optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('update_sequence_participant', args), null, 2) }] }));
+
+server.registerTool('delete_sequence_participant', {
+  description: 'Delete a sequence participant and dependent messages, activations and fragments.',
+  inputSchema: z.object({ id: z.string().min(1) }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('delete_sequence_participant', args), null, 2) }] }));
+
+server.registerTool('add_sequence_message', {
+  description: 'Add a chronological call, return, or asynchronous message between existing sequence participants.',
+  inputSchema: z.object({ id: z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), fromParticipantId: z.string().min(1), toParticipantId: z.string().min(1), label: z.string().min(1), kind: z.enum(['call','return','async']).optional(), order: z.number().int().positive().optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('add_sequence_message', args), null, 2) }] }));
+
+server.registerTool('update_sequence_message', {
+  description: 'Edit a sequence message label, sender, receiver, kind, or chronological order.',
+  inputSchema: z.object({ id: z.string().min(1), fromParticipantId: z.string().min(1).optional(), toParticipantId: z.string().min(1).optional(), label: z.string().min(1).optional(), kind: z.enum(['call','return','async']).optional(), order: z.number().int().positive().optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('update_sequence_message', args), null, 2) }] }));
+
+server.registerTool('delete_sequence_message', {
+  description: 'Delete a sequence message and remove invalid activation/fragment references.',
+  inputSchema: z.object({ id: z.string().min(1) }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('delete_sequence_message', args), null, 2) }] }));
+
+server.registerTool('add_sequence_fragment', {
+  description: 'Add an alt, opt, loop, or par frame around an inclusive range of sequence messages.',
+  inputSchema: z.object({ id: z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), kind: z.enum(['alt','opt','loop','par']), title: z.string().min(1), guard: z.string().optional(), startMessageId: z.string().min(1), endMessageId: z.string().min(1), participantStartId: z.string().optional(), participantEndId: z.string().optional() }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('add_sequence_fragment', args), null, 2) }] }));
+
+server.registerTool('delete_sequence_fragment', {
+  description: 'Delete a sequence fragment by ID.',
+  inputSchema: z.object({ id: z.string().min(1) }),
+}, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('delete_sequence_fragment', args), null, 2) }] }));
+
 server.registerTool('add_diagram_node', {
   description: 'Add a person, system, service, database, external system, or boundary to the active diagram. Use a stable unique ID.',
   inputSchema: z.object({
@@ -56,7 +101,7 @@ server.registerTool('update_diagram_node', {
     label: z.string().optional(),
     description: z.string().optional(),
     technology: z.string().optional(),
-    type: z.enum(['person', 'system', 'service', 'database', 'external', 'boundary']).optional(),
+    type: z.enum(['person', 'system', 'service', 'component', 'database', 'external', 'boundary']).optional(),
   }),
 }, async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await mutate('update_node', args), null, 2) }] }));
 
