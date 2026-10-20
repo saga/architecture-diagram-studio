@@ -57,7 +57,7 @@ function Editor(){
      return;
     }
     if(remote.revision!==syncRevisionRef.current&&remote.diagram){syncRevisionRef.current=remote.revision;lastSyncedDocumentRef.current=JSON.stringify(remote.diagram);setDoc(remote.diagram);const flow=flowData(remote.diagram);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Diagram updated by VS Code Copilot.');}
-    if(remote.requestAutoLayout&&remote.diagram){const context=syncContextRef.current;const next=await applyLayout(remote.diagram,context.layoutEngine,context.layoutConfig);if(!active)return;const flow=flowData(next);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Applied the layout requested by VS Code Copilot.');}
+    if((remote.layoutRequestId??0)>lastLayoutRequestIdRef.current&&remote.diagram){lastLayoutRequestIdRef.current=remote.layoutRequestId??0;const context=syncContextRef.current;const next=await applyLayout(remote.diagram,context.layoutEngine,context.layoutConfig);if(!active)return;const flow=flowData(next);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Applied the layout requested by VS Code Copilot.');}
    }catch{/* Keep the editor usable while the local API restarts. */}
   };
   void synchronize();const timer=window.setInterval(()=>void synchronize(),1000);return()=>{active=false;window.clearInterval(timer);};
