@@ -62,6 +62,31 @@ describe('diagram rendering migration', () => {
     expect(boundary!.y + boundary!.height).toBeGreaterThan(fitted.layout.db.y + fitted.layout.db.height);
   });
 
+  it('repairs stale and duplicate C4 boundary membership in persisted documents', () => {
+    const legacy = {
+      ...initialDiagram,
+      boundaries: [{
+        ...initialDiagram.boundaries![0],
+        memberNodeIds: ['web', 'api', 'db', 'db', 'deleted-node', 'payment'],
+      }],
+    };
+    const normalized = normalizeDiagramDocument(legacy);
+    expect(normalized.boundaries?.[0].memberNodeIds).toEqual(['web', 'api', 'db']);
+    expect(normalized.boundaries?.[0].memberNodeIds).not.toContain('deleted-node');
+    expect(normalized.boundaries?.[0].memberNodeIds).not.toContain('payment');
+  });
+
+  it('removes empty stale system boundary frames when no members remain', () => {
+    const legacy = {
+      ...initialDiagram,
+      nodes: initialDiagram.nodes.filter(node => node.id !== 'web' && node.id !== 'api' && node.id !== 'db'),
+      relations: initialDiagram.relations.filter(relation => !['web', 'api', 'db'].includes(relation.sourceId) && !['web', 'api', 'db'].includes(relation.targetId)),
+      layout: Object.fromEntries(Object.entries(initialDiagram.layout).filter(([id]) => !['web', 'api', 'db'].includes(id))),
+    };
+    const normalized = normalizeDiagramDocument(legacy);
+    expect(normalized.boundaries ?? []).toEqual([]);
+  });
+
   it('creates the correct system scope for the component template', () => {
     const doc = ensureDiagramBoundaries(createDiagramTemplate('c4-component'));
     expect(doc.boundaries?.[0].label).toBe('Order API');
