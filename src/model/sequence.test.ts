@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDiagramTemplate } from './templates';
-import { sequenceActivationDomId, sequenceActivationIssue, sequenceActivationKey } from './sequence';
+import { normalizeSequenceRanges, sequenceActivationDomId, sequenceActivationIssue, sequenceActivationKey } from './sequence';
 
 describe('sequence activation invariants', () => {
   it('uses a stable key for a participant message interval', () => {
@@ -23,6 +23,24 @@ describe('sequence activation invariants', () => {
       .toBe('activation-%5B%22api%22%2C%22msg-2%22%2C%22msg-5%22%5D');
     expect(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-6' }))
       .not.toBe(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-5' }));
+  });
+
+  it('keeps activation and fragment ranges chronological after message order changes', () => {
+    const sequence = createDiagramTemplate('sequence').sequence!;
+    sequence.messages = sequence.messages.map(message => {
+      if (message.id === 'msg-1') return { ...message, order: 2 };
+      if (message.id === 'msg-2') return { ...message, order: 1 };
+      return message;
+    });
+    sequence.activations = [{ participantId: 'web', startMessageId: 'msg-1', endMessageId: 'msg-2' }];
+    sequence.fragments = [{
+      id: 'fragment-swap', kind: 'opt', title: 'Swap boundary',
+      startMessageId: 'msg-1', endMessageId: 'msg-2',
+    }];
+
+    const normalized = normalizeSequenceRanges(sequence);
+    expect(normalized.activations?.[0]).toMatchObject({ startMessageId: 'msg-2', endMessageId: 'msg-1' });
+    expect(normalized.fragments?.[0]).toMatchObject({ startMessageId: 'msg-2', endMessageId: 'msg-1' });
   });
 
   it('rejects duplicate ranges but allows updating the same activation in place', () => {
