@@ -2,8 +2,12 @@
   "servers": {
     "architecture-diagram-studio": {
       "type": "stdio",
-      "command": "npm",
-      "args": ["run", "mcp"],
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "server/mcp.ts"
+      ],
       "cwd": "${workspaceFolder}"
     }
   }
