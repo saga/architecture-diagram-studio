@@ -52,3 +52,18 @@ Not yet implemented or verified:
 - Sequence diagram editing, including ordering, activations, and alt/opt/loop fragments.
 - Automated opening/rendering of exported files in diagrams.net.
 - Pixel-level visual regression and screenshot parity.
+
+
+## Copilot chat requirements
+
+Implemented in the current MVP:
+- Local Express API uses the official `@github/copilot-sdk` package, pinned to the same `1.0.14` version used by `saga/copilot-server-agent`.
+- Chat receives the current diagram snapshot and can call constrained tools to add/update/delete nodes and relations, change the title, and request ELK auto-layout.
+- The browser applies the validated returned diagram snapshot; chat history and diagram state are stored locally.
+- The API binds to loopback and does not register shell, filesystem, or repository tools.
+
+Remaining:
+- Token-by-token streaming of assistant text and tool progress.
+- Durable server-side Copilot session restoration and persisted conversation audit.
+- Automated tests with mocked SDK sessions for tool selection, malformed tool arguments, cancellation, and concurrent requests.
+- Real authenticated end-to-end verification against a logged-in Copilot CLI runtime.
