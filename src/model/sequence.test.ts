@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDiagramTemplate } from './templates';
-import { sequenceActivationIssue, sequenceActivationKey } from './sequence';
+import { sequenceActivationDomId, sequenceActivationIssue, sequenceActivationKey } from './sequence';
 
 describe('sequence activation invariants', () => {
   it('uses a stable key for a participant message interval', () => {
@@ -18,8 +18,7 @@ describe('sequence activation invariants', () => {
       .toBe('Activation end must not precede its start.');
   });
 
-  it('builds a unique renderer ID from the participant and both message bounds', async () => {
-    const { sequenceActivationDomId } = await import('./sequence');
+  it('builds a unique renderer ID from the participant and both message bounds', () => {
     expect(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-5' }))
       .toBe('activation-%5B%22api%22%2C%22msg-2%22%2C%22msg-5%22%5D');
     expect(sequenceActivationDomId({ participantId: 'api', startMessageId: 'msg-2', endMessageId: 'msg-6' }))
