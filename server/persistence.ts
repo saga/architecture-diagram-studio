@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { appendAgentTrace, readAgentTraces } from './trace-ledger.js';
 export { appendAgentTrace, readAgentTraces } from './trace-ledger.js';
 export type { AgentTraceRecord } from './trace-ledger.js';
 import { homedir } from 'node:os';
