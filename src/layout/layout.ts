@@ -106,8 +106,7 @@ function layoutHierarchy(doc: DiagramDocument): DiagramDocument {
   const positions = new Map<string, { x: number; y: number }>();
   let offsetY = 30;
   for (const item of forest) {
-    const root = hierarchy(item, (d) => d.children);
-    tree<HierarchyItem>().nodeSize([130, 250])(root);
+    const root = tree<HierarchyItem>().nodeSize([130, 250])(hierarchy(item, (d) => d.children));
     let minY = Number.POSITIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
     root.each((node) => {
