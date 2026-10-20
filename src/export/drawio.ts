@@ -27,7 +27,7 @@ const stereotype=(type:DiagramNode['type'])=>{
 };
 const nodeLabel=(label:string,technology?:string,type:DiagramNode['type']='service',description?:string)=>{
  const title='<div style="font-size:14px;font-weight:700;line-height:1.25;">'+htmlText(label)+'</div>';
- const tag='<div style="font-size:10px;font-style:italic;line-height:1.2;opacity:.94;">&#171;'+htmlText(stereotype(type))+'&#187;</div>';
+ const tag='<div style="font-size:10px;font-style:italic;line-height:1.2;opacity:.94;">«'+htmlText(stereotype(type))+'»</div>';
  const subtitle=technology?'<div style="margin-top:2px;font-size:11px;font-weight:400;line-height:1.2;">'+htmlText(technology)+'</div>':'';
  const detail=description?'<div style="margin-top:2px;font-size:10px;line-height:1.25;">'+htmlText(description)+'</div>':'';
  return '<div style="font-family:Arial,sans-serif;text-align:center;color:inherit;white-space:normal;overflow-wrap:anywhere;">'+tag+title+subtitle+detail+'</div>';
