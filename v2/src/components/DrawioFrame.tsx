@@ -5,7 +5,7 @@ import { fromDrawioXml } from "../import/drawio";
 interface Props {
   document: DiagramDocument;
   xml: string;
-  onDocumentChange: (document: DiagramDocument) => void;
+  onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
 }
 export default function DrawioFrame({ document, xml, onDocumentChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -47,7 +47,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
       }
       if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
         lastSent.current = data.xml;
-        onDocumentChange(fromDrawioXml(data.xml, document));
+        onDocumentChange(fromDrawioXml(data.xml, document), data.xml);
       }
       if (data.event === "init") setLoaded(true);
     }

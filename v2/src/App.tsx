@@ -71,7 +71,9 @@ export default function App() {
   const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
   const quality = useMemo(() => evaluateLayout(visibleDocument), [visibleDocument]);
-  const drawioXml = useMemo(() => toDrawioXml(document), [document]);
+  const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
+  const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
+  const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
 
   useEffect(() => {
     let active = true;
@@ -96,9 +98,10 @@ export default function App() {
   }, [document]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages]);
 
-  const commitDocument = useCallback((next: DiagramDocument, action: string) => {
+  const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
     setPreviewDocument(null);
     setPreviewSummary("");
+    setNativeXmlOverride(preservedNativeXml ?? null);
     const nextHistory = [...historyRef.current.slice(0, historyIndexRef.current + 1), next].slice(-50);
     historyRef.current = nextHistory;
     historyIndexRef.current = nextHistory.length - 1;
@@ -455,7 +458,7 @@ export default function App() {
             <DiagramCanvas document={visibleDocument} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
               onMoveNode={(id, x, y) => commitDocument(moveNode(visibleDocument, id, x, y), "已手动移动节点；该位置已锁定")} />
           ) : (
-            <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next) => commitDocument(next, "已从原生 Draw.io 同步修改")} />
+            <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "已从原生 Draw.io 同步修改", nativeXml)} />
           )}
           <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
           {viewMode === "studio" && <div className="zoom-indicator"><span>−</span><strong>100%</strong><span>＋</span><i /></div>}
