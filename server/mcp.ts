@@ -87,7 +87,7 @@ server.registerTool('add_diagram_node', {
   description: 'Add a person, system, service, database, external system, or boundary to the active diagram. Use a stable unique ID.',
   inputSchema: z.object({
     id: z.string().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
-    type: z.enum(['person', 'system', 'service', 'database', 'external', 'boundary']),
+    type: z.enum(['person', 'system', 'service', 'component', 'database', 'external', 'boundary']),
     label: z.string().min(1),
     description: z.string().optional(),
     technology: z.string().optional(),
