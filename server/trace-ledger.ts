@@ -52,7 +52,7 @@ database.exec(`
 try { chmodSync(databasePath, 0o600); } catch { /* File permissions differ by platform. */ }
 
 function redact(value: unknown, key = ''): unknown {
-  if (/authorization|access[_-]?token|api[_-]?key|password|secret|cookie|credential/i.test(key)) return '[REDACTED]';
+  if (/authorization|(^|[_-])token($|[_-])|api[_-]?key|password|secret|cookie|credential/i.test(key)) return '[REDACTED]';
   if (Array.isArray(value)) return value.map((item) => redact(item));
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, child]) => [childKey, redact(child, childKey)]));
