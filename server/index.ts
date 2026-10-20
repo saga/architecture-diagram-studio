@@ -502,7 +502,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
   const hasAnyId=(candidate:string)=>draft.nodes.some((node)=>node.id===candidate)||draft.relations.some((relation)=>relation.id===candidate)||(draft.boundaries??[]).some((boundary)=>boundary.id===candidate)||(draft.sequence?.participants??[]).some((participant)=>participant.id===candidate)||(draft.sequence?.messages??[]).some((message)=>message.id===candidate)||(draft.sequence?.fragments??[]).some((fragment)=>fragment.id===candidate);
   let result:unknown;
   const genericGraphOperations=new Set(['add_node','update_node','delete_node','add_relation','update_relation','delete_relation']);
-  const sequenceOperations=new Set(['add_sequence_participant','update_sequence_participant','delete_sequence_participant','add_sequence_message','update_sequence_message','delete_sequence_message','add_sequence_fragment','delete_sequence_fragment']);
+  const sequenceOperations=new Set(['add_sequence_participant','update_sequence_participant','delete_sequence_participant','add_sequence_message','update_sequence_message','delete_sequence_message','add_sequence_activation','update_sequence_activation','delete_sequence_activation','add_sequence_fragment','delete_sequence_fragment']);
   if(draft.kind==='sequence'&&genericGraphOperations.has(operation))return res.status(409).json({error:'The active diagram is UML Sequence. Use sequence participant/message/fragment operations, or switch diagram kind first.'});
   if(draft.kind!=='sequence'&&sequenceOperations.has(operation))return res.status(409).json({error:'Sequence operations require a UML Sequence diagram. Switch diagram kind first.'});
   switch(operation){
@@ -584,6 +584,41 @@ app.post('/api/diagram/mutate',(req,res)=>{
       sequence.activations=sequence.activations?.filter(activation=>liveMessages.has(activation.startMessageId)&&liveMessages.has(activation.endMessageId));
       sequence.fragments=sequence.fragments?.filter(fragment=>liveMessages.has(fragment.startMessageId)&&liveMessages.has(fragment.endMessageId));
       result={deletedMessageId:id};break;
+    }
+    case 'add_sequence_activation': {
+      if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before adding an activation.'});
+      const participantId=stringArg('participantId');const startMessageId=stringArg('startMessageId');const endMessageId=stringArg('endMessageId');
+      if(!participantId||!startMessageId||!endMessageId)return res.status(400).json({error:'Participant, start message, and end message are required.'});
+      const activation:SequenceActivation={participantId,startMessageId,endMessageId};
+      const issue=sequenceActivationIssue(draft.sequence,activation);
+      if(issue)return res.status(400).json({error:issue});
+      (draft.sequence.activations??=[]).push(activation);result={activation};break;
+    }
+    case 'update_sequence_activation': {
+      if(draft.kind!=='sequence'||!draft.sequence?.activations)return res.status(409).json({error:'Switch to UML Sequence before editing an activation.'});
+      const participantId=stringArg('participantId');const startMessageId=stringArg('startMessageId');const endMessageId=stringArg('endMessageId');
+      if(!participantId||!startMessageId||!endMessageId)return res.status(400).json({error:'The current activation key is required.'});
+      const currentKey=sequenceActivationKey({participantId,startMessageId,endMessageId});
+      const index=draft.sequence.activations.findIndex(activation=>sequenceActivationKey(activation)===currentKey);
+      if(index<0)return res.status(404).json({error:'Sequence activation not found.'});
+      const current=draft.sequence.activations[index];
+      const next:SequenceActivation={
+        participantId:stringArg('newParticipantId')??current.participantId,
+        startMessageId:stringArg('newStartMessageId')??current.startMessageId,
+        endMessageId:stringArg('newEndMessageId')??current.endMessageId,
+      };
+      const issue=sequenceActivationIssue(draft.sequence,next,currentKey);
+      if(issue)return res.status(400).json({error:issue});
+      draft.sequence.activations[index]=next;result={activation:next};break;
+    }
+    case 'delete_sequence_activation': {
+      if(draft.kind!=='sequence'||!draft.sequence?.activations)return res.status(409).json({error:'Switch to UML Sequence before deleting an activation.'});
+      const participantId=stringArg('participantId');const startMessageId=stringArg('startMessageId');const endMessageId=stringArg('endMessageId');
+      if(!participantId||!startMessageId||!endMessageId)return res.status(400).json({error:'Participant, start message, and end message are required.'});
+      const key=sequenceActivationKey({participantId,startMessageId,endMessageId});
+      const index=draft.sequence.activations.findIndex(activation=>sequenceActivationKey(activation)===key);
+      if(index<0)return res.status(404).json({error:'Sequence activation not found.'});
+      const [deletedActivation]=draft.sequence.activations.splice(index,1);result={deletedActivation};break;
     }
     case 'add_sequence_fragment': {
       if(draft.kind!=='sequence'||!draft.sequence)return res.status(409).json({error:'Switch to UML Sequence before adding a fragment.'});
