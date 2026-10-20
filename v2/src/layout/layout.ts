@@ -12,7 +12,6 @@ function routeRelations(doc: DiagramDocument): DiagramDocument {
   const relations = doc.relations.map((relation, index) => {
     const source = lookup.get(relation.source), target = lookup.get(relation.target);
     if (!source || !target || doc.kind === "sequence") return { ...relation, points: [] };
-    const routing = relation.routing || doc.layout.routing;
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
     const lane = 24 + (index % 3) * 12;
