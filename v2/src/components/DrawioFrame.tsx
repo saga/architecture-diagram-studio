@@ -15,8 +15,13 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
 
   useEffect(() => {
     let alive = true;
-    fetch("/drawio/index.html", { method: "HEAD", cache: "no-store" })
-      .then((response) => { if (alive) setAvailable(response.ok); })
+    fetch("/drawio/studio-bundle.json", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const manifest = await response.json() as { version?: string; sha256?: string };
+        return manifest.version === "v32.0.2" && typeof manifest.sha256 === "string";
+      })
+      .then((installed) => { if (alive) setAvailable(installed); })
       .catch(() => { if (alive) setAvailable(false); });
     return () => { alive = false; };
   }, []);

@@ -57,7 +57,8 @@ async function loadWar() {
   return Buffer.from(await response.arrayBuffer());
 }
 async function main() {
-  if (fs.existsSync(STAMP) && fs.readFileSync(STAMP, "utf8").trim() === VERSION && fs.existsSync(path.join(DEST, "index.html"))) {
+  if (fs.existsSync(STAMP) && fs.readFileSync(STAMP, "utf8").trim() === VERSION &&
+      fs.existsSync(path.join(DEST, "index.html")) && fs.existsSync(path.join(DEST, "studio-bundle.json"))) {
     log("Pinned assets already installed; no download needed.");
     return;
   }
@@ -77,6 +78,7 @@ async function main() {
     written++;
   }
   fs.writeFileSync(path.join(temp, ".version"), VERSION + "\n");
+  fs.writeFileSync(path.join(temp, "studio-bundle.json"), JSON.stringify({ version: VERSION, sha256: SHA256 }, null, 2) + "\n");
   if (!fs.existsSync(path.join(temp, "index.html"))) throw new Error("The archive did not contain the Draw.io web entry point.");
   fs.rmSync(DEST, { recursive: true, force: true });
   fs.renameSync(temp, DEST);
