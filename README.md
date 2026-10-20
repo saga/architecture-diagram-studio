@@ -4,7 +4,7 @@ A React Flow-based architecture diagram editor with a versioned diagram model, n
 
 ## Current status
 
-MVP implementation in progress. The app provides an editable C4 Container example, four selectable auto-layout engines (ELK, Dagre, D3-Hierarchy, and D3-Force), local Express persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
+MVP implementation in progress. The app provides an editable C4 Container example, four selectable auto-layout engines with five ELK algorithms, per-edge ports and route geometry, six editor themes, local Express persistence, deterministic draw.io XML export, and a local Copilot SDK API. Chat can add/update/delete nodes and relationships, change the title, and request auto-layout through an explicit tool allowlist. Sequence-diagram editing, business-context extraction, and automated draw.io rendering round-trip are not implemented yet. Pixel-identical rendering is not guaranteed by coordinate mapping alone.
 
 ## Quick start
 
@@ -27,11 +27,12 @@ npm run build
 - Local stdio MCP server for VS Code GitHub Copilot, exposing the active diagram's read/modify/validate/layout-request tools and synchronizing through the same loopback API as the browser editor.
 - SDK tool allowlist is limited to diagram operations; the chat agent is not given filesystem, shell, or repository tools.
 - The active diagram, revisions, chat histories, and agent trace events are persisted by the local Express service; browser local storage remains a UI cache and offline recovery source.
-- Four selectable layout engines: ELK layered (default), Dagre directed graph, D3-Hierarchy tree/forest, and D3-Force force-directed layout.
-- A Layout settings page exposes the tunable parameters for all four engines, including direction, spacing, edge routing, force strengths, collision behavior, and simulation budget.
+- Four selectable layout engines: ELK (Layered default, plus Mr. Tree, Radial, Stress, and Force algorithms), Dagre directed graph, D3 Hierarchy tree/forest, and D3 Force force-directed layout.
+- Main toolbar groups layout engine, direction, advanced settings, and Auto Layout. Changing settings only updates configuration; Auto Layout explicitly applies geometry. Dagre and D3 Hierarchy support four directions; ELK options are algorithm-dependent.
+- Advanced settings expose ELK algorithm, direction, spacing, edge routing, iteration limit and seed; Dagre direction and spacing; D3 Hierarchy direction and spacing; and D3 Force link, repulsion, collision, and simulation-budget settings.
 - Reusable named layout variants: edit the active variant, save the current configuration as a new variant, switch between variants, or delete a variant. Variants and the active selection are persisted in browser local storage; defaults are used if stored data is unavailable or invalid.
-- Two visual styles: the existing Studio theme and an optional Diagram Design-inspired editorial theme with warm paper, restrained burnt-orange accents, hairline borders, minimal shadows, and compact technical labels. The preference is browser-local and does not alter diagram semantics or export geometry. Layout is explicit; export never invokes it.
-- Layout trade-offs: ELK is the default for general architecture graphs and configurable edge routing; Dagre is a fast directed layout; D3-Hierarchy uses a spanning forest for cycles/disconnected nodes, so cross-links do not influence tree placement; D3-Force runs a bounded one-shot simulation for a force-directed arrangement rather than continuously moving nodes.
+- Six visual themes: Studio, Editorial, Midnight, Blueprint, Minimal Mono, and Vibrant. Themes are editor-only presentation preferences stored in browser local storage; they do not alter diagram semantics or trigger layout. The draw.io exporter uses its own native style mapping.
+- Layout trade-offs: ELK Layered is the default for architecture/dependency graphs, with named per-edge handles and routed bend points carried into React Flow and draw.io endpoint anchors. Mr. Tree is intended for rooted trees, Radial for hub-and-spoke diagrams, and Stress/Force for relationship maps; not every ELK setting applies to every algorithm. Dagre is a fast directed layout. D3 Hierarchy builds a spanning forest, so cross-links do not influence tree placement. D3 Force runs a bounded one-shot simulation rather than continuously moving nodes.
 - Layout selection is also honored when Copilot requests an automatic layout; current node dimensions and resulting positions are persisted.
 - Browser local storage remains a recovery cache for the diagram and current node geometry.
 - Reset-to-example action.
