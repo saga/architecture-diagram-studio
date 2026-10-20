@@ -41,6 +41,9 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
     if (relation.sourceId === relation.targetId) issues.push({ code: 'SELF_RELATION', message: `Relation "${relation.id}" connects an element to itself.`, elementId: relation.id, severity: 'warning' });
   }
   if (doc.kind === 'sequence') {
+    if (doc.nodes.length || doc.relations.length || Object.keys(doc.layout).length || (doc.boundaries?.length ?? 0)) {
+      issues.push({ code: 'SEQUENCE_GRAPH_DATA_PRESENT', message: 'A UML Sequence document must store content only in sequence participants/messages/activations/fragments, not in generic graph nodes, relations, layout, or C4 boundaries.', severity: 'error' });
+    }
     const sequence = doc.sequence;
     if (!sequence) {
       issues.push({ code: 'SEQUENCE_DATA_MISSING', message: 'A sequence diagram requires participants and ordered messages.', severity: 'error' });
@@ -71,7 +74,13 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
 
     for (const activation of sequence.activations ?? []) {
       if (!participantIds.has(activation.participantId)) issues.push({ code: 'SEQUENCE_ACTIVATION_PARTICIPANT_NOT_FOUND', message: `Activation refers to missing participant "${activation.participantId}".`, elementId: activation.participantId, severity: 'error' });
-      if (!messageIds.has(activation.startMessageId) || !messageIds.has(activation.endMessageId)) issues.push({ code: 'SEQUENCE_ACTIVATION_MESSAGE_NOT_FOUND', message: 'An activation refers to a missing start or end message.', elementId: activation.participantId, severity: 'error' });
+      if (!messageIds.has(activation.startMessageId) || !messageIds.has(activation.endMessageId)) {
+        issues.push({ code: 'SEQUENCE_ACTIVATION_MESSAGE_NOT_FOUND', message: 'An activation refers to a missing start or end message.', elementId: activation.participantId, severity: 'error' });
+      } else {
+        const start = sequence.messages.find(message => message.id === activation.startMessageId);
+        const end = sequence.messages.find(message => message.id === activation.endMessageId);
+        if (start && end && start.order > end.order) issues.push({ code: 'SEQUENCE_ACTIVATION_ORDER_INVALID', message: `Activation for "${activation.participantId}" ends before it starts.`, elementId: activation.participantId, severity: 'error' });
+      }
     }
     for (const fragment of sequence.fragments ?? []) {
       if (!fragment.id.trim()) issues.push({ code: 'SEQUENCE_FRAGMENT_ID_EMPTY', message: 'A sequence fragment has an empty ID.', severity: 'error' });
@@ -86,6 +95,8 @@ export function validateDiagram(doc: DiagramDocument): ValidationIssue[] {
       if (fragment.participantStartId && !participantIds.has(fragment.participantStartId)) issues.push({ code: 'SEQUENCE_FRAGMENT_START_PARTICIPANT_NOT_FOUND', message: `Fragment "${fragment.id}" refers to missing start participant "${fragment.participantStartId}".`, elementId: fragment.id, severity: 'error' });
       if (fragment.participantEndId && !participantIds.has(fragment.participantEndId)) issues.push({ code: 'SEQUENCE_FRAGMENT_END_PARTICIPANT_NOT_FOUND', message: `Fragment "${fragment.id}" refers to missing end participant "${fragment.participantEndId}".`, elementId: fragment.id, severity: 'error' });
     }
+  } else if (doc.sequence) {
+    issues.push({ code: 'SEQUENCE_DATA_ON_GRAPH', message: 'A C4 diagram cannot contain UML Sequence data.', severity: 'error' });
   }
   return issues;
 }
