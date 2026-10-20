@@ -233,6 +233,8 @@ flowchart TD
 
 Legacy browser and loopback API documents pass through normalizeDiagramDocument before the current renderer consumes them. For older C4 snapshots, the normalizer enlarges undersized card geometry without moving saved top-left positions, rescales port coordinates if the bounds changed, and reconstructs absent system boundaries. It clears cached routes only when prior geometry becomes incompatible. Sequence snapshots missing sequence data are initialized from the sequence template; C4 boundaries are removed from sequence documents.
 
+C4 view element vocabularies are guarded at mutation boundaries: Context accepts people/software systems/external systems, Container accepts people/software systems/containers/databases/external systems, and Component accepts components plus contextual/external dependencies. Generic node APIs cannot create a boundary-as-node object; boundaries are modeled separately.
+
 ## System-boundary consistency
 
 Boundaries are not graph nodes. fitDiagramBoundaries derives their rectangle from current member-node bounds and fixed padding/header dimensions. They are rendered as non-interactive background frames and exported as native dashed draw.io container vertices. Canvas drag, node creation/deletion, Copilot SDK node tools, and REST mutation handlers must keep boundary membership consistent. Layout algorithms only receive semantic graph nodes and relations, not boundary frames.
