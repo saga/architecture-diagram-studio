@@ -36,6 +36,19 @@ const DEFAULT_WIDTH = 220;
 const DEFAULT_HEIGHT = 112;
 const PORT_SIZE = 8;
 
+type ElkLayoutResult = {
+  children?: Array<{
+    id: string;
+    x?: number;
+    y?: number;
+    ports?: Array<{ id: string; x?: number; y?: number }>;
+  }>;
+  edges?: Array<{
+    id: string;
+    sections?: Array<{ bendPoints?: Array<{ x: number; y: number }> }>;
+  }>;
+};
+
 function dimensions(doc: DiagramDocument, id: string): NodeLayout {
   return doc.layout[id] ?? { x: 0, y: 0, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
 }
@@ -135,7 +148,7 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
       const ids = portIds(edge);
       return { id: edge.id, sources: [ids.source], targets: [ids.target] };
     }),
-  });
+  } as never) as unknown as ElkLayoutResult;
 
   const positions = new Map<string, { x: number; y: number; ports?: DiagramPortLayout[] }>();
   for (const node of result.children ?? []) {
@@ -258,7 +271,7 @@ function layoutForce(doc: DiagramDocument, config: LayoutConfig['force']): Diagr
     const size = dimensions(doc, node.id);
     return { id: node.id, x: Number.isFinite(size.x) ? size.x + size.width / 2 : 80 + (index % 5) * 170, y: Number.isFinite(size.y) ? size.y + size.height / 2 : 80 + Math.floor(index / 5) * 130, width: size.width, height: size.height };
   });
-  const links = doc.relations.filter((edge) => nodes.some((node) => node.id === node.sourceId) && nodes.some((node) => node.id === edge.targetId)).map((edge) => ({ source: edge.sourceId, target: edge.targetId }));
+  const links = doc.relations.filter((edge) => nodes.some((node) => node.id === edge.sourceId) && nodes.some((node) => node.id === edge.targetId)).map((edge) => ({ source: edge.sourceId, target: edge.targetId }));
   const simulation = forceSimulation<ForceNode>(nodes)
     .force('link', forceLink<ForceNode, { source: string; target: string }>(links).id((node) => node.id).distance(config.linkDistance).strength(config.linkStrength))
     .force('charge', forceManyBody<ForceNode>().strength(-config.repulsion))
