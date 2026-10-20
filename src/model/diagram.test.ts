@@ -31,6 +31,26 @@ describe('draw.io export', () => {
     expect(xml).toContain('<mxPoint x="280" y="210"/>');
   });
 
+  it('exports named handle positions as draw.io edge entry and exit anchors', () => {
+    const doc = {
+      ...initialDiagram,
+      layout: {
+        ...initialDiagram.layout,
+        customer: {
+          ...initialDiagram.layout.customer,
+          ports: [{ id: 'out-r1', side: 'RIGHT' as const, x: 170, y: 42 }],
+        },
+        web: {
+          ...initialDiagram.layout.web,
+          ports: [{ id: 'in-r1', side: 'LEFT' as const, x: 0, y: 42 }],
+        },
+      },
+    };
+    const xml = exportDrawio(doc);
+    expect(xml).toContain('exitX=1;exitY=0.5;exitPerimeter=1;');
+    expect(xml).toContain('entryX=0;entryY=0.5;entryPerimeter=1;');
+  });
+
   it('produces stable XML for the same document snapshot', () => {
     expect(exportDrawio(initialDiagram)).toBe(exportDrawio(initialDiagram));
   });
