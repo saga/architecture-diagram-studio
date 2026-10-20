@@ -206,7 +206,13 @@ function layoutHierarchy(doc: DiagramDocument, config: LayoutConfig['hierarchy']
   const visited = new Set<string>();
   const makeTree = (id: string): HierarchyItem => {
     visited.add(id);
-    return { id, children: (childrenById.get(id) ?? []).filter((childId) => !visited.has(childId)).map(makeTree) };
+    const children: HierarchyItem[] = [];
+    // Visit sequentially so a cross-link cannot pass the filter before a sibling is visited.
+    for (const childId of childrenById.get(id) ?? []) {
+      if (visited.has(childId)) continue;
+      children.push(makeTree(childId));
+    }
+    return { id, children };
   };
   const roots = doc.nodes.filter((node) => !incoming.has(node.id));
   const forest: HierarchyItem[] = [];
