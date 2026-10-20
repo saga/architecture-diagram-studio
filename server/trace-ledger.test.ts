@@ -26,6 +26,10 @@ describe('SQLite trace ledger', () => {
     expect(events.map((event) => event.sequence)).toEqual([1, 2]);
     expect((events[0].data as { token: string }).token).toBe('[REDACTED]');
     expect(ledger.readAgentTraces(['chat-1'], 20, 'another-turn')).toEqual([]);
+    ledger.appendAgentTrace({ id: 'event-large', timestamp: '2026-10-20T10:00:02.000Z', sessionId: 'chat-1', traceId: 'turn-large', type: 'tool.result', data: { output: 'x'.repeat(1024 * 1024 + 1) } });
+    const largeEvent = ledger.readAgentTraces(['chat-1'], 20, 'turn-large')[0];
+    expect(largeEvent.payloadComplete).toBe(false);
+    expect((largeEvent.data as { payloadOmitted: boolean }).payloadOmitted).toBe(true);
   });
 
   it('imports old JSONL events into the indexed ledger', async () => {
