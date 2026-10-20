@@ -16,7 +16,7 @@ describe('layout engines', () => {
         expect(geometry.width).toBeGreaterThan(0);
         expect(geometry.height).toBeGreaterThan(0);
       }
-      expect(result.relations).toEqual(initialDiagram.relations);
+      expect(result.relations.map(({ waypoints: _waypoints, ...relation }) => relation)).toEqual(initialDiagram.relations);
     },
   );
 
@@ -39,6 +39,37 @@ describe('layout engines', () => {
       }
     }
   });
+
+  it.each(['layered', 'mrtree', 'radial', 'stress', 'force'] as const)(
+    'supports the ELK %s algorithm with stable edge ports',
+    async (algorithm) => {
+      const config = {
+        ...DEFAULT_LAYOUT_CONFIG,
+        elk: { ...DEFAULT_LAYOUT_CONFIG.elk, algorithm, iterations: 60 },
+      };
+      const result = await applyLayout(initialDiagram, 'elk', config);
+      expect(result.nodes.map((node) => node.id)).toEqual(initialDiagram.nodes.map((node) => node.id));
+      expect(result.relations.map(({ waypoints: _waypoints, ...relation }) => relation)).toEqual(initialDiagram.relations);
+      for (const node of result.nodes) {
+        const geometry = result.layout[node.id];
+        expect(Number.isFinite(geometry.x)).toBe(true);
+        expect(Number.isFinite(geometry.y)).toBe(true);
+        expect(Array.isArray(geometry.ports)).toBe(true);
+        for (const port of geometry.ports ?? []) {
+          expect(Number.isFinite(port.x)).toBe(true);
+          expect(Number.isFinite(port.y)).toBe(true);
+        }
+      }
+      for (const relation of result.relations) {
+        expect(result.layout[relation.sourceId].ports?.some((port) => port.id === (relation.sourceHandleId ?? 'out-' + relation.id))).toBe(true);
+        expect(result.layout[relation.targetId].ports?.some((port) => port.id === (relation.targetHandleId ?? 'in-' + relation.id))).toBe(true);
+        for (const point of relation.waypoints ?? []) {
+          expect(Number.isFinite(point.x)).toBe(true);
+          expect(Number.isFinite(point.y)).toBe(true);
+        }
+      }
+    },
+  );
 
   it('keeps isolated nodes and cyclic components in hierarchy layout', async () => {
     const diagram: DiagramDocument = {
