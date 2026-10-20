@@ -30,12 +30,10 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
   }
 
   const layout = { ...input.layout };
-  let resized = false;
   for (const node of input.nodes) {
     const old = layout[node.id] ?? { x: 50, y: 50, width: 220, height: 112 };
     const width = Math.max(old.width || 220, node.type === 'boundary' ? 260 : 220);
     const height = Math.max(old.height || 112, 112);
-    if (width !== old.width || height !== old.height) resized = true;
     layout[node.id] = { ...old, width, height };
   }
 
@@ -50,8 +48,7 @@ export function normalizeDiagramDocument(input: DiagramDocument): DiagramDocumen
     }),
     layout,
   };
-  // The bool avoids implying this is a schema migration; schema-v1 remains compatible.
-  void resized;
+  // Schema-v1 remains compatible; this normalization only adjusts stale renderer geometry.
   return document;
 }
 
