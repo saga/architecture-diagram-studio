@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyLayout, LAYOUT_ENGINES } from './layout';
+import { applyLayout, DEFAULT_LAYOUT_CONFIG, LAYOUT_ENGINES } from './layout';
 import { initialDiagram, type DiagramDocument } from '../model/diagram';
 
 describe('layout engines', () => {
@@ -19,6 +19,26 @@ describe('layout engines', () => {
       expect(result.relations).toEqual(initialDiagram.relations);
     },
   );
+
+
+  it('accepts per-engine custom configuration without losing nodes or relations', async () => {
+    const config = {
+      ...DEFAULT_LAYOUT_CONFIG,
+      elk: { ...DEFAULT_LAYOUT_CONFIG.elk, direction: 'DOWN' as const, nodeSpacing: 96, layerSpacing: 140 },
+      dagre: { ...DEFAULT_LAYOUT_CONFIG.dagre, direction: 'TB' as const, nodeSpacing: 72, layerSpacing: 120, margin: 18 },
+      hierarchy: { ...DEFAULT_LAYOUT_CONFIG.hierarchy, nodeSpacingX: 160, nodeSpacingY: 280, componentSpacing: 110, margin: 20 },
+      force: { ...DEFAULT_LAYOUT_CONFIG.force, linkDistance: 280, linkStrength: 0.8, repulsion: 900, collisionScale: 0.8, collisionIterations: 4, simulationTicks: 280, margin: 24 },
+    };
+    for (const engine of LAYOUT_ENGINES) {
+      const result = await applyLayout(initialDiagram, engine.value, config);
+      expect(result.nodes.map((node) => node.id)).toEqual(initialDiagram.nodes.map((node) => node.id));
+      expect(result.relations).toEqual(initialDiagram.relations);
+      for (const node of result.nodes) {
+        expect(Number.isFinite(result.layout[node.id].x)).toBe(true);
+        expect(Number.isFinite(result.layout[node.id].y)).toBe(true);
+      }
+    }
+  });
 
   it('keeps isolated nodes and cyclic components in hierarchy layout', async () => {
     const diagram: DiagramDocument = {
