@@ -7,6 +7,7 @@ import type { CopilotSession } from '@github/copilot-sdk';
 import { type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
 import { appendAgentTrace, loadStudioStore, readAgentTraces, saveStudioStore, type StoredChatMessage } from './persistence.js';
 import { validateDiagram } from '../src/model/validate.js';
+import { addNodeToBoundary, removeNodesFromBoundaries } from '../src/model/boundaries.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MODEL = process.env.COPILOT_MODEL?.trim() || 'gpt-5';
@@ -111,7 +112,8 @@ function buildTools(state: ChatState) {
         ...(args.description ? {description:args.description} : {}), ...(args.technology ? {technology:args.technology} : {}) };
       const i=state.diagram.nodes.length;
       state.diagram.nodes.push(node);
-      state.diagram.layout[node.id]={x:80+(i%4)*230,y:100+Math.floor(i/4)*140,width:190,height:84};
+      state.diagram.layout[node.id]={x:80+(i%4)*260,y:100+Math.floor(i/4)*160,width:220,height:112};
+      state.diagram=addNodeToBoundary(state.diagram,node.id);
       return {ok:true,node};
     },
   });
@@ -134,9 +136,12 @@ function buildTools(state: ChatState) {
     parameters:{type:'object',properties:{id:{type:'string'}},required:['id']},
     handler:async(args:{id:string})=>{
       if(!state.diagram.nodes.some((n)=>n.id===args.id)) return toolError('Node not found.');
-      state.diagram.nodes=state.diagram.nodes.filter((n)=>n.id!==args.id);
-      state.diagram.relations=state.diagram.relations.filter((r)=>r.sourceId!==args.id&&r.targetId!==args.id);
-      delete state.diagram.layout[args.id];
+      state.diagram=removeNodesFromBoundaries({
+        ...state.diagram,
+        nodes:state.diagram.nodes.filter((n)=>n.id!==args.id),
+        relations:state.diagram.relations.filter((r)=>r.sourceId!==args.id&&r.targetId!==args.id),
+        layout:Object.fromEntries(Object.entries(state.diagram.layout).filter(([nodeId])=>nodeId!==args.id)),
+      },[args.id]);
       return {ok:true,deletedNodeId:args.id};
     },
   });
@@ -262,7 +267,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
       if(!nodeId||!ID_PATTERN.test(nodeId)||hasAnyId(nodeId))return res.status(400).json({error:'Node ID is invalid or already exists.'});
       if(!label?.trim()||!type||!nodeTypes.includes(type))return res.status(400).json({error:'Node type and non-empty label are required.'});
       const node:DiagramNode={id:nodeId,type:type as DiagramNode['type'],label:label.trim(),...(stringArg('description')?{description:stringArg('description')}:{}),...(stringArg('technology')?{technology:stringArg('technology')}:{})};
-      draft.nodes.push(node);const i=draft.nodes.length-1;draft.layout[nodeId]={x:80+(i%4)*230,y:100+Math.floor(i/4)*140,width:190,height:84};result={node};break;
+      draft.nodes.push(node);const i=draft.nodes.length-1;draft.layout[nodeId]={x:80+(i%4)*260,y:100+Math.floor(i/4)*160,width:220,height:112};Object.assign(draft,addNodeToBoundary(draft,nodeId));result={node};break;
     }
     case 'update_node': {
       const node=draft.nodes.find((item)=>item.id===id);if(!node)return res.status(404).json({error:'Node not found.'});
@@ -272,7 +277,7 @@ app.post('/api/diagram/mutate',(req,res)=>{
     }
     case 'delete_node': {
       if(!id||!draft.nodes.some((node)=>node.id===id))return res.status(404).json({error:'Node not found.'});
-      draft.nodes=draft.nodes.filter((node)=>node.id!==id);draft.relations=draft.relations.filter((relation)=>relation.sourceId!==id&&relation.targetId!==id);delete draft.layout[id];result={deletedNodeId:id};break;
+      Object.assign(draft,removeNodesFromBoundaries({...draft,nodes:draft.nodes.filter((node)=>node.id!==id),relations:draft.relations.filter((relation)=>relation.sourceId!==id&&relation.targetId!==id),layout:Object.fromEntries(Object.entries(draft.layout).filter(([nodeId])=>nodeId!==id))},[id]));result={deletedNodeId:id};break;
     }
     case 'add_relation': {
       const relationId=id;const sourceId=stringArg('sourceId');const targetId=stringArg('targetId');const label=stringArg('label');const kind=stringArg('kind');
