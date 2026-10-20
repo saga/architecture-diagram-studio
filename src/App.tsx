@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useMemo,useState,type FormEvent} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent} from 'react';
 import {Background,Controls,MiniMap,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,addEdge,type Connection,type Edge,type Node,type EdgeChange,type NodeChange,MarkerType} from '@xyflow/react';
 import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type LayoutEngine} from './layout/layout';
 import {initialDiagram,type DiagramDocument} from './model/diagram';
@@ -32,6 +32,36 @@ function Editor(){
  const deleteSelectedRelation=useCallback(()=>{if(!selectedRelationId)return;setDoc(prev=>({...prev,relations:prev.relations.filter(r=>r.id!==selectedRelationId)}));setEdges(es=>es.filter(e=>e.id!==selectedRelationId));setSelectedRelationId(null);setStatus('Relation removed.');},[selectedRelationId]);
  const deleteSelectedNode=useCallback(()=>{if(!selectedNodeId)return;setDoc(prev=>({...prev,nodes:prev.nodes.filter(n=>n.id!==selectedNodeId),relations:prev.relations.filter(r=>r.sourceId!==selectedNodeId&&r.targetId!==selectedNodeId),layout:Object.fromEntries(Object.entries(prev.layout).filter(([id])=>id!==selectedNodeId))}));setNodes(ns=>ns.filter(n=>n.id!==selectedNodeId));setEdges(es=>es.filter(e=>e.source!==selectedNodeId&&e.target!==selectedNodeId));setSelectedNodeId(null);setSelectedRelationId(null);setStatus('Node and its relations removed.');},[selectedNodeId]);
  const snapshot=useCallback(():DiagramDocument=>({...doc,layout:Object.fromEntries(nodes.map(n=>[n.id,{x:n.position.x,y:n.position.y,width:Number(n.measured?.width??n.style?.width??180),height:Number(n.measured?.height??n.style?.height??84)}]))}),[doc,nodes]);
+ const syncRevisionRef=useRef<number|null>(null);
+ const lastSyncedDocumentRef=useRef('');
+ const syncWriteRef=useRef<Promise<void>>(Promise.resolve());
+ const syncContextRef=useRef({snapshot:()=>doc,layoutEngine,layoutConfig});
+ syncContextRef.current={snapshot,layoutEngine,layoutConfig};
+ useEffect(()=>{
+  let active=true;
+  const synchronize=async()=>{
+   try{
+    const response=await fetch('/api/diagram');if(!response.ok)return;
+    const remote=await response.json() as {diagram:DiagramDocument|null;revision:number;requestAutoLayout?:boolean};if(!active)return;
+    if(syncRevisionRef.current===null){
+     syncRevisionRef.current=remote.revision;
+     if(remote.diagram){const serialized=JSON.stringify(remote.diagram);lastSyncedDocumentRef.current=serialized;setDoc(remote.diagram);const flow=flowData(remote.diagram);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Synchronized with the local VS Code Copilot bridge.');}
+     else{const local=syncContextRef.current.snapshot();const serialized=JSON.stringify(local);const seeded=await fetch('/api/diagram',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({diagram:local,expectedRevision:remote.revision})});if(seeded.ok){const saved=await seeded.json() as {revision:number};syncRevisionRef.current=saved.revision;lastSyncedDocumentRef.current=serialized;}}
+     return;
+    }
+    if(remote.revision!==syncRevisionRef.current&&remote.diagram){syncRevisionRef.current=remote.revision;lastSyncedDocumentRef.current=JSON.stringify(remote.diagram);setDoc(remote.diagram);const flow=flowData(remote.diagram);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Diagram updated by VS Code Copilot.');}
+    if(remote.requestAutoLayout&&remote.diagram){const context=syncContextRef.current;const next=await applyLayout(remote.diagram,context.layoutEngine,context.layoutConfig);if(!active)return;const flow=flowData(next);setDoc(next);setNodes(flow.nodes);setEdges(flow.edges);setStatus('Applied the layout requested by VS Code Copilot.');}
+   }catch{/* Keep the editor usable while the local API restarts. */}
+  };
+  void synchronize();const timer=window.setInterval(()=>void synchronize(),1000);return()=>{active=false;window.clearInterval(timer);};
+ },[]);
+ useEffect(()=>{
+  const serialized=JSON.stringify(snapshot());if(syncRevisionRef.current===null||serialized===lastSyncedDocumentRef.current)return;
+  let cancelled=false;
+  syncWriteRef.current=syncWriteRef.current.then(async()=>{if(cancelled)return;try{const response=await fetch('/api/diagram',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({diagram:JSON.parse(serialized),expectedRevision:syncRevisionRef.current})});if(response.status===409){syncRevisionRef.current=null;return;}if(!response.ok)return;const saved=await response.json() as {revision:number};syncRevisionRef.current=saved.revision;lastSyncedDocumentRef.current=serialized;}catch{/* A later snapshot retries synchronization. */}});
+  return()=>{cancelled=true;};
+ },[snapshot]);
+
  useEffect(()=>{try{window.localStorage.setItem('architecture-diagram-studio.document.v1',JSON.stringify(snapshot()));}catch{setStatus('Layout is active in this session, but browser storage is unavailable.');}},[snapshot]);
  useEffect(()=>{try{window.localStorage.setItem('architecture-diagram-studio.chat.v1',JSON.stringify(chatMessages));window.localStorage.setItem('architecture-diagram-studio.chat-session.v1',chatSessionId);}catch{/* Chat remains usable for this tab when storage is disabled. */}},[chatMessages,chatSessionId]);
  const autoLayout=useCallback(async(engine:LayoutEngine=layoutEngine,source:DiagramDocument=snapshot())=>{
