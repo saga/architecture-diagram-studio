@@ -195,7 +195,10 @@ export default function App() {
         const prefix = modelReply ? modelReply + " " : "";
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查画布后应用或丢弃。" }]);
       } else {
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: modelReply || result.summary }]);
+        const reply = modelReply
+          ? "没有应用任何修改。 " + modelReply + "（模型计划未匹配到可执行的布局操作。）"
+          : result.summary;
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: reply }]);
       }
     } catch (error) {
       setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "没有提交修改：" + (error instanceof Error ? error.message : String(error)) }]);
