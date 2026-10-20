@@ -123,7 +123,7 @@ export function ensureEdgeGeometry(doc: DiagramDocument, direction: LayoutDirect
     const referenced = referencedPorts.get(node.id) ?? new Set<string>();
     portMaps.set(node.id, new Map((doc.layout[node.id]?.ports ?? [])
       .filter((port) => referenced.has(port.id))
-      .map((port) => [port.id, { ...port }])));
+      .map((port) => [port.id, { ...port }] as const)));
   }
 
   const add = (nodeId: string, portId: string, side: DiagramPortSide) => {
