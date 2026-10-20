@@ -193,8 +193,8 @@
 .app-shell.theme-vibrant{--actor-fill:#f3e8ff;--actor-stroke:#a78bfa}
 .app-shell.theme-studio .diagram-node{border:1.5px solid #64748b!important;border-radius:10px!important;background:#f1f5f9!important;box-shadow:0 3px 12px #1e35500b!important}
 .app-shell.theme-studio .diagram-node.node-person{border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;overflow:visible!important}
-.app-shell.theme-studio .diagram-node.node-person .actor-illustration{position:absolute;left:0;top:0;width:100%;height:64px;display:block;overflow:visible;pointer-events:none}
-.app-shell.theme-studio .diagram-node.node-person .node-label{position:absolute;left:0;right:0;bottom:0;width:100%;display:flex;align-items:center;justify-content:flex-end;gap:0;text-align:center;font-size:12px;line-height:1.2;color:#24344b;white-space:normal}
+.app-shell.theme-studio .diagram-node.node-person .actor-illustration{position:absolute;left:0;top:0;width:100%;height:84px;display:block;overflow:visible;pointer-events:none}
+.app-shell.theme-studio .diagram-node.node-person .node-label{position:absolute;left:0;right:0;top:88px;bottom:auto;width:100%;display:flex;align-items:center;justify-content:flex-start;gap:0;text-align:center;font-size:12px;line-height:1.2;color:#24344b;white-space:normal}
 .app-shell.theme-studio .diagram-node.node-person .node-label strong{font-weight:700}
 .app-shell.theme-studio .diagram-node.node-database{position:relative!important;border:1.5px solid #39805b!important;border-radius:50% / 18%!important;background:#e6f5ec!important;box-shadow:none!important;overflow:visible!important;padding:12px 14px!important}
 .app-shell.theme-studio .diagram-node.node-database::after{content:"";position:absolute;left:0;right:0;bottom:12%;height:22%;border-bottom:1.5px solid #39805b;border-radius:50%;pointer-events:none}
@@ -212,12 +212,12 @@
 
 /* Preserve the selected theme's palette while retaining the same semantic silhouettes. */
 .app-shell.theme-editorial .diagram-node.node-person{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
-.app-shell.theme-editorial .diagram-node.node-person .node-label{position:absolute;bottom:0;left:0;right:0;width:100%;gap:0;color:#2d3142}
+.app-shell.theme-editorial .diagram-node.node-person .node-label{position:absolute;top:88px;bottom:auto;left:0;right:0;width:100%;gap:0;color:#2d3142}
 .app-shell.theme-editorial .diagram-node.node-database{border:1.5px solid #4f5d75!important;border-radius:50% / 18%!important;background:#f5f5f5!important}
 .app-shell.theme-editorial .diagram-node.node-database::after{border-bottom-color:#4f5d75}
 .app-shell.theme-editorial .diagram-node.node-external{border-style:dashed!important;border-color:rgba(45,49,66,.4)!important;background:rgba(45,49,66,.03)!important}
 .app-shell.theme-midnight .diagram-node.node-person{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
-.app-shell.theme-midnight .diagram-node.node-person .node-label{position:absolute;bottom:0;left:0;right:0;width:100%;gap:0;color:#e5edf8}
+.app-shell.theme-midnight .diagram-node.node-person .node-label{position:absolute;top:88px;bottom:auto;left:0;right:0;width:100%;gap:0;color:#e5edf8}
 .app-shell.theme-midnight .diagram-node.node-database{border:1.5px solid #67d6aa!important;border-radius:50% / 18%!important;background:#15392f!important}
 .app-shell.theme-midnight .diagram-node.node-database::after{border-bottom-color:#67d6aa}
 .app-shell.theme-midnight .diagram-node.node-service,.app-shell.theme-midnight .diagram-node.node-system{border-color:#7c9cff!important;background:#17243a!important}
@@ -225,20 +225,20 @@
 .app-shell.theme-midnight .architecture-port{background:#17243a!important;border-color:#93a9ca!important}
 .app-shell.theme-midnight .architecture-edge-label{background:#111b2e;color:#d7e3f5}
 .app-shell.theme-blueprint .diagram-node.node-person{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
-.app-shell.theme-blueprint .diagram-node.node-person .node-label{position:absolute;bottom:0;left:0;right:0;width:100%;gap:0;color:#123b57}
+.app-shell.theme-blueprint .diagram-node.node-person .node-label{position:absolute;top:88px;bottom:auto;left:0;right:0;width:100%;gap:0;color:#123b57}
 .app-shell.theme-blueprint .diagram-node.node-database{border:1.5px solid #0f766e!important;border-radius:50% / 18%!important;background:#e1f5ec!important}
 .app-shell.theme-blueprint .diagram-node.node-database::after{border-bottom-color:#0f766e}
 .app-shell.theme-blueprint .diagram-node.node-service,.app-shell.theme-blueprint .diagram-node.node-system{border-color:#075985!important;background:#f7fbfe!important}
 .app-shell.theme-blueprint .diagram-node.node-external{border:1.5px dashed #b45309!important;background:#fff4df!important}
 .app-shell.theme-blueprint .architecture-edge-label{background:#f7fbfe;color:#075985}
 .app-shell.theme-minimal .diagram-node.node-person{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
-.app-shell.theme-minimal .diagram-node.node-person .node-label{position:absolute;bottom:0;left:0;right:0;width:100%;gap:0;color:#171717}
+.app-shell.theme-minimal .diagram-node.node-person .node-label{position:absolute;top:88px;bottom:auto;left:0;right:0;width:100%;gap:0;color:#171717}
 .app-shell.theme-minimal .diagram-node.node-database{border:1.5px solid #333!important;border-radius:50% / 18%!important;background:#fff!important}
 .app-shell.theme-minimal .diagram-node.node-database::after{border-bottom-color:#333}
 .app-shell.theme-minimal .diagram-node.node-service,.app-shell.theme-minimal .diagram-node.node-system,.app-shell.theme-minimal .diagram-node.node-external{border-color:#333!important;background:#fff!important}
 .app-shell.theme-minimal .architecture-edge-label{background:#fff;color:#333}
 .app-shell.theme-vibrant .diagram-node.node-person{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
-.app-shell.theme-vibrant .diagram-node.node-person .node-label{position:absolute;bottom:0;left:0;right:0;width:100%;gap:0;color:#392047}
+.app-shell.theme-vibrant .diagram-node.node-person .node-label{position:absolute;top:88px;bottom:auto;left:0;right:0;width:100%;gap:0;color:#392047}
 .app-shell.theme-vibrant .diagram-node.node-database{border:1.5px solid #34d399!important;border-radius:50% / 18%!important;background:#ecfdf5!important}
 .app-shell.theme-vibrant .diagram-node.node-database::after{border-bottom-color:#34d399}
 .app-shell.theme-vibrant .architecture-edge-label{background:#fffafd;color:#6b21a8}
