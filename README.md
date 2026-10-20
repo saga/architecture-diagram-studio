@@ -24,6 +24,7 @@ npm run build
 - Example C4 Container view with people, services, database, and an external system.
 - Add service nodes, rename/delete elements, create relations by connecting node handles, and select/edit/delete relation labels.
 - Copilot SDK chat backed by a local Express API, with diagram-specific tools for node/relation CRUD, title changes, and optional ELK layout.
+- Local stdio MCP server for VS Code GitHub Copilot, exposing the active diagram's read/modify/validate/layout-request tools and synchronizing through the same loopback API as the browser editor.
 - SDK tool allowlist is limited to diagram operations; the chat agent is not given filesystem, shell, or repository tools.
 - Chat history and current diagram are stored in browser local storage; recent history is sent to reconstruct context if the local API restarts.
 - Four selectable layout engines: ELK layered (default), Dagre directed graph, D3-Hierarchy tree/forest, and D3-Force force-directed layout.
@@ -39,6 +40,10 @@ npm run build
 - Deterministic XML for a fixed document snapshot; generated timestamps are omitted.
 - Unit tests for validation, geometry/waypoint mapping, escaping, and deterministic export.
 - GitHub Actions workflow for typecheck, tests, and production build.
+
+## VS Code Copilot integration (MCP)
+
+The workspace includes `.vscode/mcp.json`. Run `npm install`, start `npm run dev`, and open the browser editor before asking VS Code Copilot to inspect or change the active diagram. VS Code starts the stdio server with `npm run mcp`; the tools use the local API at `127.0.0.1:3001` to read or mutate the same diagram visible in the browser. Available tools cover diagram retrieval, node and relationship CRUD, title updates, validation, and requesting the currently selected layout engine. See [`docs/vscode-copilot-mcp.md`](docs/vscode-copilot-mcp.md) for setup, limitations, and security boundaries.
 
 ## Copilot setup
 
@@ -60,6 +65,8 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 - [ADR 0002: Diagram-specific layout](docs/adr/0002-diagram-specific-layout.md)
 - [ADR 0003: Native-first export](docs/adr/0003-native-first-export.md)
 - [ADR 0004: Copilot SDK chat tools](docs/adr/0004-copilot-sdk-chat-tools.md)
+- [VS Code Copilot MCP setup and tool reference](docs/vscode-copilot-mcp.md)
+- [ADR 0005: VS Code Copilot through MCP](docs/adr/0005-vscode-copilot-mcp.md)
 
 ## Architecture principles
 
@@ -80,4 +87,5 @@ The model defaults to `gpt-5` and can be changed with `COPILOT_MODEL`. Model ava
 - Browser-to-draw.io pixel parity is not guaranteed; font metrics, shape implementations, and edge routing can differ.
 - Business context extraction and evidence/provenance UI are planned, not implemented.
 - Chat uses request/response rather than token-by-token streaming; tool execution is complete before the returned diagram is applied.
-- The SDK session registry is in memory; after an API restart, recent browser-side conversation history is replayed as context, but the runtime session itself is not durably restored.
+- The SDK session registry and active MCP-shared diagram are in memory; after an API restart, the browser reseeds the active diagram from its local persisted snapshot. The runtime Copilot session itself is not durably restored.
+- MCP synchronization is intended for one active browser editor per local API process; concurrent multi-tab or multi-user collaboration is not supported.
