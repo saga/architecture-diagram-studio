@@ -148,6 +148,21 @@ export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelect
           <text x={left + 14} y={top + 17} fontSize="10" fontWeight="600" letterSpacing="1.2" fill="#7E8B9D">{boundary.name.toUpperCase()}</text>
         </g>;
       })}
+      {document.kind === "sequence" && (document.sequence?.fragments || []).map((fragment) => {
+        const participantNodes = displayNodes.filter((node) => (document.sequence?.participants || []).includes(node.id));
+        if (!participantNodes.length) return null;
+        const left = Math.min(...participantNodes.map((node) => node.x)) - 12;
+        const right = Math.max(...participantNodes.map((node) => node.x + node.width)) + 12;
+        const top = 148 + fragment.startOrder * 72 - 22;
+        const bottom = 148 + fragment.endOrder * 72 + 22;
+        const tag = fragment.kind.toUpperCase();
+        return <g key={fragment.id}>
+          <rect x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#F8FAFD" fillOpacity="0.64" stroke="#B8C4D4" strokeWidth="1.2" strokeDasharray="5 4" />
+          <rect x={left + 10} y={top - 1} width={Math.max(34, tag.length * 7 + 14)} height="20" rx="4" fill="#EEF2F8" stroke="#B8C4D4" strokeWidth="1" />
+          <text x={left + 17} y={top + 13} fontSize="9" fontWeight="700" letterSpacing=".6" fill="#68788F">{tag}</text>
+          <text x={left + 58} y={top + 13} fontSize="10" fill="#536276">{fragment.label}</text>
+        </g>;
+      })}
       {document.kind === "sequence" && displayNodes.map((node) => <line key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#BCC5D1" strokeWidth="1" strokeDasharray="4 6" />)}
       {document.kind === "sequence" && deriveSequenceActivations(displayDoc).map((activation) => {
         const participant = displayNodes.find((node) => node.id === activation.participantId);

@@ -45,6 +45,14 @@ export interface DiagramBoundary {
   members: string[];
   description?: string;
 }
+export interface SequenceFragment {
+  id: string;
+  kind: "alt" | "opt" | "loop";
+  label: string;
+  startOrder: number;
+  endOrder: number;
+}
+
 export interface DiagramDocument {
   schemaVersion: 2;
   id: string;
@@ -66,7 +74,7 @@ export interface DiagramDocument {
     storageSide: "BOTTOM" | "RIGHT";
   };
   flow?: { primaryPath: string[] };
-  sequence?: { participants: string[] };
+  sequence?: { participants: string[]; fragments?: SequenceFragment[] };
 }
 export interface QualityIssue {
   code: string;
@@ -142,6 +150,14 @@ export function isDiagramDocument(value: unknown): value is DiagramDocument {
 
   if (valueRecord.variant !== undefined && !["context", "container", "component"].includes(String(valueRecord.variant))) return false;
   if (valueRecord.flow !== undefined && (!isRecord(valueRecord.flow) || !Array.isArray(valueRecord.flow.primaryPath) || !valueRecord.flow.primaryPath.every((id) => typeof id === "string"))) return false;
-  if (valueRecord.sequence !== undefined && (!isRecord(valueRecord.sequence) || !Array.isArray(valueRecord.sequence.participants) || !valueRecord.sequence.participants.every((id) => typeof id === "string"))) return false;
+  if (valueRecord.sequence !== undefined) {
+    if (!isRecord(valueRecord.sequence) || !Array.isArray(valueRecord.sequence.participants) || !valueRecord.sequence.participants.every((id) => typeof id === "string")) return false;
+    if (valueRecord.sequence.fragments !== undefined && (!Array.isArray(valueRecord.sequence.fragments) || !valueRecord.sequence.fragments.every((fragment) =>
+      isRecord(fragment) && typeof fragment.id === "string" &&
+      ["alt", "opt", "loop"].includes(String(fragment.kind)) &&
+      typeof fragment.label === "string" && typeof fragment.startOrder === "number" &&
+      typeof fragment.endOrder === "number" && fragment.startOrder <= fragment.endOrder
+    ))) return false;
+  }
   return true;
 }

@@ -68,4 +68,22 @@ describe("V2 semantic fixtures and intents", () => {
     expect(isDiagramDocument({ ...document, layout: undefined })).toBe(false);
     expect(isDiagramDocument({ ...document, nodes: [{ id: "broken" }] })).toBe(false);
   });
+
+  it("validates sequence fragment order before persisting the model", () => {
+    const document = createSequenceFixture();
+    const valid = {
+      ...document,
+      sequence: { ...(document.sequence || { participants: [] }), fragments: [
+        { id: "alt-1", kind: "alt", label: "Valid", startOrder: 1, endOrder: 3 }
+      ] }
+    };
+    const invalid = {
+      ...document,
+      sequence: { ...(document.sequence || { participants: [] }), fragments: [
+        { id: "bad", kind: "loop", label: "Invalid range", startOrder: 4, endOrder: 2 }
+      ] }
+    };
+    expect(isDiagramDocument(valid)).toBe(true);
+    expect(isDiagramDocument(invalid)).toBe(false);
+  });
 });

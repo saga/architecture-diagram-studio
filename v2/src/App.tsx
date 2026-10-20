@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { isDiagramDocument } from "./model/types";
-import type { DiagramDocument, DiagramKind, DiagramNode } from "./model/types";
+import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { layoutDiagram, moveNode } from "./layout/layout";
 import { evaluateLayout } from "./layout/quality";
@@ -240,6 +240,63 @@ export default function App() {
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Ignore unavailable storage. */ }
     setAiSettingsOpen(false);
     setLastAction("已切回本地规则模式");
+  }
+
+  function addSequenceFragment() {
+    if (document.kind !== "sequence") return;
+    const maxOrder = Math.max(0, document.relations.length - 1);
+    const startOrder = Math.min(1, maxOrder);
+    const fragment: SequenceFragment = {
+      id: newId("fragment"),
+      kind: "alt",
+      label: "Condition branch",
+      startOrder,
+      endOrder: Math.min(maxOrder, startOrder + 2)
+    };
+    const next: DiagramDocument = {
+      ...document,
+      sequence: {
+        participants: document.sequence?.participants || document.nodes.map((node) => node.id),
+        fragments: [...(document.sequence?.fragments || []), fragment]
+      }
+    };
+    commitDocument(next, "已添加 alt 时序片段");
+  }
+
+  function updateSequenceFragment(fragmentId: string, patch: Partial<SequenceFragment>) {
+    if (document.kind !== "sequence") return;
+    const maxOrder = Math.max(0, document.relations.length - 1);
+    const fragments = (document.sequence?.fragments || []).map((fragment) => {
+      if (fragment.id !== fragmentId) return fragment;
+      const updated = { ...fragment, ...patch };
+      let startOrder = Math.max(0, Math.min(maxOrder, Math.floor(updated.startOrder)));
+      let endOrder = Math.max(0, Math.min(maxOrder, Math.floor(updated.endOrder)));
+      if (startOrder > endOrder) {
+        if (patch.startOrder !== undefined) endOrder = startOrder;
+        else startOrder = endOrder;
+      }
+      return { ...updated, startOrder, endOrder };
+    });
+    const next: DiagramDocument = {
+      ...document,
+      sequence: {
+        participants: document.sequence?.participants || document.nodes.map((node) => node.id),
+        fragments
+      }
+    };
+    commitDocument(next, "已更新时序片段");
+  }
+
+  function removeSequenceFragment(fragmentId: string) {
+    if (document.kind !== "sequence") return;
+    const next: DiagramDocument = {
+      ...document,
+      sequence: {
+        participants: document.sequence?.participants || document.nodes.map((node) => node.id),
+        fragments: (document.sequence?.fragments || []).filter((fragment) => fragment.id !== fragmentId)
+      }
+    };
+    commitDocument(next, "已删除时序片段");
   }
 
   function changeNode(patch: Partial<DiagramNode>) {
@@ -499,6 +556,7 @@ export default function App() {
             <div className="canvas-title">{visibleDocument.title}<span className="canvas-subtitle">V2 semantic canvas</span>{previewDocument && <span className="preview-pill">PREVIEW</span>}</div>
           </div>
           <div className="canvas-tools">
+            {document.kind === "sequence" && <button className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</button>}
             <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
             <div className="segmented"><button disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
           </div>
@@ -600,6 +658,32 @@ export default function App() {
                 ))}
                 {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">当前元素没有关联线。</div>}
               </div>
+              {document.kind === "sequence" && (document.sequence?.fragments || []).length > 0 && <div className="sequence-fragment-editor">
+                <div className="field-label">时序片段（alt / opt / loop）</div>
+                {(document.sequence?.fragments || []).map((fragment) => (
+                  <div className="sequence-fragment-card" key={fragment.id}>
+                    <select value={fragment.kind} onChange={(event) => updateSequenceFragment(fragment.id, { kind: event.target.value as SequenceFragment["kind"] })}>
+                      <option value="alt">alt · 条件分支</option>
+                      <option value="opt">opt · 可选</option>
+                      <option value="loop">loop · 循环</option>
+                    </select>
+                    <input key={fragment.id + ":" + fragment.label} className="text-field" defaultValue={fragment.label} placeholder="片段说明" onBlur={(event) => {
+                      if (event.currentTarget.value !== fragment.label) updateSequenceFragment(fragment.id, { label: event.currentTarget.value });
+                    }} />
+                    <div className="sequence-fragment-range">
+                      <label>起始消息<input key={fragment.id + ":start:" + fragment.startOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.startOrder} onBlur={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isFinite(value) && value !== fragment.startOrder) updateSequenceFragment(fragment.id, { startOrder: value });
+                      }} /></label>
+                      <label>结束消息<input key={fragment.id + ":end:" + fragment.endOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.endOrder} onBlur={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isFinite(value) && value !== fragment.endOrder) updateSequenceFragment(fragment.id, { endOrder: value });
+                      }} /></label>
+                    </div>
+                    <button type="button" className="sequence-fragment-remove" onClick={() => removeSequenceFragment(fragment.id)}>删除片段</button>
+                  </div>
+                ))}
+              </div>}
               <button className="delete-node-button" onClick={removeSelectedNode}>删除此元素</button>
             </div>
           ) : <div className="empty-inspector">选择画布中的节点以查看和编辑其属性。</div>}

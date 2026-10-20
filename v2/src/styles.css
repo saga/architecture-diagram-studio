@@ -199,3 +199,14 @@ button:disabled { opacity: .58; cursor: wait; }
 .relation-style-controls select { display: block; width: 100%; margin-top: 4px; border: 1px solid #e2e7ee; border-radius: 5px; padding: 6px 5px; background: #fff; color: #5a6a7e; font-size: 8px; outline: none; }
 .relation-style-controls select:focus { border-color: #aab6e6; }
 .relation-style-controls select:disabled { background: #f6f7f9; color: #a3adba; cursor: not-allowed; }
+
+
+.sequence-fragment-editor { border-top: 1px solid #edf0f4; margin-top: 14px; padding-top: 5px; }
+.sequence-fragment-card { margin-top: 8px; padding: 9px; border: 1px solid #e2e7ef; border-radius: 7px; background: #fafbfd; }
+.sequence-fragment-card > select { width: 100%; border: 1px solid #e0e5ed; border-radius: 5px; background: #fff; padding: 6px; font-size: 9px; color: #536276; margin-bottom: 6px; }
+.sequence-fragment-card .text-field { font-size: 9px; }
+.sequence-fragment-range { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 7px; }
+.sequence-fragment-range label { font-size: 8px; color: #8793a4; }
+.sequence-fragment-range input { display: block; width: 100%; border: 1px solid #e0e5ed; border-radius: 5px; background: #fff; padding: 6px; font-size: 9px; color: #536276; margin-top: 4px; }
+.sequence-fragment-remove { margin-top: 7px; border: 1px solid #f0dede; border-radius: 5px; background: #fffafa; color: #a75a5a; padding: 5px 7px; font-size: 8px; width: 100%; }
+.sequence-fragment-remove:hover { background: #fff1f1; }

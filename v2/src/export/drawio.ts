@@ -23,11 +23,14 @@ function vertexXml(node: DiagramNode): string {
 }
 function edgeXml(relation: DiagramRelation, routing: string, source = relation.source, target = relation.target): string {
   const label = relation.label ? esc(relation.label) : "";
-  const sequenceMetadata = source !== relation.source || target !== relation.target
-    ? ";studioSource=" + esc(relation.source) + ";studioTarget=" + esc(relation.target)
-    : "";
+  const metadata = [
+    source !== relation.source || target !== relation.target ? "studioSource=" + esc(relation.source) + ";studioTarget=" + esc(relation.target) : "",
+    "studioKind=" + relation.kind,
+    relation.sequenceOrder === undefined ? "" : "studioSequenceOrder=" + relation.sequenceOrder
+  ].filter(Boolean).join(";");
+  const style = mxEdgeStyle(relation, routing) + (metadata ? ";" + metadata + ";" : "");
   return "<mxCell id=\"" + esc(relation.id) + "\" value=\"" + label + "\" style=\"" +
-    esc(mxEdgeStyle(relation, routing) + sequenceMetadata) + "\" edge=\"1\" parent=\"1\" source=\"" + esc(source) +
+    esc(style) + "\" edge=\"1\" parent=\"1\" source=\"" + esc(source) +
     "\" target=\"" + esc(target) + "\"><mxGeometry relative=\"1\" as=\"geometry\">" +
     pointXml(relation.points || []) + "</mxGeometry></mxCell>";
 }
@@ -60,6 +63,19 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const lifeline: DiagramRelation = { id: node.id + "__lifeline", source: node.id, target: node.id + "__lifelineEnd", label: "", kind: "dependency", dashed: true };
     edges.push("<mxCell id=\"" + esc(lifeline.id) + "\" value=\"\" style=\"edgeStyle=none;dashed=1;dashPattern=3 5;strokeColor=#B8C2D0;strokeWidth=1;endArrow=none;startArrow=none;\" edge=\"1\" parent=\"1\" source=\"" +
       esc(node.id) + "\" target=\"" + esc(node.id + "__lifelineEnd") + "\"><mxGeometry relative=\"1\" as=\"geometry\"/></mxCell>");
+  }
+  const participantNodes = doc.nodes.filter((node) => (doc.sequence?.participants || []).includes(node.id));
+  for (const fragment of doc.sequence?.fragments || []) {
+    if (!participantNodes.length) continue;
+    const minX = Math.round(Math.min(...participantNodes.map((node) => node.x)) - 12);
+    const maxX = Math.round(Math.max(...participantNodes.map((node) => node.x + node.width)) + 12);
+    const top = Math.round(148 + fragment.startOrder * 72 - 22);
+    const bottom = Math.round(148 + fragment.endOrder * 72 + 22);
+    const id = fragment.id + "__sequenceFragment";
+    const style = "rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=#F8FAFD;fillOpacity=65;strokeColor=#B8C4D4;strokeWidth=1;dashed=1;dashPattern=5 4;fontColor=#536276;fontSize=11;align=left;verticalAlign=top;spacingLeft=58;spacingTop=5;studioSequenceFragment=1;studioFragmentKind=" + fragment.kind + ";studioStartOrder=" + fragment.startOrder + ";studioEndOrder=" + fragment.endOrder + ";";
+    const label = fragment.kind.toUpperCase() + " · " + fragment.label;
+    vertices.push("<mxCell id=\"" + esc(id) + "\" value=\"" + esc(label) + "\" style=\"" + esc(style) + "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" +
+      minX + "\" y=\"" + top + "\" width=\"" + (maxX - minX) + "\" height=\"" + (bottom - top) + "\" as=\"geometry\"/></mxCell>");
   }
   for (const activation of deriveSequenceActivations(doc)) {
     const participant = doc.nodes.find((node) => node.id === activation.participantId);

@@ -1,5 +1,5 @@
 import { inflateRawSync } from "fflate";
-import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point } from "../model/types";
+import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point, SequenceFragment } from "../model/types";
 
 function plainLabel(value: string): string {
   const container = document.createElement("div");
@@ -53,23 +53,38 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const currentCellIds = new Set(cells.map((cell) => cell.getAttribute("id") || ""));
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const previousRelations = new Map(previous.relations.map((relation) => [relation.id, relation]));
-  const boundaryIds = new Set(previous.boundaries.map((boundary) => boundary.id));
   const nodes: DiagramNode[] = [];
   const relations: DiagramRelation[] = [];
-  const importedBoundaries = previous.boundaries
+  const importedBoundaries = new Map(previous.boundaries
     .filter((boundary) => currentCellIds.has(boundary.id))
-    .map((boundary) => ({ ...boundary, members: [...boundary.members] }));
+    .map((boundary) => [boundary.id, { ...boundary, members: [...boundary.members] }]));
+  const importedFragments = new Map<string, SequenceFragment>((previous.sequence?.fragments || [])
+    .filter((fragment) => currentCellIds.has(fragment.id + "__sequenceFragment"))
+    .map((fragment) => [fragment.id, { ...fragment }]));
   for (const cell of cells) {
     const id = cell.getAttribute("id") || "";
     if (!id || id === "0" || id === "1" || id.endsWith("__lifelineEnd") ||
         id.endsWith("__messageSourceAnchor") || id.endsWith("__messageTargetAnchor") ||
-        id.endsWith("__lifeline") || id.endsWith("__sequenceActivation") || boundaryIds.has(id)) continue;
+        id.endsWith("__lifeline") || id.endsWith("__sequenceActivation")) continue;
     const value = plainLabel(cell.getAttribute("value") || "");
     const style = cell.getAttribute("style") || "";
     if (cell.getAttribute("vertex") === "1") {
       if (style.includes("studioBoundary=1")) {
         const members = style.match(/(?:^|;)studioMembers=([^;]+)/)?.[1]?.split(",").filter(Boolean) || [];
-        importedBoundaries.push({ id, name: value || "SYSTEM BOUNDARY", members });
+        importedBoundaries.set(id, { id, name: value || "SYSTEM BOUNDARY", members });
+        continue;
+      }
+      if (id.endsWith("__sequenceFragment")) {
+        const fragmentId = id.slice(0, -"__sequenceFragment".length);
+        if (style.includes("studioSequenceFragment=1")) {
+          const fragmentKind = style.match(/(?:^|;)studioFragmentKind=(alt|opt|loop)(?:;|$)/)?.[1];
+          const startOrder = Number(style.match(/(?:^|;)studioStartOrder=(\d+)(?:;|$)/)?.[1]);
+          const endOrder = Number(style.match(/(?:^|;)studioEndOrder=(\d+)(?:;|$)/)?.[1]);
+          if (fragmentKind && Number.isFinite(startOrder) && Number.isFinite(endOrder) && endOrder >= startOrder) {
+            const label = value.replace(/^(ALT|OPT|LOOP)\s*[·:-]?\s*/i, "").trim();
+            importedFragments.set(fragmentId, { id: fragmentId, kind: fragmentKind as SequenceFragment["kind"], label, startOrder, endOrder });
+          }
+        }
         continue;
       }
       const geometry = cell.querySelector(":scope > mxGeometry");
@@ -103,9 +118,13 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const geometry = cell.querySelector(":scope > mxGeometry");
       const pointElements = geometry ? Array.from(geometry.querySelectorAll("Array[as='points'] mxPoint")) : [];
       const points: Point[] = pointElements.map((point) => ({ x: Number(point.getAttribute("x") || 0), y: Number(point.getAttribute("y") || 0) }));
+      const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
+      const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\d+)(?:;|$)/)?.[1];
       relations.push({
-        ...(old || { id, source, target, label: value, kind: "flow" }),
+        ...(old || { id, source, target, label: value, kind: explicitKind || "flow" }),
         source, target, label: value,
+        kind: explicitKind || old?.kind || "flow",
+        sequenceOrder: explicitSequenceOrder === undefined ? old?.sequenceOrder : Number(explicitSequenceOrder),
         dashed: style.includes("dashed=1"),
         routing: style.includes("curved=1") ? "curved" : style.includes("edgeStyle=orthogonalEdgeStyle") ? "orthogonal" : "polyline",
         points
@@ -115,9 +134,26 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   if (nodes.length === 0) return previous;
   const relationList = relations.length ? relations : previous.relations.filter((relation) => nodes.some((node) => node.id === relation.source) && nodes.some((node) => node.id === relation.target));
   const importedNodeIds = new Set(nodes.map((node) => node.id));
-  const boundaries = importedBoundaries.map((boundary) => ({
+  const boundaries = [...importedBoundaries.values()].map((boundary) => ({
     ...boundary,
     members: boundary.members.filter((id) => importedNodeIds.has(id))
   }));
-  return { ...previous, nodes, relations: relationList, boundaries };
+  const isSequenceDiagram = previous.kind === "sequence" || cells.some((cell) => {
+    const cellId = cell.getAttribute("id") || "";
+    return cellId.endsWith("__lifelineEnd") || cellId.endsWith("__messageSourceAnchor");
+  }) || importedFragments.size > 0;
+  const declaredParticipants = previous.sequence?.participants || [];
+  const sequence = isSequenceDiagram ? {
+    participants: [
+      ...declaredParticipants.filter((id) => importedNodeIds.has(id)),
+      ...nodes.map((node) => node.id).filter((id) => !declaredParticipants.includes(id))
+    ],
+    fragments: [...importedFragments.values()]
+  } : previous.sequence;
+  return {
+    ...previous,
+    kind: isSequenceDiagram ? "sequence" : previous.kind,
+    layout: isSequenceDiagram ? { ...previous.layout, direction: "RIGHT", routing: "polyline" } : previous.layout,
+    nodes, relations: relationList, boundaries, sequence
+  };
 }

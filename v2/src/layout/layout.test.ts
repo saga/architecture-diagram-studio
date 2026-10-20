@@ -31,6 +31,19 @@ describe("V2 diagram-specific layouts", () => {
     expect(toDrawioXml(result)).toContain("__sequenceActivation");
   });
 
+  it("exports editable sequence fragments and retains message semantics", () => {
+    const document = createSequenceFixture();
+    document.sequence = {
+      ...(document.sequence || { participants: [] }),
+      fragments: [{ id: "alt-token", kind: "alt", label: "Token valid or expired", startOrder: 1, endOrder: 4 }]
+    };
+    const xml = toDrawioXml(document);
+    expect(xml).toContain("alt-token__sequenceFragment");
+    expect(xml).toContain("studioSequenceFragment=1");
+    expect(xml).toContain("studioKind=call");
+    expect(xml).toContain("studioSequenceOrder=0");
+  });
+
   it("keeps polyline waypoints after a curve-to-polyline layout intent", async () => {
     const document = createC4Fixture();
     document.layout.routing = "curved";
