@@ -208,9 +208,11 @@ app.put('/api/diagram',(req,res)=>{
     return res.status(409).json({error:'Diagram changed in another client.',revision:diagramRevision});
   const traceId=crypto.randomUUID();
   recordTrace('browser-editor','diagram.snapshot_save_started',{expectedRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length},{traceId,category:'diagram',status:'started'});
+  const previousDiagram=sharedDiagram;
+  const previousRevision=diagramRevision;
   sharedDiagram=structuredClone(incoming);
   diagramRevision+=1;
-  persistStore();
+  try { persistStore(); } catch (error) { sharedDiagram=previousDiagram; diagramRevision=previousRevision; throw error; }
   recordTrace('browser-editor','diagram.snapshot_saved',{revision:diagramRevision,nodeCount:incoming.nodes.length,relationCount:incoming.relations.length},{traceId,category:'diagram',status:'completed'});
   return res.json({ok:true,revision:diagramRevision});
 });
