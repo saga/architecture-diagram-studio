@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { initialDiagram } from './diagram';
 import { createDiagramTemplate } from './templates';
 import { normalizeDiagramDocument } from './migrations';
+import { validateDiagram } from './validate';
 import { addNodeToBoundary, fitDiagramBoundaries, ensureDiagramBoundaries, removeNodesFromBoundaries, syncNodeBoundaryMembership } from './boundaries';
 
 describe('diagram rendering migration', () => {
@@ -22,6 +23,25 @@ describe('diagram rendering migration', () => {
     expect(upgraded.layout.web).toMatchObject({ x: 220, y: 34, width: 220, height: 112 });
     expect(upgraded.boundaries).toHaveLength(1);
     expect(upgraded.boundaries?.[0].memberNodeIds).toEqual(['web', 'api', 'db']);
+  });
+
+  it('repairs zero-sized nodes and malformed saved port collections before rendering', () => {
+    const damaged = {
+      ...initialDiagram,
+      layout: {
+        ...initialDiagram.layout,
+        api: {
+          x: Number.NaN,
+          y: Number.POSITIVE_INFINITY,
+          width: 0,
+          height: -1,
+          ports: { invalid: true },
+        } as unknown as typeof initialDiagram.layout.api,
+      },
+    };
+    const normalized = normalizeDiagramDocument(damaged);
+    expect(normalized.layout.api).toMatchObject({ x: 50, y: 50, width: 220, height: 112, ports: [] });
+    expect(() => validateDiagram(normalized).filter(issue => issue.severity === 'error')).not.toThrow();
   });
 
   it('moves legacy UML actor anchors to the center of the new C4 Person card', () => {
