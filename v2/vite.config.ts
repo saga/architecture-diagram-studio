@@ -5,7 +5,7 @@ function terminalDiagnostics(): Plugin {
   return {
     name: "studio-terminal-diagnostics",
     configureServer(server) {
-      server.middlewares.use("/__studio/log", (request, response, next) => {
+      server.middlewares.use("/__studio/log", (request, response) => {
         if (request.method !== "POST") {
           response.statusCode = 405;
           response.setHeader("Allow", "POST");
