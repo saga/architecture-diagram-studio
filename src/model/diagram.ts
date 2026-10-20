@@ -1,5 +1,14 @@
 export type DiagramKind = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence';
 
+/** Allowed element vocabulary for each C4 view. Boundaries are separate DiagramBoundary objects, never DiagramNodes. */
+export function isNodeTypeAllowedForDiagramKind(kind: DiagramKind, type: DiagramNode['type']): boolean {
+  if (type === 'boundary') return false;
+  if (kind === 'sequence') return false;
+  if (kind === 'c4-context') return ['person', 'system', 'external'].includes(type);
+  if (kind === 'c4-container') return ['person', 'system', 'service', 'database', 'external'].includes(type);
+  return ['person', 'system', 'component', 'database', 'external'].includes(type);
+}
+
 export interface DiagramNode {
   id: string;
   type: 'person' | 'system' | 'service' | 'component' | 'database' | 'external' | 'boundary';
