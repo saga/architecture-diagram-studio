@@ -30,7 +30,7 @@ Older schema-v1 browser or server snapshots may have 84-pixel node bounds from t
 
 ## Known visual limits
 
-Matching geometry does not guarantee pixel-identical rasterization between the browser and diagrams.net: HTML layout, available fonts, antialiasing, line joins, zoom and mxGraph labels may differ. The implementation avoids the previous major mismatch—independent shape conventions and independent orthogonal route calculation—but still requires rendered integration verification.
+Matching geometry does not guarantee pixel-identical rasterization between the browser and diagrams.net: HTML layout, available fonts, antialiasing, line joins, zoom and mxGraph labels may differ. The implementation avoids the previous major mismatch—independent shape conventions and independent orthogonal route calculation—but still requires rendered integration verification. The editor's Editorial, Midnight, Blueprint, Minimal Mono and Vibrant themes are preview palettes; native draw.io export deliberately uses the stable Studio C4/UML palette so exported style does not depend on transient browser presentation state.
 
 For true screenshot identity, explicitly choose one of these product contracts:
 
