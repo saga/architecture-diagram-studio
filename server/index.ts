@@ -1,11 +1,10 @@
 import 'dotenv/config';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { CopilotClient, defineTool, RuntimeConnection } from '@github/copilot-sdk';
 import type { CopilotSession } from '@github/copilot-sdk';
-import { initialDiagram, type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
+import { type DiagramDocument, type DiagramNode, type DiagramRelation } from '../src/model/diagram.js';
 import { validateDiagram } from '../src/model/validate.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
