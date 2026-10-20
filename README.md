@@ -38,6 +38,7 @@ npm run build
 - Reset-to-example action.
 - Validation of duplicate IDs and broken relation references before export.
 - Native draw.io XML export preserving node positions, dimensions, labels, styles, relationships, and optional relation waypoints.
+- React Flow uses draw.io-like SVG silhouettes for person and database nodes, the same title/technology hierarchy, and shared port/orthogonal route geometry. Export writes endpoint anchors and explicit bend points rather than letting a second router choose a different path; handles are hidden except during interaction.
 - Deterministic XML for a fixed document snapshot; generated timestamps are omitted.
 - Unit tests for validation, geometry/waypoint mapping, escaping, and deterministic export.
 - GitHub Actions workflow for typecheck, tests, and production build.
