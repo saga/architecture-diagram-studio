@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent,type CSSProperties} from 'react';
 import {Background,BackgroundVariant,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,useUpdateNodeInternals,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
 import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type LayoutDirection,type LayoutEngine} from './layout/layout';
-import {initialDiagram,type DiagramDocument,type DiagramKind,type DiagramPortLayout,type DiagramPortSide,type DiagramNode,type SequenceParticipant,type SequenceMessage,type SequenceDiagramData} from './model/diagram';
+import {initialDiagram,type DiagramDocument,type DiagramKind,type DiagramPortLayout,type DiagramPortSide,type DiagramNode,type SequenceParticipant,type SequenceMessage} from './model/diagram';
 import {createDiagramTemplate} from './model/templates';
 import {ensureEdgeGeometry,layoutDirectionFor,orthogonalWaypoints,relationPortIds} from './model/routing';
 import {validateDiagram} from './model/validate';
@@ -132,7 +132,6 @@ function ArchitectureEdge(props:EdgeProps<Edge>){
   {label&&<EdgeLabelRenderer><div className="architecture-edge-label nodrag nopan" style={{position:'absolute',transform:'translate(-50%, -50%) translate('+labelX+'px, '+labelY+'px)'}}>{label}</div></EdgeLabelRenderer>}
  </>;
 }
-const nodeTypes={architecture:ArchitectureNode};
 const edgeTypes={architecture:ArchitectureEdge};
 function sequenceFlowData(doc:DiagramDocument):{nodes:Node[];edges:Edge[]}{
  const sequence=doc.sequence;
