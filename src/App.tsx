@@ -193,7 +193,7 @@ function flowData(doc:DiagramDocument,engine:LayoutEngine='elk',config:LayoutCon
   data:{label:boundary.label,description:boundary.description,nodeType:'boundary' as const,ports:[]},
   type:'architecture',
   className:'diagram-node diagram-boundary-node',
-  draggable:false,selectable:false,connectable:false,deletable:false,zIndex:-10,
+  draggable:false,selectable:false,connectable:false,deletable:false,zIndex:0,
  }));
  const nodes:Node[]=routed.nodes.map(n=>{
   const g=routed.layout[n.id]??{x:50,y:50,width:220,height:112};
