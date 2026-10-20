@@ -246,7 +246,36 @@ export default function App() {
     if (!selectedNode) return;
     const next = {
       ...document,
-      nodes: document.nodes.map((node) => node.id === selectedNode.id ? { ...node, ...patch } : node)
+      nodes: document.nodes.map((node) => {
+        if (node.id !== selectedNode.id) return node;
+        if (patch.role === undefined) return { ...node, ...patch };
+        const nextRole = patch.role;
+        let layoutHints = { ...(node.layoutHints || {}) };
+        if (
+          (node.role === "external" || node.role === "vendor") &&
+          layoutHints.preferredSide === "RIGHT" &&
+          nextRole !== "external" && nextRole !== "vendor"
+        ) {
+          delete layoutHints.preferredSide;
+        }
+        if (
+          (node.role === "storage" || node.role === "data") &&
+          layoutHints.preferredSide === "BOTTOM" &&
+          nextRole !== "storage" && nextRole !== "data"
+        ) {
+          delete layoutHints.preferredSide;
+        }
+        if ((nextRole === "external" || nextRole === "vendor") && !layoutHints.preferredSide) {
+          layoutHints.preferredSide = "RIGHT";
+        }
+        if ((nextRole === "storage" || nextRole === "data") && !layoutHints.preferredSide) {
+          layoutHints.preferredSide = "BOTTOM";
+        }
+        const visualRole = nextRole === "external" || nextRole === "vendor"
+          ? "external"
+          : node.visualRole === "external" ? "secondary" : node.visualRole;
+        return { ...node, ...patch, visualRole, layoutHints };
+      })
     };
     commitDocument(next, "已更新节点属性");
   }
