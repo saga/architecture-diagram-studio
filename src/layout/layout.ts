@@ -4,6 +4,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } 
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramDocument, DiagramPortLayout, DiagramPortSide, DiagramRelation, NodeLayout } from '../model/diagram';
 import { validateDiagram } from '../model/validate';
+import { ensureEdgeGeometry } from '../model/routing';
 
 export type LayoutEngine = 'elk' | 'dagre' | 'hierarchy' | 'force';
 export type ElkAlgorithm = 'layered' | 'mrtree' | 'radial' | 'stress' | 'force';
@@ -125,9 +126,9 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
           id: port.id,
           width: PORT_SIZE,
           height: PORT_SIZE,
-          properties: { side: port.side === 'LEFT' ? 'WEST' : port.side === 'RIGHT' ? 'EAST' : port.side === 'TOP' ? 'NORTH' : 'SOUTH' },
+          layoutOptions: { 'org.eclipse.elk.port.side': port.side === 'LEFT' ? 'WEST' : port.side === 'RIGHT' ? 'EAST' : port.side === 'TOP' ? 'NORTH' : 'SOUTH' },
         })),
-        ...(ports.length ? { properties: { 'org.eclipse.elk.portConstraints': 'FIXED_ORDER' } } : {}),
+        ...(ports.length ? { layoutOptions: { 'org.eclipse.elk.portConstraints': 'FIXED_ORDER' } } : {}),
       };
     }),
     edges: doc.relations.map((edge) => {
@@ -158,13 +159,13 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
     if (!edge.sections) continue;
     routes.set(edge.id, edge.sections.flatMap((section) => (section.bendPoints ?? []).map((point) => ({ x: point.x, y: point.y }))));
   }
-  return {
+  return ensureEdgeGeometry({
     ...positioned,
     relations: positioned.relations.map((relation) => ({
       ...relation,
       waypoints: routes.has(relation.id) ? routes.get(relation.id) : undefined,
     })),
-  };
+  }, config.direction);
 }
 
 function layoutDagre(doc: DiagramDocument, config: LayoutConfig['dagre']): DiagramDocument {
@@ -183,10 +184,10 @@ function layoutDagre(doc: DiagramDocument, config: LayoutConfig['dagre']): Diagr
     const size = dimensions(doc, node.id);
     positions.set(node.id, { x: point.x - size.width / 2, y: point.y - size.height / 2 });
   }
-  return {
+  return ensureEdgeGeometry({
     ...centerPositions(doc, positions),
     relations: doc.relations.map(({ waypoints: _waypoints, ...relation }) => relation),
-  };
+  }, config.direction === 'LR' ? 'RIGHT' : config.direction === 'RL' ? 'LEFT' : config.direction === 'TB' ? 'DOWN' : 'UP');
 }
 
 type HierarchyItem = { id: string; children: HierarchyItem[] };
@@ -244,10 +245,10 @@ function layoutHierarchy(doc: DiagramDocument, config: LayoutConfig['hierarchy']
     // Keep the computed horizontal extent available for future canvas sizing diagnostics.
     void maxX;
   }
-  return {
+  return ensureEdgeGeometry({
     ...centerPositions(doc, positions),
     relations: doc.relations.map(({ waypoints: _waypoints, ...relation }) => relation),
-  };
+  }, config.direction);
 }
 
 function layoutForce(doc: DiagramDocument, config: LayoutConfig['force']): DiagramDocument {
@@ -271,10 +272,10 @@ function layoutForce(doc: DiagramDocument, config: LayoutConfig['force']): Diagr
   const positions = new Map<string, { x: number; y: number }>(nodes.map((node) => [
     node.id, { x: node.x - node.width / 2 - minX + config.margin, y: node.y - node.height / 2 - minY + config.margin },
   ] as const));
-  return {
+  return ensureEdgeGeometry({
     ...centerPositions(doc, positions),
     relations: doc.relations.map(({ waypoints: _waypoints, ...relation }) => relation),
-  };
+  }, 'RIGHT');
 }
 
 export async function applyLayout(doc: DiagramDocument, engine: LayoutEngine, config: LayoutConfig = DEFAULT_LAYOUT_CONFIG): Promise<DiagramDocument> {
