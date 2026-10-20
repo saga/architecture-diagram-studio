@@ -145,8 +145,8 @@ async function layoutElk(doc: DiagramDocument, config: LayoutConfig['elk']): Pro
       return {
         id: port.id,
         side,
-        x: Number(port.x ?? (side === 'LEFT' ? 0 : dimensions(doc, node.id).width)),
-        y: Number(port.y ?? (side === 'TOP' ? 0 : dimensions(doc, node.id).height)),
+        x: Number(port.x ?? (side === 'LEFT' ? 0 : dimensions(doc, node.id).width)) + PORT_SIZE / 2,
+        y: Number(port.y ?? (side === 'TOP' ? 0 : dimensions(doc, node.id).height)) + PORT_SIZE / 2,
       };
     });
     positions.set(node.id, { x: node.x ?? 0, y: node.y ?? 0, ports });
