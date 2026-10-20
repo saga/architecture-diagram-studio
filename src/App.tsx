@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent,type CSSProperties} from 'react';
 import {Background,BackgroundVariant,BaseEdge,Controls,EdgeLabelRenderer,Handle,MiniMap,Position,ReactFlow,ReactFlowProvider,applyEdgeChanges,applyNodeChanges,useUpdateNodeInternals,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type EdgeProps,MarkerType} from '@xyflow/react';
 import {applyLayout,LAYOUT_ENGINES,DEFAULT_LAYOUT_CONFIG,type LayoutConfig,type LayoutDirection,type LayoutEngine} from './layout/layout';
-import {initialDiagram,type DiagramDocument,type DiagramPortLayout,type DiagramPortSide,type DiagramNode} from './model/diagram';
+import {initialDiagram,type DiagramDocument,type DiagramKind,type DiagramPortLayout,type DiagramPortSide,type DiagramNode,type SequenceParticipant,type SequenceMessage,type SequenceDiagramData} from './model/diagram';
+import {createDiagramTemplate} from './model/templates';
 import {ensureEdgeGeometry,layoutDirectionFor,orthogonalWaypoints,relationPortIds} from './model/routing';
 import {validateDiagram} from './model/validate';
 import {downloadDrawio} from './export/drawio';
@@ -35,24 +36,75 @@ function portStyle(port:DiagramPortLayout):CSSProperties{
  if(port.side==='TOP')return {left:port.x,top:0};
  return {left:port.x,top:'100%'};
 }
-type ArchitectureNodeData={label:string;technology?:string;nodeType:DiagramNode['type'];ports:DiagramPortLayout[]};
+type ArchitectureNodeData={label:string;technology?:string;description?:string;nodeType:DiagramNode['type'];ports:DiagramPortLayout[]};
+type SequenceParticipantNodeData=SequenceParticipant&{totalHeight:number};
+type SequenceParticipantFlowNode=Node<SequenceParticipantNodeData,'sequenceParticipant'>;
+type SequenceMessageNodeData=SequenceMessage&{width:number;direction:'forward'|'reverse'|'self'};
+type SequenceMessageFlowNode=Node<SequenceMessageNodeData,'sequenceMessage'>;
+type SequenceActivationNodeData={participantId:string};
+type SequenceActivationFlowNode=Node<SequenceActivationNodeData,'sequenceActivation'>;
+type SequenceFragmentNodeData={kind:'alt'|'opt'|'loop'|'par';title:string;guard?:string};
+type SequenceFragmentFlowNode=Node<SequenceFragmentNodeData,'sequenceFragment'>;
+function c4Stereotype(type:DiagramNode['type']):string{
+ switch(type){
+  case 'person':return 'Person';
+  case 'system':return 'Software System';
+  case 'service':return 'Container';
+  case 'component':return 'Component';
+  case 'database':return 'Container · Database';
+  case 'external':return 'Software System · External';
+  case 'boundary':return 'System Boundary';
+ }
+}
 type ArchitectureFlowNode=Node<ArchitectureNodeData,'architecture'>;
 function ArchitectureNode({id,data}:NodeProps<ArchitectureFlowNode>){
  const updateNodeInternals=useUpdateNodeInternals();
  useEffect(()=>{updateNodeInternals(id);},[id,data.ports,updateNodeInternals]);
  return <>
-  {data.nodeType==='person'&&<svg className="actor-illustration" viewBox="0 0 170 84" preserveAspectRatio="none" aria-hidden="true">
-   <ellipse cx="85" cy="11" rx="13" ry="7" fill="var(--actor-fill, #eaf2ff)" stroke="var(--actor-stroke, #4976b8)" strokeWidth="1.5"/>
-   <path d="M85 18 L85 49 M0 29 L170 29 M85 49 L0 83 M85 49 L170 83" fill="none" stroke="var(--actor-stroke, #4976b8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>}
-  {data.nodeType==='database'&&<svg className="database-illustration" viewBox="0 0 190 84" preserveAspectRatio="none" aria-hidden="true">
-   <path d="M1 16 L1 65 C1 82 189 82 189 65 L189 16 Z" fill="var(--database-fill, #e6f5ec)" stroke="var(--database-stroke, #39805b)" strokeWidth="1.5"/>
-   <ellipse cx="95" cy="16" rx="94" ry="15" fill="var(--database-fill, #e6f5ec)" stroke="var(--database-stroke, #39805b)" strokeWidth="1.5"/>
-  </svg>}
   {data.ports.map(port=><Handle key={port.id} id={port.id} type={port.id.startsWith('out-')?'source':'target'} position={reactFlowPosition(port.side)} style={portStyle(port)} className="architecture-port" />)}
-  <div className="node-label"><strong>{data.label}</strong>{data.technology&&<small>{data.technology}</small>}</div>
+  <div className={'c4-card c4-card-'+data.nodeType}>
+   <span className="c4-stereotype">{c4Stereotype(data.nodeType)}</span>
+   <strong className="c4-title">{data.label}</strong>
+   {data.technology&&<span className="c4-technology">{data.technology}</span>}
+   {data.description&&<span className="c4-description">{data.description}</span>}
+  </div>
  </>;
 }
+function SequenceParticipantNode({data}:NodeProps<SequenceParticipantFlowNode>){
+ return <div className="sequence-participant-node" style={{height:data.totalHeight}}>
+  <div className={'sequence-participant-head role-'+data.role}>
+   <span className="sequence-stereotype">{data.role==='actor'?'Actor':data.role==='external'?'External System':data.role==='database'?'Database':data.role==='system'?'System':'Container'}</span>
+   <strong>{data.label}</strong>
+   {data.technology&&<small>{data.technology}</small>}
+  </div>
+  <div className="sequence-lifeline-stem"/>
+ </div>;
+}
+function SequenceActivationNode(){
+ return <div className="sequence-activation" aria-hidden="true"/>;
+}
+function SequenceFragmentNode({data}:NodeProps<SequenceFragmentFlowNode>){
+ return <div className={'sequence-fragment fragment-'+data.kind}>
+  <span className="sequence-fragment-kind">{data.kind}</span>
+  <span className="sequence-fragment-title">{data.title}</span>
+  {data.guard&&<span className="sequence-fragment-guard">{data.guard}</span>}
+ </div>;
+}
+function SequenceMessageNode({id,data}:NodeProps<SequenceMessageFlowNode>){
+ const markerId='sequence-arrow-'+id.replace(/[^A-Za-z0-9_-]/g,'-');
+ const dashed=data.kind==='return';
+ const forward=data.direction==='forward';
+ const self=data.direction==='self';
+ const path=self?'M 8 30 H 48 V 8 H 8':forward?'M 8 30 H '+Math.max(8,data.width-8):'M '+Math.max(8,data.width-8)+' 30 H 8';
+ return <div className={'sequence-message sequence-message-'+data.kind}>
+  <div className="sequence-message-label">{data.order}. {data.label}</div>
+  <svg width={Math.max(18,data.width)} height="40" viewBox={'0 0 '+Math.max(18,data.width)+' 40'} preserveAspectRatio="none" aria-hidden="true">
+   <defs><marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+   <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray={dashed?'5 4':undefined} markerEnd={'url(#'+markerId+')'}/>
+  </svg>
+ </div>;
+}
+const nodeTypes={architecture:ArchitectureNode,sequenceParticipant:SequenceParticipantNode,sequenceMessage:SequenceMessageNode,sequenceActivation:SequenceActivationNode,sequenceFragment:SequenceFragmentNode};
 function ArchitectureEdge(props:EdgeProps<Edge>){
  const {id,sourceX,sourceY,targetX,targetY,data,markerStart,markerEnd,style,label}=props;
  const routeData=(data??{}) as {waypoints?:Array<{x:number;y:number}>;sourcePortSide?:DiagramPortSide;targetPortSide?:DiagramPortSide};
@@ -76,18 +128,65 @@ function ArchitectureEdge(props:EdgeProps<Edge>){
 }
 const nodeTypes={architecture:ArchitectureNode};
 const edgeTypes={architecture:ArchitectureEdge};
+function sequenceFlowData(doc:DiagramDocument):{nodes:Node[];edges:Edge[]}{
+ const sequence=doc.sequence;
+ if(!sequence)return {nodes:[],edges:[]};
+ const participants=sequence.participants;
+ const messages=[...sequence.messages].sort((a,b)=>a.order-b.order);
+ const participantWidth=176;
+ const participantGap=72;
+ const participantLeft=52;
+ const headerTop=36;
+ const rowTop=156;
+ const rowGap=72;
+ const messageY=new Map(messages.map((message,index)=>[message.id,rowTop+index*rowGap] as const));
+ const participantX=new Map(participants.map((participant,index)=>[participant.id,participantLeft+index*(participantWidth+participantGap)] as const));
+ const totalHeight=Math.max(520,rowTop+messages.length*rowGap+76);
+ const nodes:Node[]=[];
+ participants.forEach(participant=>{
+  nodes.push({id:'lifeline-'+participant.id,type:'sequenceParticipant',position:{x:participantX.get(participant.id)!,y:headerTop},style:{width:participantWidth,height:totalHeight-20,pointerEvents:'none'},data:{...participant,totalHeight:totalHeight-20},draggable:false,selectable:false,connectable:false,zIndex:0});
+ });
+ for(const fragment of sequence.fragments??[]){
+  const startIndex=messages.findIndex(message=>message.id===fragment.startMessageId);
+  const endIndex=messages.findIndex(message=>message.id===fragment.endMessageId);
+  if(startIndex<0||endIndex<startIndex)continue;
+  const startParticipant=participantX.get(fragment.participantStartId??participants[0]?.id)??participantLeft;
+  const endParticipant=participantX.get(fragment.participantEndId??participants[participants.length-1]?.id)??participantLeft;
+  nodes.push({id:'fragment-'+fragment.id,type:'sequenceFragment',position:{x:startParticipant-18,y:rowTop+startIndex*rowGap-14},style:{width:Math.max(180,endParticipant-startParticipant+participantWidth+36),height:(endIndex-startIndex)*rowGap+58},data:{kind:fragment.kind,title:fragment.title,guard:fragment.guard},draggable:false,selectable:false,connectable:false,zIndex:1});
+ }
+ for(const activation of sequence.activations??[]){
+  const startIndex=messages.findIndex(message=>message.id===activation.startMessageId);
+  const endIndex=messages.findIndex(message=>message.id===activation.endMessageId);
+  const x=participantX.get(activation.participantId);
+  if(startIndex<0||endIndex<startIndex||x===undefined)continue;
+  nodes.push({id:'activation-'+activation.participantId+'-'+activation.startMessageId,type:'sequenceActivation',position:{x:x+participantWidth/2-7,y:rowTop+startIndex*rowGap+17},style:{width:14,height:(endIndex-startIndex)*rowGap+18},data:{participantId:activation.participantId},draggable:false,selectable:false,connectable:false,zIndex:2});
+ }
+ messages.forEach(message=>{
+  const fromIndex=participants.findIndex(participant=>participant.id===message.fromParticipantId);
+  const toIndex=participants.findIndex(participant=>participant.id===message.toParticipantId);
+  if(fromIndex<0||toIndex<0)return;
+  const fromCenter=participantX.get(message.fromParticipantId)!+participantWidth/2;
+  const toCenter=participantX.get(message.toParticipantId)!+participantWidth/2;
+  const isSelf=fromIndex===toIndex;
+  const width=isSelf?76:Math.abs(toCenter-fromCenter);
+  const x=isSelf?fromCenter-7:Math.min(fromCenter,toCenter);
+  nodes.push({id:message.id,type:'sequenceMessage',position:{x,y:messageY.get(message.id)!},style:{width:Math.max(18,width),height:40},data:{...message,width:Math.max(18,width),direction:isSelf?'self':fromCenter<toCenter?'forward':'reverse'},draggable:false,selectable:true,connectable:false,zIndex:3});
+ });
+ return {nodes,edges:[]};
+}
 function flowData(doc:DiagramDocument,engine:LayoutEngine='elk',config:LayoutConfig=DEFAULT_LAYOUT_CONFIG){
+ if(doc.kind==='sequence')return sequenceFlowData(doc);
  const direction=layoutDirectionFor(engine,config);
  const routed=ensureEdgeGeometry(doc,direction);
  const nodes:Node[]=routed.nodes.map(n=>{
-  const g=routed.layout[n.id]??{x:50,y:50,width:180,height:84};
-  return {id:n.id,position:{x:g.x,y:g.y},style:{width:g.width,height:g.height},data:{label:n.label,technology:n.technology,nodeType:n.type,ports:g.ports??[]},type:'architecture',className:'diagram-node node-'+n.type};
+  const g=routed.layout[n.id]??{x:50,y:50,width:220,height:112};
+  return {id:n.id,position:{x:g.x,y:g.y},style:{width:g.width,height:g.height},data:{label:n.label,technology:n.technology,description:n.description,nodeType:n.type,ports:g.ports??[]},type:'architecture',className:'diagram-node node-'+n.type};
  });
  const edges:Edge[]=routed.relations.map(relation=>{
   const ids=relationPortIds(relation);
   const sourcePort=routed.layout[relation.sourceId]?.ports?.find(port=>port.id===ids.source);
   const targetPort=routed.layout[relation.targetId]?.ports?.find(port=>port.id===ids.target);
-  return {id:relation.id,source:relation.sourceId,target:relation.targetId,sourceHandle:ids.source,targetHandle:ids.target,label:relation.label,type:'architecture',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#64748b',strokeWidth:1.5,strokeLinecap:'square',strokeLinejoin:'round'},labelStyle:{fill:'#475569',fontSize:11},data:{waypoints:relation.waypoints,sourcePortSide:sourcePort?.side,targetPortSide:targetPort?.side}};
+  return {id:relation.id,source:relation.sourceId,target:relation.targetId,sourceHandle:ids.source,targetHandle:ids.target,label:relation.label,type:'architecture',markerEnd:{type:MarkerType.ArrowClosed},style:{stroke:'#334e68',strokeWidth:1.5,strokeLinecap:'square',strokeLinejoin:'round'},labelStyle:{fill:'#334e68',fontSize:11},data:{waypoints:relation.waypoints,sourcePortSide:sourcePort?.side,targetPortSide:targetPort?.side}};
  });
  return {nodes,edges};
 }
