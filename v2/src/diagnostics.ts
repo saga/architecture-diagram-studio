@@ -11,7 +11,7 @@ export interface DiagnosticEntry {
 
 const STORAGE_KEY = "architecture-diagram-studio:v2:diagnostic-traces";
 const MAX_ENTRIES = 1200;
-const SENSITIVE_KEY = /(api.?key|token|secret|password|authorization|prompt|raw.?xml|xml|request.?body|access.?key)/i;
+const SENSITIVE_KEY = /^(api.?key|token|secret|password|authorization|prompt|raw.?xml|xml|request.?body|access.?key)$/i;
 
 function safeValue(value: unknown, depth = 0): unknown {
   if (value === null || typeof value === "boolean" || typeof value === "number") return value;
