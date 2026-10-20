@@ -52,7 +52,7 @@ npm run build
 
 ## Known gaps
 
-- Diagram semantics start from sample data; the UI supports basic service creation, node renaming/deletion, and relation creation, but not full property editing or relation-label editing.
+- Diagram semantics start from sample data; the UI supports basic service creation, node renaming/deletion, and relation creation, but not full property editing for technology, descriptions, types, and provenance.
 - Persistence is browser-local only; there is no named project library or import/open workflow yet.
 - Sequence diagrams and their ordered messages, activations, and alt/opt/loop fragments are not implemented.
 - Nested C4 boundaries and relationship waypoint editing are not implemented.
