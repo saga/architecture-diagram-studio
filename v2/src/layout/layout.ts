@@ -348,7 +348,11 @@ export async function layoutDiagram(document: DiagramDocument): Promise<DiagramD
       bestReport.metrics.labelCollisions === 0
     ) break;
   }
-  return best;
+  // Normalize legacy/unknown profiles to the actual engine used, so the
+  // toolbar and persisted document never disagree about the active layout.
+  return document.kind === "sequence"
+    ? best
+    : { ...best, layout: { ...best.layout, profile } };
 }
 
 export function moveNode(document: DiagramDocument, id: string, x: number, y: number): DiagramDocument {
