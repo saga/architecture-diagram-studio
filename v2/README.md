@@ -73,7 +73,7 @@ ADR: [0004 — Versioned Studio configuration in JSONL](../docs/adr/0004-version
 
 ## Server-authoritative diagram operations
 
-Deterministic diagram operations run through the HTTP server so the UI and the Studio's internal Copilot Agent workflow share the same implementation. These routes are internal application APIs, not additional MCP tools. The server currently provides:
+Deterministic diagram operations run through the HTTP server so the UI and the Studio's internal Copilot Agent workflow share the same implementation. These routes are internal application APIs used by the Studio UI and Copilot SDK tools; they are not externally registered MCP tools. The server currently provides:
 
 - `POST /api/workspace/layout`: Dagre/ELK layout, route generation, and overlap repair.
 - `POST /api/workspace/diagram/quality`: layout quality scoring.
@@ -86,7 +86,7 @@ Deterministic diagram operations run through the HTTP server so the UI and the S
 - `GET /api/workspace/diagram/templates` and `POST /api/workspace/diagram/apply-template`: built-in semantic templates, with confirmation and version creation.
 - `POST /api/workspace/diagram/restore-version`: confirmed version restoration.
 
-These endpoints support the Studio UI and internal Agent workflow. The workspace MCP server does not expose these diagram-specific operations.
+These endpoints support the Studio UI and internal Agent workflow. The application does not expose these diagram-specific operations through a standalone MCP server.
 
 The React UI requests server-side layout scoring, node movement, sequence normalization, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. Draw.io XML import parsing remains browser-side because the current parser depends on DOM APIs; moving it requires a portable parser implementation. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
 
@@ -104,4 +104,4 @@ Diagram intelligence is implemented as internal Studio capabilities registered t
 
 The server retains the latest 100 diagram snapshots per workspace by default. Set `STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE` to a value from 10 to 500 to adjust retention. Autosave compares a server-issued revision over both `DiagramDocument` and native Draw.io XML; stale saves receive HTTP 409 instead of overwriting a newer revision.
 
-Related decisions: [ADR 0001](../docs/adr/0001-project-workspace-as-authoritative-context.md) defines the authoritative workspace model; [ADR 0002](../docs/adr/0002-workspace-aware-mcp-and-agent-skill.md) defines the MCP and Skill integration; [ADR 0005](../docs/adr/0005-diagram-aware-mcp-intelligence.md) defines diagram-aware MCP intelligence and governed edits.
+Related decisions: [ADR 0001](../docs/adr/0001-project-workspace-as-authoritative-context.md) defines the authoritative workspace model; [ADR 0002](../docs/adr/0002-workspace-aware-mcp-and-agent-skill.md) defines workspace-grounded Agent behavior; [ADR 0005](../docs/adr/0005-diagram-aware-mcp-intelligence.md) defines internal Copilot tools and governed edits.
