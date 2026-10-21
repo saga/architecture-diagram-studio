@@ -7,7 +7,11 @@ import type { DiagramDocument } from "./model/types";
 
 type Scenario = "sequence" | "c4" | "flowchart";
 const factories: Record<Scenario, () => DiagramDocument> = {
-  sequence: createSequenceFixture,
+  sequence: () => {
+    const document = createSequenceFixture();
+    document.relations.push({ id: "lab-self-call", source: "web", target: "web", label: "Refresh local cache", kind: "call", sequenceOrder: document.relations.length });
+    return document;
+  },
   c4: createC4Fixture,
   flowchart: createFlowFixture
 };
@@ -18,7 +22,7 @@ const factories: Record<Scenario, () => DiagramDocument> = {
  */
 export default function DrawioRenderLab() {
   const [scenario, setScenario] = useState<Scenario>("sequence");
-  const [document, setDocument] = useState<DiagramDocument>(() => createSequenceFixture());
+  const [document, setDocument] = useState<DiagramDocument>(() => factories.sequence());
   const [nativeXml, setNativeXml] = useState<string | null>(null);
   const [showXml, setShowXml] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
