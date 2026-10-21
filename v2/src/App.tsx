@@ -200,7 +200,40 @@ export default function App() {
 
   async function saveProjectWorkspace() {
     setWorkspaceSaving(true); setWorkspaceError("");
-    try { const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram || null }) }); const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; counts?: { files: number; diagrams: number; code: number; documents: number } }; if (!response.ok || !result.workspace) throw new Error(result.error || "工作区配置失败"); setProjectWorkspace(result.workspace); setWorkspaceFiles(result.files || []); setWorkspacePrimaryDiagram(result.workspace.primaryDiagram || ""); setWorkspaceSetupOpen(false); recordDiagnostic("workspace.project.configured", "项目工作区已配置", { workspaceId: result.workspace.id, rootPath: result.workspace.rootPath, ...(result.counts || {}) }); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } finally { setWorkspaceSaving(false); }
+    try {
+      const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram || null }) });
+      const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; counts?: { files: number; diagrams: number; code: number; documents: number } };
+      if (!response.ok || !result.workspace) throw new Error(result.error || "工作区配置失败");
+      const nextWorkspace = result.workspace;
+      let nextDocument = document;
+      let nextXml: string | null = nativeXmlOverride;
+      const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
+      if (nextWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
+        const fileResponse = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(nextWorkspace.primaryDiagram));
+        const fileResult = await fileResponse.json() as { error?: string; content?: string };
+        if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "无法读取所选 Draw.io 文件");
+        nextXml = fileResult.content;
+        nextDocument = fromDrawioXml(fileResult.content, document);
+      } else if (workspaceChanged) {
+        nextDocument = FIXTURES.c4();
+        nextXml = null;
+      }
+      if (nextDocument !== document) {
+        setDocument(nextDocument);
+        setSelectedNodeId(nextDocument.nodes[0]?.id || null);
+        historyRef.current = [nextDocument];
+        historyIndexRef.current = 0;
+        setCanUndo(false);
+        setCanRedo(false);
+      }
+      setNativeXmlOverride(nextXml);
+      setProjectWorkspace(nextWorkspace);
+      setWorkspaceFiles(result.files || workspaceFiles);
+      setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
+      setWorkspaceSetupOpen(false);
+      recordDiagnostic("workspace.project.configured", "项目工作区已配置", { workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram, ...(result.counts || {}) });
+    } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
+    finally { setWorkspaceSaving(false); }
   }
 
   useEffect(() => {
@@ -1047,7 +1080,7 @@ export default function App() {
           <small style={{ color: "var(--muted, #667085)" }}>路径由本地 Node.js 服务访问，不是浏览器的文件选择器路径。可填写包含源码、ADR、README 和 .drawio 文件的项目根目录。</small>
           {workspaceFiles.length > 0 && <div style={{ border: "1px solid var(--border, #e5e7eb)", borderRadius: 8, padding: 12 }}><strong>已发现文件</strong><div style={{ marginTop: 6 }}>{workspaceFiles.length} 个文件 · {workspaceFiles.filter((file) => file.kind === "diagram").length} 个图形 · {workspaceFiles.filter((file) => file.kind === "code").length} 个代码文件 · {workspaceFiles.filter((file) => file.kind === "document").length} 个文档</div></div>}
           <label style={{ display: "grid", gap: 6 }}><strong>主要 Draw.io 图（可选）</strong><Select value={workspacePrimaryDiagram || undefined} allowClear showSearch placeholder="保存目录后可选择主要图形" options={workspaceFiles.filter((file) => file.kind === "diagram").map((file) => ({ value: file.path, label: file.path }))} onChange={(value) => setWorkspacePrimaryDiagram(value || "")} /></label>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><Button onClick={() => { void (async () => { try { setWorkspaceError(""); const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: null }) }); const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[] }; if (!response.ok || !result.workspace) throw new Error(result.error || "目录扫描失败"); setProjectWorkspace(result.workspace); setWorkspaceFiles(result.files || []); setWorkspacePrimaryDiagram(result.workspace.primaryDiagram || ""); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } })(); }}>验证目录并扫描文件</Button><Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim()} onClick={() => void saveProjectWorkspace()}>保存并进入 Studio</Button></div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><Button onClick={() => { void (async () => { try { setWorkspaceError(""); const response = await fetch("/api/workspace/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath }) }); const result = await response.json() as { error?: string; files?: WorkspaceFile[]; workspace?: ProjectWorkspace }; if (!response.ok || !result.workspace) throw new Error(result.error || "目录扫描失败"); setWorkspaceFiles(result.files || []); if (projectWorkspace?.rootPath === result.workspace.rootPath && projectWorkspace.primaryDiagram) setWorkspacePrimaryDiagram(projectWorkspace.primaryDiagram); else setWorkspacePrimaryDiagram(""); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } })(); }}>验证目录并扫描文件</Button><Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim()} onClick={() => void saveProjectWorkspace()}>保存并进入 Studio</Button></div>
           <small style={{ color: "var(--muted, #667085)" }}>配置文件：~/.architecture-diagram-studio/data/project-workspace.json。Agent/MCP 通过服务端接口访问工作区，不依赖浏览器 localStorage。</small>
         </div>
       </Modal>
