@@ -1,7 +1,7 @@
 import type { DiagramDocument, LayoutQualityReport, Point, QualityIssue } from "../model/types";
 import { sequenceMessageGeometry } from "./sequence";
 import { countPortSpacingViolations } from "./routing";
-import { measureTextWidth, containsWideCharacters } from "../design/text-metrics";
+import { measureTextWidth, containsWideCharacters, wrapTextToWidth } from "../design/text-metrics";
 import { contrastRatio } from "../design/contrast";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
@@ -211,12 +211,11 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
     if (isOffGrid(node.y)) offGridCoordinates++;
 
     const availableWidth = Math.max(0, node.width - 34);
-    const textFields = [
+    const singleLineFields = [
       { label: "title", value: node.name },
-      ...(node.technology ? [{ label: "technology", value: node.technology }] : []),
-      ...(node.description ? [{ label: "description", value: node.description }] : [])
+      ...(node.technology ? [{ label: "technology", value: node.technology }] : [])
     ];
-    for (const field of textFields) {
+    for (const field of singleLineFields) {
       if (measureTextWidth(field.value, 13) <= availableWidth) continue;
       labelOverflowCount++;
       const isCjk = containsWideCharacters(field.value);
@@ -224,17 +223,21 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       warnings.push({
         code: isCjk ? "cjk-text-overflow" : "node-text-overflow",
         severity: "warning",
-        message: node.name + " " + field.label + " needs more than " + availableWidth.toFixed(0) + "px; the canvas may truncate or wrap it",
+        message: node.name + " " + field.label + " needs more than " + availableWidth.toFixed(0) + "px and will be visually truncated",
         nodeIds: [node.id]
       });
     }
-    const requiredHeight = node.description ? (node.technology ? 70 : 58) : node.technology ? 53 : 0;
+    const descriptionStart = node.technology ? 64 : 52;
+    const descriptionLines = node.description ? wrapTextToWidth(node.description, availableWidth, 13) : [];
+    const requiredHeight = node.description
+      ? descriptionStart + Math.max(0, descriptionLines.length - 1) * 15 + 10
+      : node.technology ? 53 : 0;
     if (requiredHeight > node.height) {
       labelOverflowCount++;
       warnings.push({
         code: "node-text-height-overflow",
         severity: "warning",
-        message: node.name + " content stack needs about " + requiredHeight + "px but the node is " + node.height + "px high",
+        message: node.name + " wrapped content needs about " + requiredHeight + "px but the node is " + node.height + "px high",
         nodeIds: [node.id]
       });
     }
