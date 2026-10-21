@@ -25,6 +25,9 @@ describe("layout quality hard constraints", () => {
     expect(report.metrics.nodeOverlaps).toBe(0);
     expect(report.metrics.edgeNodeIntersections).toBeGreaterThan(0);
     expect(report.errors.some((issue) => issue.code === "edge-through-node")).toBe(true);
+    const crossing = report.errors.find((issue) => issue.code === "edge-through-node");
+    expect(crossing?.relationIds).toContain("diagonal");
+    expect(crossing?.nodeIds).toContain("blocker");
   });
 
   it("rejects relations to nodes that do not exist", () => {
