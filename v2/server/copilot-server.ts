@@ -477,7 +477,11 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       return { status: 200 as const, version, document: laidOut, revision: documentRevision(laidOut), quality: evaluateLayout(laidOut) };
     });
     if (result.status !== 200) { res.status(result.status).json(result); return; }
-    res.json({ ok: true, ...result });
+    if (req.query.includeXml === "false") {
+      const version = { ...result.version };
+      delete (version as Partial<DiagramVersion>).drawioXml;
+      res.json({ ok: true, ...result, version });
+    } else res.json({ ok: true, ...result });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
@@ -551,7 +555,11 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
     });
     if (result.status !== 200) { res.status(result.status).json(result); return; }
     await writeLog("diagram.agent-edit.applied", { proposalId, versionId: result.version.id, qualityScore: result.quality.score });
-    res.json({ ok: true, ...result });
+    if (req.query.includeXml === "false") {
+      const version = { ...result.version };
+      delete (version as Partial<DiagramVersion>).drawioXml;
+      res.json({ ok: true, ...result, version });
+    } else res.json({ ok: true, ...result });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/restore-version", async (req, res) => {
