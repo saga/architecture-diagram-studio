@@ -8,7 +8,6 @@ import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, Visua
 import { FIXTURES } from "./model/fixtures";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { requestAIIntentPlan } from "./intent/aiProvider";
-import { normalizeSequenceDocument } from "./layout/sequence";
 import { downloadText } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
@@ -89,6 +88,17 @@ async function requestServerLayout(document: DiagramDocument): Promise<DiagramDo
   const result = await response.json() as { document: DiagramDocument };
   if (!isDiagramDocument(result.document)) throw new Error("服务端返回了无效的图形文档");
   return result.document;
+}
+
+async function requestServerSequenceNormalize(document: DiagramDocument): Promise<DiagramDocument> {
+  const response = await fetch("/api/workspace/diagram/normalize-sequence", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ document })
+  });
+  const payload = await response.json() as { document?: DiagramDocument; error?: string };
+  if (!response.ok || !payload.document || !isDiagramDocument(payload.document)) {
+    throw new Error(payload.error || "服务端时序图规范化失败");
+  }
+  return payload.document;
 }
 
 export default function App() {
@@ -733,14 +743,14 @@ export default function App() {
     commitDocument(next, "已删除时序片段");
   }
 
-  function changeRelationEndpoints(relationId: string, source: string, target: string) {
+  async function changeRelationEndpoints(relationId: string, source: string, target: string) {
     if (!source || !target || source === target) {
       setLastAction("关系线的源节点和目标节点必须不同");
       return;
     }
     const current = document.relations.find((relation) => relation.id === relationId);
     if (!current || (current.source === source && current.target === target)) return;
-    const next = normalizeSequenceDocument({
+    const next = await requestServerSequenceNormalize({
       ...document,
       relations: document.relations.map((relation) => relation.id === relationId
         ? { ...relation, source, target, points: [] }
@@ -803,7 +813,7 @@ export default function App() {
     void runLayout(next);
   }
 
-  function addRelation() {
+  async function addRelation() {
     if (!selectedNode || !relationTargetId || relationTargetId === selectedNode.id) return;
     const alreadyExists = document.relations.some((relation) =>
       relation.source === selectedNode.id && relation.target === relationTargetId && relation.label === relationLabel.trim()
@@ -846,7 +856,7 @@ export default function App() {
     commitDocument(next, "已更新关系标签");
   }
 
-  function removeRelation(relationId: string) {
+  async function removeRelation(relationId: string) {
     if (selectedRelationId === relationId) setSelectedRelationId(null);
     const next = normalizeSequenceDocument({ ...document, relations: document.relations.filter((relation) => relation.id !== relationId) });
     setRelationLabelDrafts((drafts) => {
@@ -886,7 +896,7 @@ export default function App() {
     commitDocument(next, routingChanged ? "已更新关系线路由" : "已更新关系线型");
   }
 
-  function removeSelectedNode() {
+  async function removeSelectedNode() {
     if (!selectedNode) return;
     setSelectedRelationId(null);
     const next = normalizeSequenceDocument({
