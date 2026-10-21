@@ -1,0 +1,147 @@
+import { useCallback, type Dispatch, type SetStateAction } from "react";
+import { requestAIIntentPlan } from "../intent/aiProvider";
+import type { DiagramDocument, DiagramNode } from "../model/types";
+import { recordDiagnostic } from "../diagnostics";
+
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
+type Workspace = { id: string } | null;
+type Diagnostic = typeof recordDiagnostic;
+type PersistDocument = (document: DiagramDocument, xml: string, label?: string) => Promise<unknown>;
+
+interface CopilotIntentOptions {
+  projectWorkspace: Workspace;
+  chatInput: string;
+  chatBusy: boolean;
+  workspaceContentReady: boolean;
+  document: DiagramDocument;
+  drawioXml: string;
+  aiModel: string;
+  reasoningEffort: "high" | "max";
+  copilotSessionId: string;
+  selectedNode: DiagramNode | undefined;
+  persistDocumentNow: PersistDocument;
+  setWorkspaceSetupOpen: (open: boolean) => void;
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  setChatInput: (value: string) => void;
+  setChatBusy: (busy: boolean) => void;
+  setCopilotSessionId: (id: string) => void;
+  setPendingAgentProposalId: (id: string | null) => void;
+  setPreviewDocument: (document: DiagramDocument | null) => void;
+  setPreviewSummary: (summary: string) => void;
+  setViewMode: (mode: "studio") => void;
+}
+
+export function useCopilotIntent(options: CopilotIntentOptions) {
+  const {
+    projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
+    copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
+    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode
+  } = options;
+
+  return useCallback(async () => {
+    if (!projectWorkspace) { setWorkspaceSetupOpen(true); return; }
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    const startedAt = Date.now();
+    recordDiagnostic("copilot.request.started", "Layout intent handling started", {
+      configuredModel: Boolean(aiModel.trim()), provider: aiModel.trim() ? "github-copilot-sdk" : "local-rules", model: aiModel.trim() || "local-rules",
+      sessionId: copilotSessionId, diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
+      inputLength: text.length
+    });
+    setMessages((items) => [...items, { role: "user", id: Date.now(), text }]);
+    setChatInput("");
+    setChatBusy(true);
+    try {
+      if (!workspaceContentReady) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
+      await persistDocumentNow(document, drawioXml, "Before Copilot request");
+      let effectiveText = text;
+      let modelReply = "";
+      if (aiModel.trim()) {
+        recordDiagnostic("copilot.agent.request", "Asked the Copilot SDK agent for a constrained layout plan", {
+          sessionId: copilotSessionId, model: aiModel.trim(), reasoningEffort, provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
+        });
+        const plan = await requestAIIntentPlan(
+          { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId },
+          text,
+          {
+            kind: document.kind, title: document.title,
+            selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
+            nodes: document.nodes.slice(0, 80).map((node) => ({ id: node.id, name: node.name, role: node.role }))
+          }
+        );
+        if (plan.sessionId && plan.sessionId !== copilotSessionId) {
+          setCopilotSessionId(plan.sessionId);
+          try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", plan.sessionId); } catch { /* Session remains active in memory. */ }
+        }
+        modelReply = plan.reply;
+        recordDiagnostic("copilot.agent.response", "Received a structured result from the Copilot SDK agent", {
+          sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
+          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: plan.proposal ? "propose_diagram_edit" : "propose_layout_plan",
+          commandCount: plan.commands.length, hasProposal: Boolean(plan.proposal), replyLength: plan.reply.length
+        });
+        if (plan.proposal) {
+          setPendingAgentProposalId(plan.proposal.proposalId);
+          setPreviewDocument(plan.proposal.document);
+          setPreviewSummary(plan.proposal.summary);
+          setViewMode("studio");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.proposal!.summary + ". A server-validated preview is ready (quality score " + plan.proposal!.quality.score + "). Review it, then apply or discard." }]);
+          recordDiagnostic("copilot.preview.created", "A revision-bound internal Agent proposal is awaiting user confirmation", { proposalId: plan.proposal.proposalId, qualityScore: plan.proposal.quality.score, nodeCount: plan.proposal.document.nodes.length, relationCount: plan.proposal.document.relations.length });
+          return;
+        }
+        if (!plan.commands.length) {
+          recordDiagnostic("copilot.plan.empty", "Model returned no executable layout command; document untouched", {}, "warn");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "No changes applied. " + (modelReply || "This request did not match any supported safe layout operation.") }]);
+          return;
+        }
+        effectiveText = plan.commands.join("; ");
+      }
+      const applyResponse = await fetch("/api/workspace/intent/apply", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ document, prompt: effectiveText }), signal: AbortSignal.timeout(70_000)
+      });
+      if (!applyResponse.ok) {
+        const payload = await applyResponse.json().catch(() => ({})) as { error?: string };
+        throw new Error(payload.error || "Server-side layout intent failed (HTTP " + applyResponse.status + ")");
+      }
+      const result = await applyResponse.json() as { document: DiagramDocument; summary: string; requiresLayout: boolean; changed: boolean };
+      recordDiagnostic(result.changed ? "copilot.intent.matched" : "copilot.intent.no_change",
+        result.changed ? "Layout intent mapped to executable rules" : "Layout intent matched no executable rule",
+        { changed: result.changed, requiresLayout: result.requiresLayout, commandLength: effectiveText.length });
+      if (result.changed) {
+        setPendingAgentProposalId(null);
+        setPreviewDocument(result.document);
+        setPreviewSummary(result.summary);
+        setViewMode("studio");
+        const qualityResponse = await fetch("/api/workspace/diagram/quality", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ document: result.document })
+        });
+        if (!qualityResponse.ok) throw new Error("Server-side layout quality check failed");
+        const quality = (await qualityResponse.json() as { report: import("../model/types").LayoutQualityReport }).report;
+        const prefix = modelReply ? modelReply + " " : "";
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + ". A temporary preview was generated with layout score " + quality.score + "; the document itself is unchanged. Review it, then apply or discard." }]);
+        recordDiagnostic("copilot.preview.created", "Layout preview created and awaiting confirmation", {
+          durationMs: Date.now() - startedAt, qualityScore: quality.score,
+          nodeCount: result.document.nodes.length, relationCount: result.document.relations.length
+        });
+      } else {
+        const reply = modelReply
+          ? "No changes applied. " + modelReply + " (the model plan matched no executable layout operation.)"
+          : result.summary;
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: reply }]);
+      }
+    } catch (error) {
+      recordDiagnostic("copilot.request.failed", "Layout intent failed; nothing was committed", {
+        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        detailRecordedByProvider: Boolean(aiModel.trim())
+      }, "error");
+      setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "Nothing was committed: " + (error instanceof Error ? error.message : String(error)) }]);
+    } finally {
+      recordDiagnostic("copilot.request.finished", "Layout intent flow finished", { durationMs: Date.now() - startedAt, busy: false });
+      setChatBusy(false);
+    }
+  }, [
+    projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
+    copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode
+  ]);
+}
