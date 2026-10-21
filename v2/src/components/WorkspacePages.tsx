@@ -157,6 +157,7 @@ export default function WorkspacePages(props: Props) {
         if (!cancelled && options.length) {
           const merged = [...options];
           if (!merged.some((item) => item.value === "claude-sonnet-5.5")) merged.unshift({ value: "claude-sonnet-5.5", label: "Claude Sonnet 5.5（默认）" });
+          if (aiModel && !merged.some((item) => item.value === aiModel)) merged.unshift({ value: aiModel, label: aiModel + "（当前选择）" });
           setModelOptions(merged);
           setModelsMessage("已从本机 Copilot SDK 获取可用模型。");
         } else if (!cancelled) {
@@ -168,7 +169,7 @@ export default function WorkspacePages(props: Props) {
       })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
-  }, [page]);
+  }, [page, aiModel]);
 
   if (page === "copilot") {
     return (
