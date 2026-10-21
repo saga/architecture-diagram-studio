@@ -158,7 +158,117 @@ export default function App() {
   const quality = useMemo(() => evaluateLayout(visibleDocument), [visibleDocument]);
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
+  const [serverHydrated, setServerHydrated] = useState(false);
+  const nextSaveLabelRef = useRef("自动保存");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
+
+  useEffect(() => {
+    let active = true;
+    const startedAt = Date.now();
+    fetch("/api/workspace/state")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("服务端工作区加载失败（HTTP " + response.status + "）");
+        return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[] }>;
+      })
+      .then((state) => {
+        if (!active) return;
+        const savedDocument = isDiagramDocument(state.document) ? state.document : null;
+        if (savedDocument) {
+          setDocument(savedDocument);
+          setSelectedNodeId(savedDocument.nodes[0]?.id || null);
+          setNativeXmlOverride(typeof state.drawioXml === "string" ? state.drawioXml : null);
+          historyRef.current = [savedDocument];
+          historyIndexRef.current = 0;
+          setCanUndo(false);
+          setCanRedo(false);
+          recordDiagnostic("workspace.hydrated", "从服务端恢复工作区和原生 Draw.io XML", {
+            documentId: savedDocument.id, nodeCount: savedDocument.nodes.length,
+            xmlLength: typeof state.drawioXml === "string" ? state.drawioXml.length : 0,
+            durationMs: Date.now() - startedAt
+          });
+        }
+        if (typeof state.copilotSessionId === "string" && state.copilotSessionId.length >= 8) {
+          setCopilotSessionId(state.copilotSessionId);
+          try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", state.copilotSessionId); } catch { /* Server state remains authoritative. */ }
+        }
+        if (Array.isArray(state.chatMessages) && state.chatMessages.length) {
+          const savedMessages = state.chatMessages.filter((item): item is ChatMessage =>
+            !!item && typeof item === "object" &&
+            ((item as ChatMessage).role === "assistant" || (item as ChatMessage).role === "user") &&
+            typeof (item as ChatMessage).text === "string" && typeof (item as ChatMessage).id === "number"
+          ).slice(-2000);
+          if (savedMessages.length) setMessages(savedMessages);
+        }
+        setServerHydrated(true);
+        if (!savedDocument) {
+          layoutDiagram(document).then((laidOut) => {
+            if (!active) return;
+            setDocument(laidOut);
+            historyRef.current = [laidOut];
+            historyIndexRef.current = 0;
+            recordDiagnostic("layout.initial.completed", "首次工作区布局完成", {
+              durationMs: Date.now() - startedAt, nodeCount: laidOut.nodes.length, relationCount: laidOut.relations.length
+            });
+          }).catch((error: unknown) => {
+            if (!active) return;
+            recordDiagnostic("layout.initial.failed", "首次工作区布局失败", {
+              durationMs: Date.now() - startedAt,
+              errorMessage: error instanceof Error ? error.message : String(error)
+            }, "error");
+            setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error)));
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setServerHydrated(true);
+        recordDiagnostic("workspace.hydrate.failed", "无法从服务端恢复工作区，暂时使用本地草稿", {
+          durationMs: Date.now() - startedAt,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        }, "error");
+        layoutDiagram(document).then((laidOut) => { if (active) setDocument(laidOut); }).catch(() => undefined);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!serverHydrated) return;
+    const timer = window.setTimeout(() => {
+      fetch("/api/workspace/document", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ document, drawioXml, label: nextSaveLabelRef.current })
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("HTTP " + response.status + ": " + (await response.text()).slice(0, 300));
+        const result = await response.json() as { saved?: boolean; version?: { id?: string } | null };
+        if (result.saved) recordDiagnostic("workspace.version.persisted", "文档及 Draw.io XML 版本已持久化到服务端", {
+          versionId: result.version?.id, xmlLength: drawioXml.length, nodeCount: document.nodes.length
+        });
+      }).catch((error: unknown) => {
+        recordDiagnostic("workspace.persist.failed", "服务端保存工作区失败", {
+          errorMessage: error instanceof Error ? error.message : String(error),
+          xmlLength: drawioXml.length, nodeCount: document.nodes.length
+        }, "error");
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [document, drawioXml, serverHydrated]);
+
+  useEffect(() => {
+    if (!serverHydrated) return;
+    fetch("/api/workspace/chat", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ copilotSessionId, chatMessages: messages.slice(-2000) })
+    }).then((response) => {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+    }).catch((error: unknown) => {
+      recordDiagnostic("copilot.chat.persist.failed", "Copilot 会话记录无法保存到服务端", {
+        sessionId: copilotSessionId, messageCount: messages.length,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+    });
+  }, [copilotSessionId, messages, serverHydrated]);
 
   useEffect(() => {
     const refreshTraces = () => setTraceEntries(readDiagnosticEntries());
@@ -189,31 +299,7 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    const startedAt = Date.now();
-    recordDiagnostic("layout.initial.start", "启动时运行本地布局", {
-      diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length
-    });
-    layoutDiagram(document).then((laidOut) => {
-      if (!active) return;
-      setDocument(laidOut);
-      historyRef.current = [laidOut];
-      historyIndexRef.current = 0;
-      setCanUndo(false);
-      setCanRedo(false);
-      recordDiagnostic("layout.initial.completed", "启动布局完成", {
-        durationMs: Date.now() - startedAt, nodeCount: laidOut.nodes.length, relationCount: laidOut.relations.length
-      });
-    }).catch((error: unknown) => {
-      recordDiagnostic("layout.initial.failed", "启动布局失败", {
-        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      }, "error");
-      if (active) setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error)));
-    });
-    return () => { active = false; };
-  }, []);
+
   useEffect(() => {
     try {
       window.localStorage.setItem("architecture-diagram-studio:v2:document", JSON.stringify(document));
@@ -241,6 +327,7 @@ export default function App() {
   }, [uiTheme]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
+    nextSaveLabelRef.current = action;
     setPreviewDocument(null);
     setPreviewSummary("");
     setNativeXmlOverride(preservedNativeXml ?? null);
