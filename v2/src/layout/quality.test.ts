@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createC4Fixture } from "../model/fixtures";
+import { createC4Fixture, createSequenceFixture } from "../model/fixtures";
 import { evaluateLayout } from "./quality";
+import { layoutDiagram } from "./layout";
 
 describe("layout quality hard constraints", () => {
   it("reports diagonal links that cut through a third node", () => {
@@ -37,5 +38,35 @@ describe("layout quality hard constraints", () => {
     }];
     const report = evaluateLayout(document);
     expect(report.errors.some((issue) => issue.code === "invalid-relation")).toBe(true);
+  });
+
+  it("reports 4px alignment and CJK text overflow as diagnosable warnings", () => {
+    const document = createC4Fixture();
+    document.nodes[0] = { ...document.nodes[0], x: 23, y: 25, width: 60, height: 48, name: "非常长的中文架构节点名称" };
+    const report = evaluateLayout(document);
+    expect(report.metrics.gridAlignmentScore).toBeLessThan(1);
+    expect(report.metrics.labelOverflowCount).toBeGreaterThan(0);
+    expect(report.metrics.cjkWidthViolations).toBeGreaterThan(0);
+    expect(report.warnings.some((issue) => issue.code === "cjk-text-overflow" && issue.nodeIds?.includes(document.nodes[0].id))).toBe(true);
+  });
+
+  it("uses the canonical sequence message coordinates when checking intersections", async () => {
+    const document = await layoutDiagram(createSequenceFixture());
+    const report = evaluateLayout(document);
+    expect(report.metrics.edgeNodeIntersections).toBe(0);
+    expect(report.metrics.connectorRoutingViolations).toBe(0);
+  });
+
+  it("advises about dense diagrams without turning style budgets into errors", () => {
+    const document = createC4Fixture();
+    document.nodes = Array.from({ length: 26 }, (_, index) => ({
+      ...document.nodes[index % 3], id: "node-" + index, name: "Node " + index,
+      x: 20 + index * 220, y: 60, width: 160, height: 70
+    }));
+    document.relations = [];
+    const report = evaluateLayout(document);
+    expect(report.warnings.some((issue) => issue.code === "complexity-nodes")).toBe(true);
+    expect(report.errors.some((issue) => issue.code.startsWith("complexity-"))).toBe(false);
+    expect(report.metrics.complexityWarnings).toBeGreaterThan(0);
   });
 });
