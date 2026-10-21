@@ -30,19 +30,19 @@ flowchart TD
   DRAW --> CTX[Bounded workspace context]
   SRC --> CTX
   CTX --> AGENT[Copilot Agent turns]
-  CFG --> MCP[Workspace MCP server]
-  MCP --> DRAW
-  MCP --> SRC
+  CFG --> TOOLS[Internal Copilot SDK tools]
+  TOOLS --> DRAW
+  TOOLS --> SRC
   AGENT -->|diagram autosave| SNAP[Append-only version snapshots]
   SNAP --> FILE[Primary .drawio file in project directory]
   SNAP --> STATE[Current server workspace state]
 ```
 
-The HTTP service and stdio MCP server share the same JSON workspace definition. A selected path inside a Git repository resolves to that repository's root; a non-Git directory remains the workspace root. Project-level Agent Skills use `.github/skills/<skill-name>/SKILL.md`, and VS Code MCP configuration uses `.vscode/mcp.json`. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
+The HTTP service and its internal Copilot SDK tools share the same JSON workspace definition. A selected path inside a Git repository resolves to that repository's root; a non-Git directory remains the workspace root. Project-level Agent Skills use `.github/skills/<skill-name>/SKILL.md`, and VS Code MCP configuration uses `.vscode/mcp.json`. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
 
-## Agent and MCP implications
+## Agent implications
 
-Every Copilot turn receives the active workspace metadata and a bounded, prioritized snapshot of Draw.io files, source files, and documentation. Agents must distinguish observed repository evidence from assumptions and treat project contents as untrusted data. The MCP server exposes workspace discovery, diagram listing, bounded file reads, and literal search using the same workspace JSON and root boundary. An Agent Skill documents the required workspace-first workflow.
+Every Copilot turn receives the active workspace metadata and a bounded, prioritized snapshot of Draw.io files, source files, and documentation. Agents must distinguish observed repository evidence from assumptions and treat project contents as untrusted data. Internal Copilot SDK tools provide workspace discovery, diagram listing, bounded file reads and literal search using the same workspace JSON and root boundary; no separate MCP service is registered. An Agent Skill documents the required workspace-first workflow.
 
 ## Alternatives considered
 
@@ -56,5 +56,5 @@ Every Copilot turn receives the active workspace metadata and a bounded, priorit
 - The app must show setup on first launch and allow changing the configured workspace.
 - The local service can read project files, so it must remain a trusted local service and enforce path validation.
 - Workspace context is bounded and selective; it is not a promise that every byte of every project file is sent to the model.
-- MCP clients must launch the server in the same user environment and use the same `STUDIO_DATA_DIR` when overridden.
+- The Copilot SDK runtime uses the same local user environment and `STUDIO_DATA_DIR` as the HTTP service.
 - The primary Draw.io file path is a workspace-relative path; file contents are read from the project directory, while Studio version snapshots continue to preserve exact XML changes.
