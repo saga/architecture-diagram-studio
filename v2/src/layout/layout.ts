@@ -20,8 +20,18 @@ function snapLayoutGeometry(doc: DiagramDocument): DiagramDocument {
 }
 
 function isBetterLayout(candidate: ReturnType<typeof evaluateLayout>, current: ReturnType<typeof evaluateLayout>): boolean {
-  // Hard geometry violations are constraints, not tradeable style metrics.
-  if (candidate.errors.length !== current.errors.length) return candidate.errors.length < current.errors.length;
+  // Hard geometry violations are constraints, not tradeable style metrics. Compare their
+  // counts before total score; the total score is clamped at zero and can otherwise hide
+  // improvements when both candidate routes have several obstructions.
+  const hardCost = (report: ReturnType<typeof evaluateLayout>) =>
+    report.metrics.nodeOverlaps * 1000 +
+    report.metrics.edgeNodeIntersections * 100 +
+    report.metrics.connectorRoutingViolations * 100 +
+    report.errors.filter((issue) =>
+      !["node-overlap", "edge-through-node", "diagonal-orthogonal-route"].includes(issue.code)
+    ).length * 10000;
+  const candidateHardCost = hardCost(candidate), currentHardCost = hardCost(current);
+  if (candidateHardCost !== currentHardCost) return candidateHardCost < currentHardCost;
   const candidateWarnings = candidate.metrics.edgeCrossings + candidate.metrics.labelCollisions +
     candidate.metrics.labelOverflowCount + candidate.metrics.edgeLabelOutOfBoundsCount +
     candidate.metrics.connectorRoutingViolations + candidate.metrics.portSpacingViolations;
