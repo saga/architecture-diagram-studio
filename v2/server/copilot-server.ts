@@ -62,6 +62,7 @@ app.post("/api/copilot/intent", async (req, res) => {
   const model = typeof req.body?.model === "string" && req.body.model.trim()
     ? req.body.model.trim().slice(0, 100)
     : DEFAULT_MODEL;
+  const requestedEffort = req.body?.reasoningEffort === "high" ? "high" : "max";
   if (!prompt || prompt.length > 4000) {
     res.status(400).json({ error: "prompt 必须为 1–4000 个字符" });
     return;
@@ -97,8 +98,17 @@ app.post("/api/copilot/intent", async (req, res) => {
   const startedAt = Date.now();
   try {
     client = await getCopilotClient();
+    const modelInfo = (await client.listModels()).find((item) => item.id === model);
+    const supportedEfforts = modelInfo?.supportedReasoningEfforts || [];
+    const reasoningEffort = supportedEfforts.includes(requestedEffort)
+      ? requestedEffort
+      : supportedEfforts.includes("max") ? "max"
+      : supportedEfforts.includes("xhigh") ? "xhigh"
+      : supportedEfforts.includes("high") ? "high"
+      : undefined;
     session = await client.createSession({
       model,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       streaming: true,
       tools: [proposeLayoutPlan],
       systemMessage: {
@@ -127,7 +137,7 @@ app.post("/api/copilot/intent", async (req, res) => {
       event: "copilot.agent.completed", model, durationMs: Date.now() - startedAt,
       commandCount: plan.commands.length, toolUsed: "propose_layout_plan"
     }));
-    res.json({ ...plan, model, provider: "github-copilot-sdk", durationMs: Date.now() - startedAt });
+    res.json({ ...plan, model, reasoningEffort: reasoningEffort || "model-default", provider: "github-copilot-sdk", durationMs: Date.now() - startedAt });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({
