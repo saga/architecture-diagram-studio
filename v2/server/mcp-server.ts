@@ -164,18 +164,18 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     return { topic, reference };
   }
   if (name === "inspect_primary_diagram") {
-    const active = await studioApi("/api/workspace/diagram/active");
+    const active = await studioApi("/api/workspace/diagram/active?includeXml=false");
     return { ...active, document: compactDiagram(active.document, args.includeDetails === true) };
   }
   if (name === "evaluate_diagram_quality") {
-    const active = await studioApi("/api/workspace/diagram/active");
+    const active = await studioApi("/api/workspace/diagram/active?includeXml=false");
     const result = await studioApi("/api/workspace/diagram/quality", { method: "POST", body: JSON.stringify({ document: active.document }) });
     return { revision: active.revision, documentId: active.document.id, title: active.document.title, report: result.report };
   }
   if (name === "propose_diagram_edit" || name === "apply_local_diagram_edit") {
     const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
     if (!prompt || prompt.length > 4000) throw new Error("prompt must be 1–4000 characters");
-    const active = await studioApi("/api/workspace/diagram/active");
+    const active = await studioApi("/api/workspace/diagram/active?includeXml=false");
     const result = await studioApi("/api/workspace/diagram/proposals", { method: "POST", body: JSON.stringify({ prompt, baseRevision: active.revision }) });
     if (name === "apply_local_diagram_edit") return { ...result, localEditOnly: true, note: "No mutation occurred. Review the proposal and call apply_diagram_edit with confirmed=true to persist." };
     return result;
@@ -214,7 +214,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     return { versions: (payload.versions || []).slice(-limit).reverse() };
   }
   if (name === "diff_diagram_versions") {
-    const [a,b] = await Promise.all([studioApi("/api/workspace/versions/" + encodeURIComponent(String(args.fromVersionId))), studioApi("/api/workspace/versions/" + encodeURIComponent(String(args.toVersionId)))]);
+    const [a,b] = await Promise.all([studioApi("/api/workspace/versions/" + encodeURIComponent(String(args.fromVersionId)) + "?includeXml=false"), studioApi("/api/workspace/versions/" + encodeURIComponent(String(args.toVersionId)) + "?includeXml=false")]);
     return semanticDiff(a.version, b.version);
   }
   if (name === "restore_diagram_version") {
