@@ -271,7 +271,30 @@ export default function App() {
   }, [copilotSessionId, messages, serverHydrated]);
 
   useEffect(() => {
-    const refreshTraces = () => setTraceEntries(readDiagnosticEntries());
+    const refreshTraces = () => {
+      void fetch("/api/workspace/logs?limit=1200")
+        .then(async (response) => {
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          return response.json() as Promise<{ logs?: Array<Record<string, unknown>> }>;
+        })
+        .then((result) => {
+          const serverEntries: DiagnosticEntry[] = (result.logs || []).flatMap((item) => {
+            if (typeof item.event !== "string" || typeof item.message !== "string") return [];
+            return [{
+              id: typeof item.id === "string" ? item.id : String(item.receivedAt || Date.now()),
+              timestamp: typeof item.clientTimestamp === "string" ? item.clientTimestamp : String(item.receivedAt || ""),
+              level: ["debug", "info", "warn", "error"].includes(String(item.level)) ? item.level as DiagnosticEntry["level"] : "info",
+              event: item.event,
+              message: item.message,
+              details: item.details && typeof item.details === "object" ? item.details as Record<string, unknown> : {}
+            }];
+          });
+          const byId = new Map<string, DiagnosticEntry>();
+          for (const entry of [...serverEntries, ...readDiagnosticEntries()]) byId.set(entry.id, entry);
+          setTraceEntries([...byId.values()].slice(-1200));
+        })
+        .catch(() => setTraceEntries(readDiagnosticEntries()));
+    };
     const handleWindowError = (event: ErrorEvent) => {
       recordDiagnostic("runtime.window.error", "未捕获浏览器运行时错误", {
         errorMessage: event.message, fileName: event.filename, line: event.lineno, column: event.colno
