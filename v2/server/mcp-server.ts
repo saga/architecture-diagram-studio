@@ -8,8 +8,8 @@ const CONFIG_FILE = path.join(DATA_DIR, "project-workspace.json");
 type Workspace = { schemaVersion: number; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type FileEntry = { path: string; name: string; kind: string; size: number; modifiedAt: string };
 const EXCLUDED_DIRS = new Set([".git", "node_modules", "dist", "build", "coverage", ".venv", "venv", "vendor"]);
-const DIAGRAM_EXTS = new Set([".drawio", ".dio", ".mmd", ".mermaid", ".puml", ".plantuml"]);
-const CODE_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go", ".rs", ".cs", ".cpp", ".h", ".sql", ".sh", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css"]);
+const DIAGRAM_EXTS = new Set([".drawio", ".dio", ".xml", ".mmd", ".mermaid", ".puml", ".plantuml"]);
+const CODE_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go", ".rs", ".cs", ".cpp", ".h", ".sql", ".sh", ".yaml", ".yml", ".json", ".toml", ".html", ".css"]);
 const DOC_EXTS = new Set([".md", ".mdx", ".txt", ".rst", ".adoc"]);
 
 async function getWorkspace(): Promise<Workspace> {
