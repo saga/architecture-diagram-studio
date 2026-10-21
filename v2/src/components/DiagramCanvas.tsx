@@ -33,10 +33,6 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
     start = geometry.start;
     end = geometry.end;
   } else {
-      start = { x: endpointX(source, tx), y };
-      end = { x: endpointX(target, sx), y };
-    }
-  } else {
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
