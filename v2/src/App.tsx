@@ -95,6 +95,7 @@ export default function App() {
 
   const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
+  const selectedRelation = document.relations.find((relation) => relation.id === selectedRelationId) || null;
   const quality = useMemo(() => evaluateLayout(visibleDocument), [visibleDocument]);
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
@@ -421,6 +422,23 @@ export default function App() {
       }
     };
     commitDocument(next, "已删除时序片段");
+  }
+
+  function changeRelationEndpoints(relationId: string, source: string, target: string) {
+    if (!source || !target || source === target) {
+      setLastAction("关系线的源节点和目标节点必须不同");
+      return;
+    }
+    const current = document.relations.find((relation) => relation.id === relationId);
+    if (!current || (current.source === source && current.target === target)) return;
+    const next = normalizeSequenceDocument({
+      ...document,
+      relations: document.relations.map((relation) => relation.id === relationId
+        ? { ...relation, source, target, points: [] }
+        : relation)
+    });
+    commitDocument(next, "已更新关系线的源节点与目标节点");
+    if (document.kind !== "sequence") void runLayout(next);
   }
 
   function changeNode(patch: Partial<DiagramNode>) {
@@ -795,6 +813,21 @@ export default function App() {
               <button type="button" className="preview-accept" onClick={acceptPreview}>应用修改</button>
             </div>}
             {document.kind === "sequence" && <button className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</button>}
+            <label className="layout-profile-control" title="选择自动布局算法">
+              <span>布局</span>
+              <select className="text-field" aria-label="自动布局算法" value={document.layout.profile.startsWith("elk-") ? document.layout.profile : "elk-layered"}
+                disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
+                onChange={(event) => {
+                  const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
+                  void runLayout(next);
+                }}>
+                <option value="elk-layered">层级 · ELK Layered</option>
+                <option value="elk-mrtree">树形 · ELK Mr. Tree</option>
+                <option value="elk-radial">放射 · ELK Radial</option>
+                <option value="elk-stress">应力 · ELK Stress</option>
+                <option value="elk-force">力导向 · ELK Force</option>
+              </select>
+            </label>
             <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
             <div className="segmented"><button disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
           </div>
@@ -823,13 +856,35 @@ export default function App() {
             <button type="button" className="zoom-control" aria-label="放大" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</button>
           </div>}
         </div>
-        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout engine: ELK Layered</span></div></div>
+        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout: {document.layout.profile || "elk-layered"}</span></div></div>
       </main>
 
       <aside className="right-panel">
         <div className="right-tabs"><span className="right-tab active">属性检查</span><span className="right-tab">设计质量</span><span className="right-tab-label">STUDIO</span></div>
         <section className="inspector-section">
           <div className="panel-section-heading"><span>SELECTED ELEMENT</span><span className="small-icon">⌗</span></div>
+          {selectedRelation && (
+            <div className="inspector-form selected-relation-inspector">
+              <div className="field-label">已选中关系线 · 源节点</div>
+              <select className="text-field" aria-label="关系线源节点" value={selectedRelation.source}
+                onChange={(event) => changeRelationEndpoints(selectedRelation.id, event.target.value, selectedRelation.target)}>
+                {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+              <div className="field-label">目标节点</div>
+              <select className="text-field" aria-label="关系线目标节点" value={selectedRelation.target}
+                onChange={(event) => changeRelationEndpoints(selectedRelation.id, selectedRelation.source, event.target.value)}>
+                {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+              </select>
+              <div className="field-label">关系标签</div>
+              <input className="text-field" aria-label="关系线标签" value={relationLabelDrafts[selectedRelation.id] ?? selectedRelation.label}
+                onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [selectedRelation.id]: event.target.value }))}
+                onBlur={() => commitRelationLabel(selectedRelation.id)} />
+              <div className="relation-actions">
+                <button type="button" onClick={() => reverseRelation(selectedRelation.id)}>↔ 反转方向</button>
+                <button type="button" onClick={() => removeRelation(selectedRelation.id)}>删除关系</button>
+              </div>
+            </div>
+          )}
           {selectedNode ? (
             <div className="inspector-form">
               <div className="field-label">名称</div><input key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
