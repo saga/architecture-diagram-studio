@@ -1,8 +1,8 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, ConfigProvider, Input, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
-import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
@@ -52,6 +52,15 @@ function loadSavedAISettings(): SavedAISettings {
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...props} htmlType={type === "submit" ? "submit" : "button"} />;
+}
+
+function UiInput(props: InputHTMLAttributes<HTMLInputElement>) {
+  if (props.type === "file" || props.type === "checkbox") return <input {...props} />;
+  return <Input {...(props as any)} />;
+}
+
+function UiTextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <Input.TextArea {...(props as any)} />;
 }
 
 function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
@@ -792,7 +801,7 @@ export default function App() {
             <option value="midnight">午夜深色</option>
           </UiSelect>
         </label>
-        <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
+        <UiInput ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
           <UiButton className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</UiButton>
           <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</UiButton>
@@ -928,7 +937,7 @@ export default function App() {
                 {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
               </UiSelect>
               <div className="field-label">关系标签</div>
-              <input className="text-field" aria-label="关系线标签" value={relationLabelDrafts[selectedRelation.id] ?? selectedRelation.label}
+              <UiInput className="text-field" aria-label="关系线标签" value={relationLabelDrafts[selectedRelation.id] ?? selectedRelation.label}
                 onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [selectedRelation.id]: event.target.value }))}
                 onBlur={() => commitRelationLabel(selectedRelation.id)} />
               <div className="relation-actions">
@@ -939,21 +948,21 @@ export default function App() {
           )}
           {selectedNode && !selectedRelation ? (
             <div className="inspector-form">
-              <div className="field-label">名称</div><input key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              <div className="field-label">名称</div><UiInput key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">语义角色</div>
               <UiSelect className="text-field" value={selectedNode.role} onChange={(event) => changeNode({ role: event.target.value as DiagramNode["role"] })}>
                 {Object.entries(roleLabels).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
               </UiSelect>
-              <div className="field-label">技术 / 平台</div><input key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="例如：Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-              <div className="field-label">描述</div><textarea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="此组件的职责…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
-              <label className="lock-row"><input type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>锁定当前位置</b><small>重排时保留此节点位置</small></span></label>
+              <div className="field-label">技术 / 平台</div><UiInput key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="例如：Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              <div className="field-label">描述</div><UiTextArea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="此组件的职责…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
+              <label className="lock-row"><UiInput type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>锁定当前位置</b><small>重排时保留此节点位置</small></span></label>
               <div className="relation-editor">
                 <div className="field-label">建立关系（当前节点 → 目标）</div>
                 <UiSelect className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
                   <option value="">选择目标节点…</option>
                   {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
                 </UiSelect>
-                <input className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
+                <UiInput className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
                 <UiButton className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</UiButton>
               </div>
               <div className="connected-relations">
@@ -965,7 +974,7 @@ export default function App() {
                       <span className="relation-arrow">→</span>
                       <span>{document.nodes.find((node) => node.id === relation.target)?.name || relation.target}</span>
                     </div>
-                    <input
+                    <UiInput
                       className="text-field relation-label-field"
                       value={relationLabelDrafts[relation.id] ?? relation.label}
                       placeholder="关系标签…"
@@ -1013,15 +1022,15 @@ export default function App() {
                       <option value="opt">opt · 可选</option>
                       <option value="loop">loop · 循环</option>
                     </UiSelect>
-                    <input key={fragment.id + ":" + fragment.label} className="text-field" defaultValue={fragment.label} placeholder="片段说明" onBlur={(event) => {
+                    <UiInput key={fragment.id + ":" + fragment.label} className="text-field" defaultValue={fragment.label} placeholder="片段说明" onBlur={(event) => {
                       if (event.currentTarget.value !== fragment.label) updateSequenceFragment(fragment.id, { label: event.currentTarget.value });
                     }} />
                     <div className="sequence-fragment-range">
-                      <label>起始消息<input key={fragment.id + ":start:" + fragment.startOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.startOrder} onBlur={(event) => {
+                      <label>起始消息<UiInput key={fragment.id + ":start:" + fragment.startOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.startOrder} onBlur={(event) => {
                         const value = Number(event.currentTarget.value);
                         if (Number.isFinite(value) && value !== fragment.startOrder) updateSequenceFragment(fragment.id, { startOrder: value });
                       }} /></label>
-                      <label>结束消息<input key={fragment.id + ":end:" + fragment.endOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.endOrder} onBlur={(event) => {
+                      <label>结束消息<UiInput key={fragment.id + ":end:" + fragment.endOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.endOrder} onBlur={(event) => {
                         const value = Number(event.currentTarget.value);
                         if (Number.isFinite(value) && value !== fragment.endOrder) updateSequenceFragment(fragment.id, { endOrder: value });
                       }} /></label>
