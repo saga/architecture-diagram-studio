@@ -1,7 +1,7 @@
 import { layoutWithDagre } from "./dagre";
 import { layoutWithElk } from "./elk";
 import { routeRelations } from "./routing";
-import { resolveLayoutProfile, type ElkLayoutProfile } from "./profiles";
+import { resolveLayoutProfile } from "./profiles";
 import type { DiagramDocument, Point } from "../model/types";
 import { evaluateLayout } from "./quality";
 import { normalizeSequenceDocument } from "./sequence";
