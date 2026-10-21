@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
@@ -111,6 +111,11 @@ export default function DiagramCanvas({
     width: Math.max(1240, ...document.nodes.map((node) => node.x + node.width + 100)),
     height: Math.max(document.kind === "sequence" ? 820 : 760, ...document.nodes.map((node) => node.y + node.height + 120))
   }), [document.nodes, document.kind]);
+
+  useEffect(() => {
+    setPan({ x: 0, y: 0 });
+    setPanGesture(null);
+  }, [document.id, document.kind]);
 
   function pointerToDiagram(clientX: number, clientY: number): Point {
     const svg = svgRef.current;
