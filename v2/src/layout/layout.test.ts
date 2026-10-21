@@ -29,6 +29,33 @@ describe("V2 diagram-specific layouts", () => {
     }
   });
 
+  it("registers Dagre and supports horizontal and vertical layouts", async () => {
+    expect(LAYOUT_PROFILES.map((profile) => profile.value)).toContain("dagre-layered");
+    const horizontalDoc = createC4Fixture();
+    horizontalDoc.layout.profile = "dagre-layered";
+    horizontalDoc.layout.direction = "RIGHT";
+    const verticalDoc = {
+      ...createC4Fixture(),
+      layout: { ...createC4Fixture().layout, profile: "dagre-layered", direction: "DOWN" as const },
+    };
+    const horizontal = await layoutDiagram(horizontalDoc);
+    const vertical = await layoutDiagram(verticalDoc);
+
+    for (const result of [horizontal, vertical]) {
+      expect(result.nodes).toHaveLength(createC4Fixture().nodes.length);
+      expect(result.relations).toHaveLength(createC4Fixture().relations.length);
+      expect(result.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toBe(true);
+      expect(evaluateLayout(result).metrics.nodeOverlaps).toBe(0);
+    }
+
+    const horizontalWidth = Math.max(...horizontal.nodes.map((node) => node.x + node.width)) - Math.min(...horizontal.nodes.map((node) => node.x));
+    const horizontalHeight = Math.max(...horizontal.nodes.map((node) => node.y + node.height)) - Math.min(...horizontal.nodes.map((node) => node.y));
+    const verticalWidth = Math.max(...vertical.nodes.map((node) => node.x + node.width)) - Math.min(...vertical.nodes.map((node) => node.x));
+    const verticalHeight = Math.max(...vertical.nodes.map((node) => node.y + node.height)) - Math.min(...vertical.nodes.map((node) => node.y));
+    expect(horizontalWidth).toBeGreaterThan(horizontalHeight);
+    expect(verticalHeight).toBeGreaterThan(verticalWidth);
+  });
+
   it("lays out sequence participants and keeps the message timeline ordered", async () => {
     const result = await layoutDiagram(createSequenceFixture());
     await expectNoNodeOverlap(createSequenceFixture);
