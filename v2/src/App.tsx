@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { App as AntApp, ConfigProvider, theme as antdTheme } from "antd";
+import { XProvider } from "@ant-design/x";
+import zhCN from "antd/locale/zh_CN";
 import type { CSSProperties } from "react";
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
@@ -735,6 +738,22 @@ export default function App() {
   }
 
   return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        algorithm: uiTheme === "midnight" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+        token: {
+          colorPrimary: "#425bc7",
+          colorInfo: "#425bc7",
+          borderRadius: 8,
+          fontFamily: '"SF Pro Display", "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+          fontSize: 13,
+          controlHeight: 34,
+        },
+      }}
+    >
+      <XProvider>
+        <AntApp>
     <div className="app-shell" data-theme={uiTheme}>
       <header className="topbar">
         <div className="brand-lockup">
@@ -1048,5 +1067,8 @@ export default function App() {
         />
       )}
     </div>
+        </AntApp>
+      </XProvider>
+    </ConfigProvider>
   );
 }
