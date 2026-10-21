@@ -161,6 +161,9 @@ export default function WorkspacePages(props: Props) {
           setModelOptions(merged);
           setModelsMessage("已从本机 Copilot SDK 获取可用模型。");
         } else if (!cancelled) {
+          setModelOptions((current) => aiModel && !current.some((item) => item.value === aiModel)
+            ? [{ value: aiModel, label: aiModel + "（当前选择）" }, ...current]
+            : current);
           setModelsMessage("SDK 暂未返回模型列表，可使用内置候选项。");
         }
       })
