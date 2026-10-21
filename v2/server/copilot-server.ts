@@ -4,7 +4,10 @@ import path from "node:path";
 import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath, lstat } from "node:fs/promises";
 import { isDiagramDocument } from "../src/model/types";
 import { applyIntent } from "../src/intent/applyIntent";
-import { layoutDiagram } from "../src/layout/layout";
+import { layoutDiagram, moveNode } from "../src/layout/layout";
+import { evaluateLayout } from "../src/layout/quality";
+import { normalizeSequenceDocument } from "../src/layout/sequence";
+import { toDrawioXml } from "../src/export/drawio";
 import { randomUUID } from "node:crypto";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
@@ -148,6 +151,62 @@ app.post("/api/workspace/layout", async (req, res) => {
       errorName: error instanceof Error ? error.name : typeof error,
       errorMessage: error instanceof Error ? error.message : String(error)
     });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/workspace/diagram/quality", async (req, res) => {
+  const document = req.body?.document;
+  if (!isDiagramDocument(document)) { res.status(400).json({ error: "图形文档格式无效" }); return; }
+  const startedAt = Date.now();
+  try {
+    const report = evaluateLayout(document);
+    await writeLog("diagram.quality.completed", { documentId: document.id, durationMs: Date.now() - startedAt, score: report.score });
+    res.json({ report });
+  } catch (error) {
+    await writeLog("diagram.quality.failed", { documentId: document.id, error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/workspace/diagram/move-node", async (req, res) => {
+  const document = req.body?.document;
+  const id = typeof req.body?.id === "string" ? req.body.id : "";
+  const x = req.body?.x, y = req.body?.y;
+  if (!isDiagramDocument(document) || !id || typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) {
+    res.status(400).json({ error: "图形文档或节点坐标无效" }); return;
+  }
+  const startedAt = Date.now();
+  try {
+    const result = moveNode(document, id, x, y);
+    await writeLog("diagram.node-moved", { documentId: document.id, nodeId: id, x, y, durationMs: Date.now() - startedAt });
+    res.json({ document: result });
+  } catch (error) {
+    await writeLog("diagram.node-move.failed", { documentId: document.id, nodeId: id, error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/workspace/diagram/normalize-sequence", async (req, res) => {
+  const document = req.body?.document;
+  if (!isDiagramDocument(document)) { res.status(400).json({ error: "图形文档格式无效" }); return; }
+  try {
+    const result = normalizeSequenceDocument(document);
+    await writeLog("diagram.sequence-normalized", { documentId: document.id, diagramKind: document.kind });
+    res.json({ document: result });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/workspace/diagram/export-drawio", async (req, res) => {
+  const document = req.body?.document;
+  if (!isDiagramDocument(document)) { res.status(400).json({ error: "图形文档格式无效" }); return; }
+  try {
+    const xml = toDrawioXml(document);
+    await writeLog("diagram.drawio-exported", { documentId: document.id, bytes: Buffer.byteLength(xml, "utf8") });
+    res.json({ xml });
+  } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
