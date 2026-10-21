@@ -17,7 +17,7 @@ import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
-import { clearDiagnosticEntries, readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
+import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
@@ -975,11 +975,8 @@ export default function App() {
     }
   }
 
-  function clearTraces() {
-    clearDiagnosticEntries();
-    setTraceEntries([]);
-    recordDiagnostic("trace.cleared", "已清空本地轨迹");
-    setTraceEntries(readDiagnosticEntries());
+  function refreshTraceHistory() {
+    recordDiagnostic("trace.refreshed", "刷新服务端应用轨迹");
   }
 
   function openPage(page: WorkspacePage) {
@@ -1339,7 +1336,7 @@ export default function App() {
           saveAISettings={saveAISettings}
           clearAISettings={clearAISettings}
           traceEntries={traceEntries}
-          clearTraces={clearTraces}
+          refreshTraces={refreshTraceHistory}
           drawioStatus={drawioStatus}
           drawioStatusMessage={drawioStatusMessage}
           checkDrawioStatus={() => void checkDrawioStatus()}
