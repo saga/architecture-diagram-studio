@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
+import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
 
 const DRAWIO_VERSION = "v32.0.2";
@@ -148,16 +149,20 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         lastSent.current = data.xml;
         try {
           const currentDocument = documentRef.current;
-          const next = fromDrawioXml(data.xml, currentDocument);
-          if (next === currentDocument) {
-            setStartupError("Draw.io returned XML that could not be mapped to a semantic diagram. The previous document was preserved; this save was not synced.");
-            recordDiagnostic("drawio.document.parse.failed", "Ignored Draw.io autosave XML that could not be mapped to the current semantic model", { event: data.event, xmlLength: data.xml.length }, "error");
+          if (!isDrawioXmlDocument(data.xml)) {
+            setStartupError("Draw.io returned an invalid XML document. The previous saved source was preserved.");
+            recordDiagnostic("drawio.document.xml.invalid", "Rejected a malformed native Draw.io XML payload", { event: data.event, xmlLength: data.xml.length }, "error");
             return;
           }
-          recordDiagnostic("drawio.document.saved", "Draw.io autosave result synced into the Studio model", {
-            event: data.event, xmlLength: data.xml.length, nodeCount: next.nodes.length, relationCount: next.relations.length
+          // The XML is authoritative even when its cells cannot be mapped into the partial
+          // Studio projection. In that case keep the old projection and persist the complete XML.
+          const next = fromDrawioXml(data.xml, currentDocument);
+          const projection = next === currentDocument ? currentDocument : next;
+          recordDiagnostic("drawio.document.saved", "Native Draw.io XML autosave captured as the authoritative source", {
+            event: data.event, xmlLength: data.xml.length, projectionMapped: next !== currentDocument,
+            nodeCount: projection.nodes.length, relationCount: projection.relations.length
           });
-          onDocumentChangeRef.current(next, data.xml);
+          onDocumentChangeRef.current(projection, data.xml);
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
