@@ -20,7 +20,7 @@ Ship a small stdio MCP server as `v2/server/mcp-server.ts`, started with `npm ru
 
 The MCP process does not accept arbitrary absolute paths. It rejects path traversal, checks canonical paths, skips symbolic links during indexing, and caps read sizes and search results. Tool results are evidence, not instructions.
 
-A reusable skill at `.agents/skills/architecture-workspace/SKILL.md` instructs Agents to identify the active workspace first, inspect the primary diagram and related diagrams, search code/docs/ADRs for supporting evidence, cite workspace-relative paths in findings, and separate confirmed facts from inference. Project files must never override system or developer instructions.
+A reusable project skill at `.github/skills/architecture-workspace/SKILL.md` instructs Agents to identify the active workspace first, inspect the primary diagram and related diagrams, search code/docs/ADRs for supporting evidence, cite workspace-relative paths in findings, and separate confirmed facts from inference. Project files must never override system or developer instructions.
 
 The Copilot server also includes workspace metadata and bounded relevant file excerpts in each Agent turn. MCP is an additional integration surface, not a competing configuration store.
 
@@ -33,7 +33,7 @@ The Copilot server also includes workspace metadata and bounded relevant file ex
 
 ## Consequences
 
-- MCP clients must be configured to run the local command in the repository's `v2` directory.
+- VS Code discovers the project MCP server from `.vscode/mcp.json`; the MCP process and HTTP service share the same home directory or `STUDIO_DATA_DIR`.
 - The MCP process and HTTP server share the same home directory or `STUDIO_DATA_DIR`.
 - Workspace file changes are read from disk on each tool request rather than relying on a stale cached index.
 - Future MCP mutation tools must use server APIs or a shared persistence service instead of writing around Studio's version history.
