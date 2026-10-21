@@ -1135,3 +1135,8 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
 .diagram-relation .relation-endpoint-handle { opacity: 0; pointer-events: none; fill: var(--theme-panel); stroke: var(--theme-accent); stroke-width: 2; cursor: crosshair; }
 .diagram-relation.selected .relation-endpoint-handle { opacity: 1; pointer-events: all; }
 .diagram-relation .relation-endpoint-handle:hover { r: 7; fill: var(--theme-accent); stroke: var(--theme-panel); }
+
+.sequence-fragment .fragment-resize-handle { opacity: .25; fill: var(--theme-panel); stroke: var(--theme-accent); stroke-width: 1.8; cursor: ns-resize; }
+.sequence-fragment:hover .fragment-resize-handle { opacity: 1; }
+.sequence-fragment .fragment-resize-handle:hover { r: 6.5; fill: var(--theme-accent); stroke: var(--theme-panel); }
+.fragment-inline-input { display: block; width: 100%; height: 25px; margin: 0; padding: 2px 6px; border: 1px solid var(--theme-accent); border-radius: 4px; background: var(--theme-panel); color: var(--theme-text); font: 12px/1.4 inherit; outline: 2px solid color-mix(in srgb, var(--theme-accent) 18%, transparent); }
