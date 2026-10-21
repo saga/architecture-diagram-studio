@@ -41,8 +41,9 @@ describe("V2 diagram-specific layouts", () => {
     const document = createC4Fixture();
     const result = moveNode(document, "snowflake", 641, 421);
     const moved = result.nodes.find((node) => node.id === "snowflake");
-    expect(moved?.x !== undefined && moved.x % 4).toBe(0);
-    expect(moved?.y !== undefined && moved.y % 4).toBe(0);
+    expect(moved).toBeDefined();
+    expect(moved!.x % 4).toBe(0);
+    expect(moved!.y % 4).toBe(0);
   });
 
   it("keeps stacked fixtures distinguishable after a manual move on an unlaid-out document", () => {
