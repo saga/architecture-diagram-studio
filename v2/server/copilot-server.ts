@@ -277,6 +277,10 @@ app.post("/api/workspace/layout", async (req, res) => {
   }
   const startedAt = Date.now();
   try {
+    const currentState = await getWorkspaceState();
+    if (currentState.drawioXml && currentState.document && isDiagramDocument(currentState.document) && !isStudioProjectionCurrent(currentState.drawioXml, currentState.document)) {
+      res.status(409).json({ error: "Automatic layout is disabled because the authoritative Draw.io XML contains content outside the lossless Studio projection. Edit in native Draw.io or create a new Studio diagram." }); return;
+    }
     await writeLog("layout.started", {
       documentId: document.id, diagramKind: document.kind,
       nodeCount: document.nodes.length, relationCount: document.relations.length,
@@ -337,6 +341,10 @@ app.post("/api/workspace/diagram/normalize-sequence", async (req, res) => {
   const document = req.body?.document;
   if (!isDiagramDocument(document)) { res.status(400).json({ error: "Invalid diagram document format" }); return; }
   try {
+    const currentState = await getWorkspaceState();
+    if (currentState.drawioXml && currentState.document && isDiagramDocument(currentState.document) && !isStudioProjectionCurrent(currentState.drawioXml, currentState.document)) {
+      res.status(409).json({ error: "Sequence normalization is disabled because the authoritative Draw.io XML is not fully represented by the Studio projection." }); return;
+    }
     const result = normalizeSequenceDocument(document);
     await writeLog("diagram.sequence-normalized", { documentId: document.id, diagramKind: document.kind });
     res.json({ document: result });
@@ -366,6 +374,10 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
   }
   const startedAt = Date.now();
   try {
+    const currentState = await getWorkspaceState();
+    if (currentState.drawioXml && currentState.document && isDiagramDocument(currentState.document) && !isStudioProjectionCurrent(currentState.drawioXml, currentState.document)) {
+      res.status(409).json({ error: "Semantic intent is disabled for this native Draw.io document because the Studio projection cannot safely represent the complete XML." }); return;
+    }
     await writeLog("intent.apply.started", {
       documentId: document.id, prompt, nodeCount: document.nodes.length, relationCount: document.relations.length
     });
@@ -429,6 +441,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document)) return { status: 404 as const, error: "There is no saved primary diagram to replace" };
       if (!workspaceStateMatchesActiveDiagram(state, workspace)) return { status: 409 as const, error: "The current diagram belongs to another workspace; reload the primary diagram first" };
+      if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) return { status: 409 as const, error: "A Studio template cannot replace this native Draw.io document because its complete XML is not represented by the semantic projection. Create a new diagram instead." };
       if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== documentRevision(state.document)) return { status: 409 as const, error: "The diagram changed; read it again before applying the template" };
       const config = await getStudioConfig();
       const document = createDiagramTemplate(key);
@@ -478,6 +491,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
     if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) { res.status(404).json({ error: "This workspace has no saved primary diagram" }); return; }
+    if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) { res.status(409).json({ error: "Semantic proposals are disabled because the authoritative Draw.io XML contains cells or properties outside the lossless Studio projection. Use native Draw.io editing." }); return; }
     const baseRevision = workspaceRevision(state.document, state.drawioXml);
     if (typeof req.body?.baseRevision === "string" && req.body.baseRevision !== baseRevision) { res.status(409).json({ error: "The diagram changed; read it again before generating a proposal", revision: baseRevision }); return; }
     const interpreted = interpretIntent(state.document, prompt);
