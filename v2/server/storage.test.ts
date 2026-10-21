@@ -29,9 +29,9 @@ describe("server persistence primitives", () => {
     expect(matchesWorkspaceRevision(null, null)).toBe(true);
     expect(matchesWorkspaceRevision("current", "current")).toBe(true);
   });
-  it("changes the revision when the document or native XML changes", () => {
+  it("tracks workspace revisions from the authoritative XML only", () => {
     expect(workspaceRevision({ id: "a" }, "<xml/>")).not.toBe(workspaceRevision({ id: "a" }, "<changed/>"));
-    expect(workspaceRevision({ id: "a" }, "<xml/>")).not.toBe(workspaceRevision({ id: "b" }, "<xml/>"));
+    expect(workspaceRevision({ id: "a" }, "<xml/>")).toBe(workspaceRevision({ id: "b" }, "<xml/>"));
   });
   it("keeps the write queue usable after a failed write", async () => {
     const write = createSerializedWriteQueue(), order: number[] = [];
