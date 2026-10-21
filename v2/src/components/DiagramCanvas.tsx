@@ -193,12 +193,12 @@ export default function DiagramCanvas({
       <title id={titleId}>{document.title}</title>
       <desc id={descriptionId}>{document.kind.toUpperCase() + " diagram with " + document.nodes.length + " nodes and " + document.relations.length + " relationships."}</desc>
       <defs>
-        <pattern id="studio-grid" width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
-        <marker id="arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#4C5C72" strokeWidth="1.3" /></marker>
+        <pattern id={safeSvgId + "-studio-grid" width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
+        <marker id={safeSvgId + "-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
+        <marker id={safeSvgId + "-arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#4C5C72" strokeWidth="1.3" /></marker>
       </defs>
       <rect width={frame.width} height={frame.height} fill={tokens.canvas} />
-      <rect width={frame.width} height={frame.height} fill="url(#studio-grid)" />
+      <rect width={frame.width} height={frame.height} fill={"url(#" + safeSvgId + "-studio-grid)"} />
       {displayDoc.boundaries.map((boundary) => {
         const members = displayNodes.filter((node) => boundary.members.includes(node.id));
         if (!members.length) return null;
@@ -207,7 +207,7 @@ export default function DiagramCanvas({
         const right = Math.max(...members.map((node) => node.x + node.width)) + document.layout.boundaryPadding;
         const bottom = Math.max(...members.map((node) => node.y + node.height)) + document.layout.boundaryPadding;
         return <g key={boundary.id} className="diagram-boundary">
-          <rect className="diagram-boundary-frame" x={left} y={top} width={right - left} height={bottom - top} rx="13" fill="#E8EDF6" fillOpacity="0.85" stroke="#8C9AB0" strokeWidth="1.4" strokeDasharray="5 5" />
+          <rect className="diagram-boundary-frame" x={left} y={top} width={right - left} height={bottom - top} rx="13" fill="#E8EDF6" fillOpacity="0.85" stroke={tokens.borderStrong} strokeWidth="1.4" strokeDasharray="5 5" />
           <text className="diagram-boundary-label" x={left + 14} y={top + 20} fontSize="13" fontWeight="500" fill="#0C1626">{boundary.name.toUpperCase()}</text>
         </g>;
       })}
@@ -260,7 +260,7 @@ export default function DiagramCanvas({
           <path className="relation-visible-path" d={path.d} fill="none" stroke={selected ? tokens.accent : paint.stroke}
             strokeWidth={selected ? Math.max(2.8, paint.width + 1.1) : paint.width}
             strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
-            markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
+            markerEnd={"url(#" + safeSvgId + "-" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
           {relation.label && <g className="relation-label" pointerEvents="none">
             <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - 14} width={labelWidth} height="22" rx="4" fill={tokens.canvas} fillOpacity="0.98" />
             <text className="relation-label-text" x={path.label.x} y={path.label.y + 2} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">{relation.label}</text>
