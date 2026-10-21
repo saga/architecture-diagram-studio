@@ -118,7 +118,7 @@ export default function App() {
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
-  const [rightPanelTab, setRightPanelTab] = useState<"properties" | "quality" | "design">("properties");
+  const [rightPanelTab, setRightPanelTab] = useState<"properties" | "quality" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
@@ -1117,7 +1117,12 @@ export default function App() {
   }
 
   function openPage(page: WorkspacePage) {
-    setActivePage(page);
+    if (page === "copilot") {
+      setActivePage("studio");
+      setRightPanelTab("copilot");
+    } else {
+      setActivePage(page);
+    }
     recordDiagnostic("navigation.opened", "打开工作区页面", { page });
   }
 
@@ -1322,12 +1327,26 @@ export default function App() {
 
       <aside className="right-panel">
         <div className="right-tabs" role="tablist" aria-label="右侧检查面板">
-          {([["properties", "属性"], ["quality", "设计质量"], ["design", "样式规则"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
+          {([["properties", "属性"], ["quality", "设计质量"], ["design", "样式规则"], ["copilot", "Layout Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
             <UiButton key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
               className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
               onClick={() => setRightPanelTab(tab)}>{label}</UiButton>
           )}
         </div>
+        {rightPanelTab === "copilot" && <div className="right-copilot-panel">
+          <WorkspacePages
+            page="copilot" document={document} previewDocument={previewDocument} previewSummary={previewSummary}
+            messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
+            sendIntent={() => void sendIntent()} acceptPreview={acceptPreview} discardPreview={discardPreview}
+            openStudio={() => { setViewMode("studio"); setRightPanelTab("properties"); }}
+            aiBaseUrl={aiBaseUrl} setAiBaseUrl={setAiBaseUrl} aiModel={aiModel} setAiModel={setAiModel}
+            reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
+            aiApiKey={aiApiKey} setAiApiKey={setAiApiKey} saveAISettings={saveAISettings} clearAISettings={clearAISettings}
+            traceEntries={traceEntries} refreshTraces={refreshTraceHistory}
+            drawioStatus={drawioStatus} drawioStatusMessage={drawioStatusMessage}
+            checkDrawioStatus={() => void checkDrawioStatus()} onLayoutProfilesChanged={setEnabledLayoutProfiles}
+          />
+        </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
           <div className="panel-section-heading"><span>SELECTED ELEMENT</span><span className="small-icon">⌗</span></div>
           {selectedRelation && (
