@@ -4,7 +4,7 @@ import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { hasStackedGeometry, isDiagramDocument } from "./model/types";
-import type { DiagramDocument, DiagramKind, DiagramNode } from "./model/types";
+import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { moveNode } from "./layout/move";
 import { LAYOUT_PROFILES } from "./layout/profiles";
