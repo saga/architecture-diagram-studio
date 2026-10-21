@@ -42,6 +42,8 @@ describe("V2 semantic fixtures and intents", () => {
     const approvalExpected = (centerX("approve") + centerX("submit")) / 2;
     expect(Math.abs(branchCenterX("review") - reviewExpected)).toBeLessThan(2);
     expect(Math.abs(branchCenterX("approval") - approvalExpected)).toBeLessThan(2);
+    const primaryY = new Set((laidOut.flow?.primaryPath || []).map((id) => laidOut.nodes.find((node) => node.id === id)!.y));
+    expect(primaryY.size).toBe(1);
     expect(laidOut.nodes.find((node) => node.id === "review")!.y)
       .toBeGreaterThan(laidOut.nodes.find((node) => node.id === "valid")!.y);
 
