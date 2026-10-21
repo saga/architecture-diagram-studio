@@ -218,12 +218,12 @@ export default function App() {
   useEffect(() => {
     let active = true;
     void fetch("/api/workspace/configuration")
-      .then(async (response) => { if (!response.ok) throw new Error("读取 Studio 配置失败"); return response.json() as Promise<{ config?: { layoutProfiles?: string[]; model?: string; reasoningEffort?: "high" | "max" }; revisions?: number }>; })
+      .then(async (response) => { if (!response.ok) throw new Error("读取 Studio 配置失败"); return response.json() as Promise<{ config?: { layoutProfiles?: string[]; model?: string; reasoningEffort?: "high" | "max" }; revisions?: number; hasRuntimeSettings?: boolean }>; })
       .then(async (payload) => {
         if (!active || !payload.config) return;
         if (Array.isArray(payload.config.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles);
         // Migrate the previous browser-only model preference into the authoritative server JSONL config once.
-        if ((payload.revisions || 0) === 0) {
+        if (!payload.hasRuntimeSettings) {
           const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: savedAISettings.model, reasoningEffort: savedAISettings.reasoningEffort } }) });
           const migrated = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max" }; error?: string };
           if (!response.ok || !migrated.config) throw new Error(migrated.error || "迁移模型设置失败");
