@@ -7,6 +7,7 @@ import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { LAYOUT_PROFILES } from "./layout/profiles";
+import { evaluateLayout } from "./layout/quality";
 import { requestAIIntentPlan } from "./intent/aiProvider";
 import { normalizeSequenceDocument } from "./layout/sequence";
 import { downloadText, toDrawioXml } from "./export/drawio";
