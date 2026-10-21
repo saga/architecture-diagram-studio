@@ -167,22 +167,63 @@ async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
 }
 
 function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
-  const primary = new Set(doc.flow?.primaryPath || []);
-  const nodes = doc.nodes.map((n) => ({ ...n }));
-  const main = nodes.filter((n) => primary.has(n.id));
-  const maxX = Math.max(0, ...main.map((n) => n.x + n.width));
-  const maxY = Math.max(0, ...main.map((n) => n.y + n.height));
-  const branches = nodes.filter((n) => !primary.has(n.id) && !n.layoutHints?.locked);
+  const primaryPath = doc.flow?.primaryPath || [];
+  const primary = new Set(primaryPath);
+  const rank = new Map(primaryPath.map((id, index) => [id, index]));
+  const nodes = doc.nodes.map((node) => ({ ...node, layoutHints: { ...(node.layoutHints || {}) } }));
+  const main = nodes.filter((node) => primary.has(node.id));
+  const branches = nodes.filter((node) => !primary.has(node.id) && !node.layoutHints?.locked);
+  if (!branches.length || !main.length) return routeRelations({ ...doc, nodes });
+
+  const neighborsByBranch = (branchId: string) => {
+    const ids = new Set<string>();
+    for (const relation of doc.relations) {
+      if (relation.source === branchId && primary.has(relation.target)) ids.add(relation.target);
+      if (relation.target === branchId && primary.has(relation.source)) ids.add(relation.source);
+    }
+    return [...ids].map((id) => nodes.find((node) => node.id === id)!).filter(Boolean)
+      .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  };
+  const attachedX = (branch: DiagramNode) => {
+    const neighbors = neighborsByBranch(branch.id);
+    if (!neighbors.length) return Math.max(24, branch.x);
+    const first = neighbors[0];
+    const last = neighbors[neighbors.length - 1];
+    const midpoint = ((first.x + first.width / 2) + (last.x + last.width / 2)) / 2;
+    return Math.max(24, Math.round(midpoint - branch.width / 2));
+  };
+
   if (doc.layout.direction === "RIGHT") {
-    branches.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name)).forEach((node, index) => {
-      node.y = maxY + 72 + index * (node.height + 28);
-      if (node.role === "business" || node.role === "worker") node.x = Math.max(30, maxX - node.width - 150);
-    });
+    const branchPlacements = branches
+      .map((node) => ({ node, x: attachedX(node) }))
+      .sort((a, b) => a.x - b.x || a.node.name.localeCompare(b.node.name));
+    const mainBottom = Math.max(...main.map((node) => node.y + node.height));
+    const rows: Array<Array<{ x: number; width: number }>> = [];
+    for (const { node, x } of branchPlacements) {
+      let row = 0;
+      while ((rows[row] || []).some((placed) => x < placed.x + placed.width + 36 && x + node.width + 36 > placed.x)) row++;
+      rows[row] ||= [];
+      rows[row].push({ x, width: node.width });
+      node.x = x;
+      node.y = mainBottom + 72 + row * (node.height + 30);
+    }
   } else {
-    branches.sort((a, b) => a.x - b.x || a.name.localeCompare(b.name)).forEach((node, index) => {
-      node.x = maxX + 70 + index * (node.width + 28);
+    const mainRight = Math.max(...main.map((node) => node.x + node.width));
+    const branchPlacements = branches
+      .map((node) => {
+        const neighbors = neighborsByBranch(node.id);
+        const centerY = neighbors.length
+          ? (neighbors[0].y + neighbors[0].height / 2 + neighbors[neighbors.length - 1].y + neighbors[neighbors.length - 1].height / 2) / 2
+          : node.y + node.height / 2;
+        return { node, centerY };
+      })
+      .sort((a, b) => a.centerY - b.centerY || a.node.name.localeCompare(b.node.name));
+    branchPlacements.forEach(({ node, centerY }, index) => {
+      node.x = mainRight + 72 + index * (node.width + 30);
+      node.y = Math.max(24, Math.round(centerY - node.height / 2));
     });
   }
+
   return routeRelations({ ...doc, nodes });
 }
 
