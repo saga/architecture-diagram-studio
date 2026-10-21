@@ -58,16 +58,12 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   }
   const sideNodeIds = new Set([...buckets.values()].flat().map((node) => node.id));
   const fixedAndInternal = nodes.filter((node) => node.layoutHints?.locked || !sideNodeIds.has(node.id));
-  const minX = Math.min(48, ...fixedAndInternal.map((node) => node.x));
-  const maxX = Math.max(48, ...fixedAndInternal.map((node) => node.x + node.width));
-  const maxY = Math.max(56, ...fixedAndInternal.map((node) => node.y + node.height));
   const gap = Math.max(24, doc.layout.layerSpacing);
   const top = buckets.get("TOP") || [];
   const bottom = buckets.get("BOTTOM") || [];
   const left = buckets.get("LEFT") || [];
   const right = buckets.get("RIGHT") || [];
   const leftWidth = Math.max(0, ...left.map((node) => node.width));
-  const rightWidth = Math.max(0, ...right.map((node) => node.width));
   // Create real room for a left-side external column without moving locked nodes.
   const leftInset = left.length ? 24 + leftWidth + gap : 0;
   const shift = left.length ? Math.max(0, leftInset - Math.min(48, ...fixedAndInternal.map((node) => node.x))) : 0;
