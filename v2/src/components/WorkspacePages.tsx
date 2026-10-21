@@ -109,15 +109,13 @@ export default function WorkspacePages(props: Props) {
               </div>
             </div>}
 
-            <form className="gemini-composer" onSubmit={(event) => { event.preventDefault(); sendIntent(); }}>
-              <textarea disabled={Boolean(previewDocument)} value={chatInput} onChange={(event) => setChatInput(event.target.value)}
-                placeholder="描述希望的布局变化…" rows={3}
-                onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendIntent(); } }} />
+            <div className="gemini-composer antd-composer">
+              <Sender value={chatInput} onChange={setChatInput} onSubmit={() => sendIntent()} loading={chatBusy}
+                disabled={Boolean(previewDocument)} placeholder="描述希望的布局变化…" autoSize={{ minRows: 2, maxRows: 5 }} submitType="enter" />
               <div className="gemini-composer-footer">
                 <span>{chatBusy ? <><i className="spinner" /> 正在分析布局意图…</> : "Enter 发送 · Shift + Enter 换行"}</span>
-                <button type="submit" disabled={chatBusy || Boolean(previewDocument) || !chatInput.trim()} aria-label="发送布局意图">↑</button>
               </div>
-            </form>
+            </div>
             <div className="gemini-privacy-note">本地布局规则负责坐标与质量检查；配置外部模型时，只会发送布局请求和有限的图形元数据。API Key 不写入浏览器持久存储。</div>
           </section>
         </div>
