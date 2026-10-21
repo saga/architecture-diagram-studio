@@ -128,7 +128,7 @@ function compactDiagram(document: any, includeDetails: boolean): unknown {
   };
 }
 function semanticDiff(a: any, b: any): unknown {
-  const keyed = (items: any[]) => new Map((items || []).map((item: any) => [item.id, item]));
+  const keyed = (items: any[]) => new Map<string, any>((items || []).map((item: any) => [String(item.id), item] as const));
   const compare = (left: any[], right: any[]) => {
     const oldMap = keyed(left), newMap = keyed(right), added: any[] = [], removed: any[] = [], changed: any[] = [];
     for (const [id, value] of newMap) { if (!oldMap.has(id)) added.push(value); else if (JSON.stringify(oldMap.get(id)) !== JSON.stringify(value)) changed.push({ id, before: oldMap.get(id), after: value }); }
@@ -266,7 +266,7 @@ rl.on("line", (line) => {
       } else if (request.method === "tools/call") {
         try {
           const result = await callTool(String(request.params?.name || ""), (request.params?.arguments || {}) as Record<string, unknown>);
-          const serialized = JSON.stringify(result, null, 2);
+          const serialized = JSON.stringify(result, null, 2) ?? "null";
           if (serialized.length > MAX_RESULT_CHARS) send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "Tool result exceeded the 1 MiB response limit; narrow the query or request a smaller result." }], isError: true } });
           else send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: serialized }], isError: false } });
         } catch (error) {
