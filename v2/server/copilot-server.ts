@@ -21,6 +21,12 @@ const WORKSPACE_FILE = path.join(DATA_DIR, "workspace.json");
 const VERSIONS_FILE = path.join(DATA_DIR, "diagram-versions.json");
 const APP_LOG_FILE = path.join(DATA_DIR, "application-events.jsonl");
 const PROJECT_WORKSPACE_FILE = path.join(DATA_DIR, "project-workspace.json");
+const CONFIG_HISTORY_FILE = path.join(DATA_DIR, "studio-config-history.jsonl");
+type StudioConfig = { schemaVersion: 1; layoutProfiles: string[]; prompts: { system: string; task: string; planTool: string }; updatedAt: string; updatedBy: string };
+const DEFAULT_STUDIO_CONFIG: StudioConfig = { schemaVersion: 1, layoutProfiles: ["elk-layered", "elk-mrtree", "elk-radial", "elk-stress", "elk-force", "dagre-layered"], prompts: { system: "You are an architecture diagram assistant. Analyze the active workspace and current diagram. Propose only validated layout commands; never claim to have changed the diagram.", task: "Create a concise, actionable layout plan. Respect the diagram type, preserve semantic meaning, and explain the intended result.", planTool: "Return a structured plan using propose_layout_plan. Do not execute mutations directly." }, updatedAt: new Date(0).toISOString(), updatedBy: "default" };
+let studioConfig: StudioConfig | null = null;
+async function getStudioConfig(): Promise<StudioConfig> { if (studioConfig) return studioConfig; const lines = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error)); const records = lines.split(/\\r?\\n/).filter(Boolean); if (records.length) { try { studioConfig = JSON.parse(records[records.length - 1]) as StudioConfig; } catch { studioConfig = { ...DEFAULT_STUDIO_CONFIG, prompts: { ...DEFAULT_STUDIO_CONFIG.prompts } }; } } else studioConfig = { ...DEFAULT_STUDIO_CONFIG, prompts: { ...DEFAULT_STUDIO_CONFIG.prompts } }; return studioConfig; }
+async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> { await mkdir(DATA_DIR, { recursive: true }); await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary, revisionId: randomUUID() }) + "\\n", "utf8"); studioConfig = config; }
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFileEntry = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 let projectWorkspace: ProjectWorkspace | null | undefined;
@@ -125,6 +131,35 @@ const ALLOWED_COMMANDS = new Set([
   "布局方向从上到下", "重新自动排版", "解除手动锁定"
 ]);
 
+app.get("/api/workspace/configuration", async (_req, res) => {
+  try {
+    const config = await getStudioConfig();
+    const historyText = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
+    const revisions = historyText.split(/\\r?\\n/).filter(Boolean).length;
+    res.json({ config, revisions, historyFile: CONFIG_HISTORY_FILE });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+app.get("/api/workspace/configuration/history", async (_req, res) => {
+  try {
+    const text = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
+    res.json({ revisions: text.split(/\\r?\\n/).filter(Boolean).map((line) => { try { const item = JSON.parse(line); return { revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy, changeSummary: item.changeSummary, layoutProfiles: item.layoutProfiles, prompts: item.prompts }; } catch { return null; } }).filter(Boolean) });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+app.put("/api/workspace/configuration", async (req, res) => {
+  const input = req.body?.config;
+  const allowedProfiles = new Set(DEFAULT_STUDIO_CONFIG.layoutProfiles);
+  if (!input || !Array.isArray(input.layoutProfiles) || input.layoutProfiles.some((item: unknown) => typeof item !== "string" || !allowedProfiles.has(item)) || !input.prompts || ["system", "task", "planTool"].some((key) => typeof input.prompts[key] !== "string" || input.prompts[key].length > 12000)) {
+    res.status(400).json({ error: "配置无效：布局算法必须在支持列表中，Prompt 必须为字符串且不超过 12000 字符" }); return;
+  }
+  try {
+    const config: StudioConfig = { schemaVersion: 1, layoutProfiles: [...new Set(input.layoutProfiles)], prompts: { system: input.prompts.system, task: input.prompts.task, planTool: input.prompts.planTool }, updatedAt: new Date().toISOString(), updatedBy: "user" };
+    const previous = await getStudioConfig();
+    await withDataWrite(async () => appendStudioConfig(config, "更新布局算法选项与 Copilot prompts"));
+    await writeLog("settings.configuration.saved", { layoutProfiles: config.layoutProfiles, promptLengths: Object.fromEntries(Object.entries(config.prompts).map(([key, value]) => [key, value.length])), previousUpdatedAt: previous.updatedAt });
+    res.json({ config, saved: true });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+
 app.post("/api/workspace/layout", async (req, res) => {
   const document = req.body?.document;
   if (!isDiagramDocument(document)) {
@@ -138,6 +173,8 @@ app.post("/api/workspace/layout", async (req, res) => {
       nodeCount: document.nodes.length, relationCount: document.relations.length,
       profile: document.layout.profile, direction: document.layout.direction
     });
+    const config = await getStudioConfig();
+    if (!config.layoutProfiles.includes(document.layout.profile)) { res.status(400).json({ error: `布局算法 ${document.layout.profile} 已在配置中禁用` }); return; }
     const result = await layoutDiagram(document);
     await writeLog("layout.completed", {
       documentId: document.id, durationMs: Date.now() - startedAt,
@@ -554,7 +591,7 @@ async function getOrResumeSession(sessionId: string, model: string, reasoningEff
     session = await client.resumeSession(sessionId, {
       streaming: true,
       tools: [createProposeLayoutPlanTool(sessionId)],
-      systemMessage: { content: await buildSystemMessage() }
+      systemMessage: { content: [await buildSystemMessage(), config.prompts.system, config.prompts.task, config.prompts.planTool].filter(Boolean).join("\\n\\n") }
     });
     resumed = true;
   } catch (resumeError) {
