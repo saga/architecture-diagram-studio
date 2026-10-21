@@ -95,12 +95,23 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const y = 148 + order * 72;
     const sourceX = source.x + source.width / 2;
     const targetX = target.x + target.width / 2;
-    const fromX = sourceX < targetX ? source.x + source.width : source.x;
-    const toX = sourceX < targetX ? target.x : target.x + target.width;
-    const fromId = relation.id + "__messageSourceAnchor";
-    const toId = relation.id + "__messageTargetAnchor";
-    vertices.push(invisiblePoint(fromId, fromX, y), invisiblePoint(toId, toX, y));
-    edges.push(edgeXml({ ...relation, points: [] }, "polyline", fromId, toId));
+    const leftToRight = sourceX < targetX;
+    const fromX = leftToRight ? source.x + source.width : source.x;
+    const toX = leftToRight ? target.x : target.x + target.width;
+    const style = mxEdgeStyle({ ...relation, points: [], routing: "polyline" }, "polyline") +
+      ";studioSource=" + esc(relation.source) + ";studioTarget=" + esc(relation.target) +
+      ";studioKind=" + relation.kind +
+      (relation.sequenceOrder === undefined ? "" : ";studioSequenceOrder=" + relation.sequenceOrder) + ";";
+    // A sequence message is a time-positioned, floating edge rather than a normal
+    // node-to-node connector. Using invisible 1x1 anchor vertices is unreliable in
+    // mxGraph: imported edges may be retained in XML but not painted by the editor.
+    // Explicit sourcePoint/targetPoint geometry renders consistently and metadata
+    // preserves the semantic participant endpoints when Draw.io autosaves.
+    edges.push("<mxCell id=\"" + esc(relation.id) + "\" value=\"" + esc(relation.label) +
+      "\" style=\"" + esc(style) + "\" edge=\"1\" parent=\"1\"><mxGeometry relative=\"1\" as=\"geometry\">" +
+      "<mxPoint x=\"" + Math.round(fromX) + "\" y=\"" + Math.round(y) + "\" as=\"sourcePoint\"/>" +
+      "<mxPoint x=\"" + Math.round(toX) + "\" y=\"" + Math.round(y) + "\" as=\"targetPoint\"/>" +
+      "</mxGeometry></mxCell>");
   }
   return { vertices: vertices.join(""), edges: edges.join("") };
 }
