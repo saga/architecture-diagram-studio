@@ -26,6 +26,18 @@ function kindFor(filePath: string): string {
   if (DOC_EXTS.has(ext)) return "document";
   return "other";
 }
+function matchesPattern(relativePath: string, pattern: string): boolean {
+  let escaped = "";
+  const source = pattern.trim();
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "*") { if (source[i + 1] === "*") { escaped += ".*"; i++; } else escaped += "[^/]*"; }
+    else if (ch === "?") escaped += "[^/]";
+    else if (".+^$()|{}[]".includes(ch) || ch === "\\") escaped += "\\" + ch;
+    else escaped += ch;
+  }
+  try { return new RegExp("^" + escaped + "$").test(relativePath.replace(/\\/g, "/")); } catch { return false; }
+}
 async function listFiles(workspace: Workspace): Promise<FileEntry[]> {
   const root = await realpath(workspace.rootPath);
   const files: FileEntry[] = [];
@@ -38,9 +50,10 @@ async function listFiles(workspace: Workspace): Promise<FileEntry[]> {
       if (EXCLUDED_DIRS.has(entry.name) || entry.isSymbolicLink()) continue;
       const absolute = path.join(dir, entry.name);
       const relative = path.relative(root, absolute).split(path.sep).join("/");
-      if (workspace.excludePatterns?.some((p) => relative === p || relative.startsWith(p.replace(/\/$/, "") + "/"))) continue;
+      if (workspace.excludePatterns?.some((p) => matchesPattern(relative, p))) continue;
       if (entry.isDirectory()) { await walk(absolute, depth + 1); continue; }
       if (!entry.isFile()) continue;
+      if (workspace.includePatterns?.length && !workspace.includePatterns.some((p) => matchesPattern(relative, p))) continue;
       const info = await stat(absolute).catch(() => null);
       if (info) files.push({ path: relative, name: entry.name, kind: kindFor(relative), size: info.size, modifiedAt: info.mtime.toISOString() });
     }
