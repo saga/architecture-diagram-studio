@@ -380,19 +380,19 @@ button:disabled { opacity: .58; cursor: wait; }
 
 /* UI colour themes. Each theme is applied to the complete workspace, not only the buttons. */
 .app-shell {
-  --theme-app-bg: #f5f6f8;
-  --theme-panel: #ffffff;
-  --theme-canvas: #ffffff;
-  --theme-grid: #e4e8ef;
-  --theme-text: #1b2839;
-  --theme-secondary: #415168;
-  --theme-muted: #647287;
-  --theme-border: #dce3ec;
-  --theme-accent: #425bc7;
-  --theme-soft: #edf1ff;
-  --theme-nav-bg: #f5f7fb;
-  --theme-input-bg: #ffffff;
-  --theme-input-text: #26364a;
+  --theme-app-bg: #E7EBF2;
+  --theme-panel: #FFFFFF;
+  --theme-canvas: #F3F5FA;
+  --theme-grid: #C7D1E0;
+  --theme-text: #0C1626;
+  --theme-secondary: #2C3D53;
+  --theme-muted: #4A5A70;
+  --theme-border: #AEBACB;
+  --theme-accent: #2A42B4;
+  --theme-soft: #DFE6FF;
+  --theme-nav-bg: #EDF0F6;
+  --theme-input-bg: #FFFFFF;
+  --theme-input-text: #142236;
   background: var(--theme-app-bg);
   color: var(--theme-text);
 }
@@ -675,6 +675,9 @@ button:disabled { opacity: .58; cursor: wait; }
 
 .app-shell[data-theme="youth"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b5476; }
 .app-shell[data-theme="warm"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b6c57; }
+/* Node outlines follow each theme's hue; the shared ink-blue stroke looked foreign on warm paper. */
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node path:first-child { stroke: #9A7550; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node path:first-child { stroke: #A05580; }
 
 
 .app-shell[data-theme="midnight"] .workspace-page .trace-entry-details { color: #d4deee; background: #111c2d; }
@@ -907,4 +910,190 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 180px minmax(360px, 1fr); }
   .app-shell .right-panel { display: none; }
+}
+
+
+/* Contrast pass. The chrome had drifted into pastel greys (#96a0af captions, #e2e6ed
+   hairlines, #f6f7f9 panels) that disappeared at 100% zoom. Anything carrying meaning now
+   inherits the theme ink ramp, and hairlines use the theme border instead of a local grey. */
+.app-shell .workspace-label,
+.app-shell .section-heading,
+.app-shell .panel-section-heading,
+.app-shell .canvas-kicker { color: var(--theme-secondary); font-weight: 700; }
+.app-shell .section-heading span { color: var(--theme-muted); }
+.app-shell .diagram-kind,
+.app-shell .diagram-kind:not(.active) b,
+.app-shell .add-grid button,
+.app-shell .button-quiet { color: var(--theme-secondary); }
+.app-shell .diagram-kind small { color: var(--theme-muted); }
+.app-shell .kind-icon { border-color: var(--theme-border); }
+.app-shell .offline-card b,
+.app-shell .lock-row b,
+.app-shell .connected-relation-direction,
+.app-shell .quality-score-line strong,
+.app-shell .metric strong { color: var(--theme-text); }
+.app-shell .offline-card small,
+.app-shell .lock-row small,
+.app-shell .quality-score-line small,
+.app-shell .status-right,
+.app-shell .brand-name span,
+.app-shell .brand-caption,
+.app-shell .canvas-subtitle,
+.app-shell .quality-footnote { color: var(--theme-muted); }
+.app-shell .segmented { background: var(--theme-nav-bg); border-color: var(--theme-border); }
+.app-shell .segmented button { color: var(--theme-secondary); }
+.app-shell .segmented button.selected { background: var(--theme-panel); color: var(--theme-text); }
+.app-shell .add-grid button,
+.app-shell .relation-actions button,
+.app-shell .sequence-fragment-card,
+.app-shell .connected-relation,
+.app-shell .offline-card,
+.app-shell .metric-grid,
+.app-shell .metric,
+.app-shell .relation-editor,
+.app-shell .connected-relations,
+.app-shell .sequence-fragment-editor { border-color: var(--theme-border); }
+.app-shell .canvas-stage { box-shadow: 0 4px 14px #0c162614; }
+.app-shell .relation-label-text { fill: var(--theme-text); }
+
+
+/* ============================================================================
+   Typography system.
+   The studio used to carry 16 different font sizes (7px–26px) with five
+   weights and a dozen near-identical greys. Everything below collapses that
+   into two sizes, one weight and one text colour per theme; components no
+   longer declare their own type scale.
+   ========================================================================== */
+:root {
+  --font-normal: 13px;
+  --font-large: 20px;
+  --font-weight: 500;
+}
+
+.app-shell,
+.app-shell * {
+  font-size: var(--font-normal) !important;
+  font-weight: var(--font-weight) !important;
+  letter-spacing: normal !important;
+  font-family: inherit !important;
+  color: var(--theme-text) !important;
+}
+
+/* One family for interface text. Monospace stays for code, logs and raw data. */
+.app-shell code,
+.app-shell pre,
+.app-shell kbd,
+.app-shell samp,
+.app-shell .trace-entry-details,
+.app-shell .terminal-example code,
+.app-shell .settings-description code,
+.app-shell .drawio-missing code,
+.app-shell .drawio-render-lab-xml textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+}
+
+/* The only large size: page, panel and metric headings. */
+.app-shell .canvas-title,
+.app-shell .page-hero h1,
+.app-shell .copilot-page-hero h1,
+.app-shell .settings-card-heading h2,
+.app-shell .gemini-welcome h2,
+.app-shell .trace-empty h2,
+.app-shell .drawio-missing h3,
+.app-shell .metric strong,
+.app-shell .trace-metrics strong,
+.app-shell .quality-score,
+.app-shell .brand-name {
+  font-size: var(--font-large) !important;
+}
+
+/* Text sitting on a solid accent surface keeps its inverted colour. */
+.app-shell .button-primary,
+.app-shell .button-primary *,
+.app-shell .preview-accept,
+.app-shell .preview-accept *,
+.app-shell .ant-btn-primary,
+.app-shell .ant-btn-primary *,
+.app-shell .gemini-composer-footer button,
+.app-shell .chat-input-wrap button,
+.app-shell .copilot-mark,
+.app-shell .gemini-avatar,
+.app-shell .assistant-avatar { color: #ffffff !important; }
+.app-shell .terminal-example code,
+.app-shell .terminal-example > span { color: #e8edf8 !important; }
+
+/* Placeholders keep the single text colour, dimmed rather than re-tinted. */
+.app-shell ::placeholder { color: var(--theme-text); opacity: .45; }
+
+/* Portalled antd surfaces live outside .app-shell, so they only inherit the scale. */
+.ant-select-dropdown,
+.ant-select-dropdown *,
+.ant-modal-root .ant-modal,
+.ant-modal-root .ant-modal *,
+.ant-tooltip,
+.ant-tooltip * {
+  font-size: var(--font-normal);
+  font-weight: var(--font-weight);
+  letter-spacing: normal;
+}
+
+/* Layout follows the larger type: the sidebar and inspector need more room than the
+   9px-label era, and the trace toolbar stacks instead of colliding with its caption. */
+.app-shell { grid-template-columns: 240px minmax(460px, 1fr) minmax(360px, 400px); }
+.topbar { gap: 12px; padding: 0 16px; }
+.topbar-actions { gap: 6px; }
+.app-shell .button,
+.app-shell .toolbar-button { padding: 7px 10px; }
+.trace-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+.trace-toolbar > span { text-align: left; }
+@media (max-width: 1480px) {
+  .app-shell { grid-template-columns: 220px minmax(420px, 1fr) 360px; }
+}
+@media (max-width: 1200px) {
+  .app-shell { grid-template-columns: 210px minmax(360px, 1fr) 340px; }
+}
+
+/* Sidebar starts at the top edge now that the redundant section labels are gone. */
+.left-panel { padding-top: 14px; }
+.side-section { padding-bottom: 12px; margin-bottom: 12px; }
+.diagram-kind { padding: 8px; }
+.app-shell .section-heading { padding: 0 9px 6px; }
+/* The canvas footer strip is gone, so the zoom chip sits on the canvas edge. */
+.zoom-indicator { bottom: 12px; }
+.bottom-status { margin-bottom: 8px; }
+
+/* ---------------------------------------------------------------------------
+   Resizable sidebars: a 5px gutter between the panels carries the drag handle,
+   and the widths live in --left-w / --right-w so the grid stays declarative.
+   ------------------------------------------------------------------------- */
+.app-shell { grid-template-columns: var(--left-w, 240px) 5px minmax(320px, 1fr) 5px var(--right-w, 380px); }
+.panel-resizer { position: relative; z-index: 6; cursor: col-resize; background: transparent; touch-action: none; }
+.panel-resizer:before { content: ""; position: absolute; inset: 0 -3px; }
+.panel-resizer:after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: var(--theme-border); transition: background .12s, width .12s; }
+.panel-resizer:hover:after,
+.panel-resizer:active:after { background: var(--theme-accent); width: 2px; left: 1.5px; }
+body.resizing-panels { cursor: col-resize; user-select: none; }
+body.resizing-panels .panel-resizer:after { background: var(--theme-accent); width: 2px; }
+
+/* Canvas context menu, the Studio counterpart of the Draw.io right-click menu. */
+.canvas-menu { position: fixed; z-index: 40; min-width: 190px; padding: 4px; border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-panel); box-shadow: 0 8px 24px #0c16261f; display: flex; flex-direction: column; }
+.canvas-menu-title { padding: 6px 8px 7px; border-bottom: 1px solid var(--theme-border); margin-bottom: 3px; color: var(--theme-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.canvas-menu button { border: 0; background: transparent; text-align: left; padding: 7px 8px; border-radius: 5px; color: var(--theme-text); }
+.canvas-menu button:hover { background: var(--theme-soft); }
+.canvas-menu button.danger { color: var(--theme-text); }
+.canvas-menu button.danger:hover { background: #fdeaea; }
+
+/* Copilot: one surface instead of nested frames — no bubble chrome, no double composer border. */
+.app-shell .gemini-message.assistant .ant-bubble .ant-bubble-content { background: transparent; border: 0; padding: 0; }
+.app-shell .gemini-message.user .ant-bubble .ant-bubble-content { background: var(--theme-soft); border: 0; }
+.app-shell .gemini-message-role { display: none; }
+.app-shell .right-copilot-panel .gemini-composer { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
+.app-shell .right-copilot-panel .antd-composer .ant-sender { border-radius: 10px; }
+.app-shell .right-copilot-panel .gemini-composer { margin: 0 2px 6px; }
+/* The gutter draws the divider, so the panels drop their own edge borders. */
+.app-shell .left-panel { border-right: 0; }
+.app-shell .right-panel { border-left: 0; }
+@media (max-width: 980px) {
+  .app-shell { grid-template-columns: var(--left-w, 240px) 5px minmax(280px, 1fr); }
+  .app-shell .panel-resizer-right { display: none; }
 }

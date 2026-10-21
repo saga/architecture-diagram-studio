@@ -2,7 +2,7 @@ import { Children, isValidElement, useCallback, useEffect, useRef, useState } fr
 import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
-import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { hasStackedGeometry, isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
@@ -39,8 +39,22 @@ function loadSavedTheme(): UiTheme {
   } catch { /* Theme selection is optional when browser storage is disabled. */ }
   return "warm";
 }
-function loadSavedAISettings(): SavedAISettings {
+type PanelWidths = { left: number; right: number };
+type CanvasMenu = { x: number; y: number; kind: "node" | "relation" | "canvas"; id?: string };
+const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { left: [190, 420], right: [300, 620] };
+const PANEL_STORAGE_KEY = "architecture-diagram-studio:v2:panel-widths";
+function loadPanelWidths(): PanelWidths {
   try {
+    const raw = window.localStorage.getItem(PANEL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PanelWidths>;
+      if (typeof parsed.left === "number" && typeof parsed.right === "number") return { left: parsed.left, right: parsed.right };
+    }
+  } catch { /* Fall back to the default sidebar widths. */ }
+  return { left: 240, right: 380 };
+}
+
+function loadSavedAISettings(): SavedAISettings {  try {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
@@ -141,6 +155,8 @@ export default function App() {
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
+  const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
+  const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("studio");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
@@ -501,6 +517,30 @@ export default function App() {
       setLastAction("Browser storage is unavailable; this session can still be edited");
     }
   }, [document]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(panelWidths));
+    } catch {
+      // Resized widths stay for this session only.
+    }
+  }, [panelWidths]);
+
+  useEffect(() => {
+    if (!canvasMenu) return;
+    const close = () => setCanvasMenu(null);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [canvasMenu]);
 
   useEffect(() => {
     try {
@@ -992,19 +1032,43 @@ export default function App() {
     commitDocument(next, routingChanged ? "Relation routing updated" : "Relation line style updated");
   }
 
-  async function removeSelectedNode() {
-    if (!selectedNode) return;
+  async function removeNodeById(nodeId: string) {
     setSelectedRelationId(null);
     const next = await requestServerSequenceNormalize({
       ...document,
-      nodes: document.nodes.filter((node) => node.id !== selectedNode.id),
-      relations: document.relations.filter((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id),
-      boundaries: document.boundaries.map((boundary) => ({ ...boundary, members: boundary.members.filter((id) => id !== selectedNode.id) })),
-      flow: document.flow ? { ...document.flow, primaryPath: document.flow.primaryPath.filter((id) => id !== selectedNode.id) } : undefined,
-      sequence: document.sequence ? { ...document.sequence, participants: document.sequence.participants.filter((id) => id !== selectedNode.id) } : undefined
+      nodes: document.nodes.filter((node) => node.id !== nodeId),
+      relations: document.relations.filter((relation) => relation.source !== nodeId && relation.target !== nodeId),
+      boundaries: document.boundaries.map((boundary) => ({ ...boundary, members: boundary.members.filter((id) => id !== nodeId) })),
+      flow: document.flow ? { ...document.flow, primaryPath: document.flow.primaryPath.filter((id) => id !== nodeId) } : undefined,
+      sequence: document.sequence ? { ...document.sequence, participants: document.sequence.participants.filter((id) => id !== nodeId) } : undefined
     });
     setSelectedNodeId(next.nodes[0]?.id || null);
     commitDocument(next, "Node and its relations removed");
+  }
+
+  async function removeSelectedNode() {
+    if (!selectedNode) return;
+    await removeNodeById(selectedNode.id);
+  }
+
+  /** Drag a sidebar edge to resize it; the width is persisted with the rest of the UI preferences. */
+  function startPanelResize(side: keyof PanelWidths, event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = panelWidths[side];
+    const [min, max] = PANEL_LIMITS[side];
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
+      setPanelWidths((current) => ({ ...current, [side]: Math.min(max, Math.max(min, startWidth + delta)) }));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.document.body.classList.remove("resizing-panels");
+    };
+    window.document.body.classList.add("resizing-panels");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   function resetDiagram() {
@@ -1221,7 +1285,7 @@ export default function App() {
     >
       <XProvider>
         <AntApp>
-    <Layout className="app-shell" data-theme={uiTheme}>
+    <Layout className="app-shell" data-theme={uiTheme} style={{ "--left-w": panelWidths.left + "px", "--right-w": panelWidths.right + "px" } as CSSProperties}>
       <Modal title="Set up project workspace" open={!workspaceChecking && workspaceSetupOpen} closable={Boolean(projectWorkspace)} maskClosable={false} onCancel={() => { if (projectWorkspace) setWorkspaceSetupOpen(false); }} footer={null} width={680}>
         <div style={{ display: "grid", gap: 16, paddingTop: 8 }}>
           <p>The workspace is the project boundary for every diagram edit, code analysis and agent run. The repository root is pre-filled and recommended, but any project root works; the server scans it for Draw.io diagrams, code and design docs, and stores the config as JSON.</p>
@@ -1241,7 +1305,7 @@ export default function App() {
             <div key={version.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 0", borderBottom: "1px solid var(--border, #e5e7eb)" }}>
               <div style={{ minWidth: 0 }}>
                 <strong>{version.title || "Untitled diagram"} · {version.label}</strong>
-                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{new Date(version.createdAt).toLocaleString()} · {version.id}</div>
+                <div style={{ opacity: 0.7, marginTop: 4 }}>{new Date(version.createdAt).toLocaleString()} · {version.id}</div>
               </div>
               <UiButton type="button" className="button button-secondary" onClick={() => void restoreVersion(version.id)}>Restore</UiButton>
             </div>
@@ -1277,34 +1341,31 @@ export default function App() {
           <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
-          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Native Draw.io" : "Studio canvas"}</UiButton>
+          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Freeform editor" : "Studio canvas"}</UiButton>
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to canvas</UiButton></div>}
       </header>
 
       {activePage === "studio" ? (
         <>
       <aside className="left-panel">
-        <div className="workspace-label">DIAGRAM WORKSPACE</div>
         {projectWorkspace && <div className="workspace-card" title={projectWorkspace.rootPath}>
           <b>{projectWorkspace.name}</b>
-          <small>{projectWorkspace.rootPath}</small>
           <UiButton type="button" className="workspace-switch" onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</UiButton>
         </div>}
         <div className="side-section">
-          <div className="section-heading">Diagram kind <span>03</span></div>
           <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
-            <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 architecture</b><small>Context · Container · Component</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 architecture</b></span>
           </UiButton>
           <UiButton className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
-            <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>Process flow</b><small>Main path · Branch · Merge</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>Process flow</b></span>
           </UiButton>
           <UiButton className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
-            <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>Sequence diagram</b><small>Participant · Message · Return</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>Sequence diagram</b></span>
           </UiButton>
         </div>
 
         <div className="side-section components-section">
-          <div className="section-heading">Add element <span>+</span></div>
+          <div className="section-heading">Add element</div>
           <div className="add-grid">
             <button type="button" onClick={() => addNode("ui")}><span className="add-glyph">▱</span>UI</button>
             <button type="button" onClick={() => addNode("domain")}><span className="add-glyph">▰</span>Business service</button>
@@ -1314,19 +1375,12 @@ export default function App() {
             <button type="button" onClick={() => addNode("decision")}><span className="add-glyph">◇</span>Decision / branch</button>
           </div>
         </div>
-
-        <div className="side-bottom">
-          <div className="offline-card"><span className="local-indicator" /><div><b>Local-first workspace</b><small>Layout, quality checks and export run locally</small></div></div>
-          <div className="v1-note">V2 · independent implementation</div>
-        </div>
       </aside>
+      <div className="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the left sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("left", event)} />
 
       <main className="main-panel">
         <div className="canvas-toolbar">
-          <div>
-            <div className="canvas-kicker">{document.kind === "c4" ? "SYSTEM ARCHITECTURE" : document.kind === "flowchart" ? "PROCESS DESIGN" : "INTERACTION DESIGN"} <span>/</span> STUDIO EDITORIAL</div>
-            <div className="canvas-title">{visibleDocument.title}<span className="canvas-subtitle">V2 semantic canvas</span>{previewDocument && <span className="preview-pill">PREVIEW</span>}</div>
-          </div>
+          <div className="canvas-title">{visibleDocument.title}{previewDocument && <span className="preview-pill">PREVIEW</span>}</div>
           <div className="canvas-tools">
             {previewDocument && <div className="preview-toolbar-actions">
               <UiButton type="button" className="preview-discard" onClick={discardPreview}>Discard preview</UiButton>
@@ -1357,8 +1411,7 @@ export default function App() {
               </UiSelect>
             </label>
             <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
-            <div className="segmented"><UiButton disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</UiButton></div>
-            <UiButton className="toolbar-button" type="button" title="Compare Studio and the real Draw.io embed side by side on a standalone page" onClick={() => window.open("/drawio-lab", "_blank", "noopener,noreferrer")}>Render lab ↗</UiButton>
+            <div className="segmented"><UiButton disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")} title="Freeform editing in the embedded Draw.io canvas">Freeform</UiButton></div>
           </div>
         </div>
 
@@ -1366,6 +1419,11 @@ export default function App() {
           {viewMode === "studio" ? (
             <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
               selectedRelationId={selectedRelationId} onSelectNode={selectNode} onSelectRelation={selectRelation}
+              onContextMenu={(target, x, y) => {
+                if (target.kind === "node") { setSelectedNodeId(target.id || null); setSelectedRelationId(null); }
+                if (target.kind === "relation") setSelectedRelationId(target.id || null);
+                setCanvasMenu({ x, y, kind: target.kind, id: target.id });
+              }}
               onMoveNode={(id, x, y) => {
                 // The drop is applied locally and committed right away. The server call used to own this step,
                 // so a slow or unreachable API made the node fall back into its previous spot on release,
@@ -1402,19 +1460,19 @@ export default function App() {
           ) : (
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
           )}
-          <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>Drag empty canvas to pan · drag nodes to reposition · auto layout respects locked nodes</span></div>
           {viewMode === "studio" && <div className="zoom-indicator">
             <UiButton type="button" className="zoom-control" aria-label="Zoom out" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</UiButton>
             <UiButton type="button" className="zoom-percent" aria-label="Reset canvas view" title="Reset pan and zoom" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</UiButton>
             <UiButton type="button" className="zoom-control" aria-label="Zoom in" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</UiButton>
           </div>}
         </div>
-        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout: {document.layout.profile || "elk-layered"}</span></div></div>
+        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span></div></div>
       </main>
+      <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
 
       <aside className="right-panel">
         <div className="right-tabs" role="tablist" aria-label="Inspector panel">
-          {([["properties", "Properties"], ["quality", "Quality"], ["design", "Style"], ["copilot", "Layout Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
+          {([["properties", "Properties"], ["quality", "Quality"], ["copilot", "Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
             <button key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
               className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
               onClick={() => setRightPanelTab(tab)}>{label}</button>
@@ -1435,7 +1493,6 @@ export default function App() {
           />
         </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
-          <div className="panel-section-heading"><span>SELECTED ELEMENT</span><span className="small-icon">⌗</span></div>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
               <div className="field-label">Selected relation · source</div>
@@ -1467,9 +1524,9 @@ export default function App() {
               </UiSelect>
               <div className="field-label">Technology / platform</div><UiInput key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="e.g. Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">Description</div><UiTextArea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="What this component is responsible for…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
-              <label className="lock-row"><UiInput type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>Lock current position</b><small>Keep this node in place during layout</small></span></label>
+              <label className="lock-row"><UiInput type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>Lock position</b></span></label>
               <div className="relation-editor">
-                <div className="field-label">Create relation (current node → target)</div>
+                <div className="field-label">Add relation</div>
                 <UiSelect className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
                   <option value="">Pick a target node…</option>
                   {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
@@ -1557,25 +1614,17 @@ export default function App() {
         </section>}
         {rightPanelTab === "quality" && <section className="quality-section">
           {!quality ? <div className="quality-footnote">Evaluating layout quality on the server…</div> : <>
-          <div className="panel-section-heading"><span>LAYOUT QUALITY</span><span className="quality-score">{quality.score}</span></div>
-          <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "Layout looks healthy" : quality.metrics.nodeOverlaps ? "Overlaps need fixing" : "Check the connections"}</strong><small>Deterministic quality check · not a subjective model score</small></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
+          <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "Layout looks healthy" : quality.metrics.nodeOverlaps ? "Overlaps need fixing" : "Check the connections"}</strong></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
           <div className="metric-grid">
             <div className={quality.metrics.nodeOverlaps ? "metric bad" : "metric"}><strong>{quality.metrics.nodeOverlaps}</strong><span>Node overlaps</span></div>
             <div className={quality.metrics.edgeNodeIntersections ? "metric bad" : "metric"}><strong>{quality.metrics.edgeNodeIntersections}</strong><span>Edges through nodes</span></div>
             <div className={quality.metrics.edgeCrossings ? "metric warn" : "metric"}><strong>{quality.metrics.edgeCrossings}</strong><span>Possible crossings</span></div>
             <div className="metric"><strong>{Math.round(quality.metrics.whitespaceScore * 100)}%</strong><span>Whitespace</span></div>
           </div>
-          <div className="quality-footnote">{quality.errors.length ? quality.errors[0].message : quality.warnings.length ? quality.warnings[0].message : "No node overlaps. The check keeps evaluating line crossings and whitespace."}</div>
+          {quality.errors.length > 0 && <div className="quality-footnote">{quality.errors[0].message}</div>}
           </>}
         </section>}
-        {rightPanelTab === "design" && <section className="design-section">
-          <div className="panel-section-heading"><span>STYLE RULES</span><span className="small-icon">◌</span></div>
-          <div className="style-rule"><span className="style-rule-mark mark-solid" /><div><b>Low-contrast borders</b><small>1px · neutral surface</small></div></div>
-          <div className="style-rule"><span className="style-rule-mark mark-flow" /><div><b>Restrained semantic color</b><small>Color encodes responsibility, never randomization</small></div></div>
-          <div className="style-rule"><span className="style-rule-mark mark-spacing" /><div><b>Structured whitespace</b><small>{document.layout.nodeSpacing}px node · {document.layout.layerSpacing}px layer</small></div></div>
-        </section>}
-      </aside>
-        </>
+      </aside>        </>
       ) : (
         <WorkspacePages
           page={activePage}
@@ -1608,6 +1657,29 @@ export default function App() {
           onLayoutProfilesChanged={setEnabledLayoutProfiles}
         />
       )}
+      {canvasMenu && (() => {
+        const close = () => setCanvasMenu(null);
+        const menuNode = canvasMenu.kind === "node" ? document.nodes.find((node) => node.id === canvasMenu.id) : undefined;
+        const menuRelation = canvasMenu.kind === "relation" ? document.relations.find((relation) => relation.id === canvasMenu.id) : undefined;
+        return <div className="canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
+          {menuNode && <>
+            <div className="canvas-menu-title">{menuNode.name}</div>
+            <button type="button" role="menuitem" onClick={() => { changeNode({ layoutHints: { ...(menuNode.layoutHints || {}), locked: !menuNode.layoutHints?.locked } }); close(); }}>{menuNode.layoutHints?.locked ? "Unlock position" : "Lock position"}</button>
+            <button type="button" role="menuitem" onClick={() => { setRightPanelTab("properties"); close(); }}>Edit properties</button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { void removeNodeById(menuNode.id); close(); }}>Delete node</button>
+          </>}
+          {menuRelation && <>
+            <div className="canvas-menu-title">{menuRelation.label || "Relation"}</div>
+            <button type="button" role="menuitem" onClick={() => { void reverseRelation(menuRelation.id); close(); }}>Reverse direction</button>
+            <button type="button" role="menuitem" onClick={() => { setRightPanelTab("properties"); close(); }}>Edit relation</button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { void removeRelation(menuRelation.id); close(); }}>Delete relation</button>
+          </>}
+          {canvasMenu.kind === "canvas" && <>
+            <button type="button" role="menuitem" onClick={() => { void runLayout(); close(); }}>Auto layout</button>
+            <button type="button" role="menuitem" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); close(); }}>Reset view</button>
+          </>}
+        </div>;
+      })()}
     </Layout>
         </AntApp>
       </XProvider>

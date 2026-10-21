@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+public/drawio/
+!public/drawio/.gitkeep
+*.tsbuildinfo
+.DS_Store

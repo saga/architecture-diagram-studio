@@ -6,8 +6,8 @@ const node = (
 ): DiagramNode => ({
   id, name, role, visualRole, description, technology,
   x: 0, y: 0,
-  width: role === "decision" ? 156 : role === "actor" || role === "start" || role === "end" ? 154 : 190,
-  height: role === "decision" ? 84 : 82,
+  width: role === "decision" ? 172 : role === "actor" || role === "start" || role === "end" ? 168 : 206,
+  height: role === "decision" ? 92 : 90,
   layoutHints: {}
 });
 
@@ -84,7 +84,7 @@ export function createFlowFixture(): DiagramDocument {
   ];
   doc.nodes = doc.nodes.map((item) => ({
     ...item,
-    width: item.role === "decision" ? 156 : item.role === "start" || item.role === "end" ? 154 : 172
+    width: item.role === "decision" ? 172 : item.role === "start" || item.role === "end" ? 168 : 196
   }));
   doc.relations = [
     edge("f1", "start", "ingest", ""),

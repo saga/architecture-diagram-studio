@@ -65,7 +65,7 @@ export default function DrawioRenderLab() {
               onSelectRelation={(id) => { setSelectedRelationId(id); setSelectedNodeId(null); }}
               onMoveNode={(id, x, y) => { setNativeXml(null); setDocument((current) => ({
                 ...current, nodes: current.nodes.map((node) => node.id === id ? { ...node, x, y } : node)
-              })); }} />
+              })); }} onContextMenu={() => {}} />
           </div>
         </article>
         <article className="drawio-render-lab-panel">

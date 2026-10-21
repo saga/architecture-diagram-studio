@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
-import { Button, Checkbox, Input, Select, Tag } from "antd";
+import { Button, Checkbox, Input, Select } from "antd";
 import type { DiagramDocument } from "../model/types";
 import { LAYOUT_PROFILES } from "../layout/profiles";
 import type { DiagnosticEntry } from "../diagnostics";
@@ -116,7 +116,7 @@ function formattedTime(timestamp: string): string {
 
 export default function WorkspacePages(props: Props) {
   const {
-    page, document, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
+    page, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
     sendIntent, acceptPreview, discardPreview, openStudio, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
     saveAISettings, clearAISettings, traceEntries, refreshTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
@@ -180,21 +180,9 @@ export default function WorkspacePages(props: Props) {
     return (
       <main className="workspace-page copilot-workspace">
         <div className="page-content copilot-page-content">
-          <div className="page-hero copilot-page-hero">
-            <div>
-              <div className="page-eyebrow">LAYOUT COPILOT / SEMANTIC WORKFLOW</div>
-              <h1>Ask Layout Copilot</h1>
-              <p>Current document: {document.title}. Describe how the diagram should be organised, in plain language. Copilot turns the request into restricted layout commands; changes are shown as a preview and only written to the document once you confirm.</p>
-            </div>
-            <div className="page-hero-status"><i /><Tag color={aiModel.trim() ? "processing" : "default"}>{aiModel.trim() ? "GitHub Copilot SDK agent" : "Local rules mode"}</Tag></div>
-          </div>
-
           <section className="gemini-chat">
             <div className="gemini-chat-scroll">
               {messages.length === 0 && <div className="gemini-welcome">
-                <div className="gemini-spark">✳</div>
-                <h2>How should this diagram change?</h2>
-                <p>For example: put all external systems on the right; move databases to the bottom; make every relation orthogonal.</p>
                 <div className="prompt-suggestions">
                   {["Put all external systems on the right", "Move databases and storage to the bottom", "Make all relations dashed", "Change curves to polylines"].map((prompt) =>
                     <UiButton type="button" key={prompt} onClick={() => setChatInput(prompt)}>{prompt}<span>↗</span></UiButton>
@@ -223,11 +211,8 @@ export default function WorkspacePages(props: Props) {
             <div className="gemini-composer antd-composer">
               <Sender value={chatInput} onChange={setChatInput} onSubmit={() => sendIntent()} loading={chatBusy}
                 disabled={Boolean(previewDocument)} placeholder="Describe the layout change you want…" autoSize={{ minRows: 2, maxRows: 5 }} submitType="enter" />
-              <div className="gemini-composer-footer">
-                <span>{chatBusy ? <><i className="spinner" /> Analysing the layout request…</> : "Enter to send · Shift + Enter for a new line"}</span>
-              </div>
+              {chatBusy && <div className="gemini-composer-footer"><span><i className="spinner" /> Analysing the layout request…</span></div>}
             </div>
-            <div className="gemini-privacy-note">The local Copilot SDK agent produces a restricted layout plan; the agent cannot modify the diagram itself. Coordinates come from the local layout engine, and every change is previewed before you apply it.</div>
           </section>
         </div>
       </main>
@@ -239,17 +224,15 @@ export default function WorkspacePages(props: Props) {
       <main className="workspace-page traces-workspace">
         <div className="page-content">
           <div className="page-hero">
-            <div><div className="page-eyebrow">OBSERVABILITY / LOCAL SESSION</div><h1>Agent trace</h1>
-              <p>Records layout requests, model responses, preview and apply steps, the layout engine, Draw.io initialisation, import and export, and runtime failures. Events stay in this browser and are mirrored to the dev terminal.</p>
-            </div>
+            <div><h1>Agent trace</h1></div>
             <div className="page-hero-actions"><UiButton type="button" className="button button-secondary" onClick={() => window.location.reload()}>Reload page</UiButton><UiButton type="button" className="button button-quiet" onClick={refreshTraces}>Refresh trace</UiButton></div>
           </div>
 
           <div className="trace-metrics">
-            <div><span>All events</span><strong>{traceEntries.length}</strong><small>Server and browser events</small></div>
-            <div><span>Copilot steps</span><strong>{copilotCount}</strong><small>Requests, parsing, and results</small></div>
-            <div><span>Layout steps</span><strong>{layoutCount}</strong><small>Layout start, finish, and failure</small></div>
-            <div className={errorCount ? "has-errors" : ""}><span>Errors</span><strong>{errorCount}</strong><small>Exceptions and init failures</small></div>
+            <div><span>All events</span><strong>{traceEntries.length}</strong></div>
+            <div><span>Copilot steps</span><strong>{copilotCount}</strong></div>
+            <div><span>Layout steps</span><strong>{layoutCount}</strong></div>
+            <div className={errorCount ? "has-errors" : ""}><span>Errors</span><strong>{errorCount}</strong></div>
           </div>
 
           <div className="trace-toolbar">
@@ -258,7 +241,6 @@ export default function WorkspacePages(props: Props) {
                 <UiButton type="button" key={value} className={traceFilter === value ? "active" : ""} onClick={() => setTraceFilter(value)}>{label}</UiButton>
               )}
             </div>
-            <span>Newest first · browser diagnostics never store full prompts or raw XML; the server-side Copilot audit log keeps requests and context separately</span>
           </div>
 
           <div className="trace-list">
@@ -286,9 +268,7 @@ export default function WorkspacePages(props: Props) {
     <main className="workspace-page settings-workspace">
       <div className="page-content">
         <div className="page-hero">
-          <div><div className="page-eyebrow">WORKSPACE / RUNTIME CONFIGURATION</div><h1>Settings</h1>
-            <p>Model selection, local Draw.io asset checks, and development diagnostics in one place. The default model is Claude Sonnet 5.5; credentials are never written to browser storage.</p>
-          </div>
+          <div><h1>Settings</h1></div>
         </div>
 
         <div className="settings-grid">
