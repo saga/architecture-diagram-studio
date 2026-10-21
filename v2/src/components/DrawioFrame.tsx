@@ -5,7 +5,7 @@ import { recordDiagnostic } from "../diagnostics";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
-const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&windows=0&noSaveBtn=1";
+const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&windows=0&noSaveBtn=1&noExitBtn=1";
 
 interface Props {
   document: DiagramDocument;
@@ -115,7 +115,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         recordDiagnostic("drawio.handshake.configure", "Draw.io 请求配置");
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
           action: "configure",
-          config: { defaultFonts: ["Inter", "Arial"], defaultPageFormat: "A4", autosave: 1 }
+          config: { defaultFonts: ["Inter", "Arial"], defaultPageFormat: "A4", autosave: 1, noSaveBtn: true, noExitBtn: true }
         }), window.location.origin);
       }
       if (data.event === "init") {
