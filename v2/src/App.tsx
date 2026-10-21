@@ -25,7 +25,7 @@ function loadSavedTheme(): UiTheme {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ui-theme");
     if (saved === "editorial" || saved === "youth" || saved === "warm" || saved === "midnight") return saved;
   } catch { /* Theme selection is optional when browser storage is disabled. */ }
-  return "editorial";
+  return "warm";
 }
 function loadSavedAISettings(): SavedAISettings {
   try {
