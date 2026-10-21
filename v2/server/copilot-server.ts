@@ -10,7 +10,7 @@ import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
-import { CopilotClient, defineTool } from "@github/copilot-sdk";
+import { CopilotClient, ToolSet, defineTool } from "@github/copilot-sdk";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
@@ -179,6 +179,8 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
 async function getCopilotClient(): Promise<CopilotClient> {
   if (clientPromise) return clientPromise;
   clientPromise = (async () => {
+    // "empty" keeps the runtime free of host capabilities: no built-in shell/file tools. The SDK
+    // requires every session in this mode to declare its tools, so only our own custom tool is allowed.
     const client = new CopilotClient({
       mode: "empty",
       useLoggedInUser: true,
@@ -198,6 +200,9 @@ async function getCopilotClient(): Promise<CopilotClient> {
 }
 
 function resultProfileDisabled(document: { layout: { profile: string } }, allowedProfiles: string[]): boolean { return !allowedProfiles.includes(document.layout.profile); }
+
+// Only tools the SDK itself registers for this session: the layout-plan tool. Built-in CLI tools stay off.
+const sessionAvailableTools = () => new ToolSet().addCustom("*");
 
 const ALLOWED_COMMANDS = new Set([
   "所有关系线改成虚线", "所有关系线改成实线", "把曲线改成直角折线", "把曲线改成折线",
@@ -925,14 +930,16 @@ async function getOrResumeSessionUnlocked(sessionId: string, model: string, reas
   }
   const client = await getCopilotClient();
   const systemMessage = await buildSystemMessage(activeConfig);
-  // Keep the UI conversation ID stable while isolating SDK history by configuration revision.
+  // The runtime rejects session ids containing dots, so keep the UI conversation id stable and encode
+  // the configuration revision with dashes only.
   const sessionConfigKey = createHash("sha256").update([activeConfig.revisionId, model, reasoningEffort || activeConfig.reasoningEffort].join("\\0")).digest("hex").slice(0, 16);
-  const sdkSessionId = sessionId + ".cfg." + sessionConfigKey;
+  const sdkSessionId = (sessionId.replace(/[^a-zA-Z0-9-]/g, "-") + "-cfg-" + sessionConfigKey).slice(0, 100);
   let session: RuntimeSession["session"];
   let resumed = false;
   try {
     session = await client.resumeSession(sdkSessionId, {
       streaming: true,
+      availableTools: sessionAvailableTools(),
       tools: [createProposeLayoutPlanTool(sessionId, activeConfig)],
       systemMessage: { content: systemMessage }
     });
@@ -955,6 +962,7 @@ async function getOrResumeSessionUnlocked(sessionId: string, model: string, reas
       model,
       ...(actualEffort ? { reasoningEffort: actualEffort as "low" | "medium" | "high" | "xhigh" | "max" } : {}),
       streaming: true,
+      availableTools: sessionAvailableTools(),
       tools: [createProposeLayoutPlanTool(sessionId, activeConfig)],
       systemMessage: { content: systemMessage }
     });
@@ -1073,9 +1081,19 @@ app.post("/api/copilot/intent", async (req, res) => {
       sessionId, model, durationMs: Date.now() - startedAt,
       errorName: error instanceof Error ? error.name : typeof error, errorMessage: message
     });
-    res.status(502).json({ error: message.slice(0, 500), sessionId });
+    res.status(502).json({ error: describeCopilotFailure(message), sessionId });
   }
 });
+
+// Chat surfaces this text directly, so keep it in the user's language; the raw SDK message stays in the JSONL log.
+function describeCopilotFailure(message: string): string {
+  if (/availableTools/i.test(message)) return "Copilot 会话缺少工具配置，本次请求没有执行。请重启 copilot 服务后重试。";
+  if (/quota|rate limit|402/i.test(message)) return "GitHub Copilot 配额已用尽或被限流，本次请求没有执行。请更换账号或稍后重试。";
+  if (/not logged in|authentication|401|unauthorized/i.test(message)) return "本机 Copilot 身份未登录或已过期，本次请求没有执行。请先在终端运行 copilot 登录。";
+  if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "所选模型不可用，本次请求没有执行。请在「配置」中换一个模型。";
+  if (/timeout|timed out/i.test(message)) return "Copilot 响应超时，本次请求没有执行。可以缩短指令后重试。";
+  return "Copilot 运行时出错，本次请求没有执行：" + (message.length > 300 ? message.slice(0, 300) + "…" : message);
+}
 
 app.get("/api/copilot/sessions", async (_req, res) => {
   const workspace = await getProjectWorkspace();
