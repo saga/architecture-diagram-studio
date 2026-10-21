@@ -542,6 +542,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
 });
 app.post("/api/workspace/diagram/restore-version", async (req, res) => {
   const versionId = typeof req.body?.versionId === "string" ? req.body.versionId : "";
+  if (req.body?.confirmed !== true) { res.status(403).json({ error: "必须显式确认恢复版本" }); return; }
   try {
     const versions = await getDiagramVersions();
     const workspace = await getProjectWorkspace();
