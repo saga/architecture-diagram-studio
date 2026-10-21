@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "architecture-diagram-studio": {
+      "type": "stdio",
+      "command": "npm",
+      "args": [
+        "run",
+        "mcp",
+        "--prefix",
+        "${workspaceFolder}/v2"
+      ]
+    }
+  }
+}
