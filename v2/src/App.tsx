@@ -210,6 +210,7 @@ export default function App() {
       let nextDocument = document;
       let nextXml: string | null = nativeXmlOverride;
       const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
+      if (workspaceChanged) { setMessages([{ role: "assistant", id: Date.now(), text: "已切换到新项目工作区。后续分析将以该目录中的 Draw.io 图、代码和设计文档为依据。" }]); const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); }
       if (nextWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
         const fileResponse = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(nextWorkspace.primaryDiagram));
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
