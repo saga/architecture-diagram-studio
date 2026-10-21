@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DiagramDocument, DiagramNode, DiagramRelation, EdgeKind, SequenceFragment, VisualRole } from "../model/types";
+import type { DiagramDocument, DiagramNode, EdgeKind, SequenceFragment, VisualRole } from "../model/types";
 import { requestServerSequenceNormalize } from "../api/diagram-operations";
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
@@ -21,16 +21,16 @@ export function useDiagramEditing(options: Options) {
     setSelectedNodeId, setSelectedRelationId, setRelationLabelDrafts, setLastAction,
     commitDocument, runLayout
   } = options;
-  function addSequenceFragment() {
+  function addSequenceFragment(order?: number, kind: SequenceFragment["kind"] = "alt") {
     if (document.kind !== "sequence") return;
     const maxOrder = Math.max(0, document.relations.length - 1);
-    const startOrder = Math.min(1, maxOrder);
+    const startOrder = Math.max(0, Math.min(maxOrder, order ?? Math.min(1, maxOrder)));
     const fragment: SequenceFragment = {
       id: newId("fragment"),
-      kind: "alt",
-      label: "Condition branch",
+      kind,
+      label: kind === "loop" ? "Repeat while condition holds" : kind === "opt" ? "Optional path" : "Condition branch",
       startOrder,
-      endOrder: Math.min(maxOrder, startOrder + 2)
+      endOrder: order === undefined ? Math.min(maxOrder, startOrder + 2) : startOrder
     };
     const next: DiagramDocument = {
       ...document,
