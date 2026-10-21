@@ -2,7 +2,7 @@
 
 > 对象：`architecture-diagram-studio` V2（`v2/`，约 9.4k 行 TS/TSX）
 > 目标：把"支持 Draw.io 全部图形"这件事做实，并把全系统的**唯一真源**统一为 **`.drawio` XML（mxfile）**——不再有 `DiagramDocument` 与原生 XML 两套源，不再有"语义轨 / 原生轨"双轨设计。
-> 约束：只做分析与方案，不改代码。
+> 状态：实施前评审基线；后续决策见 `docs/adr/0006-drawio-xml-single-source-of-truth.md`。代码已开始按 XML 单一真源改造；本报告中的分阶段路线是计划，不表示所有阶段均已完成。
 
 ---
 
