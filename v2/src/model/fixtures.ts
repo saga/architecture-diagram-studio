@@ -6,7 +6,7 @@ const node = (
 ): DiagramNode => ({
   id, name, role, visualRole, description, technology,
   x: 0, y: 0,
-  width: role === "actor" || role === "start" || role === "end" ? 154 : 190,
+  width: role === "decision" ? 156 : role === "actor" || role === "start" || role === "end" ? 154 : 190,
   height: role === "decision" ? 84 : 82,
   layoutHints: {}
 });
