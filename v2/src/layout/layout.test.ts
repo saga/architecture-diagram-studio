@@ -19,6 +19,16 @@ describe("V2 diagram-specific layouts", () => {
   it("lays out the main process flow without overlapping nodes", async () => {
     await expectNoNodeOverlap(createFlowFixture);
   });
+  it("supports alternate ELK layout profiles without forcing layered semantic lanes", async () => {
+    for (const profile of ["elk-layered", "elk-mrtree", "elk-radial", "elk-stress", "elk-force"]) {
+      const document = { ...createC4Fixture(), layout: { ...createC4Fixture().layout, profile } };
+      const result = await layoutDiagram(document);
+      expect(result.nodes).toHaveLength(document.nodes.length);
+      expect(result.relations).toHaveLength(document.relations.length);
+      expect(result.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toBe(true);
+    }
+  });
+
   it("lays out sequence participants and keeps the message timeline ordered", async () => {
     const result = await layoutDiagram(createSequenceFixture());
     await expectNoNodeOverlap(createSequenceFixture);
