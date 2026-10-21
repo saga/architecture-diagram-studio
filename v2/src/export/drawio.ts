@@ -1,6 +1,7 @@
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { mxEdgeStyle, mxNodeStyle, nodePaint } from "../design/styles";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
+import { tokens } from "../design/tokens";
 
 function esc(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -21,14 +22,24 @@ function vertexXml(node: DiagramNode): string {
     "\" y=\"" + Math.round(node.y) + "\" width=\"" + Math.round(node.width) + "\" height=\"" +
     Math.round(node.height) + "\" as=\"geometry\"/></mxCell>";
 }
-function edgeXml(relation: DiagramRelation, routing: string, source = relation.source, target = relation.target): string {
+function edgeXml(relation: DiagramRelation, routing: string, doc: DiagramDocument, source = relation.source, target = relation.target): string {
   const label = relation.label ? esc(relation.label) : "";
   const metadata = [
     source !== relation.source || target !== relation.target ? "studioSource=" + esc(relation.source) + ";studioTarget=" + esc(relation.target) : "",
     "studioKind=" + relation.kind,
     relation.sequenceOrder === undefined ? "" : "studioSequenceOrder=" + relation.sequenceOrder
   ].filter(Boolean).join(";");
-  const style = mxEdgeStyle(relation, routing) + (metadata ? ";" + metadata + ";" : "");
+  const sourceNode = doc.nodes.find((node) => node.id === source);
+  const targetNode = doc.nodes.find((node) => node.id === target);
+  const portStyle = relation.sourcePort && relation.targetPort && sourceNode && targetNode
+    ? "exitX=" + ((relation.sourcePort.x - sourceNode.x) / Math.max(1, sourceNode.width)) +
+      ";exitY=" + ((relation.sourcePort.y - sourceNode.y) / Math.max(1, sourceNode.height)) +
+      ";exitDx=0;exitDy=0;exitPerimeter=0;entryX=" +
+      ((relation.targetPort.x - targetNode.x) / Math.max(1, targetNode.width)) +
+      ";entryY=" + ((relation.targetPort.y - targetNode.y) / Math.max(1, targetNode.height)) +
+      ";entryDx=0;entryDy=0;entryPerimeter=0;"
+    : "";
+  const style = mxEdgeStyle(relation, routing) + portStyle + (metadata ? ";" + metadata + ";" : "");
   return "<mxCell id=\"" + esc(relation.id) + "\" value=\"" + label + "\" style=\"" +
     esc(style) + "\" edge=\"1\" parent=\"1\" source=\"" + esc(source) +
     "\" target=\"" + esc(target) + "\"><mxGeometry relative=\"1\" as=\"geometry\">" +
@@ -116,9 +127,11 @@ export function toDrawioXml(doc: DiagramDocument): string {
   const cells = "<mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>" +
     doc.boundaries.map((boundary) => boundaryXml(doc, boundary)).join("") +
     doc.nodes.map(vertexXml).join("") + support.vertices +
-    (doc.kind === "sequence" ? support.edges : doc.relations.map((relation) => edgeXml(relation, doc.layout.routing)).join(""));
+    (doc.kind === "sequence" ? support.edges : doc.relations.map((relation) => edgeXml(relation, doc.layout.routing, doc)).join(""));
   const maxX = Math.max(1200, ...doc.nodes.map((n) => n.x + n.width + 120));
-  const maxY = Math.max(doc.kind === "sequence" ? 800 : 700, ...doc.nodes.map((n) => n.y + n.height + 120));
+  const maxY = Math.max(doc.kind === "sequence" ? 800 : 700,
+    doc.kind === "sequence" ? 148 + Math.max(0, doc.relations.length - 1) * 72 + 100 : 0,
+    ...doc.nodes.map((n) => n.y + n.height + 120));
   return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
     "<mxfile host=\"app.diagrams.net\" modified=\"" + new Date().toISOString() + "\" agent=\"Architecture Diagram Studio V2\" version=\"32.0.2\" type=\"device\">" +
     "<diagram id=\"" + esc(doc.id) + "\" name=\"" + esc(doc.title) + "\"><mxGraphModel dx=\"1200\" dy=\"800\" grid=\"1\" gridSize=\"8\" guides=\"1\" tooltips=\"1\" connect=\"1\" arrows=\"1\" fold=\"1\" page=\"1\" pageScale=\"1\" pageWidth=\"" +
