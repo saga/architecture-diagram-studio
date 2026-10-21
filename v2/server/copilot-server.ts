@@ -56,10 +56,10 @@ const app = express();
 app.use(express.json({ limit: "25mb" }));
 app.use((req, res, next) => {
   if (!req.path.startsWith("/api/workspace") && !req.path.startsWith("/api/copilot")) { next(); return; }
-  const origin = req.get("origin");
-  if (!origin) { next(); return; }
+  const source = req.get("origin") || req.get("referer");
+  if (!source) { next(); return; }
   try {
-    const hostname = new URL(origin).hostname.toLowerCase();
+    const hostname = new URL(source).hostname.toLowerCase();
     if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname)) { res.status(403).json({ error: "Studio API 仅接受本机浏览器来源" }); return; }
     next();
   } catch {
