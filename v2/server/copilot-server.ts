@@ -12,7 +12,7 @@ import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
 import { isDrawioXmlEnvelope, isStudioProjectionCurrent, patchStudioDocumentXml } from "./drawio-xml-source";
 import { createEmptyDrawioDocument, normalizeNewDrawioFileName } from "./diagram-file";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
 import { createDiagramAgentTools, type AgentAppliedEditView, type AgentProposalView, type DiagramOperationInput } from "./copilot/diagram-tools";
@@ -408,7 +408,6 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 
 type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null; nativeXml?: string };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
-function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
 function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null, proposedXml?: string | null): DiagramEditProposal {
   const errors = validateDiagramSemantics(proposedDocument);
   if (errors.length) throw new Error("The proposal failed semantic validation: " + errors.join("; "));
@@ -442,7 +441,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       if (!state.document || !isDiagramDocument(state.document)) return { status: 404 as const, error: "There is no saved primary diagram to replace" };
       if (!workspaceStateMatchesActiveDiagram(state, workspace)) return { status: 409 as const, error: "The current diagram belongs to another workspace; reload the primary diagram first" };
       if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) return { status: 409 as const, error: "A Studio template cannot replace this native Draw.io document because its complete XML is not represented by the semantic projection. Create a new diagram instead." };
-      if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== documentRevision(state.document)) return { status: 409 as const, error: "The diagram changed; read it again before applying the template" };
+      if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== workspaceRevision(state.document, state.drawioXml)) return { status: 409 as const, error: "The diagram changed; read it again before applying the template" };
       const config = await getStudioConfig();
       const document = createDiagramTemplate(key);
       document.id = randomUUID(); document.title = typeof req.body?.title === "string" ? req.body.title.slice(0, 200) : document.title;
@@ -465,7 +464,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
-      return { status: 200 as const, version, document: laidOut, revision: documentRevision(laidOut), quality: evaluateLayout(laidOut) };
+      return { status: 200 as const, version, document: laidOut, revision: workspaceRevision(laidOut, xml), workspaceRevision: workspaceRevision(laidOut, xml), quality: evaluateLayout(laidOut) };
     });
     if (result.status !== 200) { res.status(result.status).json(result); return; }
     if (req.query.includeXml === "false") {
@@ -558,7 +557,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\n", "utf8");
       diagramEditProposals.delete(proposalId);
-      return { status: 200 as const, version, document: proposal.document, revision: documentRevision(proposal.document), workspaceRevision: workspaceRevision(proposal.document, xml), quality };
+      return { status: 200 as const, version, document: proposal.document, revision: workspaceRevision(proposal.document, xml), workspaceRevision: workspaceRevision(proposal.document, xml), quality };
     });
     if (result.status !== 200) { res.status(result.status).json(result); return; }
     await writeLog("diagram.agent-edit.applied", { proposalId, versionId: result.version.id, qualityScore: result.quality.score });
