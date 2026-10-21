@@ -20,5 +20,5 @@ MCP and Copilot should call the same domain services or HTTP operations; they mu
 - Layout and document-operation behavior has one authoritative implementation.
 - Server logs provide an audit trail for supported operations.
 - Browser rendering remains responsive and framework-specific.
-- The frontend still contains Draw.io XML import parsing. The parser depends on browser DOM APIs and must be refactored behind a portable parser abstraction before it can safely run in Node.js. Move those import call sites after that refactor before claiming complete server authority.
+- The frontend still contains Draw.io XML import parsing because it depends on browser DOM APIs. Parsing extracts a semantic document in the browser, while sequence normalization, layout, quality evaluation, node placement, intent interpretation, and XML generation are delegated to server endpoints. A portable parser abstraction is still required before XML parsing itself can move to Node.js.
 - API validation and regression tests are required for malformed documents, missing nodes, XML round-trips, and layout invariants.
