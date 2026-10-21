@@ -563,7 +563,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-field input,
 .app-shell[data-theme="midnight"] .workspace-page .gemini-composer { background: #202d42; color: #f0f4fc; }
 .app-shell[data-theme="midnight"] .workspace-page .terminal-example { border-color: #35435a; }
-.app-shell[data-theme="midnight"] .app-shell .diagram-svg text { fill: #26364a; }
+.app-shell[data-theme="midnight"] .diagram-svg text { fill: #26364a; }
 
 .theme-selector:focus-within,
 .workspace-nav button:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
