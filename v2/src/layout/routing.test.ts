@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { createC4Fixture } from "../model/fixtures";
 import { countPortSpacingViolations, routeRelations } from "./routing";
 
+function segmentCrossesNodeForTest(a: {x:number;y:number}, b: {x:number;y:number}, node: {x:number;y:number;width:number;height:number}): boolean {
+  const left = Math.min(a.x, b.x), right = Math.max(a.x, b.x);
+  const top = Math.min(a.y, b.y), bottom = Math.max(a.y, b.y);
+  return left < node.x + node.width && right > node.x &&
+    top < node.y + node.height && bottom > node.y;
+}
+
 describe("connector port assignment", () => {
   it("fans multiple outgoing relations across a shared source edge", () => {
     const document = createC4Fixture();
@@ -18,6 +25,31 @@ describe("connector port assignment", () => {
     const routed = routeRelations(document);
     expect(routed.relations[0].sourcePort?.y).not.toBe(routed.relations[1].sourcePort?.y);
     expect(countPortSpacingViolations(routed)).toBe(0);
+  });
+
+  it("routes around a blocking node when an alternate row lane is available", () => {
+    const document = createC4Fixture();
+    document.nodes = [
+      { ...document.nodes[0], id: "source", x: 20, y: 150, width: 120, height: 60 },
+      { ...document.nodes[1], id: "target", x: 520, y: 150, width: 120, height: 60 },
+      { ...document.nodes[2], id: "blocker", x: 280, y: 120, width: 120, height: 120 }
+    ];
+    document.relations = [{
+      id: "through-row",
+      source: "source", target: "target", label: "must go around",
+      kind: "call", routing: "orthogonal"
+    }];
+    const routed = routeRelations(document);
+    expect(countPortSpacingViolations(routed)).toBe(0);
+    const [start, ...tail] = [routed.relations[0].sourcePort!, ...(routed.relations[0].points || []), routed.relations[0].targetPort!];
+    let obstructionCount = 0;
+    for (let index = 1; index < tail.length + 1; index++) {
+      const a = index === 1 ? start : tail[index - 2];
+      const b = tail[index - 1];
+      if (segmentCrossesNodeForTest(a, b, document.nodes[2])) obstructionCount++;
+    }
+    expect(obstructionCount).toBe(0);
+    expect(routed.relations[0].points!.length).toBeGreaterThan(2);
   });
 
   it("does not invent attachment ports for sequence messages", () => {
