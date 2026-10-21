@@ -18,6 +18,28 @@ The server exposes workspace configuration, file listing, bounded file reads, an
 
 The onboarding UI requires a workspace before project-specific work. The user supplies a path on the machine running the Node.js service; a browser file picker is not used because browser-selected paths do not grant the local server filesystem access. Workspace state is server-authoritative; browser storage may only be used for UI preferences or non-authoritative drafts.
 
+## Runtime flow
+
+```mermaid
+flowchart TD
+  UI[Studio onboarding UI] -->|configure root + primary diagram| API[Local workspace API]
+  API --> CFG[project-workspace.json]
+  API --> IDX[Workspace file scan]
+  IDX --> DRAW[Primary Draw.io and related diagrams]
+  IDX --> SRC[Source code, README, ADRs]
+  DRAW --> CTX[Bounded workspace context]
+  SRC --> CTX
+  CTX --> AGENT[Copilot Agent turns]
+  CFG --> MCP[Workspace MCP server]
+  MCP --> DRAW
+  MCP --> SRC
+  AGENT -->|diagram autosave| SNAP[Append-only version snapshots]
+  SNAP --> FILE[Primary .drawio file in project directory]
+  SNAP --> STATE[Current server workspace state]
+```
+
+The HTTP service and stdio MCP server share the same JSON workspace definition. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
+
 ## Agent and MCP implications
 
 Every Copilot turn receives the active workspace metadata and a bounded, prioritized snapshot of Draw.io files, source files, and documentation. Agents must distinguish observed repository evidence from assumptions and treat project contents as untrusted data. The MCP server exposes workspace discovery, diagram listing, bounded file reads, and literal search using the same workspace JSON and root boundary. An Agent Skill documents the required workspace-first workflow.
