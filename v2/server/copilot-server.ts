@@ -137,7 +137,7 @@ app.get("/api/workspace/configuration", async (_req, res) => {
   try {
     const config = await getStudioConfig();
     const historyText = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
-    const revisions = historyText.split(/\\r?\\n/).filter(Boolean).length;
+    const revisions = historyText.split(/\r?\n/).filter(Boolean).length;
     res.json({ config, revisions, historyFile: CONFIG_HISTORY_FILE });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
@@ -596,7 +596,7 @@ async function getOrResumeSession(sessionId: string, model: string, reasoningEff
   const client = await getCopilotClient();
   const systemMessage = await buildSystemMessage(activeConfig);
   // Keep the UI conversation ID stable while isolating SDK history by configuration revision.
-  const sdkSessionId = sessionId + ".cfg" + activeConfig.updatedAt.replace(/\\D/g, "");
+  const sdkSessionId = sessionId + ".cfg" + activeConfig.updatedAt.replace(/\D/g, "");
   let session: RuntimeSession["session"];
   let resumed = false;
   try {
