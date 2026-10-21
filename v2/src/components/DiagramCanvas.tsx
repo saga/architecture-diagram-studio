@@ -221,8 +221,9 @@ export default function DiagramCanvas({
       {document.kind === "sequence" && deriveSequenceActivations(displayDoc).map((activation) => {
         const participant = displayNodes.find((node) => node.id === activation.participantId);
         if (!participant) return null;
-        const y = 148 + activation.startOrder * 72 + 5;
-        const height = Math.max(12, (activation.endOrder - activation.startOrder) * 72 - 10);
+        // Activation bars touch the initiating call and the matching return line.
+        const y = 148 + activation.startOrder * 72;
+        const height = Math.max(12, (activation.endOrder - activation.startOrder) * 72);
         return <rect key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
           fill="#E7EDF7" stroke="#B7C5D9" strokeWidth="1" />;
       })}
