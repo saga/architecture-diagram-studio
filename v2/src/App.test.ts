@@ -44,6 +44,13 @@ describe("V2 semantic fixtures and intents", () => {
     expect(Math.abs(branchCenterX("approval") - approvalExpected)).toBeLessThan(2);
     expect(laidOut.nodes.find((node) => node.id === "review")!.y)
       .toBeGreaterThan(laidOut.nodes.find((node) => node.id === "valid")!.y);
+
+    const mainPath = laidOut.flow!.primaryPath.map((id) => laidOut.nodes.find((node) => node.id === id)!);
+    expect(new Set(mainPath.map((node) => node.y)).size).toBe(1);
+    for (let index = 1; index < mainPath.length; index++) {
+      expect(mainPath[index].x - (mainPath[index - 1].x + mainPath[index - 1].width))
+        .toBe(laidOut.layout.layerSpacing);
+    }
   });
 
   it("models external placement as a semantic constraint", () => {
