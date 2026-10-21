@@ -1,5 +1,7 @@
 # Architecture Diagram Studio V2 架构设计
 
+> **当前权威决策（ADR-0006，2026-10-22）：完整 Draw.io `mxfile` XML 是所有图形的唯一真源。本文中与此相冲突的“DiagramDocument 是 semantic truth / draw.io XML 是投影”表述均由 ADR-0006 取代。`DiagramDocument` 仅是派生语义视图，不是第二个持久化真源。
+
 - 日期：2026-10-20
 - 状态：V2 技术架构方案，作为后续实现基线
 - 目标：把 Studio 从“能生成 draw.io XML 的图形编辑器”升级成“有设计语言、有布局规则、有 AI 编辑闭环、以 draw.io 为最终渲染器的架构图产品”。
@@ -44,7 +46,7 @@ V2 不应该把 draw.io 当成“自动布局引擎”，也不应该把 React F
 
 最重要的一条原则：
 
-> **Draw.io 负责最终的原生渲染和人工编辑；Studio 自己负责语义、设计语言、自动布局、AI 修改和“好不好看”的判断。**
+> **Draw.io 原生 `mxfile` XML 同时负责数据真源、原生渲染和通用编辑；Studio 在 XML 上提供可选的语义投影、设计语言、布局、质量评估和受控 AI 操作。投影无法无损表达的内容必须留在 XML，不能被覆盖或丢弃。**
 
 这样既可以得到 draw.io 的原生编辑/导出能力，又不会被 draw.io 默认的 C4、Sequence 或自动布局视觉风格绑架。
 
@@ -63,7 +65,7 @@ V2 只把下面三类作为一级产品能力：
 2. **Sequence**
 3. **Flowchart / Process Flow**
 
-其它图形暂时不作为独立产品类型。底层模型可以保留扩展能力，但 UI、AI prompt、布局器和测试都围绕这三类优化。
+C4、Sequence、Flowchart 是 Studio 优先提供语义工作流的三类图形，不是整个应用的格式边界。其它 Draw.io 图形必须仍可通过原生 XML 打开、编辑、保存与版本管理；无需先被 DiagramDocument 完整建模。
 
 ### 2.2 好看的定义
 
@@ -101,7 +103,7 @@ V2 的“好看”不能依赖模型随机发挥，也不能简单等于“使�
 │    用户 / Copilot SDK：create / move / restyle / reroute       │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. Diagram Model                                            │
-│    DiagramDocument V2：语义、关系、布局约束、视觉 token     │
+│    Draw.io mxfile XML：唯一持久化真源；DiagramDocument 是派生语义投影 │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Layout & Routing                                         │
 │    ELK Layered + Dagre + Sequence Layout + Flow Layout      │
@@ -140,9 +142,9 @@ React Flow 仍然可以保留，而且可以继续借鉴它的布局和交互实
 
 ---
 
-# 4. DiagramDocument V2
+# 4. DiagramDocument：派生语义投影
 
-当前 `DiagramDocument` 已经是正确方向，但 V2 需要从“节点 + 坐标”升级成“语义 + 布局约束 + 视觉意图”。
+`DiagramDocument` 只为 Studio 已支持的语义操作提供方便的视图。它不是 Draw.io XML 的完整表示，不得成为保存、版本、导出或工作区写入的权威数据。任何无法被该模型无损表示的 cell、parent 层级、page、style key、HTML 标签和自定义属性都必须保留在原始 XML 中。
 
 ## 4.1 顶层结构
 
