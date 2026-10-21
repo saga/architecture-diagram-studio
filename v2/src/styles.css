@@ -659,3 +659,8 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-terminal-note strong { color: #d2dced; }
 .app-shell[data-theme="midnight"] .workspace-page .trace-empty h2 { color: #edf3ff; }
 .app-shell[data-theme="midnight"] .workspace-page .trace-empty p { color: #b1bfd4; }
+
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #ffe1f0 !important; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #f8e4d3 !important; }
