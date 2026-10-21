@@ -53,7 +53,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
   useEffect(() => {
     if (available !== true || editorReady) return;
     const timeout = window.setTimeout(() => {
-      setStartupError("Draw.io 页面已经加载，但没有收到 embed 初始化事件。请检查终端中的 [studio:v2] drawio 日志，或重新初始化编辑器。");
+      setStartupError("Draw.io 未在 20 秒内完成 embed 初始化。请检查终端中的 [studio:v2] drawio 日志，或重新初始化编辑器。");
       recordDiagnostic("drawio.init.timeout", "等待 Draw.io embed 初始化超时", {
         iframeLoaded, ready: editorReady, url: EMBED_URL, timeoutMs: 20000
       }, "error");
