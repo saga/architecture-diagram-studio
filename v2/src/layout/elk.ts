@@ -68,10 +68,17 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   const right = buckets.get("RIGHT") || [];
   const leftWidth = Math.max(0, ...left.map((node) => node.width));
   const rightWidth = Math.max(0, ...right.map((node) => node.width));
-  const leftX = Math.max(24, minX - leftWidth - gap);
-  const rightX = maxX + gap;
-  const topY = Math.max(24, Math.min(56, ...fixedAndInternal.map((node) => node.y) - gap));
-  const bottomY = maxY + gap;
+  // Create real room for a left-side external column without moving locked nodes.
+  const leftInset = left.length ? 24 + leftWidth + gap : 0;
+  const shift = left.length ? Math.max(0, leftInset - Math.min(48, ...fixedAndInternal.map((node) => node.x))) : 0;
+  if (shift) fixedAndInternal.filter((node) => !node.layoutHints?.locked).forEach((node) => { node.x += shift; });
+  const updatedMinX = Math.min(48, ...fixedAndInternal.map((node) => node.x));
+  const updatedMaxX = Math.max(48, ...fixedAndInternal.map((node) => node.x + node.width));
+  const updatedMaxY = Math.max(56, ...fixedAndInternal.map((node) => node.y + node.height));
+  const leftX = left.length ? Math.max(24, updatedMinX - leftWidth - gap) : 24;
+  const rightX = updatedMaxX + gap;
+  const topY = Math.max(24, Math.min(56, ...fixedAndInternal.map((node) => node.y)) - gap);
+  const bottomY = updatedMaxY + gap;
 
   const sortStable = (items: DiagramNode[]) => items.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
   sortStable(left).forEach((node, index) => { node.x = leftX; node.y = 56 + index * (node.height + doc.layout.nodeSpacing); });
