@@ -23,7 +23,10 @@ export function normalizeSequenceDocument(document: DiagramDocument): DiagramDoc
   const fragments = (document.sequence?.fragments || []).map((fragment) => {
     const startOrder = Math.min(maxOrder, Math.max(0, Math.floor(fragment.startOrder)));
     const endOrder = Math.max(startOrder, Math.min(maxOrder, Math.max(0, Math.floor(fragment.endOrder))));
-    return { ...fragment, startOrder, endOrder };
+    const participants = fragment.participants === undefined
+      ? undefined
+      : [...new Set(fragment.participants.filter((id) => nodeIds.has(id)))];
+    return { ...fragment, startOrder, endOrder, ...(participants ? { participants } : {}) };
   });
   return { ...document, relations, sequence: { participants, fragments } };
 }
