@@ -133,8 +133,12 @@ function routeRelationsForVariant(doc: DiagramDocument, routeVariant = 0): Diagr
         points = [{ x: channelX, y: start.y }, { x: channelX, y: end.y }];
       }
     } else {
-      const outerX = Math.min(sourceNode.x, targetNode.x) - lane - 18;
-      points = [{ x: outerX, y: start.y }, { x: outerX, y: end.y }];
+      // For a left-going relation the source exits its LEFT edge and the target is
+      // entered through its RIGHT edge. Route through the horizontal gap so the final
+      // segment cannot cross the target node interior.
+      const gap = start.x - end.x;
+      const channelX = gap > 8 ? end.x + gap / 2 : Math.min(sourceNode.x, targetNode.x) - lane - 18;
+      points = [{ x: channelX, y: start.y }, { x: channelX, y: end.y }];
     }
     return { ...relation, sourcePort: start, targetPort: end, points };
   });
