@@ -19,8 +19,8 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
   let requiresLayout = false;
   let changed = false;
 
-  const renameMatch = text.match(/^(?:将|把)\\s*[“"']?(.+?)[”"']?\\s*(?:节点)?\\s*(?:重命名为|改名为|改为)\\s*[“"']?(.+?)[”"']?$/)
-    || text.match(/^rename\\s+(?:node\\s+)?["']?(.+?)["']?\\s+to\\s+["']?(.+?)["']?$/i);
+  const renameMatch = text.match(/^(?:将|把)\s*[“"']?(.+?)[”"']?\s*(?:节点)?\s*(?:重命名为|改名为|改为)\s*[“"']?(.+?)[”"']?$/)
+    || text.match(/^rename\s+(?:node\s+)?["']?(.+?)["']?\s+to\s+["']?(.+?)["']?$/i);
   if (renameMatch) {
     const target = renameMatch[1].trim(), replacement = renameMatch[2].trim();
     const matches = next.nodes.filter((node) => node.id.toLowerCase() === target.toLowerCase() || node.name.toLowerCase() === target.toLowerCase());
@@ -31,8 +31,8 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
     }
   }
 
-  const relationLabelMatch = text.match(/^(?:将|把)\\s*关系\\s*[“"']?(.+?)[”"']?\\s*(?:的)?标签(?:改为|设为)\\s*[“"']?(.+?)[”"']?$/)
-    || text.match(/^set\\s+relation\\s+["']?(.+?)["']?\\s+label\\s+to\\s+["']?(.+?)["']?$/i);
+  const relationLabelMatch = text.match(/^(?:将|把)\s*关系\s*[“"']?(.+?)[”"']?\s*(?:的)?标签(?:改为|设为)\s*[“"']?(.+?)[”"']?$/)
+    || text.match(/^set\s+relation\s+["']?(.+?)["']?\s+label\s+to\s+["']?(.+?)["']?$/i);
   if (relationLabelMatch && !changed) {
     const target = relationLabelMatch[1].trim(), replacement = relationLabelMatch[2].trim();
     const matches = next.relations.filter((edge) => edge.id.toLowerCase() === target.toLowerCase() || edge.label.toLowerCase() === target.toLowerCase());
@@ -43,7 +43,7 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
     }
   }
 
-  const removeMatch = text.match(/^(?:删除|移除)节点\\s*[“"']?(.+?)[”"']?$/) || text.match(/^delete\\s+node\\s+["']?(.+?)["']?$/i);
+  const removeMatch = text.match(/^(?:删除|移除)节点\s*[“"']?(.+?)[”"']?$/) || text.match(/^delete\s+node\s+["']?(.+?)["']?$/i);
   if (removeMatch && !changed) {
     const target = removeMatch[1].trim();
     const matches = next.nodes.filter((node) => node.id.toLowerCase() === target.toLowerCase() || node.name.toLowerCase() === target.toLowerCase());
@@ -59,8 +59,8 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
     }
   }
 
-  const addMatch = text.match(/^(?:新增|添加)(?:一个|一条)?(?:服务|service)?节点(?:，|,)?(?:名称为|名为|叫)?\\s*[“"']?(.+?)[”"']?$/)
-    || text.match(/^add\\s+(?:a\\s+)?(?:service\\s+)?node\\s+["']?(.+?)["']?$/i);
+  const addMatch = text.match(/^(?:新增|添加)(?:一个|一条)?(?:服务|service)?节点(?:，|,)?(?:名称为|名为|叫)?\s*[“"']?(.+?)[”"']?$/)
+    || text.match(/^add\s+(?:a\s+)?(?:service\s+)?node\s+["']?(.+?)["']?$/i);
   if (addMatch && !changed) {
     const name = addMatch[1].trim();
     if (name && name.length <= 500 && !next.nodes.some((node) => node.name.toLowerCase() === name.toLowerCase())) {
@@ -75,8 +75,8 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
     }
   }
 
-  const moveMatch = text.match(/^(?:将|把)节点\\s*[“"']?(.+?)[”"']?\\s*移动到\\s*x\\s*=\\s*(-?\\d+(?:\\.\\d+)?)\\s*[,， ]\\s*y\\s*=\\s*(-?\\d+(?:\\.\\d+)?)$/i)
-    || text.match(/^move\\s+node\\s+["']?(.+?)["']?\\s+to\\s+x\\s*=\\s*(-?\\d+(?:\\.\\d+)?),?\\s*y\\s*=\\s*(-?\\d+(?:\\.\\d+)?)$/i);
+  const moveMatch = text.match(/^(?:将|把)节点\s*[“"']?(.+?)[”"']?\s*移动到\s*x\s*=\s*(-?\d+(?:\.\d+)?)\s*[,， ]\s*y\s*=\s*(-?\d+(?:\.\d+)?)$/i)
+    || text.match(/^move\s+node\s+["']?(.+?)["']?\s+to\s+x\s*=\s*(-?\d+(?:\.\d+)?),?\s*y\s*=\s*(-?\d+(?:\.\d+)?)$/i);
   if (moveMatch && !changed) {
     const target = moveMatch[1].trim(), x = Number(moveMatch[2]), y = Number(moveMatch[3]);
     const matches = next.nodes.filter((node) => node.id.toLowerCase() === target.toLowerCase() || node.name.toLowerCase() === target.toLowerCase());
