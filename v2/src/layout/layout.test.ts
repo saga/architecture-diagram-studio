@@ -42,6 +42,16 @@ describe("V2 diagram-specific layouts", () => {
     expect(toDrawioXml(result)).toContain("__sequenceActivation");
   });
 
+  it("exports every regular relation as a draw.io edge with resolvable source and target", () => {
+    const document = createC4Fixture();
+    const xml = toDrawioXml(document);
+    for (const relation of document.relations) {
+      expect(xml).toContain('<mxCell id="' + relation.id + '"');
+      expect(xml).toContain('edge="1" parent="1" source="' + relation.source + '" target="' + relation.target + '"');
+    }
+    expect((xml.match(/edge="1"/g) || []).length).toBe(document.relations.length);
+  });
+
   it("exports editable sequence fragments and retains message semantics", () => {
     const document = createSequenceFixture();
     document.sequence = {
