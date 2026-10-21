@@ -7,3 +7,4 @@
 | [0003](./0003-server-authoritative-diagram-operations.md) | Server-Authoritative Diagram Operations | Accepted |
 | [0004](./0004-versioned-studio-configuration-jsonl.md) | Versioned Server Configuration in JSONL | Accepted |
 | [0005](./0005-diagram-aware-mcp-intelligence.md) | Server-Side Diagram Intelligence and Governed Agent Edits | Accepted |
+| [0006](./0006-drawio-xml-single-source-of-truth.md) | Draw.io XML as the Single Source of Truth | Accepted |
