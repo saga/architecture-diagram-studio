@@ -222,7 +222,7 @@ app.get("/api/workspace/state", async (_req, res) => {
     const visibleState = belongsToWorkspace ? state : { ...state, document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null };
     const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id);
     const latest = versions[versions.length - 1];
-    res.json({ ...visibleState, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
+    res.json({ ...visibleState, workspaceMismatch: !belongsToWorkspace, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
   } catch (error) {
     await writeLog("workspace.state.read.failed", { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "无法读取服务端工作区数据" });
