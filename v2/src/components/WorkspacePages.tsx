@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Bubble, Sender } from "@ant-design/x";
+import { Button, Tag } from "antd";
 import type { DiagramDocument } from "../model/types";
 import type { DiagnosticEntry } from "../diagnostics";
 
@@ -91,7 +93,7 @@ export default function WorkspacePages(props: Props) {
               <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
-                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Layout Copilot" : "你"}</div><div className="gemini-message-text">{message.text}</div></div>
+                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Layout Copilot" : "你"}</div><Bubble content={message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" /></div>
                 </article>)}
                 <div ref={chatEndRef} />
               </div>
