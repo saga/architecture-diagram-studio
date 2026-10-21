@@ -7,9 +7,9 @@ function esc(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function htmlLabel(node: DiagramNode): string {
-  const title = "<div style='font-size:13px;font-weight:600;color:#1A2738;line-height:1.35'>" + esc(node.name) + "</div>";
-  const technology = node.technology ? "<div style='font-size:10px;color:#7B8798;margin-top:4px'>" + esc(node.technology) + "</div>" : "";
-  const description = node.description ? "<div style='font-size:10px;color:#536276;margin-top:5px;line-height:1.35'>" + esc(node.description) + "</div>" : "";
+  const title = "<div style='font-size:13px;font-weight:600;color:" + tokens.ink + ";line-height:1.35'>" + esc(node.name) + "</div>";
+  const technology = node.technology ? "<div style='font-size:10px;color:" + tokens.inkMuted + ";margin-top:4px'>" + esc(node.technology) + "</div>" : "";
+  const description = node.description ? "<div style='font-size:10px;color:" + tokens.inkMuted + ";margin-top:5px;line-height:1.35'>" + esc(node.description) + "</div>" : "";
   return title + technology + description;
 }
 function pointXml(points: Point[]): string {
@@ -54,7 +54,7 @@ function boundaryXml(doc: DiagramDocument, boundary: DiagramDocument["boundaries
   const maxX = Math.max(...members.map((n) => n.x + n.width)) + padding;
   const maxY = Math.max(...members.map((n) => n.y + n.height)) + padding;
   const membersAttribute = boundary.members.join(",");
-  const style = "rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#D3DAE4;strokeWidth=1;dashed=1;dashPattern=3 5;fontColor=#78869A;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=7;studioBoundary=1;studioMembers=" + membersAttribute + ";";
+  const style = "rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=5A6B84;strokeWidth=1;dashed=1;dashPattern=3 5;fontColor=#78869A;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=7;studioBoundary=1;studioMembers=" + membersAttribute + ";";
   return "<mxCell id=\"" + esc(boundary.id) + "\" value=\"" + esc(boundary.name.toUpperCase()) + "\" style=\"" + esc(style) +
     "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" + Math.round(minX) + "\" y=\"" + Math.round(minY) + "\" width=\"" +
     Math.round(maxX - minX) + "\" height=\"" + Math.round(maxY - minY) + "\" as=\"geometry\"/></mxCell>";
