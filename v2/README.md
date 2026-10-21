@@ -65,6 +65,21 @@ The main-lane flow layout keeps primary workflow steps aligned, places exception
 Run the V2 app and open `/drawio-lab` (for example, `http://localhost:5174/drawio-lab`) to compare the Studio SVG renderer with the actual bundled Draw.io embed side by side. Switch between the sequence, C4, and flowchart fixtures; inspect the exact XML sent to Draw.io; and reset a fixture to reproduce rendering differences. The sequence renderer and XML exporter share message geometry from `src/layout/sequence.ts`, including self-call waypoints.
 
 
+## Server-authoritative diagram operations
+
+Deterministic diagram operations run through the HTTP server so the UI, Copilot, and MCP can share the same implementation. The server currently provides:
+
+- `POST /api/workspace/layout`: Dagre/ELK layout, route generation, and overlap repair.
+- `POST /api/workspace/diagram/quality`: layout quality scoring.
+- `POST /api/workspace/diagram/move-node`: snapped node placement, collision avoidance, lock hints, and relation routing.
+- `POST /api/workspace/diagram/normalize-sequence`: sequence-document normalization.
+- `POST /api/workspace/diagram/export-drawio`: Draw.io XML generation.
+- `POST /api/workspace/intent/apply`: deterministic intent-to-document mutation.
+
+The React UI requests server-side layout scoring, node movement, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. A few sequence-editing handlers still call the shared normalization function in the browser; migrate those call sites before describing the migration as complete. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
+
+ADR: [0003 — Server-authoritative diagram operations](../docs/adr/0003-server-authoritative-diagram-operations.md).
+
 ## Project workspace
 
 On first launch, configure a project workspace by entering the absolute directory path on the machine running the Node.js server. The server resolves a selected subdirectory to the enclosing Git repository root when `.git` metadata is present; a non-Git directory remains the root. It then indexes project files with a preference for `.drawio` diagrams, source code, Markdown, README, and ADR files. Use the primary-diagram selector to identify the diagram that should anchor project analysis. The workspace definition is server-authoritative JSON at `~/.architecture-diagram-studio/data/project-workspace.json` (or `$STUDIO_DATA_DIR/project-workspace.json`); its schema is documented in [`v2/schemas/project-workspace.schema.json`](./schemas/project-workspace.schema.json).
