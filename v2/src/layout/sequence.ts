@@ -63,3 +63,53 @@ export function deriveSequenceActivations(document: DiagramDocument): SequenceAc
   }
   return activations.sort((a, b) => a.startOrder - b.startOrder || b.endOrder - a.endOrder);
 }
+export interface SequenceMessageGeometry {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  points: Array<{ x: number; y: number }>;
+}
+
+/**
+ * Canonical message geometry shared by the Studio SVG renderer and Draw.io
+ * XML exporter. Keeping this here prevents the two renderers from disagreeing
+ * about message order, activation-bar endpoints, and self-call loops.
+ */
+export function sequenceMessageGeometry(
+  document: DiagramDocument,
+  relation: DiagramRelation
+): SequenceMessageGeometry | null {
+  if (document.kind !== "sequence") return null;
+  const source = document.nodes.find((node) => node.id === relation.source);
+  const target = document.nodes.find((node) => node.id === relation.target);
+  if (!source || !target) return null;
+
+  const order = relation.sequenceOrder ?? 0;
+  const y = 148 + order * 72;
+  const centerX = (node: typeof source) => node.x + node.width / 2;
+  const activations = deriveSequenceActivations(document);
+  const activeActivation = (participantId: string) => activations
+    .filter((activation) => activation.participantId === participantId &&
+      activation.startOrder <= order && activation.endOrder >= order)
+    .sort((a, b) => b.startOrder - a.startOrder || a.endOrder - b.endOrder)[0];
+  const endpointX = (participant: typeof source, towardX: number) => {
+    const activation = activeActivation(participant.id);
+    if (!activation) return centerX(participant);
+    return centerX(participant) + (towardX >= centerX(participant) ? 7 : -7);
+  };
+
+  if (source.id === target.id) {
+    const x = centerX(source) + (activeActivation(source.id) ? 7 : 0);
+    const start = { x, y };
+    const end = { x, y: y + 24 };
+    const loopX = centerX(source) + 34;
+    return { start, end, points: [{ x: loopX, y }, { x: loopX, y: y + 24 }] };
+  }
+
+  const sourceCenter = centerX(source);
+  const targetCenter = centerX(target);
+  return {
+    start: { x: endpointX(source, targetCenter), y },
+    end: { x: endpointX(target, sourceCenter), y },
+    points: []
+  };
+}
