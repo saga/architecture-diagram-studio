@@ -42,7 +42,7 @@ function loadSavedAISettings(): SavedAISettings {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
-      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" ? parsed.model : "claude-sonnet-5.5" };
+      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "claude-sonnet-5.5" };
     }
   } catch {
     // The page can still use deterministic local rules when browser storage is unavailable.
