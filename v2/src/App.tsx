@@ -273,7 +273,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!serverHydrated) return;
+    if (!serverHydrated || !projectWorkspace) return;
     const timer = window.setTimeout(() => {
       fetch("/api/workspace/document", {
         method: "PUT",
@@ -293,10 +293,10 @@ export default function App() {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [document, drawioXml, serverHydrated]);
+  }, [document, drawioXml, serverHydrated, projectWorkspace]);
 
   useEffect(() => {
-    if (!serverHydrated) return;
+    if (!serverHydrated || !projectWorkspace) return;
     fetch("/api/workspace/chat", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -309,7 +309,7 @@ export default function App() {
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
     });
-  }, [copilotSessionId, messages, serverHydrated]);
+  }, [copilotSessionId, messages, serverHydrated, projectWorkspace]);
 
   useEffect(() => {
     const refreshTraces = () => {
@@ -484,6 +484,7 @@ export default function App() {
   }
 
   async function sendIntent() {
+    if (!projectWorkspace) { setWorkspaceSetupOpen(true); return; }
     const text = chatInput.trim();
     if (!text || chatBusy) return;
     const startedAt = Date.now();
@@ -1069,7 +1070,7 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><span className="crumb-muted">WORKSPACE</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
+        <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="工作区页面">
           {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent 轨迹"], ["settings", "配置"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
@@ -1100,6 +1101,7 @@ export default function App() {
         <>
       <aside className="left-panel">
         <div className="workspace-label">DIAGRAM WORKSPACE</div>
+        {projectWorkspace && <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted, #667085)", overflowWrap: "anywhere" }} title={projectWorkspace.rootPath}><strong>{projectWorkspace.name}</strong><br />{projectWorkspace.rootPath}<br /><button type="button" style={{ marginTop: 6, cursor: "pointer" }} onClick={() => setWorkspaceSetupOpen(true)}>切换工作区</button></div>}
         <div className="side-section">
           <div className="section-heading">图形类型 <span>03</span></div>
           <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
