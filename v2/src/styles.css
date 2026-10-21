@@ -584,3 +584,29 @@ button:disabled { opacity: .58; cursor: wait; }
 
 .app-shell .diagram-svg .diagram-node.selected path:first-child { stroke: var(--theme-accent) !important; }
 .app-shell .diagram-svg .diagram-relation.selected .relation-visible-path { stroke: var(--theme-accent) !important; }
+
+
+/* Slightly larger labels and darker secondary text improve everyday readability. */
+.app-shell .workspace-label,
+.app-shell .section-heading,
+.app-shell .panel-section-heading,
+.app-shell .canvas-kicker { font-size: 10px; letter-spacing: .75px; }
+.app-shell .brand-caption,
+.app-shell .crumb-muted,
+.app-shell .save-state { font-size: 9px; }
+.app-shell .diagram-kind small,
+.app-shell .add-grid button,
+.app-shell .offline-card b,
+.app-shell .offline-card small,
+.app-shell .style-rule small,
+.app-shell .quality-section small { font-size: 10px; }
+.app-shell .diagram-kind small,
+.app-shell .offline-card small,
+.app-shell .style-rule small { line-height: 1.55; }
+.app-shell .bottom-status { font-size: 10px; }
+.app-shell .status-right { font-size: 9px; }
+.app-shell .field-label { font-size: 10px; color: var(--theme-secondary); font-weight: 600; }
+.app-shell .relation-editor select,
+.app-shell .relation-label-field,
+.app-shell .inspector-form .text-field { font-size: 11px; }
+.app-shell .theme-selector select { font-size: 11px; }
