@@ -500,7 +500,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const baseRevision = documentRevision(state.document);
     if (typeof req.body?.baseRevision === "string" && req.body.baseRevision !== baseRevision) { res.status(409).json({ error: "图形已变化，请重新读取后生成提案", revision: baseRevision }); return; }
     const interpreted = interpretIntent(state.document, prompt);
-    if (!interpreted.changed) { res.status(422).json({ error: "当前编辑意图不受支持；未生成或保存任何变更", supportedOperations: ["改关系线虚线/实线", "改曲线或折线路由", "移动 External/Vendor 到右侧", "移动数据库/存储到底部", "切换布局方向", "重新布局", "解除节点锁定"] }); return; }
+    if (!interpreted.changed) { res.status(422).json({ error: "当前编辑意图不受支持；未生成或保存任何变更", supportedOperations: ["按节点 ID 或唯一名称重命名/删除节点", "添加节点", "按节点 ID 或唯一名称移动节点到指定坐标", "按关系 ID 或唯一标签修改标签/删除关系", "添加关系", "改关系线虚线/实线", "改曲线或折线路由", "移动 External/Vendor 到右侧", "移动数据库/存储到底部", "切换布局方向", "重新布局", "解除节点锁定"] }); return; }
     const config = await getStudioConfig();
     if (interpreted.requiresLayout && interpreted.document.kind !== "sequence" && !config.layoutProfiles.includes(interpreted.document.layout.profile)) { res.status(400).json({ error: "当前布局算法已禁用" }); return; }
     const document = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
