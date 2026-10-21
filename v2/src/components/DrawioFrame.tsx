@@ -27,6 +27,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
   const [editorReady, setEditorReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
+  const embedUiObserverRef = useRef<MutationObserver | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -136,7 +137,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         try {
           const currentDocument = documentRef.current;
           const next = fromDrawioXml(data.xml, currentDocument);
-          recordDiagnostic("drawio.document.saved", "接收到 Draw.io 保存结果并同步语义模型", {
+          recordDiagnostic("drawio.document.saved", "Draw.io 自动保存结果已同步到 Studio 模型", {
             event: data.event, xmlLength: data.xml.length, nodeCount: next.nodes.length, relationCount: next.relations.length
           });
           onDocumentChangeRef.current(next, data.xml);
@@ -150,6 +151,30 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
   }, []);
+
+  function hideSaveAndExitControls() {
+    const frameDocument = iframeRef.current?.contentDocument;
+    if (!frameDocument) return;
+    const hideControls = () => {
+      const controls = frameDocument.querySelectorAll<HTMLElement>(
+        "#save, #exit, #saveBtn, #exitBtn, [data-id='save'], [data-id='exit'], [title*='保存并退出'], [aria-label*='保存并退出']"
+      );
+      controls.forEach((element) => {
+        element.style.setProperty("display", "none", "important");
+        element.setAttribute("aria-hidden", "true");
+      });
+    };
+    hideControls();
+    if (frameDocument.head && !frameDocument.getElementById("studio-hide-save-exit")) {
+      const style = frameDocument.createElement("style");
+      style.id = "studio-hide-save-exit";
+      style.textContent = "#save, #exit, #saveBtn, #exitBtn, [data-id='save'], [data-id='exit'], [title*='保存并退出'], [aria-label*='保存并退出'] { display: none !important; }";
+      frameDocument.head.appendChild(style);
+    }
+    embedUiObserverRef.current?.disconnect();
+    embedUiObserverRef.current = new MutationObserver(hideControls);
+    embedUiObserverRef.current.observe(frameDocument.documentElement, { childList: true, subtree: true });
+  }
 
   function retryEditor() {
     recordDiagnostic("drawio.retry", "用户请求重新初始化 Draw.io 编辑器", { previousFrameKey: frameKey }, "warn");
@@ -177,7 +202,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
       <div className="drawio-inline-bar">
         <span className="local-indicator" />
         <span>本地 Draw.io · {DRAWIO_VERSION} · 同源编辑</span>
-        <span className="drawio-inline-hint">{editorReady ? "原生编辑器已就绪 · 保存后同步回 Studio 模型" : "等待 embed 初始化事件…"}</span>
+        <span className="drawio-inline-hint">{editorReady ? "原生编辑器已就绪 · 修改自动保存并同步回 Studio" : "等待 embed 初始化事件…"}</span>
       </div>
       {startupError && <div className="drawio-error-banner" role="alert">
         <span>{startupError}</span><button type="button" onClick={retryEditor}>重新初始化</button>
@@ -187,9 +212,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         onLoad={() => {
           setIframeLoaded(true);
           iframeLoadedRef.current = true;
+          hideSaveAndExitControls();
           recordDiagnostic("drawio.iframe.loaded", "Draw.io iframe 的浏览器 load 事件已触发；继续等待 embed init", { url: EMBED_URL, frameKey });
         }}
         onError={() => {
+          embedUiObserverRef.current?.disconnect();
+          embedUiObserverRef.current = null;
           setStartupError("浏览器无法加载本地 Draw.io 页面，请检查 /drawio/index.html 是否存在。");
           recordDiagnostic("drawio.iframe.load.failed", "浏览器无法加载本地 Draw.io iframe", { url: EMBED_URL }, "error");
         }}
