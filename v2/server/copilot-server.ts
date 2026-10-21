@@ -264,7 +264,7 @@ app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
 const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`[studio:copilot-sdk] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; logs=${LOG_FILE}`);
 });
-const cleanupTimer = setInterval(() => {
+const cleanupTimer = SESSION_IDLE_TTL_MS > 0 ? setInterval(() => {
   const now = Date.now();
   for (const [sessionId, runtime] of sessions) {
     if (now - runtime.lastUsedAt < SESSION_IDLE_TTL_MS) continue;
@@ -275,11 +275,11 @@ const cleanupTimer = setInterval(() => {
       void writeLog("session.disconnect.failed", { sessionId, error: error instanceof Error ? error.message : String(error) });
     });
   }
-}, Math.min(Math.max(SESSION_IDLE_TTL_MS, 60_000), 5 * 60_000));
-cleanupTimer.unref();
+}, Math.min(Math.max(SESSION_IDLE_TTL_MS, 60_000), 5 * 60_000)) : null;
+cleanupTimer?.unref();
 
 async function shutdown(): Promise<void> {
-  clearInterval(cleanupTimer);
+  if (cleanupTimer) clearInterval(cleanupTimer);
   server.close();
   for (const [sessionId, runtime] of sessions) {
     try { await runtime.session.disconnect(); await writeLog("session.disconnected.shutdown", { sessionId }); }
