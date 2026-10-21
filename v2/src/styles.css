@@ -780,3 +780,18 @@ button:disabled { opacity: .58; cursor: wait; }
 .drawio-render-lab-xml > div span { color: #8490a2; }
 .drawio-render-lab-xml textarea { width: 100%; min-height: 250px; resize: vertical; border: 1px solid #e1e6ed; border-radius: 6px; padding: 10px; color: #43536a; background: #f8fafc; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 @media (max-width: 980px) { .drawio-render-lab-panels { grid-template-columns: minmax(0, 1fr); } .drawio-render-lab-canvas, .drawio-render-lab-editor { height: 560px; } }
+
+
+/* Ant Design / Ant Design X integration: preserve the Studio canvas while standardizing controls. */
+.ant-app { height: 100%; }
+.ant-tag { margin-inline-end: 0; }
+.copilot-bubble { max-width: min(680px, 100%); }
+.gemini-message-body .ant-bubble { font-size: 13px; line-height: 1.7; }
+.gemini-message.assistant .ant-bubble .ant-bubble-content { background: #f5f7fb; border: 1px solid #e6eaf2; color: #253247; }
+.gemini-message.user .ant-bubble .ant-bubble-content { background: #eaf0ff; color: #243d83; }
+.antd-composer { padding: 10px 12px; }
+.antd-composer .ant-sender { border-radius: 12px; border-color: #dce3ee; box-shadow: none; }
+.antd-composer .ant-sender:focus-within { border-color: #7187d7; box-shadow: 0 0 0 2px rgb(66 91 199 / 10%); }
+.antd-composer .ant-sender textarea { min-height: 44px; padding: 8px 10px; background: transparent; border: 0; box-shadow: none; }
+.antd-composer .gemini-composer-footer { padding: 6px 4px 0; }
+.copilot-preview-actions .ant-btn { min-height: 32px; }
