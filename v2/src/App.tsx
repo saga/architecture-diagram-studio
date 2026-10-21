@@ -347,7 +347,7 @@ export default function App() {
   }
 
   function saveAISettings() {
-    const next = { baseUrl: aiBaseUrl.trim().replace(/\/+$/, ""), model: aiModel.trim() };
+    const next = { baseUrl: "copilot-sdk", model: aiModel.trim() };
     setAiBaseUrl("copilot-sdk");
     setAiModel(next.model);
     let saved = true;
