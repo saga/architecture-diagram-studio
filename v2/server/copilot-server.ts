@@ -482,7 +482,7 @@ app.get("/api/workspace/diagram/active", async (req, res) => {
     if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
       res.status(404).json({ error: "This workspace has no saved primary diagram" }); return;
     }
-    res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: workspaceRevision(state.document, state.drawioXml), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
+    res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null, updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/proposals", async (req, res) => {
@@ -745,7 +745,7 @@ app.get("/api/workspace/state", async (_req, res) => {
     const visibleState = belongsToWorkspace ? state : { ...state, document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null };
     const versions = (await getDiagramVersions()).filter((version) => versionMatchesActiveDiagram(version, workspace));
     const latest = versions[versions.length - 1];
-    res.json({ ...visibleState, workspaceMismatch: !belongsToWorkspace, workspaceRevision: visibleState.document && isDiagramDocument(visibleState.document) ? workspaceRevision(visibleState.document, visibleState.drawioXml) : null, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
+    res.json({ ...visibleState, workspaceMismatch: !belongsToWorkspace, workspaceRevision: visibleState.document && isDiagramDocument(visibleState.document) && typeof visibleState.drawioXml === "string" ? workspaceRevision(visibleState.document, visibleState.drawioXml) : null, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
   } catch (error) {
     await writeLog("workspace.state.read.failed", { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "Could not read the server workspace data" });
@@ -771,7 +771,7 @@ app.put("/api/workspace/document", async (req, res) => {
       const allVersions = await getDiagramVersions();
       const activeStateMatches = state.workspaceId === workspace?.id && (state.diagramPath === undefined || state.diagramPath === (workspace?.primaryDiagram ?? null));
       const workspaceVersions = allVersions.filter((version) => versionMatchesActiveDiagram(version, workspace));
-      const currentRevision = activeStateMatches && isDiagramDocument(state.document) ? workspaceRevision(state.document, state.drawioXml) : null;
+      const currentRevision = activeStateMatches && isDiagramDocument(state.document) && typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null;
       if (!matchesWorkspaceRevision(baseRevision, currentRevision)) return { status: 409 as const, error: "The document changed or the save is missing its base revision. Reload the latest version before saving.", workspaceRevision: currentRevision };
       const unchanged = activeStateMatches && state.drawioXml === drawioXml;
       if (!unchanged) {
@@ -987,7 +987,7 @@ registerCopilotIntentRoute(app, {
     getActiveRevision: async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) return null;
-      return workspaceRevision(state.document, state.drawioXml);
+      return typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null;
     },
     applyProposal: async (proposalId: string, expectedRevision: string, summary: string): Promise<AgentAppliedEditView> => {
       const response = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/diagram/apply-proposal?includeXml=false", {
