@@ -98,7 +98,7 @@ V2 的“好看”不能依赖模型随机发挥，也不能简单等于“使�
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ 1. Intent Layer                                             │
-│    用户 / AI / MCP：create / move / restyle / reroute       │
+│    用户 / Copilot SDK：create / move / restyle / reroute       │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. Diagram Model                                            │
 │    DiagramDocument V2：语义、关系、布局约束、视觉 token     │
@@ -1439,7 +1439,7 @@ Supported tool outputs and context are bounded. Retrieved project contents are u
 | draw.io exporter | 保留，升级为 Style Adapter + XML Adapter |
 | React Flow | 保留用于现有编辑器/算法实验，逐步减少其作为最终 renderer 的职责 |
 | 六种 theme | 收敛成 Design Token + Style Resolver |
-| MCP/Copilot | 保留，升级为 intent-oriented tools |
+| Copilot SDK tools | Internal, intent-oriented tools with server-validated proposals |
 | layout config | 从 engine 参数升级为 semantic Layout Profile |
 | waypoints | 保留，但由 routing engine 生成，而不是 AI 任意写 |
 
