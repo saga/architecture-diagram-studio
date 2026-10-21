@@ -1,5 +1,5 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, Input, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
@@ -55,7 +55,8 @@ function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
 }
 
 function UiInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  if (props.type === "file" || props.type === "checkbox") return <input {...props} />;
+  if (props.type === "file") return <input {...props} />;
+  if (props.type === "checkbox") return <Checkbox {...(props as any)} />;
   return <Input {...(props as any)} />;
 }
 
