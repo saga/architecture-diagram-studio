@@ -149,9 +149,7 @@ export default function App() {
   const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
   const [aiApiKey, setAiApiKey] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const initial: ChatMessage[] = [
-      { role: "assistant", id: 1, text: "描述想要的布局变化即可，例如「所有 external 移到右侧」「数据库放到底部」或「所有连线改成直角折线」。未配置模型时使用本地规则；配置后会把请求转换为受限的布局指令，并先生成预览供确认。" }
-    ];
+    const initial: ChatMessage[] = [];
     try {
       const saved = window.localStorage.getItem("architecture-diagram-studio:v2:chat-messages");
       if (!saved) return initial;
