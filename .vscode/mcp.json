@@ -3,12 +3,7 @@
     "architecture-diagram-studio": {
       "type": "stdio",
       "command": "npm",
-      "args": [
-        "run",
-        "mcp",
-        "--prefix",
-        "${workspaceFolder}/v2"
-      ]
+      "args": ["--prefix", "${workspaceFolder}/v2", "run", "mcp"]
     }
   }
 }
