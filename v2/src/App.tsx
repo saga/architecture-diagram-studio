@@ -22,7 +22,7 @@ import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 import { useDiagramEditing } from "./hooks/useDiagramEditing";
-import { requestServerLayout, layoutSample, requestServerSequenceNormalize } from "./api/diagram-operations";
+import { requestServerLayout, layoutSample } from "./api/diagram-operations";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
@@ -332,7 +332,8 @@ export default function App() {
         const importBaseDocument = diagramContextChanged ? { ...FIXTURES.c4(), renderTheme: uiTheme } : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
         if (parsedDocument === importBaseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
-        nextDocument = await requestServerSequenceNormalize(parsedDocument);
+        // Opening a Draw.io file must preserve its geometry; semantic normalization is an explicit action only.
+        nextDocument = parsedDocument;
       } else if (workspaceChanged) {
         nextDocument = await layoutSample(FIXTURES.c4()); nextXml = null;
       }
