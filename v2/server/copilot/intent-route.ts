@@ -23,12 +23,13 @@ interface IntentDependencies {
   getProjectWorkspace(): Promise<ProjectWorkspace | null>;
   collectAgentWorkspaceContext(): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
-  createDiagramTools(sessionId: string, onProposal: (proposal: AgentProposalView) => void): any[];
+  createDiagramTools(sessionId: string, onProposal: (proposal: AgentProposalView) => void, onToolUse: (toolName: string) => void): any[];
 }
 
 interface PendingPlan { commands: string[]; reply: string; }
 const pendingPlans = new Map<string, PendingPlan>();
 const pendingAgentProposals = new Map<string, AgentProposalView>();
+const usedToolsBySession = new Map<string, Set<string>>();
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   async function buildSystemMessage(config: AgentPromptConfig): Promise<string> {
@@ -106,7 +107,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             systemMessage: await buildSystemMessage(latestConfig),
             tools: [
               createProposeLayoutPlanTool(sessionId, latestConfig),
-              ...deps.createDiagramTools(sessionId, (proposal) => pendingAgentProposals.set(sessionId, proposal))
+              ...deps.createDiagramTools(
+                sessionId,
+                (proposal) => pendingAgentProposals.set(sessionId, proposal),
+                (toolName) => {
+                  let used = usedToolsBySession.get(sessionId);
+                  if (!used) { used = new Set<string>(); usedToolsBySession.set(sessionId, used); }
+                  used.add(toolName);
+                }
+              )
             ],
             workspaceId: (await deps.getProjectWorkspace())?.id
           };
@@ -115,6 +124,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const plan = await deps.copilot.withTurn(sessionId, async (turn) => {
         pendingPlans.delete(sessionId);
         pendingAgentProposals.delete(sessionId);
+        usedToolsBySession.set(sessionId, new Set<string>());
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = await deps.collectAgentWorkspaceContext();
         await deps.writeLog("turn.workspace-context.loaded", {
@@ -128,7 +138,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         let capturedProposal = pendingAgentProposals.get(sessionId) || null;
         pendingAgentProposals.delete(sessionId);
         let modelText = assistantText(firstTurn);
-        if (!captured && !capturedProposal) {
+        let usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
+        if (!captured && !capturedProposal && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const nudged = await turn.send({
             prompt: JSON.stringify({ request: "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For semantic changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
@@ -137,9 +148,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           pendingPlans.delete(sessionId);
           capturedProposal = pendingAgentProposals.get(sessionId) || null;
           pendingAgentProposals.delete(sessionId);
+          usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
           modelText = assistantText(nudged) || modelText;
         }
-        return { captured, capturedProposal, modelText, session: turn.session };
+        return { captured, capturedProposal, modelText, usedToolNames: [...usedToolNames], session: turn.session };
       });
 
       if (plan.capturedProposal) {
@@ -164,6 +176,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (resolved) await deps.writeLog("turn.plan.parsed-from-text", { sessionId, commandCount: resolved.commands.length });
       }
       if (!resolved) {
+        if (plan.usedToolNames.length) {
+          await deps.writeLog("turn.completed.after-analysis-tools", { sessionId, model: plan.session.model, tools: plan.usedToolNames, modelText: modelText.slice(0, 2000) });
+          res.json({
+            commands: [], reply: modelText.slice(0, 500) || "The requested analysis completed; the diagram is unchanged.",
+            sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+            provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames
+          });
+          return;
+        }
         await deps.writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000) });
         res.json({
           commands: [], reply: modelText.slice(0, 500) || "No actionable plan was produced and the diagram is unchanged. Try specifying a supported layout or semantic edit.",

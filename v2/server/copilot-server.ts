@@ -817,7 +817,7 @@ registerCopilotIntentRoute(app, {
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
     await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
   }),
-  createDiagramTools: (_sessionId, onProposal) => createDiagramAgentTools({
+  createDiagramTools: (_sessionId, onProposal, onToolUse) => createDiagramAgentTools({
     getActiveDocument: async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
@@ -857,7 +857,7 @@ registerCopilotIntentRoute(app, {
       const restored = { ...sourceVersion.document, id: state.document.id };
       return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
     },
-    onProposal
+    onProposal, onToolUse
   })
 });
 
