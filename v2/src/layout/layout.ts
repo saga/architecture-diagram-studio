@@ -206,6 +206,24 @@ function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
   const branches = nodes.filter((node) => !primary.has(node.id) && !node.layoutHints?.locked);
   if (!branches.length || !main.length) return routeRelations({ ...doc, nodes });
 
+  // A flowchart without manual locks gets a single, stable main lane.
+  // Exception/review nodes are placed below the exact primary-path segment they connect to.
+  const allPrimaryUnlocked = primaryPath.every((id) => {
+    const node = nodes.find((item) => item.id === id);
+    return node && !node.layoutHints?.locked;
+  });
+  if (doc.layout.direction === "RIGHT" && allPrimaryUnlocked) {
+    let x = 48;
+    const gap = Math.max(36, Math.min(64, Math.round(doc.layout.layerSpacing * 0.55)));
+    for (const id of primaryPath) {
+      const node = nodes.find((item) => item.id === id);
+      if (!node) continue;
+      node.x = x;
+      node.y = 116;
+      x += node.width + gap;
+    }
+  }
+
   const neighborsByBranch = (branchId: string) => {
     const ids = new Set<string>();
     for (const relation of doc.relations) {
