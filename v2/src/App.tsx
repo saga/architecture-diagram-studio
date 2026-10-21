@@ -858,7 +858,7 @@ export default function App() {
 
   async function removeRelation(relationId: string) {
     if (selectedRelationId === relationId) setSelectedRelationId(null);
-    const next = normalizeSequenceDocument({ ...document, relations: document.relations.filter((relation) => relation.id !== relationId) });
+    const next = await requestServerSequenceNormalize({ ...document, relations: document.relations.filter((relation) => relation.id !== relationId) });
     setRelationLabelDrafts((drafts) => {
       const updated = { ...drafts };
       delete updated[relationId];
@@ -899,7 +899,7 @@ export default function App() {
   async function removeSelectedNode() {
     if (!selectedNode) return;
     setSelectedRelationId(null);
-    const next = normalizeSequenceDocument({
+    const next = await requestServerSequenceNormalize({
       ...document,
       nodes: document.nodes.filter((node) => node.id !== selectedNode.id),
       relations: document.relations.filter((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id),
