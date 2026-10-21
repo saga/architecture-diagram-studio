@@ -4,7 +4,7 @@ import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
 import { toDrawioXml } from "./export/drawio";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "./model/fixtures";
-import type { DiagramDocument } from "./model/types";
+import type { DiagramDocument, SequenceFragment } from "./model/types";
 
 type Scenario = "sequence" | "c4" | "flowchart";
 const factories: Record<Scenario, () => DiagramDocument> = {
@@ -98,6 +98,20 @@ export default function DrawioRenderLab() {
               onUpdateRelationLabel={(relationId, label) => {
                 setNativeXml(null);
                 setDocument((current) => ({ ...current, relations: current.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation) }));
+              }}
+              onUpdateSequenceFragment={(fragmentId, patch: Partial<SequenceFragment>) => {
+                setNativeXml(null);
+                setDocument((current) => ({
+                  ...current,
+                  sequence: current.sequence ? { ...current.sequence, fragments: (current.sequence.fragments || []).map((fragment) => {
+                    if (fragment.id !== fragmentId) return fragment;
+                    const nextFragment = { ...fragment, ...patch };
+                    const maxOrder = Math.max(0, current.relations.length - 1);
+                    const startOrder = Math.max(0, Math.min(maxOrder, nextFragment.startOrder));
+                    const endOrder = Math.max(startOrder, Math.min(maxOrder, nextFragment.endOrder));
+                    return { ...nextFragment, startOrder, endOrder };
+                  }) } : undefined
+                }));
               }}
               onMoveNode={(id, x, y) => { setNativeXml(null); setDocument((current) => ({
                 ...current, nodes: current.nodes.map((node) => node.id === id ? { ...node, x, y } : node)
