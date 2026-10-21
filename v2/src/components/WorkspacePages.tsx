@@ -5,7 +5,57 @@ import { Button, Select, Tag } from "antd";
 import type { DiagramDocument } from "../model/types";
 import type { DiagnosticEntry } from "../diagnostics";
 
-export type WorkspacePage = "studio" | "copilot" | "traces" | "settings";
+
+type StudioConfig = { layoutProfiles: string[]; prompts: { system: string; task: string; planTool: string }; updatedAt: string };
+const PROFILE_OPTIONS = [
+  { value: "elk-layered", label: "ELK Layered" }, { value: "elk-mrtree", label: "ELK MrTree" },
+  { value: "elk-radial", label: "ELK Radial" }, { value: "elk-stress", label: "ELK Stress" },
+  { value: "elk-force", label: "ELK Force" }, { value: "dagre-layered", label: "Dagre Layered" }
+];
+function ConfigurationEditor() {
+  const [config, setConfig] = useState<StudioConfig | null>(null);
+  const [revisions, setRevisions] = useState(0);
+  const [history, setHistory] = useState<Array<{revisionId:string;updatedAt:string;changeSummary:string}>>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const load = async () => {
+    const response = await fetch("/api/workspace/configuration");
+    const payload = await response.json() as {config?:StudioConfig;revisions?:number;error?:string};
+    if (!response.ok || !payload.config) throw new Error(payload.error || "读取配置失败");
+    setConfig(payload.config); setRevisions(payload.revisions || 0);
+    const h = await fetch("/api/workspace/configuration/history");
+    if (h.ok) { const hp = await h.json() as {revisions?:Array<{revisionId:string;updatedAt:string;changeSummary:string}>}; setHistory((hp.revisions || []).slice(-8).reverse()); }
+  };
+  useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : String(error))); }, []);
+  const save = async () => {
+    if (!config) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/workspace/configuration", {method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({config})});
+      const payload = await response.json() as {config?:StudioConfig;error?:string};
+      if (!response.ok || !payload.config) throw new Error(payload.error || "保存失败");
+      setConfig(payload.config); setMessage("配置已保存并追加到服务端 JSONL 版本历史"); await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+  if (!config) return <section className="settings-card"><h2>布局算法与 Copilot Prompt</h2><p>{message || "正在读取服务端配置…"}</p></section>;
+  return <section className="settings-card settings-logs-card">
+    <div className="settings-card-heading"><div className="settings-card-icon">⚙</div><div><h2>布局算法与 Copilot Prompt</h2><p>服务端统一配置；每次保存都会追加不可覆盖的 JSONL 版本记录。</p></div></div>
+    <strong>自动布局算法白名单</strong>
+    <div className="settings-field">
+      {PROFILE_OPTIONS.map((option) => <label key={option.value} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0"}}><input type="checkbox" checked={config.layoutProfiles.includes(option.value)} onChange={(event) => setConfig({...config,layoutProfiles:event.target.checked?[...config.layoutProfiles,option.value]:config.layoutProfiles.filter((p)=>p!==option.value)})}/>{option.label}</label>)}
+    </div>
+    <p className="settings-description">此列表控制服务端允许执行的布局算法；文档原有布局配置不会被静默改写。</p>
+    <label className="settings-field">Copilot system prompt<textarea rows={5} value={config.prompts.system} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,system:event.target.value}})} /></label>
+    <label className="settings-field">任务规划 prompt<textarea rows={5} value={config.prompts.task} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,task:event.target.value}})} /></label>
+    <label className="settings-field">结构化计划工具 prompt<textarea rows={5} value={config.prompts.planTool} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,planTool:event.target.value}})} /></label>
+    <div className="settings-card-actions"><span className="settings-trace-count">{revisions} 个历史版本</span><UiButton type="button" className="button button-primary" disabled={busy || !config.layoutProfiles.length} onClick={()=>void save()}>{busy?"保存中…":"保存并创建版本"}</UiButton></div>
+    {message && <p className="settings-description">{message}</p>}
+    {history.length > 0 && <div className="settings-terminal-note"><strong>最近配置版本</strong>{history.map((item)=><span key={item.revisionId}>{new Date(item.updatedAt).toLocaleString()} · {item.changeSummary || item.revisionId}</span>)}</div>}
+  </section>;
+}
+
+\nexport type WorkspacePage = "studio" | "copilot" | "traces" | "settings";
 type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
@@ -222,6 +272,8 @@ export default function WorkspacePages(props: Props) {
         </div>
 
         <div className="settings-grid">
+          <ConfigurationEditor />
+
           <section className="settings-card">
             <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>GitHub Copilot SDK / Agent Runtime</h2><p>服务端 Copilot CLI runtime；使用已登录的 GitHub Copilot 身份</p></div></div>
             <div className="settings-status-line"><span className={"settings-status-dot " + (aiModel.trim() ? "status-ready" : "status-unknown")} /><strong>{aiModel.trim() ? "Agent 模式已配置" : "当前使用本地规则"}</strong></div>
