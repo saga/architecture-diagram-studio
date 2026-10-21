@@ -163,7 +163,10 @@ export async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProf
   if (profile === "elk-layered") {
     if (doc.kind === "flowchart") {
       next = applyFlowLanes(next);
-      next = applySemanticSideConstraints(next);
+      // The flow-specific primary/exception lanes are authoritative. Honor only
+      // explicit node-side hints here; automatic C4 role zoning would move review
+      // and approval branches away from their connected decision/main-path steps.
+      next = applySemanticSideConstraints(next, false);
     } else {
       next = applyC4SemanticRanks(next);
       next = applySemanticSideConstraints(next);
