@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
+import type { DiagramDocument, DiagramNode, DiagramRelation, Point, SequenceFragment } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
 import { measureTextWidth, truncateTextToWidth, wrapTextToWidth } from "../design/text-metrics";
@@ -19,13 +19,15 @@ interface Props {
   onReconnectRelation: (relationId: string, endpoint: "source" | "target", nodeId: string) => void;
   onRenameNode: (nodeId: string, name: string) => void;
   onUpdateRelationLabel: (relationId: string, label: string) => void;
+  onUpdateSequenceFragment: (fragmentId: string, patch: Partial<SequenceFragment>) => void;
   connectionSourceId: string | null;
   onConnectionSourceChange: (nodeId: string | null) => void;
-  onContextMenu: (target: { kind: "node" | "relation" | "canvas"; id?: string }, x: number, y: number) => void;
+  onContextMenu: (target: { kind: "node" | "relation" | "fragment" | "canvas"; id?: string }, x: number, y: number) => void;
 }
 interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; originX: number; originY: number; }
 interface PanState { startClientX: number; startClientY: number; originX: number; originY: number; }
 interface ConnectionDrag { sourceId: string; start: Point; current: Point; relationId?: string; endpoint?: "source" | "target"; }
+interface FragmentDrag { id: string; endpoint: "start" | "end"; currentOrder: number; }
 
 function center(node: DiagramNode): Point {
   return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
@@ -110,13 +112,16 @@ function nodePath(node: DiagramNode, shape: string): string {
 }
 export default function DiagramCanvas({
   document, zoom, viewResetToken, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode,
-  onCreateRelation, onReconnectRelation, onRenameNode, onUpdateRelationLabel, connectionSourceId,
+  onCreateRelation, onReconnectRelation, onRenameNode, onUpdateRelationLabel, onUpdateSequenceFragment, connectionSourceId,
   onConnectionSourceChange, onContextMenu
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [panGesture, setPanGesture] = useState<PanState | null>(null);
   const [connectionDrag, setConnectionDrag] = useState<ConnectionDrag | null>(null);
+  const [fragmentDrag, setFragmentDrag] = useState<FragmentDrag | null>(null);
+  const [editingFragmentId, setEditingFragmentId] = useState<string | null>(null);
+  const [fragmentLabelDraft, setFragmentLabelDraft] = useState("");
   const [editingRelationId, setEditingRelationId] = useState<string | null>(null);
   const [relationLabelDraft, setRelationLabelDraft] = useState("");
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -168,6 +173,17 @@ export default function DiagramCanvas({
     onConnectionSourceChange(null);
     svgRef.current?.setPointerCapture(event.pointerId);
   }
+  function startFragmentResize(event: ReactPointerEvent<SVGCircleElement>, fragment: SequenceFragment, endpoint: "start" | "end", point: Point) {
+    if (event.button !== 0 || document.kind !== "sequence") return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDrag(null);
+    setConnectionDrag(null);
+    setPanGesture(null);
+    setFragmentDrag({ id: fragment.id, endpoint, currentOrder: endpoint === "start" ? fragment.startOrder : fragment.endOrder });
+    svgRef.current?.setPointerCapture(event.pointerId);
+    void point;
+  }
   function startReconnect(event: ReactPointerEvent<SVGCircleElement>, relation: DiagramRelation, endpoint: "source" | "target", start: Point) {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -188,6 +204,11 @@ export default function DiagramCanvas({
     setEditingNodeId(null);
     setNodeNameDraft("");
   }
+  function finishFragmentLabel(commit: boolean, value = fragmentLabelDraft) {
+    if (commit && editingFragmentId) onUpdateSequenceFragment(editingFragmentId, { label: value.trim().slice(0, 500) });
+    setEditingFragmentId(null);
+    setFragmentLabelDraft("");
+  }
   function startPan(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.button !== 0 || drag) return;
     setPanGesture({
@@ -197,6 +218,15 @@ export default function DiagramCanvas({
     event.preventDefault();
   }
   function moveDrag(event: ReactPointerEvent<SVGSVGElement>) {
+    if (fragmentDrag) {
+      const point = pointerToDiagram(event.clientX, event.clientY);
+      const maxOrder = Math.max(0, document.relations.length - 1);
+      const rawOrder = fragmentDrag.endpoint === "start"
+        ? Math.round((point.y - 126) / 72)
+        : Math.round((point.y - 170) / 72);
+      setFragmentDrag({ ...fragmentDrag, currentOrder: Math.max(0, Math.min(maxOrder, rawOrder)) });
+      return;
+    }
     if (connectionDrag) {
       setConnectionDrag({ ...connectionDrag, current: pointerToDiagram(event.clientX, event.clientY) });
       return;
@@ -218,6 +248,15 @@ export default function DiagramCanvas({
     }
   }
   function endDrag(event: ReactPointerEvent<SVGSVGElement>) {
+    if (fragmentDrag) {
+      const fragment = document.sequence?.fragments?.find((item) => item.id === fragmentDrag.id);
+      if (fragment) onUpdateSequenceFragment(fragment.id, fragmentDrag.endpoint === "start"
+        ? { startOrder: Math.min(fragmentDrag.currentOrder, fragment.endOrder) }
+        : { endOrder: Math.max(fragmentDrag.currentOrder, fragment.startOrder) });
+      setFragmentDrag(null);
+      setPanGesture(null);
+      return;
+    }
     if (connectionDrag) {
       const point = pointerToDiagram(event.clientX, event.clientY);
       const target = [...displayNodes].reverse().find((node) =>
@@ -246,7 +285,15 @@ export default function DiagramCanvas({
     onSelectRelation(relationId);
   }
   const displayNodes = document.nodes.map((node) => drag && drag.id === node.id ? { ...node, x: drag.x, y: drag.y } : node);
-  const displayDoc = { ...document, nodes: displayNodes };
+  const displaySequence = document.sequence && fragmentDrag ? {
+    ...document.sequence,
+    fragments: (document.sequence.fragments || []).map((fragment) => fragment.id !== fragmentDrag.id ? fragment : ({
+      ...fragment,
+      startOrder: fragmentDrag.endpoint === "start" ? Math.min(fragmentDrag.currentOrder, fragment.endOrder) : fragment.startOrder,
+      endOrder: fragmentDrag.endpoint === "end" ? Math.max(fragmentDrag.currentOrder, fragment.startOrder) : fragment.endOrder
+    }))
+  } : document.sequence;
+  const displayDoc = { ...document, nodes: displayNodes, sequence: displaySequence };
 
   return (
     <svg ref={svgRef} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
@@ -276,7 +323,7 @@ export default function DiagramCanvas({
           <text className="diagram-boundary-label" x={left + 14} y={top + 20} fontSize="13" fontWeight="500" fill="#0C1626">{boundary.name.toUpperCase()}</text>
         </g>;
       })}
-      {document.kind === "sequence" && (document.sequence?.fragments || []).map((fragment) => {
+      {document.kind === "sequence" && (displayDoc.sequence?.fragments || []).map((fragment) => {
         const fragmentParticipantIds = fragment.participants?.length
           ? fragment.participants
           : (document.sequence?.participants || []);
@@ -288,11 +335,26 @@ export default function DiagramCanvas({
         const bottom = 148 + fragment.endOrder * 72 + 22;
         const tag = fragment.kind.toUpperCase();
         const tagWidth = Math.max(44, tag.length * 8.6 + 16);
-        return <g key={fragment.id} className="sequence-fragment">
+        return <g key={fragment.id} className="sequence-fragment"
+          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "fragment", id: fragment.id }, event.clientX, event.clientY); }}
+          onDoubleClick={(event) => { event.stopPropagation(); setEditingFragmentId(fragment.id); setFragmentLabelDraft(fragment.label); }}>
           <rect className="sequence-fragment-frame" x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#EDF1F9" fillOpacity="0.9" stroke={tokens.borderStrong} strokeWidth="1.4" strokeDasharray="5 4" />
           <rect className="sequence-fragment-tag" x={left + 10} y={top - 2} width={tagWidth} height="24" rx="4" fill="#DCE3F0" stroke={tokens.borderStrong} strokeWidth="1.2" />
           <text className="sequence-fragment-kind" x={left + 18} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{tag}</text>
-          <text className="sequence-fragment-label" x={left + 10 + tagWidth + 10} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{fragment.label}</text>
+          {editingFragmentId !== fragment.id && <text className="sequence-fragment-label" x={left + 10 + tagWidth + 10} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{fragment.label}</text>}
+          {editingFragmentId === fragment.id && <foreignObject x={left + 10 + tagWidth + 5} y={top - 1} width={Math.max(130, right - left - tagWidth - 25)} height="26">
+            <input className="fragment-inline-input" aria-label="Edit sequence fragment label" autoFocus onPointerDown={(event) => event.stopPropagation()}
+              value={fragmentLabelDraft} onChange={(event) => setFragmentLabelDraft(event.currentTarget.value)}
+              onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishFragmentLabel(true, event.currentTarget.value); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                if (event.key === "Escape") { event.currentTarget.dataset.cancelled = "true"; finishFragmentLabel(false); }
+              }} />
+          </foreignObject>}
+          <circle className="fragment-resize-handle" cx={right - 9} cy={top} r="5"
+            aria-label="Change fragment start message" onPointerDown={(event) => startFragmentResize(event, fragment, "start", { x: right - 9, y: top })} />
+          <circle className="fragment-resize-handle" cx={right - 9} cy={bottom} r="5"
+            aria-label="Change fragment end message" onPointerDown={(event) => startFragmentResize(event, fragment, "end", { x: right - 9, y: bottom })} />
         </g>;
       })}
       {document.kind === "sequence" && displayNodes.map((node) => <line className="sequence-lifeline" key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke={tokens.borderStrong} strokeWidth="1.2" strokeDasharray="4 5" />)}
