@@ -207,9 +207,9 @@ export default function DiagramCanvas({
         const top = Math.min(...members.map((node) => node.y)) - document.layout.boundaryPadding - 16;
         const right = Math.max(...members.map((node) => node.x + node.width)) + document.layout.boundaryPadding;
         const bottom = Math.max(...members.map((node) => node.y + node.height)) + document.layout.boundaryPadding;
-        return <g key={boundary.id}>
-          <rect x={left} y={top} width={right - left} height={bottom - top} rx="13" fill="#F6F8FB" fillOpacity="0.5" stroke="#D4DCE7" strokeWidth="1.2" strokeDasharray="4 6" />
-          <text x={left + 14} y={top + 17} fontSize="10" fontWeight="600" letterSpacing="1.2" fill="#7E8B9D">{boundary.name.toUpperCase()}</text>
+        return <g key={boundary.id} className="diagram-boundary">
+          <rect className="diagram-boundary-frame" x={left} y={top} width={right - left} height={bottom - top} rx="13" fill="#F6F8FB" fillOpacity="0.5" stroke="#D4DCE7" strokeWidth="1.2" strokeDasharray="4 6" />
+          <text className="diagram-boundary-label" x={left + 14} y={top + 17} fontSize="10" fontWeight="600" letterSpacing="1.2" fill="#7E8B9D">{boundary.name.toUpperCase()}</text>
         </g>;
       })}
       {document.kind === "sequence" && (document.sequence?.fragments || []).map((fragment) => {
@@ -220,21 +220,21 @@ export default function DiagramCanvas({
         const top = 148 + fragment.startOrder * 72 - 22;
         const bottom = 148 + fragment.endOrder * 72 + 22;
         const tag = fragment.kind.toUpperCase();
-        return <g key={fragment.id}>
-          <rect x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#F8FAFD" fillOpacity="0.64" stroke="#B8C4D4" strokeWidth="1.2" strokeDasharray="5 4" />
-          <rect x={left + 10} y={top - 1} width={Math.max(34, tag.length * 7 + 14)} height="20" rx="4" fill="#EEF2F8" stroke="#B8C4D4" strokeWidth="1" />
-          <text x={left + 17} y={top + 13} fontSize="9" fontWeight="700" letterSpacing=".6" fill="#68788F">{tag}</text>
-          <text x={left + 58} y={top + 13} fontSize="10" fill="#536276">{fragment.label}</text>
+        return <g key={fragment.id} className="sequence-fragment">
+          <rect className="sequence-fragment-frame" x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#F8FAFD" fillOpacity="0.64" stroke="#B8C4D4" strokeWidth="1.2" strokeDasharray="5 4" />
+          <rect className="sequence-fragment-tag" x={left + 10} y={top - 1} width={Math.max(34, tag.length * 7 + 14)} height="20" rx="4" fill="#EEF2F8" stroke="#B8C4D4" strokeWidth="1" />
+          <text className="sequence-fragment-kind" x={left + 17} y={top + 13} fontSize="9" fontWeight="700" letterSpacing=".6" fill="#68788F">{tag}</text>
+          <text className="sequence-fragment-label" x={left + 58} y={top + 13} fontSize="10" fill="#536276">{fragment.label}</text>
         </g>;
       })}
-      {document.kind === "sequence" && displayNodes.map((node) => <line key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#BCC5D1" strokeWidth="1" strokeDasharray="4 6" />)}
+      {document.kind === "sequence" && displayNodes.map((node) => <line className="sequence-lifeline" key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#BCC5D1" strokeWidth="1" strokeDasharray="4 6" />)}
       {document.kind === "sequence" && deriveSequenceActivations(displayDoc).map((activation) => {
         const participant = displayNodes.find((node) => node.id === activation.participantId);
         if (!participant) return null;
         // Activation bars touch the initiating call and the matching return line.
         const y = 148 + activation.startOrder * 72;
         const height = Math.max(12, (activation.endOrder - activation.startOrder) * 72);
-        return <rect key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
+        return <rect className="sequence-activation" key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
           fill="#E7EDF7" stroke="#B7C5D9" strokeWidth="1" />;
       })}
       {displayDoc.relations.map((relation) => {
@@ -253,9 +253,9 @@ export default function DiagramCanvas({
             strokeWidth={selected ? Math.max(2.8, paint.width + 1.1) : paint.width}
             strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
             markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
-          {relation.label && <g pointerEvents="none">
-            <rect x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12} width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.96" />
-            <text x={path.label.x} y={path.label.y + 1} textAnchor="middle" fontSize="10" fill="#38485E">{relation.label}</text>
+          {relation.label && <g className="relation-label" pointerEvents="none">
+            <rect className="relation-label-bg" x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12} width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.96" />
+            <text className="relation-label-text" x={path.label.x} y={path.label.y + 1} textAnchor="middle" fontSize="10" fill="#38485E">{relation.label}</text>
           </g>}
         </g>;
       })}
