@@ -103,7 +103,7 @@ export async function requestAIIntentPlan(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, context, ...(model ? { model } : {}), ...(config.sessionId ? { sessionId: config.sessionId } : {}), reasoningEffort: config.reasoningEffort || "max" }),
-      signal: AbortSignal.timeout(70_000)
+      signal: AbortSignal.timeout(90_000)
     });
   } catch (error) {
     const timedOut = error instanceof DOMException && error.name === "TimeoutError";
@@ -113,7 +113,7 @@ export async function requestAIIntentPlan(
       errorName: error instanceof Error ? error.name : typeof error
     }, "error");
     throw new Error(timedOut
-      ? "Copilot SDK 请求超过 70 秒，已中止；请检查本地 Agent 服务和 Copilot 登录状态。"
+      ? "Copilot SDK 请求超过 90 秒，已中止；请检查本地 Agent 服务和 Copilot 登录状态。"
       : "无法连接本地 Copilot SDK 服务；请确认通过 npm run dev 启动 V2。");
   }
 

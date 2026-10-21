@@ -1053,17 +1053,39 @@ app.post("/api/copilot/intent", async (req, res) => {
     try {
       const projectContext = await collectAgentWorkspaceContext();
       await writeLog("turn.workspace-context.loaded", { sessionId, workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null, snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0 });
-      const result = await runtime.session.sendAndWait(
+      const firstTurn = await runtime.session.sendAndWait(
         { prompt: JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext }) },
-        60000
+        50000
       );
-      const plan = pendingPlans.get(sessionId) || null;
+      let plan = pendingPlans.get(sessionId) || null;
       pendingPlans.delete(sessionId);
+      let modelText = assistantText(firstTurn);
       if (!plan) {
-        const content = (result as { data?: { content?: string } } | undefined)?.data?.content || "";
-        throw new Error(content
-          ? "Agent 未调用 propose_layout_plan 工具；未执行任何修改。请重试或调整请求。"
-          : "Agent 没有返回布局计划；未执行任何修改。");
+        // Models answer greetings and small talk in prose; one explicit nudge makes them answer through the tool,
+        // which is the only channel this server can validate and apply.
+        await writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
+        const nudged = await runtime.session.sendAndWait(
+          { prompt: JSON.stringify({ request: "请改用 propose_layout_plan 工具回答上一个请求；如果不需要改动布局，就提交空命令列表，并在 reply 字段里说明原因。", diagram: context }) },
+          25000
+        );
+        plan = pendingPlans.get(sessionId) || null;
+        pendingPlans.delete(sessionId);
+        modelText = assistantText(nudged) || modelText;
+      }
+      if (!plan) {
+        // Some models answer with a JSON block instead of calling the tool; accept it after the same whitelist check.
+        plan = planFromText(modelText);
+        if (plan) await writeLog("turn.plan.parsed-from-text", { sessionId, commandCount: plan.commands.length });
+      }
+      if (!plan) {
+        // Nothing to apply: answer with the model's own words instead of an error the user cannot act on.
+        await writeLog("turn.completed.without-plan", { sessionId, model: runtime.model, modelText: modelText.slice(0, 2000) });
+        res.json({
+          commands: [], reply: modelText.slice(0, 500) || "这次没有生成布局计划，图形未改动。可以说得更具体一些，例如「把数据库放到最底部」。",
+          sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
+          provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
+        });
+        return;
       }
       const response = {
         ...plan, sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
@@ -1085,9 +1107,28 @@ app.post("/api/copilot/intent", async (req, res) => {
   }
 });
 
+/** Assistant prose from a finished turn; empty string when the turn produced no text. */
+function assistantText(message: unknown): string {
+  const content = (message as { data?: { content?: unknown } } | undefined)?.data?.content;
+  return typeof content === "string" ? content.trim() : "";
+}
+
+/** Last resort when the agent writes a plan as JSON text instead of calling the tool. */
+function planFromText(text: string): { commands: string[]; reply: string } | null {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(match[0]); } catch { return null; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const value = parsed as { commands?: unknown; reply?: unknown };
+  if (!Array.isArray(value.commands)) return null;
+  const commands = value.commands.filter((item): item is string => typeof item === "string" && ALLOWED_COMMANDS.has(item)).slice(0, 6);
+  if (commands.length !== value.commands.length) return null;
+  return { commands, reply: typeof value.reply === "string" ? value.reply.trim().slice(0, 500) : "" };
+}
+
 // Chat surfaces this text directly, so keep it in the user's language; the raw SDK message stays in the JSONL log.
-function describeCopilotFailure(message: string): string {
-  if (/availableTools/i.test(message)) return "Copilot 会话缺少工具配置，本次请求没有执行。请重启 copilot 服务后重试。";
+function describeCopilotFailure(message: string): string {  if (/availableTools/i.test(message)) return "Copilot 会话缺少工具配置，本次请求没有执行。请重启 copilot 服务后重试。";
   if (/quota|rate limit|402/i.test(message)) return "GitHub Copilot 配额已用尽或被限流，本次请求没有执行。请更换账号或稍后重试。";
   if (/not logged in|authentication|401|unauthorized/i.test(message)) return "本机 Copilot 身份未登录或已过期，本次请求没有执行。请先在终端运行 copilot 登录。";
   if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "所选模型不可用，本次请求没有执行。请在「配置」中换一个模型。";
