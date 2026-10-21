@@ -724,6 +724,10 @@ export default function App() {
             <div className="canvas-title">{visibleDocument.title}<span className="canvas-subtitle">V2 semantic canvas</span>{previewDocument && <span className="preview-pill">PREVIEW</span>}</div>
           </div>
           <div className="canvas-tools">
+            {previewDocument && <div className="preview-toolbar-actions">
+              <button type="button" className="preview-discard" onClick={discardPreview}>丢弃预览</button>
+              <button type="button" className="preview-accept" onClick={acceptPreview}>应用修改</button>
+            </div>}
             {document.kind === "sequence" && <button className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</button>}
             <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
             <div className="segmented"><button disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
@@ -891,6 +895,7 @@ export default function App() {
           sendIntent={() => void sendIntent()}
           acceptPreview={acceptPreview}
           discardPreview={discardPreview}
+          openStudio={() => { setActivePage("studio"); setViewMode("studio"); }}
           aiBaseUrl={aiBaseUrl}
           setAiBaseUrl={setAiBaseUrl}
           aiModel={aiModel}
