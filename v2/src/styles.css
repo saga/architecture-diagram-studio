@@ -1047,3 +1047,5 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
 .selected-relation-summary { display:flex; align-items:center; gap:7px; padding:8px 0; font-size:11px; overflow-wrap:anywhere; color:var(--theme-text); }
 .selected-relation-summary strong { font-weight:600; min-width:0; }
 .canvas-menu-group { display:contents; }
+
+.drawio-source-banner { flex: 0 0 auto; margin: 8px 10px 0; padding: 10px 12px; border: 1px solid #d9a441; border-radius: 6px; background: #fff8e8; color: #6d4b10; font-size: 12px; line-height: 1.55; }
