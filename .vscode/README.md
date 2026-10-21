@@ -1,1 +1,1 @@
-VS Code workspace-level configuration for this repository. Keep a single MCP server definition in `mcp.json`; do not duplicate it in another MCP configuration file.
+VS Code project instructions and Agent Skills live in their respective repository folders. Architecture Diagram Studio workspace and diagram capabilities are internal to its local Copilot SDK service; this repository does not register a separate MCP server.
