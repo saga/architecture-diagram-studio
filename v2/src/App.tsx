@@ -1,5 +1,5 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
@@ -780,7 +780,7 @@ export default function App() {
     >
       <XProvider>
         <AntApp>
-    <div className="app-shell" data-theme={uiTheme}>
+    <Layout className="app-shell" data-theme={uiTheme}>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark"><i /><i /><i /><i /></div>
@@ -1092,7 +1092,7 @@ export default function App() {
           checkDrawioStatus={() => void checkDrawioStatus()}
         />
       )}
-    </div>
+    </Layout>
         </AntApp>
       </XProvider>
     </ConfigProvider>
