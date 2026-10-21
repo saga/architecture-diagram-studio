@@ -840,6 +840,7 @@ export default function App() {
             </label>
             <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
             <div className="segmented"><button disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
+            <button className="toolbar-button" type="button" title="在独立页面并排比较 Studio 与真实 Draw.io embed 渲染" onClick={() => window.open("/drawio-lab", "_blank", "noopener,noreferrer")}>渲染实验 ↗</button>
           </div>
         </div>
 
