@@ -206,6 +206,7 @@ app.put("/api/workspace/configuration", async (req, res) => {
     const previous = await getStudioConfig();
     const allowedProfiles = new Set(DEFAULT_STUDIO_CONFIG.layoutProfiles);
     const layoutProfiles = input.layoutProfiles === undefined ? previous.layoutProfiles : input.layoutProfiles;
+    if (input.prompts !== undefined && (!input.prompts || typeof input.prompts !== "object" || Array.isArray(input.prompts))) { res.status(400).json({ error: "prompts 必须是 JSON 对象" }); return; }
     const prompts = input.prompts === undefined ? previous.prompts : { ...previous.prompts, ...input.prompts };
     const model = input.model === undefined ? previous.model : input.model;
     const reasoningEffort = input.reasoningEffort === undefined ? previous.reasoningEffort : input.reasoningEffort;
@@ -656,7 +657,25 @@ function attachSessionEvents(sessionId: string, session: RuntimeSession["session
   });
 }
 
+const sessionInitialization = new Map<string, Promise<void>>();
 async function getOrResumeSession(sessionId: string, model: string, reasoningEffort?: "high" | "max"): Promise<RuntimeSession> {
+  const pending = sessionInitialization.get(sessionId);
+  if (pending) {
+    await pending;
+    return getOrResumeSession(sessionId, model, reasoningEffort);
+  }
+  let release!: () => void;
+  const lock = new Promise<void>((resolve) => { release = resolve; });
+  sessionInitialization.set(sessionId, lock);
+  try {
+    return await getOrResumeSessionUnlocked(sessionId, model, reasoningEffort);
+  } finally {
+    if (sessionInitialization.get(sessionId) === lock) sessionInitialization.delete(sessionId);
+    release();
+  }
+}
+
+async function getOrResumeSessionUnlocked(sessionId: string, model: string, reasoningEffort?: "high" | "max"): Promise<RuntimeSession> {
   const activeConfig = await getStudioConfig();
   const current = sessions.get(sessionId);
   if (current && current.configRevisionId === activeConfig.revisionId && current.model === model && current.requestedReasoningEffort === (reasoningEffort || activeConfig.reasoningEffort)) {
