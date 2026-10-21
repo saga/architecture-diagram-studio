@@ -119,7 +119,16 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   };
 }
 
-async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
+type ElkLayoutProfile = "elk-layered" | "elk-mrtree" | "elk-radial" | "elk-stress" | "elk-force";
+
+function layoutProfile(doc: DiagramDocument): ElkLayoutProfile {
+  const profile = doc.layout.profile;
+  return profile === "elk-mrtree" || profile === "elk-radial" || profile === "elk-stress" || profile === "elk-force"
+    ? profile
+    : "elk-layered";
+}
+
+async function layoutLayered(doc: DiagramDocument, profile: ElkLayoutProfile = "elk-layered"): Promise<DiagramDocument> {
   const children = doc.nodes.map((node) => {
     const constraint = node.layoutHints?.preferredSide === "LEFT" ? "FIRST" :
       node.layoutHints?.preferredSide === "RIGHT" || node.role === "external" || node.role === "vendor" ? "LAST_SEPARATE" : undefined;
@@ -134,7 +143,7 @@ async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
   const graph = {
     id: "studio-root",
     layoutOptions: {
-      "elk.algorithm": "layered",
+      "elk.algorithm": profile === "elk-layered" ? "layered" : profile.slice(4),
       "elk.direction": doc.layout.direction,
       "elk.edgeRouting": doc.layout.routing === "curved" ? "SPLINES" : "ORTHOGONAL",
       "elk.spacing.nodeNode": String(doc.layout.nodeSpacing),
@@ -158,10 +167,14 @@ async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
       return position ? { ...node, x: position.x || 0, y: position.y || 0 } : node;
     })
   };
-  if (doc.kind === "flowchart") next = applyFlowLanes(next);
-  else {
-    next = applyC4SemanticRanks(next);
-    next = applySemanticLanes(next);
+  // Semantic lane/rank post-processing is specific to layered diagrams. Applying it
+  // after radial, tree, stress or force layout would destroy the selected algorithm's geometry.
+  if (profile === "elk-layered") {
+    if (doc.kind === "flowchart") next = applyFlowLanes(next);
+    else {
+      next = applyC4SemanticRanks(next);
+      next = applySemanticLanes(next);
+    }
   }
   return routeRelations(next);
 }
@@ -320,7 +333,7 @@ function repairOverlaps(doc: DiagramDocument, routeVariant = 0): DiagramDocument
 }
 
 export async function layoutDiagram(document: DiagramDocument): Promise<DiagramDocument> {
-  const initial = document.kind === "sequence" ? layoutSequence(document) : await layoutLayered(document);
+  const initial = document.kind === "sequence" ? layoutSequence(document) : await layoutLayered(document, layoutProfile(document));
   let best = repairOverlaps(initial, 0);
   let bestReport = evaluateLayout(best);
   for (let variant = 1; variant <= 3; variant++) {
