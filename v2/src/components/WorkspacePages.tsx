@@ -3,6 +3,7 @@ import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
 import { Button, Select, Tag } from "antd";
 import type { DiagramDocument } from "../model/types";
+import { LAYOUT_PROFILES } from "../layout/profiles";
 import type { DiagnosticEntry } from "../diagnostics";
 
 
@@ -18,11 +19,7 @@ const PROMPT_OPTIONS: Array<{ key: PromptKey; label: string; description: string
   { key: "toolDescription", label: "结构化工具描述", description: "发送给模型的 propose_layout_plan 工具说明。" },
   { key: "toolResult", label: "工具执行结果 Prompt", description: "结构化计划工具返回给模型的说明。" }
 ];
-const PROFILE_OPTIONS = [
-  { value: "elk-layered", label: "ELK Layered" }, { value: "elk-mrtree", label: "ELK MrTree" },
-  { value: "elk-radial", label: "ELK Radial" }, { value: "elk-stress", label: "ELK Stress" },
-  { value: "elk-force", label: "ELK Force" }, { value: "dagre-layered", label: "Dagre Layered" }
-];
+const PROFILE_OPTIONS = LAYOUT_PROFILES.map(({ value, label }) => ({ value, label }));
 function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChanged: (profiles: string[]) => void }) {
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [revisions, setRevisions] = useState(0);
