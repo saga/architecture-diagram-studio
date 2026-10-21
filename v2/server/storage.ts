@@ -16,8 +16,10 @@ export async function writeJsonAtomic(file: string, value: unknown): Promise<voi
 export function matchesWorkspaceRevision(baseRevision: string | null | undefined, currentRevision: string | null): boolean {
   return baseRevision !== undefined && baseRevision === currentRevision;
 }
-export function workspaceRevision(document: unknown, drawioXml: string | null): string {
-  return createHash("sha256").update(JSON.stringify(document)).update("\0").update(drawioXml ?? "").digest("hex");
+export function workspaceRevision(_document: unknown, drawioXml: string | null): string {
+  // A revision tracks the single authoritative source. The semantic projection is a cache
+  // derived from that source, so it cannot independently create or invalidate revisions.
+  return createHash("sha256").update(drawioXml ?? "").digest("hex");
 }
 export function retainRecentVersions<T extends { id: string; workspaceId?: string; diagramPath?: string | null }>(versions: T[], maxPerWorkspace: number, maxTotalVersions = 500): T[] {
   const counts = new Map<string, number>();
