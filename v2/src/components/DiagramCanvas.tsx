@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { DiagramDocument, DiagramNode, DiagramRelation, Point, SequenceFragment } from "../model/types";
+import type { DiagramBoundary, DiagramDocument, DiagramNode, DiagramRelation, Point, SequenceFragment } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
 import { measureTextWidth, truncateTextToWidth, wrapTextToWidth } from "../design/text-metrics";
@@ -20,9 +20,10 @@ interface Props {
   onRenameNode: (nodeId: string, name: string) => void;
   onUpdateRelationLabel: (relationId: string, label: string) => void;
   onUpdateSequenceFragment: (fragmentId: string, patch: Partial<SequenceFragment>) => void;
+  onUpdateBoundary: (boundaryId: string, patch: Partial<DiagramBoundary>) => void;
   connectionSourceId: string | null;
   onConnectionSourceChange: (nodeId: string | null) => void;
-  onContextMenu: (target: { kind: "node" | "relation" | "fragment" | "canvas"; id?: string }, x: number, y: number) => void;
+  onContextMenu: (target: { kind: "node" | "relation" | "fragment" | "boundary" | "canvas"; id?: string }, x: number, y: number) => void;
 }
 interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; originX: number; originY: number; }
 interface PanState { startClientX: number; startClientY: number; originX: number; originY: number; }
@@ -112,7 +113,7 @@ function nodePath(node: DiagramNode, shape: string): string {
 }
 export default function DiagramCanvas({
   document, zoom, viewResetToken, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode,
-  onCreateRelation, onReconnectRelation, onRenameNode, onUpdateRelationLabel, onUpdateSequenceFragment, connectionSourceId,
+  onCreateRelation, onReconnectRelation, onRenameNode, onUpdateRelationLabel, onUpdateSequenceFragment, onUpdateBoundary, connectionSourceId,
   onConnectionSourceChange, onContextMenu
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -122,6 +123,8 @@ export default function DiagramCanvas({
   const [fragmentDrag, setFragmentDrag] = useState<FragmentDrag | null>(null);
   const [editingFragmentId, setEditingFragmentId] = useState<string | null>(null);
   const [fragmentLabelDraft, setFragmentLabelDraft] = useState("");
+  const [editingBoundaryId, setEditingBoundaryId] = useState<string | null>(null);
+  const [boundaryNameDraft, setBoundaryNameDraft] = useState("");
   const [editingRelationId, setEditingRelationId] = useState<string | null>(null);
   const [relationLabelDraft, setRelationLabelDraft] = useState("");
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -208,6 +211,11 @@ export default function DiagramCanvas({
     if (commit && editingFragmentId) onUpdateSequenceFragment(editingFragmentId, { label: value.trim().slice(0, 500) });
     setEditingFragmentId(null);
     setFragmentLabelDraft("");
+  }
+  function finishBoundaryName(commit: boolean, value = boundaryNameDraft) {
+    if (commit && editingBoundaryId) onUpdateBoundary(editingBoundaryId, { name: value.trim().slice(0, 200) });
+    setEditingBoundaryId(null);
+    setBoundaryNameDraft("");
   }
   function startPan(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.button !== 0 || drag) return;
@@ -318,9 +326,20 @@ export default function DiagramCanvas({
         const top = Math.min(...members.map((node) => node.y)) - document.layout.boundaryPadding - 16;
         const right = Math.max(...members.map((node) => node.x + node.width)) + document.layout.boundaryPadding;
         const bottom = Math.max(...members.map((node) => node.y + node.height)) + document.layout.boundaryPadding;
-        return <g key={boundary.id} className="diagram-boundary">
+        return <g key={boundary.id} className="diagram-boundary"
+          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "boundary", id: boundary.id }, event.clientX, event.clientY); }}
+          onDoubleClick={(event) => { event.stopPropagation(); setEditingBoundaryId(boundary.id); setBoundaryNameDraft(boundary.name); }}>
           <rect className="diagram-boundary-frame" x={left} y={top} width={right - left} height={bottom - top} rx="13" fill="#E8EDF6" fillOpacity="0.85" stroke={tokens.borderStrong} strokeWidth="1.4" strokeDasharray="5 5" />
-          <text className="diagram-boundary-label" x={left + 14} y={top + 20} fontSize="13" fontWeight="500" fill="#0C1626">{boundary.name.toUpperCase()}</text>
+          {editingBoundaryId !== boundary.id && <text className="diagram-boundary-label" x={left + 14} y={top + 20} fontSize="13" fontWeight="500" fill="#0C1626">{boundary.name.toUpperCase()}</text>}
+          {editingBoundaryId === boundary.id && <foreignObject x={left + 8} y={top + 3} width={Math.max(140, right - left - 16)} height="30">
+            <input className="boundary-inline-input" aria-label="Rename boundary" autoFocus onPointerDown={(event) => event.stopPropagation()}
+              value={boundaryNameDraft} onChange={(event) => setBoundaryNameDraft(event.currentTarget.value)}
+              onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishBoundaryName(true, event.currentTarget.value); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                if (event.key === "Escape") { event.currentTarget.dataset.cancelled = "true"; finishBoundaryName(false); }
+              }} />
+          </foreignObject>}
         </g>;
       })}
       {document.kind === "sequence" && (displayDoc.sequence?.fragments || []).map((fragment) => {
