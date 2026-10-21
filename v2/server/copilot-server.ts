@@ -166,7 +166,8 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
   });
   await logWriteQueue;
   const level = event.endsWith(".failed") || event.endsWith(".error") ? "error" : "info";
-  (level === "error" ? console.error : console.info)(logPrefixForEvent(event), record);
+  const output = logPrefixForEvent(event) + " " + JSON.stringify(record);
+  (level === "error" ? console.error : console.info)(output);
 }
 
 function resultProfileDisabled(document: { layout: { profile: string } }, allowedProfiles: string[]): boolean { return !allowedProfiles.includes(document.layout.profile); }

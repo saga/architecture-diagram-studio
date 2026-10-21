@@ -6,7 +6,7 @@
   "scripts": {
     "drawio:fetch": "node scripts/bundle-drawio.mjs",
     "predev": "node scripts/bundle-drawio.mjs",
-    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:copilot\"",
+    "dev": "concurrently -k -p none \"npm:dev:web\" \"npm:dev:copilot\"",
     "prebuild": "node scripts/bundle-drawio.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
