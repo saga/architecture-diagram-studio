@@ -16,6 +16,7 @@ interface Props {
   onSelectRelation: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
   onCreateRelation: (sourceId: string, targetId: string) => void;
+  onReconnectRelation: (relationId: string, endpoint: "source" | "target", nodeId: string) => void;
   onRenameNode: (nodeId: string, name: string) => void;
   onUpdateRelationLabel: (relationId: string, label: string) => void;
   connectionSourceId: string | null;
@@ -24,7 +25,7 @@ interface Props {
 }
 interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; originX: number; originY: number; }
 interface PanState { startClientX: number; startClientY: number; originX: number; originY: number; }
-interface ConnectionDrag { sourceId: string; start: Point; current: Point; }
+interface ConnectionDrag { sourceId: string; start: Point; current: Point; relationId?: string; endpoint?: "source" | "target"; }
 
 function center(node: DiagramNode): Point {
   return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
@@ -108,7 +109,9 @@ function nodePath(node: DiagramNode, shape: string): string {
   return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
 }
 export default function DiagramCanvas({
-  document, zoom, viewResetToken, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode, onContextMenu
+  document, zoom, viewResetToken, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode,
+  onCreateRelation, onReconnectRelation, onRenameNode, onUpdateRelationLabel, connectionSourceId,
+  onConnectionSourceChange, onContextMenu
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -145,8 +148,9 @@ export default function DiagramCanvas({
     return { x: transformed.x, y: transformed.y };
   }
   function startDrag(event: ReactPointerEvent<SVGGElement>, node: DiagramNode) {
-    if (event.button !== 0 || connectionSourceId) return;
+    if (event.button !== 0) return;
     event.stopPropagation();
+    if (connectionSourceId) return;
     const point = pointerToDiagram(event.clientX, event.clientY);
     setDrag({ id: node.id, offsetX: point.x - node.x, offsetY: point.y - node.y, x: node.x, y: node.y, originX: node.x, originY: node.y });
     onSelectNode(node.id);
@@ -162,6 +166,16 @@ export default function DiagramCanvas({
     setConnectionDrag({ sourceId: node.id, start, current: pointerToDiagram(event.clientX, event.clientY) });
     onSelectNode(node.id);
     onConnectionSourceChange(null);
+    svgRef.current?.setPointerCapture(event.pointerId);
+  }
+  function startReconnect(event: ReactPointerEvent<SVGCircleElement>, relation: DiagramRelation, endpoint: "source" | "target", start: Point) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDrag(null);
+    setPanGesture(null);
+    setConnectionDrag({ sourceId: endpoint === "source" ? relation.source : relation.target, start,
+      current: pointerToDiagram(event.clientX, event.clientY), relationId: relation.id, endpoint });
     svgRef.current?.setPointerCapture(event.pointerId);
   }
   function finishRelationLabel(commit: boolean, value = relationLabelDraft) {
@@ -211,7 +225,10 @@ export default function DiagramCanvas({
         point.x >= node.x && point.x <= node.x + node.width &&
         point.y >= node.y && point.y <= node.y + node.height
       );
-      if (target) onCreateRelation(connectionDrag.sourceId, target.id);
+      if (target) {
+        if (connectionDrag.relationId && connectionDrag.endpoint) onReconnectRelation(connectionDrag.relationId, connectionDrag.endpoint, target.id);
+        else onCreateRelation(connectionDrag.sourceId, target.id);
+      }
       setConnectionDrag(null);
       setPanGesture(null);
       return;
@@ -316,6 +333,12 @@ export default function DiagramCanvas({
             <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - 14} width={labelWidth} height="22" rx="4" fill={tokens.canvas} fillOpacity="0.98" />
             <text className="relation-label-text" x={path.label.x} y={path.label.y + 2} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">{relation.label}</text>
           </g>}
+          {selected && <>
+            <circle className="relation-endpoint-handle" cx={path.start.x} cy={path.start.y} r="5.5"
+              aria-label="Reconnect relation source" onPointerDown={(event) => startReconnect(event, relation, "source", path.start)} />
+            <circle className="relation-endpoint-handle" cx={path.end.x} cy={path.end.y} r="5.5"
+              aria-label="Reconnect relation target" onPointerDown={(event) => startReconnect(event, relation, "target", path.end)} />
+          </>}
           {editingRelationId === relation.id && <foreignObject x={path.label.x - Math.max(58, labelWidth / 2)} y={path.label.y - 18} width={Math.max(116, labelWidth)} height="34">
             <input xmlns="http://www.w3.org/1999/xhtml" className="relation-inline-input" aria-label="Edit relation label" autoFocus
               value={relationLabelDraft} onChange={(event) => setRelationLabelDraft(event.currentTarget.value)}
@@ -369,6 +392,7 @@ export default function DiagramCanvas({
             textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill={tokens.ink}>{compactTitle}</text>}
           {editingNodeId === node.id && <foreignObject x={node.x + 8} y={node.y + 8} width={Math.max(80, node.width - 16)} height="34">
             <input xmlns="http://www.w3.org/1999/xhtml" className="node-inline-input" aria-label="Rename node" autoFocus
+              onPointerDown={(event) => event.stopPropagation()}
               value={nodeNameDraft} onChange={(event) => setNodeNameDraft(event.currentTarget.value)}
               onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishNodeName(true, event.currentTarget.value); }}
               onKeyDown={(event) => {
