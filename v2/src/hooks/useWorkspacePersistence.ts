@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, type MutableRefObject } from "react";
 import type { DiagramDocument } from "../model/types";
 type Workspace = { id: string } | null;
 type ChatMessage = { role: "assistant" | "user"; id: number; text: string };
@@ -6,12 +6,11 @@ type Diagnostic = (event: string, message: string, details?: Record<string, unkn
 interface Options {
   document: DiagramDocument; drawioXml: string; serverHydrated: boolean; workspaceContentReady: boolean;
   projectWorkspace: Workspace; copilotSessionId: string; messages: ChatMessage[];
-  saveLabelRef: MutableRefObject<string>; onDiagnostic: Diagnostic;
+  saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>; onDiagnostic: Diagnostic;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
 export function useWorkspacePersistence(options: Options) {
-  const { document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, onDiagnostic } = options;
-  const serverRevisionRef = useRef<string | null>(null);
+  const { document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const persistDocumentNow = useCallback((snapshot: DiagramDocument, xml: string, label = "Autosave"): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
@@ -61,5 +60,5 @@ export function useWorkspacePersistence(options: Options) {
       }, "error");
     });
   }, [copilotSessionId, messages, serverHydrated, workspaceContentReady, projectWorkspace, onDiagnostic]);
-  return { serverRevisionRef, persistDocumentNow };
+  return { persistDocumentNow };
 }

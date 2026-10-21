@@ -18,7 +18,8 @@ import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages"
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
-import { selectCompatibleWorkspaceDocument } from "./hooks/workspaceHydration";
+import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
+import { requestServerLayout, layoutSample, requestServerSequenceNormalize } from "./api/diagram-operations";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
@@ -92,49 +93,6 @@ function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectH
 }
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
-
-async function requestServerLayout(document: DiagramDocument): Promise<DiagramDocument> {
-  const response = await fetch("/api/workspace/layout", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ document }),
-    signal: AbortSignal.timeout(70_000)
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({})) as { error?: string };
-    throw new Error(payload.error || "Server-side layout failed (HTTP " + response.status + ")");
-  }
-  const result = await response.json() as { document: DiagramDocument };
-  if (!isDiagramDocument(result.document)) throw new Error("The server returned an invalid diagram document");
-  return result.document;
-}
-
-/**
- * Layout for a sample or an imported draft that has no geometry yet.
- *
- * The server owns layout and the enabled-profile policy, but the sample has to render even when the API is
- * unreachable, so the same engine runs locally as a fallback. That engine is loaded on demand: it is only
- * needed when a document arrives without coordinates, and it should not weigh on the first paint.
- */
-async function layoutSample(document: DiagramDocument): Promise<DiagramDocument> {
-  try {
-    return await requestServerLayout(document);
-  } catch {
-    const { layoutDiagram } = await import("./layout/layout");
-    return layoutDiagram(document);
-  }
-}
-
-async function requestServerSequenceNormalize(document: DiagramDocument): Promise<DiagramDocument> {
-  const response = await fetch("/api/workspace/diagram/normalize-sequence", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ document })
-  });
-  const payload = await response.json() as { document?: DiagramDocument; error?: string };
-  if (!response.ok || !payload.document || !isDiagramDocument(payload.document)) {
-    throw new Error(payload.error || "Server-side sequence normalisation failed");
-  }
-  return payload.document;
-}
 
 export default function App() {
   const [document, setDocument] = useState<DiagramDocument>(() => {
@@ -249,10 +207,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
-  const [serverHydrated, setServerHydrated] = useState(false);
-  const [serverDocumentAvailable, setServerDocumentAvailable] = useState(false);
-  const [workspaceContentReady, setWorkspaceContentReady] = useState(false);
-  const workspaceInitialLoadRef = useRef<string | null>(null);
+  const serverRevisionRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
@@ -285,7 +240,12 @@ export default function App() {
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
-  const { serverRevisionRef, persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, onDiagnostic: recordDiagnostic });
+  const bootstrap = useWorkspaceBootstrap({
+    projectWorkspace, document, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
+    historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic: recordDiagnostic
+  });
+  const { serverHydrated, serverDocumentAvailable, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
+  const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, onDiagnostic: recordDiagnostic });
 
   useEffect(() => {
     let active = true;
@@ -337,97 +297,6 @@ export default function App() {
     } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
     finally { setWorkspaceSaving(false); }
   }
-
-  useEffect(() => {
-    let active = true;
-    const startedAt = Date.now();
-    fetch("/api/workspace/state")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Could not load the server-side workspace (HTTP " + response.status + ")");
-        return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[]; workspaceMismatch?: boolean; workspaceRevision?: string | null }>;
-      })
-      .then((state) => {
-        if (!active) return;
-        const savedDocument = selectCompatibleWorkspaceDocument(state.document, Boolean(state.workspaceMismatch));
-        setServerDocumentAvailable(Boolean(savedDocument));
-        serverRevisionRef.current = typeof state.workspaceRevision === "string" ? state.workspaceRevision : null;
-        setWorkspaceContentReady(Boolean(savedDocument && !state.workspaceMismatch));
-        if (savedDocument) {
-          setDocument(savedDocument);
-          setSelectedNodeId(savedDocument.nodes[0]?.id || null);
-          setNativeXmlOverride(typeof state.drawioXml === "string" ? state.drawioXml : null);
-          historyRef.current = [savedDocument];
-          historyIndexRef.current = 0;
-          setCanUndo(false);
-          setCanRedo(false);
-          recordDiagnostic("workspace.hydrated", "Restored the workspace and native Draw.io XML from the server", {
-            documentId: savedDocument.id, nodeCount: savedDocument.nodes.length,
-            xmlLength: typeof state.drawioXml === "string" ? state.drawioXml.length : 0,
-            durationMs: Date.now() - startedAt
-          });
-        }
-        if (state.workspaceMismatch) { const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); setMessages([{ role: "assistant", id: Date.now(), text: "The project workspace changed, so the previous conversation context was cleared." }]); }
-        if (typeof state.copilotSessionId === "string" && state.copilotSessionId.length >= 8) {
-          setCopilotSessionId(state.copilotSessionId);
-          try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", state.copilotSessionId); } catch { /* Server state remains authoritative. */ }
-        }
-        if (Array.isArray(state.chatMessages) && state.chatMessages.length) {
-          const savedMessages = state.chatMessages.filter((item): item is ChatMessage =>
-            !!item && typeof item === "object" &&
-            ((item as ChatMessage).role === "assistant" || (item as ChatMessage).role === "user") &&
-            typeof (item as ChatMessage).text === "string" && typeof (item as ChatMessage).id === "number"
-          ).slice(-2000);
-          if (savedMessages.length) setMessages(savedMessages);
-        }
-        setServerHydrated(true);
-
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setServerDocumentAvailable(false);
-        setServerHydrated(true);
-        recordDiagnostic("workspace.hydrate.failed", "Could not restore the workspace from the server; using the local draft", {
-          durationMs: Date.now() - startedAt,
-          errorMessage: error instanceof Error ? error.message : String(error)
-        }, "error");
-      });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!serverHydrated || !projectWorkspace || serverDocumentAvailable || workspaceInitialLoadRef.current === projectWorkspace.id) return;
-    let active = true;
-    workspaceInitialLoadRef.current = projectWorkspace.id;
-    const load = async () => {
-      try {
-        if (projectWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(projectWorkspace.primaryDiagram)) {
-          const response = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(projectWorkspace.primaryDiagram));
-          const result = await response.json() as { error?: string; content?: string };
-          if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "Could not load the primary Draw.io diagram");
-          const baseDocument = FIXTURES.c4();
-          const parsedDocument = fromDrawioXml(result.content, baseDocument);
-          if (parsedDocument === baseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
-          const imported = await requestServerSequenceNormalize(parsedDocument);
-          if (!active) return;
-          setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
-          historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
-          setServerDocumentAvailable(true);
-          setWorkspaceContentReady(true);
-          recordDiagnostic("workspace.primary-diagram.loaded", "Loaded the primary Draw.io diagram from the project workspace", { workspaceId: projectWorkspace.id, path: projectWorkspace.primaryDiagram, xmlLength: result.content.length });
-        } else {
-          const laidOut = await requestServerLayout(FIXTURES.c4());
-          if (!active) return;
-          setDocument(laidOut); setNativeXmlOverride(null); setSelectedNodeId(laidOut.nodes[0]?.id || null);
-          historyRef.current = [laidOut]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
-          setWorkspaceContentReady(true);
-        }
-      } catch (error) {
-        if (active) recordDiagnostic("workspace.primary-diagram.load.failed", "Could not load the workspace primary diagram", { workspaceId: projectWorkspace.id, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
-      }
-    };
-    void load();
-    return () => { active = false; };
-  }, [serverHydrated, projectWorkspace, serverDocumentAvailable]);
 
   useEffect(() => {
     const refreshTraces = () => {
