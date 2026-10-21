@@ -4,6 +4,7 @@ import { layoutDiagram, moveNode } from "./layout";
 import { hasStackedGeometry } from "../model/types";
 import { LAYOUT_PROFILES } from "./profiles";
 import { evaluateLayout } from "./quality";
+import { routeRelations } from "./routing";
 import { applyIntent } from "../intent/applyIntent";
 import { normalizeSequenceDocument } from "./sequence";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "./sequence";
@@ -195,6 +196,30 @@ describe("V2 diagram-specific layouts", () => {
     const result = await applyIntent(document, "把曲线改成折线");
     expect(result.document.layout.routing).toBe("polyline");
     expect(result.document.relations.some((edge) => (edge.points?.length || 0) > 0)).toBe(true);
+  });
+
+  it("keeps every segment axis-aligned when orthogonal routing is selected", () => {
+    const document = createC4Fixture();
+    document.layout.routing = "orthogonal";
+    const source = { ...document.nodes[0], id: "source", x: 120, y: 60, width: 160, height: 80 };
+    const target = { ...document.nodes[1], id: "target", x: 140, y: 380, width: 180, height: 80 };
+    const blocker = { ...document.nodes[2], id: "blocker", x: 400, y: 220, width: 160, height: 80 };
+    document.nodes = [source, target, blocker];
+    document.relations = [
+      { id: "vertical", source: "source", target: "target", label: "vertical", kind: "call", routing: "orthogonal" },
+      { id: "side", source: "target", target: "blocker", label: "side", kind: "call", routing: "orthogonal" }
+    ];
+    const result = routeRelations(document);
+    for (const relation of result.relations) {
+      const sourcePoint = relation.sourcePort!;
+      const targetPoint = relation.targetPort!;
+      const points = [sourcePoint, ...(relation.points || []), targetPoint];
+      for (let index = 1; index < points.length; index++) {
+        expect(Math.abs(points[index].x - points[index - 1].x) < 0.001 ||
+          Math.abs(points[index].y - points[index - 1].y) < 0.001).toBe(true);
+      }
+    }
+    expect(evaluateLayout(result).metrics.connectorRoutingViolations).toBe(0);
   });
 
   it("snaps a dragged node to an open grid position when dropped on another node", async () => {
