@@ -160,11 +160,11 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
     await appendFile(LOG_FILE, line, "utf8");
   });
   logWriteQueue = persist.catch((error) => {
-    console.error("[studio:copilot-sdk] failed to persist log", error instanceof Error ? error.message : String(error));
+    console.error("[studio:ai] failed to persist log", error instanceof Error ? error.message : String(error));
   });
   await logWriteQueue;
   const level = event.endsWith(".failed") || event.endsWith(".error") ? "error" : "info";
-  (level === "error" ? console.error : console.info)("[studio:copilot-sdk]", record);
+  (level === "error" ? console.error : console.info)("[studio:ai]", record);
 }
 
 async function getCopilotClient(): Promise<CopilotClient> {
@@ -1091,7 +1091,7 @@ app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
 });
 
 const server = app.listen(PORT, "127.0.0.1", () => {
-  console.log(`[studio:copilot-sdk] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; logs=${LOG_FILE}`);
+  console.log(`[studio:ai] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; logs=${LOG_FILE}`);
 });
 const cleanupTimer = SESSION_IDLE_TTL_MS > 0 ? setInterval(() => {
   const now = Date.now();
