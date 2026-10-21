@@ -178,21 +178,25 @@ function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
   // into a separate lane, compact the main path in its declared order to remove
   // the dead space while leaving manually locked main-path nodes untouched.
   if (pathNodes.length && doc.layout.direction === "RIGHT") {
+    const baselineY = pathNodes[0].y;
     let cursor = pathNodes[0].x;
     for (const node of pathNodes) {
       if (node.layoutHints?.locked) {
         cursor = Math.max(cursor, node.x + node.width + doc.layout.layerSpacing);
       } else {
         node.x = cursor;
+        node.y = baselineY;
         cursor += node.width + doc.layout.layerSpacing;
       }
     }
   } else if (pathNodes.length && doc.layout.direction === "DOWN") {
+    const baselineX = pathNodes[0].x;
     let cursor = pathNodes[0].y;
     for (const node of pathNodes) {
       if (node.layoutHints?.locked) {
         cursor = Math.max(cursor, node.y + node.height + doc.layout.layerSpacing);
       } else {
+        node.x = baselineX;
         node.y = cursor;
         cursor += node.height + doc.layout.layerSpacing;
       }
