@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 import { FIXTURES } from "../model/fixtures";
 import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
+import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { requestServerLayout } from "../api/diagram-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { selectCompatibleWorkspaceDocument } from "./workspaceHydration";
@@ -42,20 +43,31 @@ export function useWorkspaceBootstrap(options: Options) {
       })
       .then((state) => {
         if (!active) return;
-        const savedDocument = selectCompatibleWorkspaceDocument(state.document, Boolean(state.workspaceMismatch));
-        setServerDocumentAvailable(Boolean(savedDocument));
-        serverRevisionRef.current = state.workspaceMismatch ? null : typeof state.workspaceRevision === "string" ? state.workspaceRevision : null;
-        setWorkspaceContentReady(Boolean(savedDocument));
-        if (savedDocument) {
+        // The persisted semantic document is only a cache. Hydrate the current editing view
+        // from the authoritative XML whenever it exists; never restore a cached projection alone.
+        const cachedDocument = selectCompatibleWorkspaceDocument(state.document, Boolean(state.workspaceMismatch));
+        const authoritativeXml = !state.workspaceMismatch && typeof state.drawioXml === "string" && isDrawioXmlDocument(state.drawioXml)
+          ? state.drawioXml : null;
+        let savedDocument: DiagramDocument | null = null;
+        if (authoritativeXml) {
+          const projectionBase = cachedDocument ?? FIXTURES.c4();
+          const projection = fromDrawioXml(authoritativeXml, projectionBase);
+          savedDocument = projection === projectionBase ? projectionBase : projection;
+        }
+        setServerDocumentAvailable(Boolean(savedDocument && authoritativeXml));
+        serverRevisionRef.current = state.workspaceMismatch || !authoritativeXml
+          ? null : typeof state.workspaceRevision === "string" ? state.workspaceRevision : null;
+        setWorkspaceContentReady(Boolean(savedDocument && authoritativeXml));
+        if (savedDocument && authoritativeXml) {
           setDocument(savedDocument);
           setSelectedNodeId(savedDocument.nodes[0]?.id || null);
-          setNativeXmlOverride(typeof state.drawioXml === "string" ? state.drawioXml : null);
+          setNativeXmlOverride(authoritativeXml);
           historyRef.current = [savedDocument];
           historyIndexRef.current = 0;
           setCanUndo(false); setCanRedo(false);
-          onDiagnostic("workspace.hydrated", "Restored the workspace and native Draw.io XML from the server", {
+          onDiagnostic("workspace.hydrated", "Restored the authoritative Draw.io XML and derived a semantic view", {
             documentId: savedDocument.id, nodeCount: savedDocument.nodes.length,
-            xmlLength: typeof state.drawioXml === "string" ? state.drawioXml.length : 0, durationMs: Date.now() - startedAt
+            xmlLength: authoritativeXml.length, durationMs: Date.now() - startedAt
           });
         }
         if (state.workspaceMismatch) {
