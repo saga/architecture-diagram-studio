@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { isDiagramDocument } from "../src/model/types";
+import { applyIntent } from "../src/intent/applyIntent";
 import { randomUUID } from "node:crypto";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
@@ -100,6 +101,35 @@ const ALLOWED_COMMANDS = new Set([
   "把所有 external 放到右侧", "把数据库和存储放到底部", "布局方向从左到右",
   "布局方向从上到下", "重新自动排版", "解除手动锁定"
 ]);
+
+app.post("/api/workspace/intent/apply", async (req, res) => {
+  const document = req.body?.document;
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  if (!isDiagramDocument(document) || !prompt || prompt.length > 4000) {
+    res.status(400).json({ error: "文档或布局意图无效" });
+    return;
+  }
+  const startedAt = Date.now();
+  try {
+    await writeLog("intent.apply.started", {
+      documentId: document.id, prompt, nodeCount: document.nodes.length, relationCount: document.relations.length
+    });
+    const result = await applyIntent(document, prompt);
+    await writeLog("intent.apply.completed", {
+      documentId: document.id, changed: result.changed, requiresLayout: result.requiresLayout,
+      durationMs: Date.now() - startedAt, nodeCount: result.document.nodes.length,
+      relationCount: result.document.relations.length, summary: result.summary
+    });
+    res.json(result);
+  } catch (error) {
+    await writeLog("intent.apply.failed", {
+      documentId: document.id, durationMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 app.get("/api/workspace/state", async (_req, res) => {
   try {
