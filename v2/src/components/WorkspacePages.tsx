@@ -45,8 +45,8 @@ function formattedTime(timestamp: string): string {
 export default function WorkspacePages(props: Props) {
   const {
     page, document, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, acceptPreview, discardPreview, openStudio, aiBaseUrl, setAiBaseUrl, aiModel, setAiModel,
-    aiApiKey, setAiApiKey, saveAISettings, clearAISettings, traceEntries, clearTraces,
+    sendIntent, acceptPreview, discardPreview, openStudio, aiModel, setAiModel,
+    saveAISettings, clearAISettings, traceEntries, clearTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -75,7 +75,7 @@ export default function WorkspacePages(props: Props) {
               <h1>问问 Layout Copilot</h1>
               <p>当前文档：{document.title}。用自然语言说明希望如何组织图形。Copilot 将请求转换为受限布局指令；修改先以预览呈现，确认后才写入正式文档。</p>
             </div>
-            <div className="page-hero-status"><i /><Tag color={aiBaseUrl.trim() && aiModel.trim() ? "processing" : "default"}>{aiBaseUrl.trim() && aiModel.trim() ? "兼容模型 + 本地规则" : "本地规则模式"}</Tag></div>
+            <div className="page-hero-status"><i /><Tag color={aiModel.trim() ? "processing" : "default"}>{aiModel.trim() ? "GitHub Copilot SDK Agent" : "本地规则模式"}</Tag></div>
           </div>
 
           <section className="gemini-chat">
@@ -116,7 +116,7 @@ export default function WorkspacePages(props: Props) {
                 <span>{chatBusy ? <><i className="spinner" /> 正在分析布局意图…</> : "Enter 发送 · Shift + Enter 换行"}</span>
               </div>
             </div>
-            <div className="gemini-privacy-note">本地布局规则负责坐标与质量检查；配置外部模型时，只会发送布局请求和有限的图形元数据。API Key 不写入浏览器持久存储。</div>
+            <div className="gemini-privacy-note">通过本地 Copilot SDK Agent 生成受限布局计划；Agent 不能直接修改图形。坐标由本地布局器计算，所有变更都先预览，再由你确认应用。</div>
           </section>
         </div>
       </main>
@@ -182,11 +182,10 @@ export default function WorkspacePages(props: Props) {
 
         <div className="settings-grid">
           <section className="settings-card">
-            <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>Layout Copilot 模型接口</h2><p>OpenAI-compatible Chat Completions 接口</p></div></div>
-            <label className="settings-field">Base URL<input value={aiBaseUrl} onChange={(event) => setAiBaseUrl(event.target.value)} placeholder="例如：http://localhost:1234/v1" autoComplete="url" /></label>
-            <label className="settings-field">Model<input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="例如：gpt-4.1-mini" autoComplete="off" /></label>
-            <label className="settings-field">API Key（可选）<input type="password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="只保留在当前页面内存" autoComplete="new-password" /></label>
-            <div className="settings-security-note"><strong>数据说明</strong><span>模型只把自然语言转换为受限的布局指令；坐标仍由本地布局器计算。外部请求会包含当前图标题及有限的节点名称/角色。请勿向未经批准的服务发送敏感架构信息。API Key 仅保存在当前页面内存，刷新后需要重新输入。</span></div>
+            <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>GitHub Copilot SDK / Agent Runtime</h2><p>服务端 Copilot CLI runtime；使用已登录的 GitHub Copilot 身份</p></div></div>
+            <div className="settings-status-line"><span className={"settings-status-dot " + (aiModel.trim() ? "status-ready" : "status-unknown")} /><strong>{aiModel.trim() ? "Agent 模式已配置" : "当前使用本地规则"}</strong></div>
+            <label className="settings-field">模型 ID<input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="例如：gpt-5" autoComplete="off" /></label>
+            <div className="settings-security-note"><strong>Agent 能力与安全边界</strong><span>服务端通过 @github/copilot-sdk 创建会话，并要求 Agent 调用 propose_layout_plan 工具提交结构化布局计划。模型凭据不经过浏览器；服务使用本机已登录的 Copilot CLI。Agent 只能提出白名单中的布局命令，不能执行任意代码或直接写入图形。计划通过校验后仍需在 Studio 中预览并由你确认。</span></div>
             <div className="settings-card-actions"><button type="button" className="button button-quiet" onClick={clearAISettings}>清除模型配置</button><button type="button" className="button button-primary" onClick={saveAISettings}>保存配置</button></div>
           </section>
 
@@ -200,7 +199,7 @@ export default function WorkspacePages(props: Props) {
 
           <section className="settings-card settings-logs-card">
             <div className="settings-card-heading"><div className="settings-card-icon">⌘</div><div><h2>终端日志与诊断轨迹</h2><p>浏览器事件 → Vite 开发终端 → 本地轨迹页面</p></div></div>
-            <p className="settings-description">运行 <code>npm run dev</code> 后，应用会将带有时间戳、事件名、持续时间和状态的结构化 JSON 日志发到开发服务器，终端会显示为 <code>[studio:v2]</code>。提示词正文、API Key 和原始 XML 会脱敏或省略。</p>
+            <p className="settings-description">运行 <code>npm run dev</code> 会同时启动 Vite 与 Copilot SDK Agent 服务。服务端会记录 Agent 请求耗时、模型和工具调用结果；不会记录完整提示词、凭据或原始 XML。</p>
             <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] receivedAt=… level=info event=layout.run.completed durationMs=…</code></div>
             <div className="settings-card-actions"><span className="settings-trace-count">{traceEntries.length} 条本地轨迹 · {errorCount} 条错误</span></div>
           </section>
