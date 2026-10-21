@@ -294,9 +294,9 @@ export default function DiagramCanvas({
           <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2.4 : 1.4} />
           {!["decision", "start", "end"].includes(node.role) && <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3.4" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.6 : 1} />}
           <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
-            textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill="#0C1626">{compactTitle}</text>
-          {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill="#0C1626">{technologyLabel}</text>}
-          {node.description && <text fontSize="13" fontWeight="500" fill={tokens.ink}>
+            textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill={tokens.ink}>{compactTitle}</text>
+          {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill={tokens.inkMuted}>{technologyLabel}</text>}
+          {node.description && <text fontSize="13" fontWeight="500" fill={tokens.inkMuted}>
             {descriptionLines.map((line, index) => <tspan key={index} x={node.x + 17} y={descriptionY + index * 15}>{line}</tspan>)}
           </text>}
           {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 17} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">●</text>}
