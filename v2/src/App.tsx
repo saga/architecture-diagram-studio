@@ -1053,7 +1053,7 @@ export default function App() {
           <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as UiTheme;
             setUiTheme(nextTheme);
-            replaceDocument({ ...document, renderTheme: nextTheme });
+            if (studioEditingSafe) replaceDocument({ ...document, renderTheme: nextTheme });
           }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
