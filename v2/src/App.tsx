@@ -51,7 +51,7 @@ function loadSavedAISettings(): SavedAISettings {
 }
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <Button {...props} htmlType={type === "submit" ? "submit" : "button"} />;
+  return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
 }
 
 function UiInput(props: InputHTMLAttributes<HTMLInputElement>) {
@@ -121,9 +121,25 @@ export default function App() {
   const [aiModel, setAiModel] = useState(savedAISettings.model);
   const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
   const [aiApiKey, setAiApiKey] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", id: 1, text: "描述想要的布局变化即可，例如「所有 external 移到右侧」「数据库放到底部」或「所有连线改成直角折线」。未配置模型时使用本地规则；配置后会把请求转换为受限的布局指令，并先生成预览供确认。" }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const initial: ChatMessage[] = [
+      { role: "assistant", id: 1, text: "描述想要的布局变化即可，例如「所有 external 移到右侧」「数据库放到底部」或「所有连线改成直角折线」。未配置模型时使用本地规则；配置后会把请求转换为受限的布局指令，并先生成预览供确认。" }
+    ];
+    try {
+      const saved = window.localStorage.getItem("architecture-diagram-studio:v2:chat-messages");
+      if (!saved) return initial;
+      const parsed: unknown = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return initial;
+      return parsed.filter((item): item is ChatMessage =>
+        !!item && typeof item === "object" &&
+        ((item as ChatMessage).role === "assistant" || (item as ChatMessage).role === "user") &&
+        typeof (item as ChatMessage).text === "string" &&
+        typeof (item as ChatMessage).id === "number"
+      ).slice(-300);
+    } catch {
+      return initial;
+    }
+  });
   const [revision, setRevision] = useState(1);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -205,6 +221,14 @@ export default function App() {
       setLastAction("浏览器存储不可用；本次会话仍可继续编辑");
     }
   }, [document]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("architecture-diagram-studio:v2:chat-messages", JSON.stringify(messages.slice(-300)));
+    } catch {
+      // Keep the active conversation usable if browser storage is unavailable.
+    }
+  }, [messages]);
 
   useEffect(() => {
     try {
