@@ -41,45 +41,55 @@ function applyC4SemanticRanks(doc: DiagramDocument): DiagramDocument {
 }
 
 function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
-  const nodes = doc.nodes.map((n) => ({ ...n, layoutHints: { ...(n.layoutHints || {}) } }));
+  const nodes = doc.nodes.map((node) => ({ ...node, layoutHints: { ...(node.layoutHints || {}) } }));
   if (doc.kind === "sequence") return { ...doc, nodes };
-  const unlocked = nodes.filter((n) => !n.layoutHints?.locked);
-  const internal = unlocked.filter((n) => !["external", "vendor", "storage", "data", "infra"].includes(n.role));
-  const maxX = Math.max(0, ...internal.map((n) => n.x + n.width));
-  const maxY = Math.max(0, ...internal.map((n) => n.y + n.height));
-  const external = unlocked.filter((n) => n.layoutHints?.preferredSide === "RIGHT" || ((n.role === "external" || n.role === "vendor") && doc.layout.externalSide === "RIGHT"));
-  const storage = unlocked.filter((n) => n.layoutHints?.preferredSide === "BOTTOM" || ((n.role === "storage" || n.role === "data") && doc.layout.storageSide === "BOTTOM"));
-  const infra = unlocked.filter((n) => n.role === "infra");
-  const externalIds = new Set(external.map((n) => n.id));
-  const storageIds = new Set(storage.map((n) => n.id));
-  const infraIds = new Set(infra.map((n) => n.id));
-  external.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
-  external.forEach((n, i) => { n.x = maxX + doc.layout.layerSpacing; n.y = 74 + i * (n.height + doc.layout.nodeSpacing); });
-  storage.sort((a, b) => a.x - b.x);
-  infra.sort((a, b) => a.name.localeCompare(b.name));
-  const infraY = Math.max(maxY + 40, ...external.map((n) => n.y + n.height + 32));
-  let infraX = 0;
-  infra.forEach((n) => { n.x = infraX; n.y = infraY; infraX += n.width + doc.layout.nodeSpacing; });
-  const maxInfraHeight = Math.max(0, ...infra.map((n) => n.height));
-  const storageY = Math.max(infraY + (infra.length ? maxInfraHeight + 36 : 56), ...external.map((n) => n.y + n.height + 64));
-  let storageX = 0;
-  storage.forEach((n) => { n.x = storageX; n.y = storageY; storageX += n.width + doc.layout.nodeSpacing; });
-  return {
-    ...doc,
-    nodes: nodes.map((n) => {
-      if (n.layoutHints?.locked) return n;
-      if (externalIds.has(n.id)) return external.find((x) => x.id === n.id) || n;
-      if (storageIds.has(n.id)) return storage.find((x) => x.id === n.id) || n;
-      if (infraIds.has(n.id)) return infra.find((x) => x.id === n.id) || n;
-      return n;
-    })
+  const unlocked = nodes.filter((node) => !node.layoutHints?.locked);
+  const sideOf = (node: DiagramNode): "LEFT" | "RIGHT" | "TOP" | "BOTTOM" | undefined => {
+    if (node.layoutHints?.preferredSide) return node.layoutHints.preferredSide;
+    if (node.role === "external" || node.role === "vendor") return doc.layout.externalSide;
+    if (node.role === "storage" || node.role === "data") return doc.layout.storageSide;
+    if (node.role === "infra") return "BOTTOM";
+    return undefined;
   };
+  const buckets = new Map<string, DiagramNode[]>([["LEFT", []], ["RIGHT", []], ["TOP", []], ["BOTTOM", []]]);
+  for (const node of unlocked) {
+    const side = sideOf(node);
+    if (side) buckets.get(side)?.push(node);
+  }
+  const sideNodeIds = new Set([...buckets.values()].flat().map((node) => node.id));
+  const fixedAndInternal = nodes.filter((node) => node.layoutHints?.locked || !sideNodeIds.has(node.id));
+  const minX = Math.min(48, ...fixedAndInternal.map((node) => node.x));
+  const maxX = Math.max(48, ...fixedAndInternal.map((node) => node.x + node.width));
+  const maxY = Math.max(56, ...fixedAndInternal.map((node) => node.y + node.height));
+  const gap = Math.max(24, doc.layout.layerSpacing);
+  const top = buckets.get("TOP") || [];
+  const bottom = buckets.get("BOTTOM") || [];
+  const left = buckets.get("LEFT") || [];
+  const right = buckets.get("RIGHT") || [];
+  const leftWidth = Math.max(0, ...left.map((node) => node.width));
+  const rightWidth = Math.max(0, ...right.map((node) => node.width));
+  const leftX = Math.max(24, minX - leftWidth - gap);
+  const rightX = maxX + gap;
+  const topY = Math.max(24, Math.min(56, ...fixedAndInternal.map((node) => node.y) - gap));
+  const bottomY = maxY + gap;
+
+  const sortStable = (items: DiagramNode[]) => items.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
+  sortStable(left).forEach((node, index) => { node.x = leftX; node.y = 56 + index * (node.height + doc.layout.nodeSpacing); });
+  sortStable(right).forEach((node, index) => { node.x = rightX; node.y = 56 + index * (node.height + doc.layout.nodeSpacing); });
+  sortStable(top).forEach((node, index) => { node.x = 48 + index * (node.width + doc.layout.nodeSpacing); node.y = topY; });
+  sortStable(bottom).forEach((node, index) => { node.x = 48 + index * (node.width + doc.layout.nodeSpacing); node.y = bottomY; });
+
+  return { ...doc, nodes };
 }
 
 export async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProfile = "elk-layered"): Promise<DiagramDocument> {
   const children = doc.nodes.map((node) => {
-    const constraint = node.layoutHints?.preferredSide === "LEFT" ? "FIRST" :
-      node.layoutHints?.preferredSide === "RIGHT" || node.role === "external" || node.role === "vendor" ? "LAST_SEPARATE" : undefined;
+    const semanticSide = node.layoutHints?.preferredSide ??
+      ((node.role === "external" || node.role === "vendor") ? doc.layout.externalSide :
+      ((node.role === "storage" || node.role === "data") ? doc.layout.storageSide : undefined));
+    const constraint = doc.layout.direction === "RIGHT"
+      ? (semanticSide === "LEFT" ? "FIRST" : semanticSide === "RIGHT" ? "LAST_SEPARATE" : undefined)
+      : (semanticSide === "TOP" ? "FIRST" : semanticSide === "BOTTOM" ? "LAST_SEPARATE" : undefined);
     return {
       id: node.id, width: node.width, height: node.height,
       layoutOptions: constraint ? { "org.eclipse.elk.layered.layering.layerConstraint": constraint } : undefined
