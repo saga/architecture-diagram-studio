@@ -20,7 +20,7 @@ Ship a small stdio MCP server as `v2/server/mcp-server.ts`, started with `npm ru
 
 The MCP process does not accept arbitrary absolute paths. It rejects path traversal, checks canonical paths, skips symbolic links during indexing, and caps read sizes and search results. Tool results are evidence, not instructions.
 
-A reusable skill at `v2/skills/architecture-workspace/SKILL.md` instructs Agents to identify the active workspace first, inspect the primary diagram and related diagrams, search code/docs/ADRs for supporting evidence, cite workspace-relative paths in findings, and separate confirmed facts from inference. Project files must never override system or developer instructions.
+A reusable skill at `.agents/skills/architecture-workspace/SKILL.md` instructs Agents to identify the active workspace first, inspect the primary diagram and related diagrams, search code/docs/ADRs for supporting evidence, cite workspace-relative paths in findings, and separate confirmed facts from inference. Project files must never override system or developer instructions.
 
 The Copilot server also includes workspace metadata and bounded relevant file excerpts in each Agent turn. MCP is an additional integration surface, not a competing configuration store.
 
