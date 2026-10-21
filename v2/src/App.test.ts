@@ -62,6 +62,47 @@ describe("V2 semantic fixtures and intents", () => {
     expect(result.document.nodes.find((node) => node.role === "external")?.layoutHints?.preferredSide).toBe("RIGHT");
   });
 
+  it("renames a single matching node without changing its geometry", () => {
+    const document = createC4Fixture();
+    const before = document.nodes.find((node) => node.id === "portal")!;
+    const result = interpretIntent(document, "将 Portal 节点重命名为 Web Portal");
+    const after = result.document.nodes.find((node) => node.id === "portal")!;
+    expect(result.changed).toBe(true);
+    expect(after.name).toBe("Web Portal");
+    expect(after.x).toBe(before.x);
+    expect(after.y).toBe(before.y);
+    expect(result.requiresLayout).toBe(false);
+  });
+
+  it("removes a node and all semantic references without moving other nodes", () => {
+    const document = createC4Fixture();
+    const result = interpretIntent(document, "删除节点 portal");
+    expect(result.changed).toBe(true);
+    expect(result.document.nodes.some((node) => node.id === "portal")).toBe(false);
+    expect(result.document.relations.some((edge) => edge.source === "portal" || edge.target === "portal")).toBe(false);
+    expect(result.document.boundaries.every((boundary) => !boundary.members.includes("portal"))).toBe(true);
+  });
+
+  it("adds a node while preserving existing node positions", () => {
+    const document = createC4Fixture();
+    const before = document.nodes.map((node) => ({ id: node.id, x: node.x, y: node.y }));
+    const result = interpretIntent(document, "新增服务节点 Audit Service");
+    expect(result.changed).toBe(true);
+    expect(result.document.nodes.some((node) => node.name === "Audit Service")).toBe(true);
+    for (const item of before) {
+      const node = result.document.nodes.find((candidate) => candidate.id === item.id)!;
+      expect([node.x, node.y]).toEqual([item.x, item.y]);
+    }
+  });
+
+  it("updates one relation label without relayout", () => {
+    const document = createC4Fixture();
+    const result = interpretIntent(document, "将关系 e1 的标签改为 HTTPS request");
+    expect(result.changed).toBe(true);
+    expect(result.document.relations.find((edge) => edge.id === "e1")?.label).toBe("HTTPS request");
+    expect(result.requiresLayout).toBe(false);
+  });
+
   it("lets an explicit solid-line command override sequence return defaults", () => {
     const edge = createSequenceFixture().relations.find((relation) => relation.kind === "return")!;
     expect(relationPaint({ ...edge, dashed: false }).dash).toBe("");
