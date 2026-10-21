@@ -102,9 +102,14 @@ export function routeRelations(doc: DiagramDocument, routeVariant = 0): DiagramD
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
       const direction = dy >= 0 ? 1 : -1;
       const gap = Math.abs(end.y - start.y);
-      const offset = gap > 8 ? Math.min(lane, gap / 2) : lane;
+      const offset = gap > 8 ? Math.min(lane, gap / 3) : lane;
       const channelY = start.y + direction * offset;
-      points = [{ x: start.x, y: channelY }, { x: end.x, y: channelY }];
+      const approachY = end.y - direction * offset;
+      points = [
+        { x: start.x, y: channelY },
+        { x: end.x, y: channelY },
+        { x: end.x, y: approachY }
+      ];
     } else if (dx >= 0) {
       const gap = end.x - start.x;
       const fractions = [0.34, 0.5, 0.66, 0.42];
