@@ -93,9 +93,13 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
   return { d, label };
 }
 function nodePath(node: DiagramNode, shape: string): string {
-  if (shape === "pill") return "M " + (node.x + 16) + " " + node.y + " H " + (node.x + node.width - 16) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + 16) + " V " + (node.y + node.height - 16) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - 16) + " " + (node.y + node.height) + " H " + (node.x + 16) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - 16) + " V " + (node.y + 16) + " Q " + node.x + " " + node.y + " " + (node.x + 16) + " " + node.y + " Z";
+  if (shape === "pill") {
+    const radius = Math.min(tokens.nodeRadius * 2, node.width / 2, node.height / 2);
+    return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
+  }
   if (shape === "diamond") return "M " + (node.x + node.width / 2) + " " + node.y + " L " + (node.x + node.width) + " " + (node.y + node.height / 2) + " L " + (node.x + node.width / 2) + " " + (node.y + node.height) + " L " + node.x + " " + (node.y + node.height / 2) + " Z";
-  return "M " + (node.x + 8) + " " + node.y + " H " + (node.x + node.width - 8) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + 8) + " V " + (node.y + node.height - 8) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - 8) + " " + (node.y + node.height) + " H " + (node.x + 8) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - 8) + " V " + (node.y + 8) + " Q " + node.x + " " + node.y + " " + (node.x + 8) + " " + node.y + " Z";
+  const radius = Math.min(tokens.nodeRadius, node.width / 2, node.height / 2);
+  return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
 }
 export default function DiagramCanvas({
   document, zoom, viewResetToken, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode, onContextMenu
@@ -189,7 +193,7 @@ export default function DiagramCanvas({
       <title id={titleId}>{document.title}</title>
       <desc id={descriptionId}>{document.kind.toUpperCase() + " diagram with " + document.nodes.length + " nodes and " + document.relations.length + " relationships."}</desc>
       <defs>
-        <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
+        <pattern id="studio-grid" width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
         <marker id="arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#4C5C72" strokeWidth="1.3" /></marker>
       </defs>
