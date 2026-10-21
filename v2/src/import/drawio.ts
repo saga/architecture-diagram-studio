@@ -109,7 +109,12 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
           const endOrder = Number(style.match(/(?:^|;)studioEndOrder=(\d+)(?:;|$)/)?.[1]);
           if (fragmentKind && Number.isFinite(startOrder) && Number.isFinite(endOrder) && endOrder >= startOrder) {
             const label = value.replace(/^(ALT|OPT|LOOP)\s*[·:-]?\s*/i, "").trim();
-            importedFragments.set(fragmentId, { id: fragmentId, kind: fragmentKind as SequenceFragment["kind"], label, startOrder, endOrder });
+            const participants = style.match(/(?:^|;)studioFragmentParticipants=([^;]*)(?:;|$)/)?.[1]
+              ?.split(",").filter(Boolean);
+            importedFragments.set(fragmentId, {
+              id: fragmentId, kind: fragmentKind as SequenceFragment["kind"], label, startOrder, endOrder,
+              ...(participants?.length ? { participants } : {})
+            });
           }
         }
         continue;
@@ -147,6 +152,20 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const points: Point[] = pointElements.map((point) => ({ x: Number(point.getAttribute("x") || 0), y: Number(point.getAttribute("y") || 0) }));
       const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
       const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\d+)(?:;|$)/)?.[1];
+      const sourceGeometryNode = nodes.find((node) => node.id === source) || previousNodes.get(source);
+      const targetGeometryNode = nodes.find((node) => node.id === target) || previousNodes.get(target);
+      const readPort = (xKey: "exitX" | "entryX", yKey: "exitY" | "entryY", node: DiagramNode | undefined): Point | undefined => {
+        if (!node) return undefined;
+        const xValue = style.match(new RegExp("(?:^|;)" + xKey + "=([-+0-9.eE]+)(?:;|$)"))?.[1];
+        const yValue = style.match(new RegExp("(?:^|;)" + yKey + "=([-+0-9.eE]+)(?:;|$)"))?.[1];
+        if (xValue === undefined || yValue === undefined) return undefined;
+        const x = Number(xValue), y = Number(yValue);
+        return Number.isFinite(x) && Number.isFinite(y)
+          ? { x: node.x + x * node.width, y: node.y + y * node.height }
+          : undefined;
+      };
+      const sourcePort = readPort("exitX", "exitY", sourceGeometryNode);
+      const targetPort = readPort("entryX", "entryY", targetGeometryNode);
       relations.push({
         ...(old || { id, source, target, label: value, kind: explicitKind || "flow" }),
         source, target, label: value,
@@ -154,6 +173,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
         sequenceOrder: explicitSequenceOrder === undefined ? old?.sequenceOrder : Number(explicitSequenceOrder),
         dashed: style.includes("dashed=1"),
         routing: style.includes("curved=1") ? "curved" : style.includes("edgeStyle=orthogonalEdgeStyle") ? "orthogonal" : "polyline",
+        sourcePort, targetPort,
         points
       });
     }
