@@ -581,3 +581,6 @@ button:disabled { opacity: .58; cursor: wait; }
   .theme-selector { padding: 5px 6px; }
   .theme-selector select { max-width: 88px; }
 }
+
+.app-shell .diagram-svg .diagram-node.selected path:first-child { stroke: var(--theme-accent) !important; }
+.app-shell .diagram-svg .diagram-relation.selected .relation-visible-path { stroke: var(--theme-accent) !important; }
