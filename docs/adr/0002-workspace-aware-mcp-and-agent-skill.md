@@ -10,7 +10,7 @@ The workspace must be useful beyond the Studio UI. External MCP-compatible clien
 
 ## Decision
 
-Ship a small stdio MCP server as `v2/server/mcp-server.ts`, started with `npm run mcp`. It implements MCP initialization, tool discovery, ping, and tool calls over JSON-RPC stdio and reads the same `project-workspace.json` used by the HTTP service. Its read-only tools are:
+Ship a small stdio MCP server as `v2/server/mcp-server.ts`, started with `npm run mcp`. It implements MCP initialization, tool discovery, ping, and tool calls over JSON-RPC stdio and reads the same `project-workspace.json` used by the HTTP service. Its tools include read-only workspace discovery/search plus diagram-aware inspection, quality evaluation, edit proposals, and explicitly confirmed mutation/version tools. The complete diagram-aware tool set and governance rules are defined by ADR 0005. Workspace tools include:
 
 - `workspace_info`: workspace identity, root, and primary diagram.
 - `list_workspace_files`: workspace file inventory classified by kind.
@@ -29,10 +29,10 @@ The Copilot server also includes workspace metadata and bounded relevant file ex
 - **Expose only REST endpoints:** useful for the web app but not directly consumable by MCP clients.
 - **Use a separate MCP workspace configuration:** rejected because duplicated root paths and primary diagram settings would drift.
 - **Allow arbitrary filesystem tools:** rejected due to unnecessary access and prompt-injection risk.
-- **Expose write/edit tools in the first MCP slice:** deferred. Initial MCP support is read-only; mutations must later integrate with the server's audit log, workspace-relative path validation, and Draw.io version snapshots.
+- **Direct filesystem writes from MCP:** rejected. Mutations must go through the Studio HTTP service so schema/layout validation, workspace boundaries, audit logging, and immutable Draw.io version snapshots remain authoritative.
 
 ## Consequences
 
 - VS Code discovers the project MCP server from `.vscode/mcp.json`; the MCP process and HTTP service share the same home directory or `STUDIO_DATA_DIR`.
 - Workspace file changes are read from disk on each tool request rather than relying on a stale cached index.
-- Future MCP mutation tools must use server APIs or a shared persistence service instead of writing around Studio's version history.
+- Diagram-aware MCP mutations require explicit user approval, a current revision or proposal token, server-side semantic and quality checks, and a new immutable version. Mermaid import/conversion remains out of scope.
