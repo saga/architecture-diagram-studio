@@ -76,7 +76,7 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
   }
 
   const addRelationMatch = text.match(/^(?:新增|添加)关系\s*[“"']?(.+?)[”"']?\s*(?:->|→|到|连接到)\s*[“"']?(.+?)[”"']?(?:[，, ]+(?:标签为|标签|label)\s*[“"']?(.+?)[”"']?)?$/i)
-    || text.match(/^add\\s+relation\\s+["']?(.+?)["']?\\s*(?:->|to)\\s*["']?(.+?)["']?(?:\\s+label\\s+["']?(.+?)["']?)?$/i);
+    || text.match(/^add\s+relation\s+["']?(.+?)["']?\s*(?:->|to)\s*["']?(.+?)["']?(?:\s+label\s+["']?(.+?)["']?)?$/i);
   if (addRelationMatch && !changed) {
     const sourceName = addRelationMatch[1].trim(), targetName = addRelationMatch[2].trim(), label = (addRelationMatch[3] || "Depends on").trim();
     const sources = next.nodes.filter((node) => node.id.toLowerCase() === sourceName.toLowerCase() || node.name.toLowerCase() === sourceName.toLowerCase());
