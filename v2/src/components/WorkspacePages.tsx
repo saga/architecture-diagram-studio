@@ -6,7 +6,17 @@ import type { DiagramDocument } from "../model/types";
 import type { DiagnosticEntry } from "../diagnostics";
 
 
-type StudioConfig = { layoutProfiles: string[]; prompts: { system: string; task: string; planTool: string }; updatedAt: string };
+type PromptKey = "system" | "task" | "planTool" | "behavior" | "workspace" | "toolDescription" | "toolResult";
+type StudioConfig = { layoutProfiles: string[]; prompts: Record<PromptKey, string>; updatedAt: string; updatedBy?: string };
+const PROMPT_OPTIONS: Array<{ key: PromptKey; label: string; description: string }> = [
+  { key: "system", label: "System Prompt", description: "定义 Copilot 的总体角色和任务范围。" },
+  { key: "task", label: "任务规划 Prompt", description: "定义每次请求的规划目标、详细程度和输出要求。" },
+  { key: "planTool", label: "计划工具 Prompt", description: "说明何时以及如何调用结构化计划工具。" },
+  { key: "behavior", label: "行为约束与安全规则", description: "控制允许执行的行为、预览确认和不可信上下文处理。" },
+  { key: "workspace", label: "工作区上下文 Prompt", description: "支持 {{workspaceName}}、{{rootPath}}、{{primaryDiagram}} 三个运行时占位符。" },
+  { key: "toolDescription", label: "结构化工具描述", description: "发送给模型的 propose_layout_plan 工具说明。" },
+  { key: "toolResult", label: "工具执行结果 Prompt", description: "结构化计划工具返回给模型的说明。" }
+];
 const PROFILE_OPTIONS = [
   { value: "elk-layered", label: "ELK Layered" }, { value: "elk-mrtree", label: "ELK MrTree" },
   { value: "elk-radial", label: "ELK Radial" }, { value: "elk-stress", label: "ELK Stress" },
@@ -46,9 +56,13 @@ function ConfigurationEditor() {
       {PROFILE_OPTIONS.map((option) => <label key={option.value} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0"}}><input type="checkbox" checked={config.layoutProfiles.includes(option.value)} onChange={(event) => setConfig({...config,layoutProfiles:event.target.checked?[...config.layoutProfiles,option.value]:config.layoutProfiles.filter((p)=>p!==option.value)})}/>{option.label}</label>)}
     </div>
     <p className="settings-description">此列表控制服务端允许执行的布局算法；文档原有布局配置不会被静默改写。</p>
-    <label className="settings-field">Copilot system prompt<textarea rows={5} value={config.prompts.system} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,system:event.target.value}})} /></label>
-    <label className="settings-field">任务规划 prompt<textarea rows={5} value={config.prompts.task} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,task:event.target.value}})} /></label>
-    <label className="settings-field">结构化计划工具 prompt<textarea rows={5} value={config.prompts.planTool} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,planTool:event.target.value}})} /></label>
+    <div className="settings-prompt-list">
+      {PROMPT_OPTIONS.map(({ key, label, description }) => <label className="settings-field" key={key}>
+        <strong>{label}</strong>
+        <span className="settings-description">{description}</span>
+        <textarea rows={5} value={config.prompts[key]} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,[key]:event.target.value}})} />
+      </label>)}
+    </div>
     <div className="settings-card-actions"><span className="settings-trace-count">{revisions} 个历史版本</span><UiButton type="button" className="button button-primary" disabled={busy || !config.layoutProfiles.length} onClick={()=>void save()}>{busy?"保存中…":"保存并创建版本"}</UiButton></div>
     {message && <p className="settings-description">{message}</p>}
     {history.length > 0 && <div className="settings-terminal-note"><strong>最近配置版本</strong>{history.map((item)=><span key={item.revisionId}>{new Date(item.updatedAt).toLocaleString()} · {item.changeSummary || item.revisionId}</span>)}</div>}
