@@ -338,7 +338,7 @@ export default function App() {
     const startedAt = Date.now();
     recordDiagnostic("copilot.request.started", "开始处理布局意图", {
       configuredModel: Boolean(aiModel.trim()), provider: aiModel.trim() ? "github-copilot-sdk" : "local-rules", model: aiModel.trim() || "local-rules",
-      diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
+      sessionId: copilotSessionId, diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
       inputLength: text.length
     });
     setMessages((items) => [...items, { role: "user", id: Date.now(), text }]);
@@ -349,7 +349,7 @@ export default function App() {
       let modelReply = "";
       if (aiModel.trim()) {
         recordDiagnostic("copilot.agent.request", "请求 Copilot SDK Agent 生成受限布局计划", {
-          model: aiModel.trim(), provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
+          sessionId: copilotSessionId, model: aiModel.trim(), reasoningEffort, provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
           { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId },
@@ -367,8 +367,8 @@ export default function App() {
         }
         modelReply = plan.reply;
         recordDiagnostic("copilot.agent.response", "已收到 Copilot SDK Agent 工具计划", {
-          provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
-          durationMs: plan.durationMs, toolUsed: "propose_layout_plan",
+          sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
+          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: "propose_layout_plan",
           commandCount: plan.commands.length, replyLength: plan.reply.length
         });
         if (!plan.commands.length) {
