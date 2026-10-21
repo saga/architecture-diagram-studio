@@ -113,6 +113,13 @@ export default function DrawioRenderLab() {
                   }) } : undefined
                 }));
               }}
+              onUpdateBoundary={(boundaryId, patch) => {
+                setNativeXml(null);
+                setDocument((current) => ({
+                  ...current,
+                  boundaries: current.boundaries.map((boundary) => boundary.id === boundaryId ? { ...boundary, ...patch } : boundary)
+                }));
+              }}
               onMoveNode={(id, x, y) => { setNativeXml(null); setDocument((current) => ({
                 ...current, nodes: current.nodes.map((node) => node.id === id ? { ...node, x, y } : node)
               })); }} onContextMenu={() => {}} />
