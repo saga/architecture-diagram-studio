@@ -166,7 +166,7 @@ export async function requestAIIntentPlan(
     durationMs: Date.now() - startedAt, endpointHostname, model,
     httpStatus: response.status, ok: response.ok, responseCharacters: responseText.length,
     contentType: response.headers.get("content-type") || "unknown",
-    requestIdPresent: Boolean(response.headers.get("x-request-id") || response.headers.get("request-id"))
+    requestId: (response.headers.get("x-request-id") || response.headers.get("request-id") || "").slice(0, 100) || null
   }, response.ok ? "info" : "error");
 
   let payload: unknown;
@@ -180,11 +180,17 @@ export async function requestAIIntentPlan(
     throw new Error("模型接口返回了无法解析的响应");
   }
   if (!response.ok) {
+    const providerError = payload && typeof payload === "object"
+      ? (payload as { error?: { code?: unknown; type?: unknown; message?: unknown } }).error
+      : undefined;
+    const providerErrorCode = typeof providerError?.code === "string" ? providerError.code.slice(0, 100) : null;
+    const providerErrorType = typeof providerError?.type === "string" ? providerError.type.slice(0, 100) : null;
     recordDiagnostic("copilot.http.response.error", "模型接口返回错误状态；响应正文未写入轨迹", {
       httpStatus: response.status, durationMs: Date.now() - startedAt,
-      providerErrorPresent: Boolean(payload && typeof payload === "object" && "error" in payload)
+      providerErrorPresent: Boolean(providerError),
+      providerErrorCode, providerErrorType
     }, "error");
-    const message = payload && typeof payload === "object" && (payload as { error?: { message?: unknown } }).error?.message;
+    const message = providerError?.message;
     throw new Error("模型接口 HTTP " + response.status + (typeof message === "string" ? "：" + message.slice(0, 300) : ""));
   }
 
