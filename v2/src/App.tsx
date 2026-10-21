@@ -1,4 +1,4 @@
-import { Children, isValidElement, useCallback, useEffect, useRef, useState } from "react";
+import { Children, Fragment, isValidElement, useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
@@ -44,7 +44,7 @@ function loadSavedTheme(): UiTheme {
   return "warm";
 }
 type PanelWidths = { left: number; right: number };
-type CanvasMenu = { x: number; y: number; kind: "node" | "relation" | "fragment" | "canvas"; id?: string };
+type CanvasMenu = { x: number; y: number; kind: "node" | "relation" | "fragment" | "boundary" | "canvas"; id?: string };
 const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { left: [190, 420], right: [300, 620] };
 const PANEL_STORAGE_KEY = "architecture-diagram-studio:v2:panel-widths";
 function loadPanelWidths(): PanelWidths {
@@ -590,7 +590,7 @@ export default function App() {
   const {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
     changeNode, renameNode, addNode, createRelation, updateRelationLabel,
-    removeRelation, reverseRelation, updateRelationKind, updateRelationStyle, removeNodeById, duplicateNodeById
+    removeRelation, reverseRelation, updateRelationKind, updateRelationStyle, updateBoundary, createBoundaryForNode, removeBoundary, removeNodeById, duplicateNodeById
   } = useDiagramEditing({
     document, selectedNode, selectedRelationId,
     setSelectedNodeId, setSelectedRelationId, setLastAction,
@@ -983,7 +983,7 @@ export default function App() {
                   endpoint === "source" ? nodeId : relation.source,
                   endpoint === "target" ? nodeId : relation.target);
               }}
-              onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel} onUpdateSequenceFragment={updateSequenceFragment}
+              onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel} onUpdateSequenceFragment={updateSequenceFragment} onUpdateBoundary={updateBoundary}
               onContextMenu={(target, x, y) => {
                 if (target.kind === "node") { setSelectedNodeId(target.id || null); setSelectedRelationId(null); }
                 if (target.kind === "relation") setSelectedRelationId(target.id || null);
@@ -1142,6 +1142,7 @@ export default function App() {
         const menuNode = canvasMenu.kind === "node" ? document.nodes.find((node) => node.id === canvasMenu.id) : undefined;
         const menuRelation = canvasMenu.kind === "relation" ? document.relations.find((relation) => relation.id === canvasMenu.id) : undefined;
         const menuFragment = canvasMenu.kind === "fragment" ? (document.sequence?.fragments || []).find((fragment) => fragment.id === canvasMenu.id) : undefined;
+        const menuBoundary = canvasMenu.kind === "boundary" ? document.boundaries.find((boundary) => boundary.id === canvasMenu.id) : undefined;
         const messageOrder = menuRelation ? (menuRelation.sequenceOrder ?? document.relations.findIndex((relation) => relation.id === menuRelation.id)) : -1;
         return <div className="canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
           {menuNode && <>
@@ -1154,7 +1155,18 @@ export default function App() {
             {Object.entries(roleLabels).filter(([role]) => role !== menuNode.role).map(([role, label]) =>
               <button type="button" role="menuitem" key={role} onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); changeNode({ role: role as DiagramNode["role"] }); close(); }}>Make {label.toLowerCase()}</button>
             )}
-            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); setRightPanelTab("properties"); close(); }}>More properties…</button>
+            <div className="canvas-menu-divider" />
+            <div className="canvas-menu-caption">System boundary</div>
+            <button type="button" role="menuitem" onClick={() => { createBoundaryForNode(menuNode.id); close(); }}>Create boundary around this node</button>
+            {document.boundaries.map((boundary) => {
+              const isMember = boundary.members.includes(menuNode.id);
+              return <button type="button" role="menuitem" key={boundary.id}
+                onClick={() => { updateBoundary(boundary.id, { members: isMember ? boundary.members.filter((id) => id !== menuNode.id) : [...boundary.members, menuNode.id] }); close(); }}>
+                {isMember ? "Remove from" : "Add to"} boundary · {boundary.name}
+              </button>;
+            })}
+            <div className="canvas-menu-divider" />
+            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); setRightPanelTab("properties"); close(); }}>Edit details…</button>
             <button type="button" role="menuitem" onClick={() => { void sendIntent("For node " + menuNode.name + " (id " + menuNode.id + "), inspect its connected relationships and propose a focused improvement. Use the structured diagram operation tool and return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
             <button type="button" role="menuitem" className="danger" onClick={() => { void removeNodeById(menuNode.id); close(); }}>Delete node</button>
           </>}
@@ -1172,10 +1184,10 @@ export default function App() {
             <div className="canvas-menu-divider" />
             {document.kind === "sequence" && (document.sequence?.fragments || []).length > 0 && <>
               <div className="canvas-menu-caption">Sequence fragments · this message</div>
-              {(document.sequence?.fragments || []).map((fragment) => <>
-                <button type="button" role="menuitem" key={fragment.id + "-start"} onClick={() => { updateSequenceFragment(fragment.id, { startOrder: messageOrder }); close(); }}>Set “{fragment.label}” start here</button>
-                <button type="button" role="menuitem" key={fragment.id + "-end"} onClick={() => { updateSequenceFragment(fragment.id, { endOrder: messageOrder }); close(); }}>Set “{fragment.label}” end here</button>
-              </>)}
+              {(document.sequence?.fragments || []).map((fragment) => <Fragment key={fragment.id}>
+                <button type="button" role="menuitem" onClick={() => { updateSequenceFragment(fragment.id, { startOrder: messageOrder }); close(); }}>Set “{fragment.label}” start here</button>
+                <button type="button" role="menuitem" onClick={() => { updateSequenceFragment(fragment.id, { endOrder: messageOrder }); close(); }}>Set “{fragment.label}” end here</button>
+              </Fragment>)}
               <button type="button" role="menuitem" onClick={() => { addSequenceFragment(messageOrder, "alt"); close(); }}>Add alt fragment around this message</button>
               <button type="button" role="menuitem" onClick={() => { addSequenceFragment(messageOrder, "opt"); close(); }}>Add opt fragment around this message</button>
               <button type="button" role="menuitem" onClick={() => { addSequenceFragment(messageOrder, "loop"); close(); }}>Add loop fragment around this message</button>
@@ -1217,6 +1229,21 @@ export default function App() {
               onClick={() => { updateSequenceFragment(menuFragment.id, { endOrder: menuFragment.endOrder + 1 }); close(); }}>Extend end to next message</button>
             <button type="button" role="menuitem" onClick={() => { void sendIntent("Update sequence fragment " + menuFragment.id + " (" + menuFragment.kind + ", currently " + menuFragment.startOrder + "–" + menuFragment.endOrder + " messages) to improve its semantics and scope. Use propose_diagram_operation and return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
             <button type="button" role="menuitem" className="danger" onClick={() => { removeSequenceFragment(menuFragment.id); close(); }}>Delete fragment</button>
+          </>}
+          {menuBoundary && <>
+            <div className="canvas-menu-title">{menuBoundary.name}</div>
+            <div className="canvas-menu-caption">Members · {menuBoundary.members.length}</div>
+            {selectedNodeId && document.nodes.some((node) => node.id === selectedNodeId) && <>
+              <button type="button" role="menuitem" onClick={() => {
+                const nodeId = selectedNodeId;
+                updateBoundary(menuBoundary.id, { members: menuBoundary.members.includes(nodeId)
+                  ? menuBoundary.members.filter((id) => id !== nodeId)
+                  : [...menuBoundary.members, nodeId] });
+                close();
+              }}>{menuBoundary.members.includes(selectedNodeId) ? "Remove selected node from boundary" : "Add selected node to boundary"}</button>
+            </>}
+            <button type="button" role="menuitem" onClick={() => { void sendIntent("Review boundary " + menuBoundary.id + " named " + menuBoundary.name + " with members " + menuBoundary.members.join(", ") + ". Propose a focused typed boundary update if its name, grouping or membership should change."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { removeBoundary(menuBoundary.id); close(); }}>Delete boundary</button>
           </>}
           {canvasMenu.kind === "canvas" && <>
             <div className="canvas-menu-caption">Add to diagram</div>
