@@ -4,6 +4,7 @@ export interface AIProviderConfig {
   /** Retained for persisted-settings compatibility; requests go to the same-origin Copilot SDK service. */
   baseUrl: string;
   model: string;
+  reasoningEffort?: "high" | "max";
   apiKey?: string;
 }
 
@@ -20,6 +21,7 @@ export interface AIIntentPlan {
   model?: string;
   provider?: string;
   durationMs?: number;
+  reasoningEffort?: string;
 }
 
 const ALLOWED_COMMANDS = new Set([
@@ -73,7 +75,8 @@ function validatePlan(value: unknown): AIIntentPlan {
     reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
     ...(typeof item.model === "string" ? { model: item.model } : {}),
     ...(typeof item.provider === "string" ? { provider: item.provider } : {}),
-    ...(typeof item.durationMs === "number" ? { durationMs: item.durationMs } : {})
+    ...(typeof item.durationMs === "number" ? { durationMs: item.durationMs } : {}),
+    ...(typeof item.reasoningEffort === "string" ? { reasoningEffort: item.reasoningEffort } : {})
   };
 }
 
@@ -96,7 +99,7 @@ export async function requestAIIntentPlan(
     response = await fetch("/api/copilot/intent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, context, ...(model ? { model } : {}) }),
+      body: JSON.stringify({ prompt, context, ...(model ? { model } : {}), reasoningEffort: config.reasoningEffort || "max" }),
       signal: AbortSignal.timeout(70_000)
     });
   } catch (error) {
