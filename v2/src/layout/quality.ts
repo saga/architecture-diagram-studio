@@ -77,6 +77,8 @@ function pathFor(doc: DiagramDocument, id: string): Point[] {
     start = { x: source.x, y: sc.y };
     end = { x: target.x + target.width, y: tc.y };
   }
+  start = edge.sourcePort || start;
+  end = edge.targetPort || end;
   return [start, ...(edge.points || []), end];
 }
 function midpoint(points: Point[]): Point | null {
