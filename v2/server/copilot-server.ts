@@ -130,6 +130,11 @@ function workspaceStateMatchesActiveDiagram(state: WorkspaceState, workspace: Pr
   if (state.diagramPath !== undefined && workspace && state.diagramPath !== (workspace.primaryDiagram ?? null)) return false;
   return true;
 }
+
+/** If a primary file exists but its content is not hydrated, semantic mutations must wait. */
+function hasUnloadedPrimaryDiagramXml(state: WorkspaceState, workspace: ProjectWorkspace | null): boolean {
+  return Boolean(workspace?.primaryDiagram && /.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram) && typeof state.drawioXml !== "string");
+}
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
   if (!diagramVersionsLoad) {
@@ -278,6 +283,7 @@ app.post("/api/workspace/layout", async (req, res) => {
   const startedAt = Date.now();
   try {
     const currentState = await getWorkspaceState();
+    if (hasUnloadedPrimaryDiagramXml(currentState, await getProjectWorkspace())) { res.status(409).json({ error: "Load the primary Draw.io XML before running automatic layout." }); return; }
     if (currentState.drawioXml && currentState.document && isDiagramDocument(currentState.document) && !isStudioProjectionCurrent(currentState.drawioXml, currentState.document)) {
       res.status(409).json({ error: "Automatic layout is disabled because the authoritative Draw.io XML contains content outside the lossless Studio projection. Edit in native Draw.io or create a new Studio diagram." }); return;
     }
@@ -375,6 +381,7 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
   const startedAt = Date.now();
   try {
     const currentState = await getWorkspaceState();
+    if (hasUnloadedPrimaryDiagramXml(currentState, await getProjectWorkspace())) { res.status(409).json({ error: "Load the primary Draw.io XML before applying semantic intent." }); return; }
     if (currentState.drawioXml && currentState.document && isDiagramDocument(currentState.document) && !isStudioProjectionCurrent(currentState.drawioXml, currentState.document)) {
       res.status(409).json({ error: "Semantic intent is disabled for this native Draw.io document because the Studio projection cannot safely represent the complete XML." }); return;
     }
@@ -440,6 +447,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document)) return { status: 404 as const, error: "There is no saved primary diagram to replace" };
       if (!workspaceStateMatchesActiveDiagram(state, workspace)) return { status: 409 as const, error: "The current diagram belongs to another workspace; reload the primary diagram first" };
+      if (hasUnloadedPrimaryDiagramXml(state, workspace)) return { status: 409 as const, error: "Load the primary Draw.io XML before applying a template." };
       if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) return { status: 409 as const, error: "A Studio template cannot replace this native Draw.io document because its complete XML is not represented by the semantic projection. Create a new diagram instead." };
       if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== workspaceRevision(state.document, state.drawioXml)) return { status: 409 as const, error: "The diagram changed; read it again before applying the template" };
       const config = await getStudioConfig();
@@ -482,6 +490,7 @@ app.get("/api/workspace/diagram/active", async (req, res) => {
     if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
       res.status(404).json({ error: "This workspace has no saved primary diagram" }); return;
     }
+    if (hasUnloadedPrimaryDiagramXml(state, workspace)) { res.status(409).json({ error: "The primary Draw.io XML has not been hydrated into the active workspace yet." }); return; }
     res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null, updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
@@ -492,6 +501,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
     if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) { res.status(404).json({ error: "This workspace has no saved primary diagram" }); return; }
+    if (hasUnloadedPrimaryDiagramXml(state, workspace)) { res.status(409).json({ error: "The primary Draw.io XML must be loaded before creating a semantic proposal." }); return; }
     if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) { res.status(409).json({ error: "Semantic proposals are disabled because the authoritative Draw.io XML contains cells or properties outside the lossless Studio projection. Use native Draw.io editing." }); return; }
     const baseRevision = workspaceRevision(state.document, state.drawioXml);
     if (typeof req.body?.baseRevision === "string" && req.body.baseRevision !== baseRevision) { res.status(409).json({ error: "The diagram changed; read it again before generating a proposal", revision: baseRevision }); return; }
@@ -518,7 +528,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       if (!proposal || Date.now() - proposal.createdAt > 15 * 60 * 1000) return { status: 404 as const, error: "The proposal does not exist or has expired" };
       const state = await getWorkspaceState();
       const workspace = await getProjectWorkspace();
-      if ((workspace?.id ?? null) !== proposal.workspaceId || !state.document || !isDiagramDocument(state.document) || workspaceRevision(state.document, state.drawioXml) !== proposal.baseRevision) return { status: 409 as const, error: "The diagram or native XML changed, or the workspace switched; generate a new proposal" };
+      if ((workspace?.id ?? null) !== proposal.workspaceId || !state.document || !isDiagramDocument(state.document) || hasUnloadedPrimaryDiagramXml(state, workspace) || workspaceRevision(state.document, state.drawioXml) !== proposal.baseRevision) return { status: 409 as const, error: "The diagram or native XML changed, or the workspace switched; load the current XML and generate a new proposal" };
       let quality = evaluateLayout(proposal.document);
       let xml: string;
       if (typeof proposal.nativeXml === "string") {
