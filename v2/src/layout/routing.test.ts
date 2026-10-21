@@ -52,6 +52,29 @@ describe("connector port assignment", () => {
     expect(routed.relations[0].points!.length).toBeGreaterThan(2);
   });
 
+  it("approaches a leftward target from its right edge without traversing the node", () => {
+    const document = createC4Fixture();
+    document.nodes = [
+      { ...document.nodes[0], id: "right-source", x: 420, y: 100, width: 140, height: 80 },
+      { ...document.nodes[1], id: "left-target", x: 80, y: 100, width: 140, height: 80 }
+    ];
+    document.relations = [{
+      id: "leftward", source: "right-source", target: "left-target",
+      label: "return", kind: "return", routing: "orthogonal"
+    }];
+    const result = routeRelations(document);
+    const relation = result.relations[0];
+    expect(relation.sourcePort?.x).toBe(420);
+    expect(relation.targetPort?.x).toBe(220);
+    const points = [relation.sourcePort!, ...(relation.points || []), relation.targetPort!];
+    for (let index = 1; index < points.length; index++) {
+      expect(Math.abs(points[index].y - points[index - 1].y) < 0.001 ||
+        Math.abs(points[index].x - points[index - 1].x) < 0.001).toBe(true);
+    }
+    // The final leg approaches from x >= target.right rather than cutting through it.
+    expect(relation.points?.[relation.points.length - 1].x).toBeGreaterThanOrEqual(relation.targetPort!.x);
+  });
+
   it("does not invent attachment ports for sequence messages", () => {
     const document = createC4Fixture();
     document.kind = "sequence";
