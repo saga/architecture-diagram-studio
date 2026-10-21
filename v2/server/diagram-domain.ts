@@ -1,7 +1,7 @@
 import type { DiagramDocument } from "../src/model/types";
 import { LAYOUT_PROFILES, resolveLayoutProfile } from "../src/layout/profiles";
 
-function validateDiagramSemantics(document: DiagramDocument): string[] {
+export function validateDiagramSemantics(document: DiagramDocument): string[] {
   const errors: string[] = [];
   if (document.id.length > 128 || document.title.length > 300) errors.push("Diagram id or title is too long");
   if (document.nodes.length > 500 || document.relations.length > 2000 || document.boundaries.length > 300) errors.push("Diagram exceeds the server-side size limits");
@@ -35,25 +35,8 @@ function validateDiagramSemantics(document: DiagramDocument): string[] {
   return [...new Set(errors)].slice(0, 100);
 }
 
-function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null): DiagramEditProposal {
-  const errors = validateDiagramSemantics(proposedDocument);
-  if (errors.length) throw new Error("The proposal failed semantic validation: " + errors.join("; "));
-  const proposal: DiagramEditProposal = {
-    id: randomUUID(), baseRevision: workspaceRevision(baseDocument, baseXml), document: proposedDocument,
-    summary: summary.slice(0, 500), baseQuality: evaluateLayout(baseDocument), quality: evaluateLayout(proposedDocument),
-    createdAt: Date.now(), workspaceId
-  };
-  diagramEditProposals.set(proposal.id, proposal);
-  for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
-  while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
-  return proposal;
-}
-function agentProposalView(proposal: DiagramEditProposal): AgentProposalView {
-  return { proposalId: proposal.id, baseRevision: proposal.baseRevision, document: proposal.document, summary: proposal.summary, baseQuality: proposal.baseQuality, quality: proposal.quality };
-}
-
-type DiagramTemplateKey = "c4-context" | "service-queue-database" | "sequence-request";
-function createDiagramTemplate(key: DiagramTemplateKey): DiagramDocument {
+export type DiagramTemplateKey = "c4-context" | "service-queue-database" | "sequence-request";
+export function createDiagramTemplate(key: DiagramTemplateKey): DiagramDocument {
   const sequence = key === "sequence-request";
   const c4 = key === "c4-context";
   const doc: DiagramDocument = {
