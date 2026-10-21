@@ -83,3 +83,17 @@
 4. 保持现有的 Studio 编辑模型、ELK/Dagre 布局引擎和 Draw.io 可编辑输出；不把风格参考的输出当作新的事实来源。
 5. 最终以 V2 typecheck、单元测试和生产构建结果作为交付门槛。
 
+## 实施状态（代码已提交到 main）
+
+| 阶段 | 已落地的代码行为 | 回归覆盖 |
+|---|---|---|
+| M1 | 扩展质量指标、节点/边问题定位、真实时序消息几何、硬错误优先级和交叉定位 | `quality.test.ts` |
+| M2 | 4px 节点坐标与拖动吸附、共享网格 token、按 Unicode 宽度估算、标题省略、描述换行和高度溢出警告 | `layout.test.ts`、`text-metrics.test.ts` |
+| M3 | 同一节点的端口分散、端口元数据往返、正交路线评分、同排关系的上下绕行，以及按图规模限制候选搜索 | `routing.test.ts`、`layout.test.ts` |
+| M4 | WCAG 对比度函数、质量报告的节点/边对比度告警、强化语义色描边、统一画布和 Draw.io 标签基础样式 | `contrast.test.ts`、`quality.test.ts` |
+| M5 | 复用语义 side hints；ELK layered 和 Dagre 尊重语义区域；boundary 成员诊断；时序 fragment 可指定生命线子集并在 Draw.io 中保持该范围 | `layout.test.ts`、`quality.test.ts` |
+| M6 | 图表标题/描述、图/节点/关系可访问名称、节点键盘选择、复杂度和 boundary 数量建议 | 质量规则单测及现有编辑行为测试 |
+
+复杂度预算仍然是建议，不作为保存或服务端验证的硬限制。对于大图，路由候选与交叉搜索会按边数量降级，避免为了优化外观让布局计算成本无界增长。
+
+测试源已补充；本次修改通过 GitHub 写入到主分支，但当前连接未返回可核验的 Actions 运行结果，因此不要把 CI 视为已确认通过。
