@@ -810,7 +810,7 @@ export default function App() {
         setLastAction("The selected file is not valid Draw.io XML; the active document was not changed.");
         return;
       }
-      const empty: DiagramDocument = { ...document, id: newId("imported"), title: file.name.replace(/\\.(drawio|dio|xml)$/i, ""), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
+      const empty: DiagramDocument = { ...document, id: newId("imported"), title: file.name.replace(/\.(drawio|dio|xml)$/i, ""), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
       const parsed = fromDrawioXml(xml, empty);
       const next = parsed === empty ? empty : { ...parsed, title: empty.title };
       setSelectedRelationId(null);
