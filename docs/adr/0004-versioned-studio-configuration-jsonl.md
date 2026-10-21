@@ -5,7 +5,7 @@
 
 ## Context
 
-Layout algorithm availability, Copilot instructions, model selection, and reasoning effort need to be editable without changing source code. Every configuration change must be auditable, recoverable by selecting a prior snapshot, and stored as JSON Lines.
+Layout algorithm availability, Copilot instructions, model selection, and reasoning effort need to be editable without changing source code. Every configuration change must be auditable and stored as a complete JSON Lines snapshot so a future restore operation can be implemented without reconstructing diffs.
 
 ## Decision
 
