@@ -92,9 +92,9 @@ export async function layoutDiagram(document: DiagramDocument): Promise<DiagramD
   const maxVariants = document.relations.length <= 40 ? 7
     : document.relations.length <= 150 ? 3
       : document.relations.length <= 400 ? 1 : 0;
-  // Large graphs skip exhaustive candidates, but must keep the best route chosen
-  // by routeRelations instead of resetting it to variant zero.
-  let best = repairOverlaps(alignedInitial, maxVariants === 0 ? undefined : 0);
+  // Start from the best automatically scored route, then try a bounded number of
+  // additional candidates when the graph is small enough for exhaustive quality checks.
+  let best = repairOverlaps(alignedInitial);
   let bestReport = evaluateLayout(best);
   for (let variant = 1; variant <= maxVariants; variant++) {
     // Evaluate independent route variants from the same aligned node geometry rather than
