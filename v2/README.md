@@ -30,6 +30,10 @@ The chat works in two modes. Without a provider configured, it uses local determ
 
 Draw.io web assets are generated into public/drawio at build time and are not committed as a bulky binary payload. No online fallback is configured. In offline deployments the archive must be supplied once during the build or included in the deployment artefacts.
 
+## UI component system
+
+The V2 workspace uses `antd` for shared enterprise controls and theme tokens, with `@ant-design/x` for AI conversation bubbles and the `Sender` composer. The provider setup follows the pattern used by `saga/agentic-data-architect` (`ConfigProvider` with Simplified Chinese locale, `XProvider`, and Ant Design's app context). The primary color is aligned with Studio's existing indigo palette; the diagram canvas and native Draw.io renderer remain domain-specific components rather than being replaced by generic UI widgets.
+
 ## Workspace pages and diagnostics
 
 The top navigation separates **Studio**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page stores structured events in browser-local storage and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. It is local application telemetry, not a remote LLM tracing service.
