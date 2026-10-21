@@ -1,0 +1,18 @@
+import { describe, expect, it } from "vitest";
+import { containsWideCharacters, measureTextWidth, truncateTextToWidth } from "./text-metrics";
+
+describe("Unicode-aware text metrics", () => {
+  it("allocates full-em width to CJK glyphs and less than one em to Latin glyphs", () => {
+    expect(measureTextWidth("界", 13)).toBe(13);
+    expect(measureTextWidth("WW", 13)).toBeGreaterThan(measureTextWidth("ii", 13));
+    expect(containsWideCharacters("API 服务")).toBe(true);
+    expect(containsWideCharacters("API service")).toBe(false);
+  });
+
+  it("truncates by rendered-width estimate without splitting a surrogate pair", () => {
+    const value = "存储 Service";
+    const truncated = truncateTextToWidth(value, 44, 13);
+    expect(truncated.endsWith("…")).toBe(true);
+    expect(measureTextWidth(truncated, 13)).toBeLessThanOrEqual(44);
+  });
+});
