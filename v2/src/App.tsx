@@ -269,7 +269,7 @@ export default function App() {
       if (workspaceLaunchMode === "create") {
         const response = await fetch("/api/workspace/diagram/create", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, fileName: workspaceNewDiagramName })
+          body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, fileName: workspaceNewDiagramName, renderTheme: uiTheme })
         });
         const result = await response.json() as {
           error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
@@ -330,7 +330,7 @@ export default function App() {
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "Could not read the selected Draw.io file");
         nextXml = fileResult.content;
-        const importBaseDocument = diagramContextChanged ? FIXTURES.c4() : document;
+        const importBaseDocument = diagramContextChanged ? { ...FIXTURES.c4(), renderTheme: uiTheme } : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
         if (parsedDocument === importBaseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
         nextDocument = await requestServerSequenceNormalize(parsedDocument);
@@ -503,6 +503,20 @@ export default function App() {
     setDocument(next);
     setRevision((value) => value + 1);
   }, []);
+
+  // Hydrate first so a legacy document's native XML is available before its appearance is migrated.
+  // Read the existing XML into visualStyle before regenerating it; do not discard unmodelled XML merely
+  // because an older workspace snapshot predates the shared rendering-theme field.
+  useEffect(() => {
+    if (!serverHydrated) return;
+    if (!document.renderTheme) {
+      const themedDocument = { ...document, renderTheme: uiTheme };
+      const imported = nativeXmlOverride ? fromDrawioXml(nativeXmlOverride, themedDocument) : themedDocument;
+      replaceDocument({ ...imported, renderTheme: uiTheme });
+    } else if (document.renderTheme !== uiTheme) {
+      setUiTheme(document.renderTheme);
+    }
+  }, [serverHydrated, document, nativeXmlOverride, uiTheme, replaceDocument]);
 
   /**
    * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
@@ -1002,7 +1016,12 @@ export default function App() {
         </nav>
         <label className="theme-selector" title="Switch the color theme of the whole workspace">
           <span aria-hidden="true">◐</span>
-          <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
+          <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
+            const nextTheme = event.target.value as UiTheme;
+            setUiTheme(nextTheme);
+            setNativeXmlOverride(null);
+            replaceDocument({ ...document, renderTheme: nextTheme });
+          }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
             <option value="warm">Warm paper</option>

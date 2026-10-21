@@ -4,6 +4,11 @@
 
 A workspace is a project directory, not a diagram. Use Open / New Draw.io to open an existing .drawio file from a scanned workspace directory or create a new blank .drawio file in that directory. The active diagram is tracked independently from the workspace; autosave and version history are scoped to that file. Creating a new diagram never overwrites an existing file.
 
+## Rendering parity
+
+Studio SVG and Freeform's native Draw.io renderer share `src/design/render-spec.ts` for the font hierarchy, node shapes and accent strips, sequence lifelines and activation bars, fragments, relation labels, arrow metrics, and theme palettes. The active document's `renderTheme` is serialized to Draw.io so switching themes affects both views. Draw.io import records non-default fill, stroke, font, shape, radius, dash, arrow and label-background overrides on the semantic model; export writes those overrides back rather than recolouring them from the node role alone. The parity regression suite renders SVG and XML from the same fixture and checks their shared geometry and style contract; run it with `npm test -- src/render-parity.test.ts`.
+
+
 V2 is an independent implementation. The previous implementation is preserved under the sibling V1 directory; V2 must not import code from V1.
 
 ## Run

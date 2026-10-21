@@ -15,6 +15,38 @@ export interface LayoutHints {
   preferredSide?: "LEFT" | "RIGHT" | "TOP" | "BOTTOM";
   preferredLane?: string;
 }
+export type DiagramRenderTheme = "editorial" | "youth" | "warm" | "midnight";
+
+export interface NodeVisualStyle {
+  fillColor?: string;
+  strokeColor?: string;
+  fontColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  /** Draw.io fontStyle bitmask (1 bold, 2 italic, 4 underline). */
+  fontStyle?: number;
+  strokeWidth?: number;
+  /** "rect", "pill", or "diamond" Studio shape approximation. */
+  shape?: "rect" | "pill" | "diamond";
+  /** Draw.io arcSize value retained for editing roundness. */
+  arcSize?: number;
+  accentColor?: string;
+}
+
+export interface RelationVisualStyle {
+  strokeColor?: string;
+  fontColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  strokeWidth?: number;
+  dashed?: boolean;
+  dashPattern?: string;
+  startArrow?: string;
+  endArrow?: string;
+  endFill?: boolean;
+  labelBackgroundColor?: string;
+}
+
 export interface DiagramNode {
   id: string;
   name: string;
@@ -27,6 +59,8 @@ export interface DiagramNode {
   width: number;
   height: number;
   layoutHints?: LayoutHints;
+  /** Optional native Draw.io appearance captured on import and reused on export. */
+  visualStyle?: NodeVisualStyle;
 }
 export interface DiagramRelation {
   id: string;
@@ -41,6 +75,8 @@ export interface DiagramRelation {
   sourcePort?: Point;
   targetPort?: Point;
   sequenceOrder?: number;
+  /** Optional native Draw.io edge appearance captured on import and reused on export. */
+  visualStyle?: RelationVisualStyle;
 }
 export interface DiagramBoundary {
   id: string;
@@ -65,6 +101,8 @@ export interface DiagramDocument {
   kind: DiagramKind;
   variant?: "context" | "container" | "component";
   theme: "studio-editorial";
+  /** Rendering theme for both Studio SVG and the native Draw.io file. */
+  renderTheme?: DiagramRenderTheme;
   nodes: DiagramNode[];
   relations: DiagramRelation[];
   boundaries: DiagramBoundary[];

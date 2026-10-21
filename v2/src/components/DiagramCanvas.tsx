@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import type { DiagramBoundary, DiagramDocument, DiagramNode, DiagramRelation, Point, SequenceFragment } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
+import { diagramPalette, DIAGRAM_FONT_STACK, RENDER_METRICS, normalizeRenderTheme, sequenceActivationGeometry, sequenceLifelineBottom, sequenceFragmentVerticalGeometry } from "../design/render-spec";
 import { measureTextWidth, truncateTextToWidth, wrapTextToWidth } from "../design/text-metrics";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 
@@ -95,20 +96,20 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
     const a = all[i], b = all[i + 1], segment = Math.hypot(b.x - a.x, b.y - a.y);
     if (remaining <= segment || i === all.length - 2) {
       const ratio = segment === 0 ? 0.5 : remaining / segment;
-      label = { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio - 8 };
+      label = { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio - RENDER_METRICS.relation.labelOffsetY };
       break;
     }
     remaining -= segment;
   }
   return { d, label, start: all[0], end: all[all.length - 1] };
 }
-function nodePath(node: DiagramNode, shape: string): string {
+function nodePath(node: DiagramNode, shape: string, requestedRadius = tokens.nodeRadius): string {
   if (shape === "pill") {
-    const radius = Math.min(tokens.nodeRadius * 2, node.width / 2, node.height / 2);
+    const radius = Math.min(requestedRadius, node.width / 2, node.height / 2);
     return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
   }
   if (shape === "diamond") return "M " + (node.x + node.width / 2) + " " + node.y + " L " + (node.x + node.width) + " " + (node.y + node.height / 2) + " L " + (node.x + node.width / 2) + " " + (node.y + node.height) + " L " + node.x + " " + (node.y + node.height / 2) + " Z";
-  const radius = Math.min(tokens.nodeRadius, node.width / 2, node.height / 2);
+  const radius = Math.min(requestedRadius, node.width / 2, node.height / 2);
   return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
 }
 export default function DiagramCanvas({
@@ -302,9 +303,13 @@ export default function DiagramCanvas({
     }))
   } : document.sequence;
   const displayDoc = { ...document, nodes: displayNodes, sequence: displaySequence };
+  const renderTheme = normalizeRenderTheme(document.renderTheme);
+  const palette = diagramPalette(renderTheme);
+  const markerId = (relationId: string, kind: "arrow" | "arrow-open") =>
+    safeSvgId + "-edge-" + relationId.replace(/[^a-zA-Z0-9_-]/g, "-") + "-" + kind;
 
   return (
-    <svg ref={svgRef} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
+    <svg ref={svgRef} data-render-theme={renderTheme} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
       viewBox={(frame.width * (1 - 1 / zoom) / 2 + pan.x) + " " + (frame.height * (1 - 1 / zoom) / 2 + pan.y) + " " + (frame.width / zoom) + " " + (frame.height / zoom)}
       preserveAspectRatio={document.kind === "flowchart" ? "xMidYMin meet" : "xMidYMid meet"} onPointerDown={startPan}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { setConnectionDrag(null); setDrag(null); setPanGesture(null); }}
@@ -313,11 +318,21 @@ export default function DiagramCanvas({
       <title id={titleId}>{document.title}</title>
       <desc id={descriptionId}>{document.kind.toUpperCase() + " diagram with " + document.nodes.length + " nodes and " + document.relations.length + " relationships."}</desc>
       <defs>
-        <pattern id={safeSvgId + "-studio-grid"} width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
-        <marker id={safeSvgId + "-arrow"} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
-        <marker id={safeSvgId + "-arrow-open"} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#4C5C72" strokeWidth="1.3" /></marker>
+        <pattern id={safeSvgId + "-studio-grid"} width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={palette.grid} /></pattern>
+        {displayDoc.relations.map((relation) => {
+          const paint = relationPaint(relation, renderTheme);
+          return <marker key={relation.id + "-closed"} id={markerId(relation.id, "arrow")} viewBox="0 0 10 10" refX="9" refY="5" markerWidth={RENDER_METRICS.relation.arrowSize} markerHeight={RENDER_METRICS.relation.arrowSize} orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={paint.endFill ? paint.stroke : "none"} stroke={paint.endFill ? "none" : paint.stroke} strokeWidth={RENDER_METRICS.relation.returnStrokeWidth} />
+          </marker>;
+        })}
+        {displayDoc.relations.map((relation) => {
+          const paint = relationPaint(relation, renderTheme);
+          return <marker key={relation.id + "-open"} id={markerId(relation.id, "arrow-open")} viewBox="0 0 10 10" refX="9" refY="5" markerWidth={RENDER_METRICS.relation.arrowSize} markerHeight={RENDER_METRICS.relation.arrowSize} orient="auto-start-reverse">
+            <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke={paint.stroke} strokeWidth={RENDER_METRICS.relation.returnStrokeWidth} />
+          </marker>;
+        })}
       </defs>
-      <rect width={frame.width} height={frame.height} fill={tokens.canvas} />
+      <rect width={frame.width} height={frame.height} fill={palette.canvas} />
       <rect width={frame.width} height={frame.height} fill={"url(#" + safeSvgId + "-studio-grid)"} />
       {displayDoc.boundaries.map((boundary) => {
         const members = displayNodes.filter((node) => boundary.members.includes(node.id));
@@ -329,8 +344,8 @@ export default function DiagramCanvas({
         return <g key={boundary.id} className="diagram-boundary"
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "boundary", id: boundary.id }, event.clientX, event.clientY); }}
           onDoubleClick={(event) => { event.stopPropagation(); setEditingBoundaryId(boundary.id); setBoundaryNameDraft(boundary.name); }}>
-          <rect className="diagram-boundary-frame" x={left} y={top} width={right - left} height={bottom - top} rx="13" fill="#E8EDF6" fillOpacity="0.85" stroke={tokens.borderStrong} strokeWidth="1.4" strokeDasharray="5 5" />
-          {editingBoundaryId !== boundary.id && <text className="diagram-boundary-label" x={left + 14} y={top + 20} fontSize="13" fontWeight="500" fill="#0C1626">{boundary.name.toUpperCase()}</text>}
+          <rect className="diagram-boundary-frame" x={left} y={top} width={right - left} height={bottom - top} rx={RENDER_METRICS.boundary.radius} fill={palette.boundaryFill} fillOpacity={palette.boundaryOpacity} stroke={palette.boundaryStroke} strokeWidth={RENDER_METRICS.boundary.strokeWidth} strokeDasharray={RENDER_METRICS.boundary.dashPattern} />
+          {editingBoundaryId !== boundary.id && <text className="diagram-boundary-label" x={left + 14} y={top + 20} fontFamily={DIAGRAM_FONT_STACK} fontSize={RENDER_METRICS.boundaryLabel.size} fontWeight={RENDER_METRICS.boundaryLabel.weight} fill={palette.boundaryText}>{boundary.name.toUpperCase()}</text>}
           {editingBoundaryId === boundary.id && <foreignObject x={left + 8} y={top + 3} width={Math.max(140, right - left - 16)} height="30">
             <input className="boundary-inline-input" aria-label="Rename boundary" autoFocus onPointerDown={(event) => event.stopPropagation()}
               value={boundaryNameDraft} onChange={(event) => setBoundaryNameDraft(event.currentTarget.value)}
@@ -350,17 +365,18 @@ export default function DiagramCanvas({
         if (!participantNodes.length) return null;
         const left = Math.min(...participantNodes.map((node) => node.x)) - 12;
         const right = Math.max(...participantNodes.map((node) => node.x + node.width)) + 12;
-        const top = 148 + fragment.startOrder * 72 - 22;
-        const bottom = 148 + fragment.endOrder * 72 + 22;
+        const vertical = sequenceFragmentVerticalGeometry(fragment);
+        const top = vertical.top;
+        const bottom = vertical.bottom;
         const tag = fragment.kind.toUpperCase();
         const tagWidth = Math.max(44, tag.length * 8.6 + 16);
         return <g key={fragment.id} className="sequence-fragment"
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "fragment", id: fragment.id }, event.clientX, event.clientY); }}
           onDoubleClick={(event) => { event.stopPropagation(); setEditingFragmentId(fragment.id); setFragmentLabelDraft(fragment.label); }}>
-          <rect className="sequence-fragment-frame" x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#EDF1F9" fillOpacity="0.9" stroke={tokens.borderStrong} strokeWidth="1.4" strokeDasharray="5 4" />
-          <rect className="sequence-fragment-tag" x={left + 10} y={top - 2} width={tagWidth} height="24" rx="4" fill="#DCE3F0" stroke={tokens.borderStrong} strokeWidth="1.2" />
-          <text className="sequence-fragment-kind" x={left + 18} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{tag}</text>
-          {editingFragmentId !== fragment.id && <text className="sequence-fragment-label" x={left + 10 + tagWidth + 10} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{fragment.label}</text>}
+          <rect className="sequence-fragment-frame" x={left} y={top} width={right - left} height={bottom - top} rx={RENDER_METRICS.fragment.radius} fill={palette.fragmentFill} fillOpacity={palette.fragmentOpacity} stroke={palette.fragmentStroke} strokeWidth={RENDER_METRICS.fragment.strokeWidth} strokeDasharray={RENDER_METRICS.fragment.dashPattern} />
+          <rect className="sequence-fragment-tag" x={left + 10} y={top - 2} width={tagWidth} height={RENDER_METRICS.fragment.tagHeight} rx={RENDER_METRICS.fragment.tagRadius} fill={palette.fragmentTagFill} stroke={palette.fragmentTagStroke} strokeWidth={RENDER_METRICS.fragment.strokeWidth} />
+          <text className="sequence-fragment-kind" x={left + 18} y={top + 15} fontFamily={DIAGRAM_FONT_STACK} fontSize={RENDER_METRICS.fragmentLabel.size} fontWeight={RENDER_METRICS.fragmentLabel.weight} fill={palette.fragmentText}>{tag}</text>
+          {editingFragmentId !== fragment.id && <text className="sequence-fragment-label" x={left + 10 + tagWidth + 10} y={top + 15} fontFamily={DIAGRAM_FONT_STACK} fontSize={RENDER_METRICS.fragmentLabel.size} fontWeight={RENDER_METRICS.fragmentLabel.weight} fill={palette.fragmentText}>{fragment.label}</text>}
           {editingFragmentId === fragment.id && <foreignObject x={left + 10 + tagWidth + 5} y={top - 1} width={Math.max(130, right - left - tagWidth - 25)} height="26">
             <input className="fragment-inline-input" aria-label="Edit sequence fragment label" autoFocus onPointerDown={(event) => event.stopPropagation()}
               value={fragmentLabelDraft} onChange={(event) => setFragmentLabelDraft(event.currentTarget.value)}
@@ -376,27 +392,26 @@ export default function DiagramCanvas({
             aria-label="Change fragment end message" onPointerDown={(event) => startFragmentResize(event, fragment, "end", { x: right - 9, y: bottom })} />
         </g>;
       })}
-      {document.kind === "sequence" && displayNodes.map((node) => <line className="sequence-lifeline" key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke={tokens.borderStrong} strokeWidth="1.2" strokeDasharray="4 5" />)}
+      {document.kind === "sequence" && displayNodes.map((node) => <line className="sequence-lifeline" key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={sequenceLifelineBottom(document.relations.length)} stroke={palette.lifelineStroke} strokeWidth={RENDER_METRICS.relation.lifelineStrokeWidth} strokeDasharray={RENDER_METRICS.relation.lifelineDashPattern} />)}
       {document.kind === "sequence" && deriveSequenceActivations(displayDoc).map((activation) => {
         const participant = displayNodes.find((node) => node.id === activation.participantId);
         if (!participant) return null;
-        // Activation bars touch the initiating call and the matching return line.
-        const y = 148 + activation.startOrder * 72;
-        const height = Math.max(12, (activation.endOrder - activation.startOrder) * 72);
-        return <rect className="sequence-activation" key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
-          fill="#CFDDF1" stroke={tokens.borderStrong} strokeWidth="1.2" />;
+        // The same insets and minimum height are used by the native mxGraph cells.
+        const geometry = sequenceActivationGeometry(activation.startOrder, activation.endOrder, center(participant).x);
+        return <rect className="sequence-activation" key={activation.id} x={geometry.x} y={geometry.y} width={geometry.width} height={geometry.height} rx="0"
+          fill={palette.activationFill} stroke={palette.activationStroke} strokeWidth="1" />;
       })}
-      {connectionSourceId && <text className="connection-mode-hint" x={24} y={30} fontSize="13" fontWeight="600" fill={tokens.accent}>Connecting from {displayNodes.find((node) => node.id === connectionSourceId)?.name || "node"} · select a target or press Esc</text>}
-      {connectionDrag && <path className="connection-preview" d={"M " + connectionDrag.start.x + " " + connectionDrag.start.y + " L " + connectionDrag.current.x + " " + connectionDrag.current.y} fill="none" stroke={tokens.accent} strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />}
+      {connectionSourceId && <text className="connection-mode-hint" x={24} y={30} fontSize="13" fontWeight="600" fill={palette.accent}>Connecting from {displayNodes.find((node) => node.id === connectionSourceId)?.name || "node"} · select a target or press Esc</text>}
+      {connectionDrag && <path className="connection-preview" d={"M " + connectionDrag.start.x + " " + connectionDrag.start.y + " L " + connectionDrag.current.x + " " + connectionDrag.current.y} fill="none" stroke={palette.accent} strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />}
       {displayDoc.relations.map((relation) => {
         const path = relationPath(displayDoc, relation);
         if (!path) return null;
-        const paint = relationPaint(relation);
+        const paint = relationPaint(relation, renderTheme);
         const selected = selectedRelationId === relation.id;
         const sourceNode = displayNodes.find((node) => node.id === relation.source);
         const targetNode = displayNodes.find((node) => node.id === relation.target);
         const accessibleRelation = "Relation from " + (sourceNode?.name || relation.source) + " to " + (targetNode?.name || relation.target) + (relation.label ? ": " + relation.label : "");
-        const labelWidth = Math.max(48, measureTextWidth(relation.label, 13) + 20);
+        const labelWidth = Math.max(48, measureTextWidth(relation.label, paint.fontSize) + 20);
         return <g key={relation.id} className={"diagram-relation" + (selected ? " selected" : "")}
           role="button" tabIndex={0} aria-label={accessibleRelation}
           onPointerDown={(event) => event.stopPropagation()}
@@ -406,13 +421,15 @@ export default function DiagramCanvas({
           onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectRelation(relation.id); } }}
           style={{ cursor: "pointer" }}>
           <path className="relation-hit-area" d={path.d} fill="none" stroke="transparent" strokeWidth="18" pointerEvents="stroke" />
-          <path className="relation-visible-path" d={path.d} fill="none" stroke={selected ? tokens.accent : paint.stroke}
+          <path className="relation-visible-path" d={path.d} fill="none" stroke={selected ? palette.selected : paint.stroke}
             strokeWidth={selected ? Math.max(2.8, paint.width + 1.1) : paint.width}
-            strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
-            markerEnd={"url(#" + safeSvgId + "-" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
+            strokeDasharray={paint.dash || undefined}
+            markerStart={paint.startArrow && paint.startArrow !== "none" ? "url(#" + markerId(relation.id, paint.startArrow === "open" ? "arrow-open" : "arrow") + ")" : undefined}
+            markerEnd={paint.marker ? "url(#" + markerId(relation.id, paint.marker) + ")" : undefined}
+            strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
           {relation.label && editingRelationId !== relation.id && <g className="relation-label" pointerEvents="none">
-            <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - 14} width={labelWidth} height="22" rx="4" fill={tokens.canvas} fillOpacity="0.98" />
-            <text className="relation-label-text" x={path.label.x} y={path.label.y + 2} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">{relation.label}</text>
+            <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - RENDER_METRICS.relation.labelBackgroundOffsetY} width={labelWidth} height={RENDER_METRICS.relation.labelBackgroundHeight} rx="0" fill={paint.labelBackground} fillOpacity="1" />
+            <text className="relation-label-text" x={path.label.x} y={path.label.y + RENDER_METRICS.relation.labelTextBaselineOffsetY} textAnchor="middle" fontFamily={paint.fontFamily === "Arial" ? DIAGRAM_FONT_STACK : paint.fontFamily} fontSize={paint.fontSize} fontWeight={RENDER_METRICS.relationLabel.weight} fill={paint.fontColor}>{relation.label}</text>
           </g>}
           {selected && <>
             <circle className="relation-endpoint-handle" cx={path.start.x} cy={path.start.y} r="5.5"
@@ -433,20 +450,20 @@ export default function DiagramCanvas({
         </g>;
       })}
       {displayNodes.map((node) => {
-        const paint = nodePaint(node);
+        const paint = nodePaint(node, renderTheme);
         const selected = selectedNodeId === node.id;
         const titleY = node.y + (node.description || node.technology ? 28 : node.height / 2 + 4);
         const centeredFlowNode = document.kind === "flowchart" && ["decision", "start", "end"].includes(node.role);
         // One type size everywhere: 13px averages ~6.8px per glyph, so the label budget comes from node width.
         const availableTextWidth = Math.max(0, node.width - 34);
-        const compactTitle = truncateTextToWidth(node.name, availableTextWidth, 13);
-        const technologyLabel = node.technology ? truncateTextToWidth(node.technology, availableTextWidth, 13) : "";
+        const compactTitle = truncateTextToWidth(node.name, availableTextWidth, RENDER_METRICS.title.size);
+        const technologyLabel = node.technology ? truncateTextToWidth(node.technology, availableTextWidth, RENDER_METRICS.secondary.size) : "";
         const descriptionY = node.y + (node.technology ? 64 : 52);
         const descriptionLineCapacity = node.description
-          ? Math.max(1, Math.floor((node.height - (node.technology ? 64 : 52) - 6) / 15) + 1)
+          ? Math.max(1, Math.floor((node.height - (node.technology ? 64 : 52) - 6) / 12) + 1)
           : 0;
         const descriptionLines = node.description
-          ? wrapTextToWidth(node.description, availableTextWidth, 13, descriptionLineCapacity)
+          ? wrapTextToWidth(node.description, availableTextWidth, RENDER_METRICS.secondary.size, descriptionLineCapacity)
           : [];
         const accessibleNode = "Node: " + node.name + (node.technology ? ". Technology: " + node.technology : "") + (node.description ? ". Description: " + node.description : "");
         return <g key={node.id} data-node-id={node.id} data-role={node.role}
@@ -467,10 +484,10 @@ export default function DiagramCanvas({
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "node", id: node.id }, event.clientX, event.clientY); }}
           style={{ cursor: connectionSourceId && connectionSourceId !== node.id ? "crosshair" : "grab" }}>
           <title>{accessibleNode}</title>
-          <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2.4 : 1.4} />
-          {!["decision", "start", "end"].includes(node.role) && <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3.4" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.6 : 1} />}
+          <path d={nodePath(node, paint.shape, paint.radius)} fill={paint.fill} stroke={selected ? palette.selected : paint.stroke} strokeWidth={selected ? 2.4 : paint.strokeWidth} />
+          {!["decision", "start", "end"].includes(node.role) && <path d={"M " + (node.x + RENDER_METRICS.node.accentInsetX) + " " + (node.y + RENDER_METRICS.node.accentInsetY) + " V " + (node.y + node.height - RENDER_METRICS.node.accentInsetY)} stroke={paint.accent} strokeWidth={RENDER_METRICS.node.accentWidth} strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.6 : 1} />}
           {editingNodeId !== node.id && <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
-            textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill={tokens.ink}>{compactTitle}</text>}
+            textAnchor={centeredFlowNode ? "middle" : "start"} fontFamily={paint.fontFamily === "Arial" ? DIAGRAM_FONT_STACK : paint.fontFamily} fontSize={paint.fontSize} fontWeight={paint.fontWeight} fill={paint.text}>{compactTitle}</text>}
           {editingNodeId === node.id && <foreignObject x={node.x + 8} y={node.y + 8} width={Math.max(80, node.width - 16)} height="34">
             <input className="node-inline-input" aria-label="Rename node" autoFocus
               onPointerDown={(event) => event.stopPropagation()}
@@ -482,11 +499,11 @@ export default function DiagramCanvas({
               }}
             />
           </foreignObject>}
-          {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill={tokens.inkMuted}>{technologyLabel}</text>}
-          {node.description && <text fontSize="13" fontWeight="500" fill={tokens.inkMuted}>
-            {descriptionLines.map((line, index) => <tspan key={index} x={node.x + 17} y={descriptionY + index * 15}>{line}</tspan>)}
+          {node.technology && <text x={node.x + 17} y={node.y + 47} fontFamily={paint.fontFamily === "Arial" ? DIAGRAM_FONT_STACK : paint.fontFamily} fontSize={RENDER_METRICS.secondary.size} fontWeight={RENDER_METRICS.secondary.weight} fill={paint.muted}>{technologyLabel}</text>}
+          {node.description && <text fontFamily={paint.fontFamily === "Arial" ? DIAGRAM_FONT_STACK : paint.fontFamily} fontSize={RENDER_METRICS.secondary.size} fontWeight={RENDER_METRICS.secondary.weight} fill={paint.muted}>
+            {descriptionLines.map((line, index) => <tspan key={index} x={node.x + 17} y={descriptionY + index * 12}>{line}</tspan>)}
           </text>}
-          {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 17} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">●</text>}
+          {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 17} textAnchor="middle" fontFamily={DIAGRAM_FONT_STACK} fontSize={RENDER_METRICS.secondary.size} fontWeight={RENDER_METRICS.secondary.weight} fill={paint.text}>●</text>}
           {!editingNodeId && <>
             <circle className="connection-handle" cx={node.x + node.width} cy={node.y + node.height / 2} r="5.5"
               aria-label={"Connect from " + node.name} onPointerDown={(event) => startConnection(event, node, { x: node.x + node.width, y: node.y + node.height / 2 })} />

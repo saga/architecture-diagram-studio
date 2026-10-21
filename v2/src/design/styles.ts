@@ -1,5 +1,5 @@
-import type { DiagramNode, DiagramRelation } from "../model/types";
-import { tokens } from "./tokens";
+import type { DiagramNode, DiagramRelation, DiagramRenderTheme } from "../model/types";
+import { diagramPalette, nodeVisualDefaults, relationVisualDefaults, normalizeRenderTheme, RENDER_METRICS } from "./render-spec";
 
 export interface NodePaint {
   fill: string;
@@ -8,59 +8,63 @@ export interface NodePaint {
   muted: string;
   accent: string;
   shape: "rect" | "pill" | "diamond";
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  strokeWidth: number;
+  radius: number;
 }
 
-export function nodePaint(node: DiagramNode): NodePaint {
-  const base: NodePaint = {
-    fill: tokens.surface, stroke: tokens.border, text: tokens.ink,
-    muted: tokens.inkSecondary, accent: tokens.accent, shape: "rect"
-  };
-  if (node.role === "actor" || node.role === "source") {
-    return { ...base, fill: "#E7EDF7", stroke: "#6E819C", accent: "#3F5570", shape: "pill" };
-  }
-  if (node.role === "external" || node.role === "vendor" || node.visualRole === "external") {
-    return { ...base, fill: tokens.external, stroke: tokens.amber, accent: tokens.amber };
-  }
-  if (node.role === "storage" || node.role === "data") {
-    return { ...base, fill: tokens.tealSoft, stroke: tokens.teal, accent: tokens.teal };
-  }
-  if (node.role === "infra") return { ...base, fill: "#E9EDF4", stroke: tokens.inkMuted, accent: "#45566D" };
-  if (node.role === "decision") return { ...base, fill: tokens.amberSoft, stroke: tokens.amber, accent: tokens.amber, shape: "diamond" };
-  if (node.role === "start" || node.role === "end") return { ...base, fill: tokens.accentSoft, stroke: tokens.accentBorder, accent: tokens.accent, shape: "pill" };
-  if (node.visualRole === "highlight") return { ...base, fill: tokens.accentSoft, stroke: tokens.accentBorder };
-  if (node.role === "domain" || node.role === "ui") return { ...base, fill: "#EDF1F9", stroke: tokens.borderStrong, accent: tokens.accent };
-  return base;
-}
-
-export function relationPaint(relation: DiagramRelation) {
-  if (relation.kind === "return") return { stroke: "#4C5C72", width: 1.3, dash: relation.dashed === false ? "" : "5 5", marker: "arrow-open" };
-  if (relation.kind === "async" || relation.kind === "event") return { stroke: "#3A4F63", width: 1.45, dash: relation.dashed ? "5 5" : "", marker: "arrow-open" };
+export function nodePaint(node: DiagramNode, theme?: DiagramRenderTheme | string): NodePaint {
+  const defaults = nodeVisualDefaults(node, diagramPalette(theme));
   return {
-    stroke: relation.kind === "dependency" ? "#57687D" : "#33475F",
-    width: relation.kind === "dependency" ? 1.25 : 1.5,
-    dash: relation.dashed ? "5 5" : "",
-    marker: "arrow"
+    fill: defaults.fill, stroke: defaults.stroke, text: defaults.text, muted: defaults.muted,
+    accent: defaults.accent, shape: defaults.shape, fontFamily: defaults.fontFamily,
+    fontSize: defaults.fontSize, fontWeight: defaults.fontWeight, strokeWidth: defaults.strokeWidth,
+    radius: defaults.radius
   };
 }
 
-export function mxNodeStyle(node: DiagramNode): string {
-  const paint = nodePaint(node);
-  const shape = paint.shape === "pill" ? "rounded=1;arcSize=50;" : paint.shape === "diamond" ? "rhombus;" : "rounded=1;arcSize=8;";
-  return shape + "whiteSpace=wrap;html=1;fillColor=" + paint.fill +
-    ";strokeColor=" + paint.stroke + ";strokeWidth=1.4;fontColor=" + paint.text +
-    ";fontSize=13;fontFamily=Arial;align=left;verticalAlign=middle;spacingLeft=13;spacingRight=10;" +
-    "spacingTop=8;spacingBottom=8;shadow=0;studioRole=" + node.role + ";studioVisualRole=" + node.visualRole + ";";
+export function relationPaint(relation: DiagramRelation, theme?: DiagramRenderTheme | string) {
+  return relationVisualDefaults(relation, diagramPalette(theme));
 }
 
-export function mxEdgeStyle(relation: DiagramRelation, routing: string): string {
-  const paint = relationPaint(relation);
+export function mxNodeStyle(node: DiagramNode, theme?: DiagramRenderTheme | string): string {
+  const paint = nodePaint(node, theme);
+  const sourceArcSize = node.visualStyle?.arcSize;
+  const arcSize = sourceArcSize ?? (paint.shape === "pill" ? RENDER_METRICS.node.pillArcSize : RENDER_METRICS.node.radius);
+  const shape = paint.shape === "pill"
+    ? "rounded=1;arcSize=" + arcSize + ";"
+    : paint.shape === "diamond" ? "rhombus;" : "rounded=1;arcSize=" + arcSize + ";";
+  const fontStyle = node.visualStyle?.fontStyle ?? (paint.fontWeight >= 600 ? 1 : 0);
+  return shape + "whiteSpace=wrap;html=1;fillColor=" + paint.fill +
+    ";strokeColor=" + paint.stroke + ";strokeWidth=" + paint.strokeWidth +
+    ";fontColor=" + paint.text + ";fontSize=" + paint.fontSize + ";fontFamily=" + paint.fontFamily +
+    ";fontStyle=" + fontStyle + ";align=left;verticalAlign=middle;spacingLeft=13;spacingRight=10;" +
+    "spacingTop=8;spacingBottom=8;shadow=0;studioRole=" + node.role +
+    ";studioVisualRole=" + node.visualRole + ";studioAccentColor=" + paint.accent +
+    ";studioTheme=" + normalizeRenderTheme(theme) + ";";
+}
+
+export function mxEdgeStyle(relation: DiagramRelation, routing: string, theme?: DiagramRenderTheme | string): string {
+  const paint = relationPaint(relation, theme);
   const edgeRouting = relation.routing || routing;
   // Explicit Studio waypoints are authoritative. Letting mxGraph run its own router over those
   // points can override the path and make exported connectors diverge from the Studio canvas.
-  const route = relation.points?.length ? "edgeStyle=none;" : edgeRouting === "orthogonal" ? "edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;" : "edgeStyle=none;";
+  const route = relation.points?.length ? "edgeStyle=none;" : edgeRouting === "orthogonal"
+    ? "edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;" : "edgeStyle=none;";
   const curve = edgeRouting === "curved" ? "curved=1;rounded=1;" : "rounded=0;";
-  const shouldDash = relation.dashed ?? (relation.kind === "return");
-  const dashed = shouldDash ? "dashed=1;dashPattern=5 5;" : "";
-  const arrow = relation.kind === "return" || relation.kind === "async" || relation.kind === "event" ? "endArrow=open;endFill=0;" : "endArrow=block;endFill=1;";
-  return route + curve + dashed + arrow + "html=1;strokeColor=" + paint.stroke + ";strokeWidth=" + paint.width + ";fontColor=" + tokens.inkSecondary + ";fontSize=13;labelBackgroundColor=" + tokens.canvas + ";";
+  const dash = paint.dash ? "dashed=1;dashPattern=" + paint.dash + ";" : "dashed=0;";
+  const override = relation.visualStyle;
+  const defaultEndArrow = relation.kind === "return" || relation.kind === "async" || relation.kind === "event" ? "open" : "block";
+  const endArrow = override?.endArrow || defaultEndArrow;
+  const startArrow = override?.startArrow || "none";
+  const endFill = override?.endFill ?? endArrow !== "open";
+  const arrow = "startArrow=" + startArrow + ";endArrow=" + endArrow + ";endFill=" + (endFill ? "1" : "0") +
+    ";startFill=0;startSize=" + RENDER_METRICS.relation.arrowSize + ";endSize=" + RENDER_METRICS.relation.arrowSize + ";";
+  return route + curve + dash + arrow + "html=1;strokeColor=" + paint.stroke + ";strokeWidth=" + paint.width +
+    ";fontColor=" + paint.fontColor + ";fontSize=" + paint.fontSize + ";fontFamily=" + paint.fontFamily +
+    ";labelBackgroundColor=" + paint.labelBackground +
+    ";labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;spacing=" +
+    RENDER_METRICS.relation.labelGap + ";studioTheme=" + normalizeRenderTheme(theme) + ";";
 }

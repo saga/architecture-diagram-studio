@@ -14,11 +14,12 @@ describe("new Draw.io file setup", () => {
     expect(() => normalizeNewDrawioFileName(".drawio")).toThrow(/name before/i);
     expect(() => normalizeNewDrawioFileName("architecture.xml")).toThrow(/\.drawio/i);
   });
-  it("creates a valid empty C4 diagram with independent identity", () => {
-    const first = createEmptyDrawioDocument("payments-platform.drawio");
-    const second = createEmptyDrawioDocument("payments-platform.drawio");
+  it("creates a valid empty C4 diagram with independent identity and selected palette", () => {
+    const first = createEmptyDrawioDocument("payments-platform.drawio", "warm");
+    const second = createEmptyDrawioDocument("payments-platform.drawio", "warm");
     expect(isDiagramDocument(first)).toBe(true);
     expect(first.title).toBe("payments platform");
+    expect(first.renderTheme).toBe("warm");
     expect(first.nodes).toEqual([]);
     expect(first.relations).toEqual([]);
     expect(first.id).not.toBe(second.id);

@@ -633,7 +633,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
   let activeHandle: Awaited<ReturnType<typeof open>> | null = null;
   try {
     const resolved = await resolveWorkspaceRoot(requestedRoot), rootPath = resolved.rootPath;
-    const document = createEmptyDrawioDocument(fileName);
+    const document = createEmptyDrawioDocument(fileName, typeof req.body?.renderTheme === "string" ? req.body.renderTheme : undefined);
     const semanticErrors = validateDiagramSemantics(document);
     if (semanticErrors.length) { res.status(422).json({ error: "The new diagram failed server-side validation", validationErrors: semanticErrors }); return; }
     const xml = toDrawioXml(document);

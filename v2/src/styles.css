@@ -464,8 +464,8 @@ button:disabled { opacity: .58; cursor: wait; }
   background: var(--theme-canvas);
   border-color: var(--theme-border);
 }
-.app-shell .diagram-svg > rect:first-of-type { fill: var(--theme-canvas) !important; }
-.app-shell .diagram-svg pattern circle { fill: var(--theme-grid) !important; }
+
+
 .app-shell .topbar,
 .app-shell .left-panel,
 .app-shell .right-panel,
@@ -573,17 +573,10 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="youth"] .brand-mark i:nth-child(2) { background: #f0b323; opacity: 1; }
 .app-shell[data-theme="youth"] .brand-mark i:nth-child(3) { background: #4b8bef; opacity: 1; }
 .app-shell[data-theme="youth"] .brand-mark i:nth-child(4) { background: #25a786; }
-.app-shell[data-theme="youth"] .diagram-svg > rect:first-of-type { fill: #fffaff !important; }
 .app-shell[data-theme="warm"] .brand-mark i:nth-child(1) { background: #ad4d32; }
 .app-shell[data-theme="warm"] .brand-mark i:nth-child(2) { background: #e6a44a; opacity: 1; }
 .app-shell[data-theme="warm"] .brand-mark i:nth-child(3) { background: #c86d50; opacity: 1; }
 .app-shell[data-theme="warm"] .brand-mark i:nth-child(4) { background: #39837b; }
-.app-shell[data-theme="midnight"] .diagram-svg > rect:first-of-type { fill: #111b2c !important; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-relation.selected .relation-visible-path { stroke: #91a5ff; }
-.app-shell[data-theme="midnight"] .diagram-svg .relation-visible-path { stroke: #8796b2; }
-.app-shell[data-theme="midnight"] .diagram-svg .relation-visible-path { opacity: .96; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node text { filter: none; }
-.app-shell[data-theme="midnight"] .diagram-svg pattern circle { fill: #2a3950 !important; }
 .app-shell[data-theme="midnight"] .canvas-stage-footer { background: #172235; }
 .app-shell[data-theme="midnight"] .text-field::placeholder,
 .app-shell[data-theme="midnight"] input::placeholder,
@@ -592,7 +585,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-field input:not(.ant-select-input),
 .app-shell[data-theme="midnight"] .workspace-page .gemini-composer { background: #202d42; color: #f0f4fc; }
 .app-shell[data-theme="midnight"] .workspace-page .terminal-example { border-color: #35435a; }
-.app-shell[data-theme="midnight"] .diagram-svg text { fill: #26364a; }
 
 .theme-selector:focus-within,
 .workspace-nav button:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
@@ -610,8 +602,8 @@ button:disabled { opacity: .58; cursor: wait; }
   .theme-selector { padding: 0 3px 0 6px; }
 }
 
-.app-shell .diagram-svg .diagram-node.selected path:first-child { stroke: var(--theme-accent) !important; }
-.app-shell .diagram-svg .diagram-relation.selected .relation-visible-path { stroke: var(--theme-accent) !important; }
+
+
 
 
 /* Slightly larger labels and darker secondary text improve everyday readability. */
@@ -639,47 +631,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .inspector-form .text-field { font-size: 11px; }
 
 
-
-/* Keep role colours meaningful while adapting the diagram palette to the selected theme. */
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="actor"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="source"] path:first-child { fill: #fff7df !important; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="ui"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="domain"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="entry"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="api"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="business"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="worker"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="service"] path:first-child { fill: #fff0f8 !important; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="storage"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="data"] path:first-child { fill: #e8fbf4 !important; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="external"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="vendor"] path:first-child { fill: #fff2d6 !important; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="infra"] path:first-child { fill: #ecf2ff !important; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #fff3c7 !important; }
-
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="actor"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="source"] path:first-child { fill: #fffdf5 !important; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="ui"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="domain"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="entry"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="api"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="business"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="worker"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="service"] path:first-child { fill: #fff5e7 !important; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="storage"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="data"] path:first-child { fill: #eef4e7 !important; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="external"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="vendor"] path:first-child { fill: #f7e8d8 !important; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="infra"] path:first-child { fill: #eeece4 !important; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #f8ebd1 !important; }
-
-.app-shell[data-theme="youth"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b5476; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b6c57; }
-/* Node outlines follow each theme's hue; the shared ink-blue stroke looked foreign on warm paper. */
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node path:first-child { stroke: #9A7550; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node path:first-child { stroke: #A05580; }
-
-
 .app-shell[data-theme="midnight"] .workspace-page .trace-entry-details { color: #d4deee; background: #111c2d; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-description code { background: #2a3950; color: #e2eafa; }
 .app-shell[data-theme="midnight"] .workspace-page .gemini-welcome p,
@@ -690,11 +641,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-terminal-note strong { color: #d2dced; }
 .app-shell[data-theme="midnight"] .workspace-page .trace-empty h2 { color: #edf3ff; }
 .app-shell[data-theme="midnight"] .workspace-page .trace-empty p { color: #b1bfd4; }
-
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
-.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #ffe1f0 !important; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
-.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #f8e4d3 !important; }
 
 
 /* Keep secondary labels legible across both light and dark themes. */
@@ -728,63 +674,18 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .relation-label-field,
 .app-shell[data-theme="midnight"] .relation-editor .ant-select,
 .app-shell[data-theme="midnight"] .text-field { background-color: var(--theme-input-bg); color: var(--theme-input-text); }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node text { fill: #26364a; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-relation text { fill: #26364a; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-relation rect { fill: #f0f3fa; }
 
 
 .app-shell[data-theme="midnight"] .button-primary,
 .app-shell[data-theme="midnight"] .preview-accept { background: #4b61ce; border-color: #4b61ce; color: #ffffff; }
 .app-shell[data-theme="midnight"] .workspace-nav button.active,
 .app-shell[data-theme="midnight"] .right-tab.active { color: #a9b9ff; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #26334a !important; stroke: #8293b1; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #2b3d5b !important; stroke: #8198d2; }
 
 
 .app-shell[data-theme="youth"] .button-primary,
 .app-shell[data-theme="youth"] .preview-accept { background: #b91f6d; border-color: #b91f6d; color: #ffffff; }
 .app-shell[data-theme="youth"] .button-primary:hover,
 .app-shell[data-theme="youth"] .preview-accept:hover { background: #a81960; border-color: #a81960; }
-
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="decision"] text,
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="start"] text,
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="end"] text { fill: #eef3ff; }
-
-
-/* Bring non-node diagram annotations into the selected palette as well. */
-.app-shell[data-theme="youth"] .diagram-svg .diagram-boundary-frame { fill: #fff0f7; stroke: #e4a4c5; }
-.app-shell[data-theme="youth"] .diagram-svg .diagram-boundary-label { fill: #9a3c6a; }
-.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-frame { fill: #fff5fb; stroke: #dfabcb; }
-.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-tag { fill: #f9deee; stroke: #dfabcb; }
-.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-kind,
-.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-label { fill: #79405f; }
-.app-shell[data-theme="youth"] .diagram-svg .sequence-lifeline { stroke: #d9a9c5; }
-.app-shell[data-theme="youth"] .diagram-svg .sequence-activation { fill: #fbe0ef; stroke: #d79abf; }
-.app-shell[data-theme="youth"] .diagram-svg .relation-label-bg { fill: #fffaff; }
-.app-shell[data-theme="youth"] .diagram-svg .relation-label-text { fill: #66334e; }
-
-.app-shell[data-theme="warm"] .diagram-svg .diagram-boundary-frame { fill: #f5e9d9; stroke: #d2b89a; }
-.app-shell[data-theme="warm"] .diagram-svg .diagram-boundary-label { fill: #76583f; }
-.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-frame { fill: #fff5e8; stroke: #d3b79b; }
-.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-tag { fill: #f2dfc8; stroke: #cfad87; }
-.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-kind,
-.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-label { fill: #6e5039; }
-.app-shell[data-theme="warm"] .diagram-svg .sequence-lifeline { stroke: #bca58f; }
-.app-shell[data-theme="warm"] .diagram-svg .sequence-activation { fill: #eee0ce; stroke: #bea184; }
-.app-shell[data-theme="warm"] .diagram-svg .relation-label-bg { fill: #fffaf2; }
-.app-shell[data-theme="warm"] .diagram-svg .relation-label-text { fill: #5c4533; }
-
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-boundary-frame { fill: #202d42; stroke: #667792; }
-.app-shell[data-theme="midnight"] .diagram-svg .diagram-boundary-label { fill: #c1cde2; }
-.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-frame { fill: #1e2b40; stroke: #71819d; }
-.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-tag { fill: #34455f; stroke: #7f91b0; }
-.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-kind,
-.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-label { fill: #d4def2; }
-.app-shell[data-theme="midnight"] .diagram-svg .sequence-lifeline { stroke: #72829c; }
-.app-shell[data-theme="midnight"] .diagram-svg .sequence-activation { fill: #354660; stroke: #95a8c7; }
-.app-shell[data-theme="midnight"] .diagram-svg .relation-label-bg { fill: #2a3850; }
-.app-shell[data-theme="midnight"] .diagram-svg .relation-label-text { fill: #e2eaf8; }
 
 
 /* Real embedded Draw.io rendering test bench */

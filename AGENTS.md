@@ -7,6 +7,13 @@
 - Ground architecture analysis in the primary Draw.io diagram, related diagrams, source code, README files and ADRs. Cite workspace-relative paths and distinguish facts from inferences.
 - Repository Agent Skills live under `.github/skills/<skill-name>/SKILL.md`. Repository-wide Copilot instructions live in `.github/copilot-instructions.md`.
 
+## Rendering parity
+
+- Treat `v2/src/design/render-spec.ts` as the single source of truth for diagram palettes, typography, shape metrics, sequence geometry, relationship labels and arrow metrics.
+- Studio SVG (`v2/src/components/DiagramCanvas.tsx`) and native Draw.io XML (`v2/src/export/drawio.ts`) must consume the shared render spec; do not reintroduce duplicate theme-specific drawing constants in CSS.
+- Preserve non-default native Draw.io visuals through the semantic model's `visualStyle` fields in `v2/src/model/types.ts` and `v2/src/import/drawio.ts`. Default role colors may follow `renderTheme`, but explicitly customized native properties must survive import and re-export.
+- Rendering changes must update `v2/src/render-parity.test.ts`. The parity test should compare the same fixture's SVG and XML geometry/style contracts, including sequence activation bars, lifelines, labels, arrows, accent strips, fonts and themes.
+
 ## Internal Agent boundary
 
 - Workspace retrieval and diagram intelligence are internal capabilities of the Studio server, registered as tools through the GitHub Copilot SDK.

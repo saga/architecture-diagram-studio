@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { DiagramDocument } from "../src/model/types";
+import type { DiagramDocument, DiagramRenderTheme } from "../src/model/types";
+import { normalizeRenderTheme } from "../src/design/render-spec";
 
 export function normalizeNewDrawioFileName(input: string): string {
   const trimmed = input.trim();
@@ -20,10 +21,11 @@ export function normalizeNewDrawioFileName(input: string): string {
 }
 
 /** Create a valid empty architecture document; the workspace remains the containing folder. */
-export function createEmptyDrawioDocument(fileName: string): DiagramDocument {
+export function createEmptyDrawioDocument(fileName: string, theme?: DiagramRenderTheme | string): DiagramDocument {
   const title = path.basename(fileName, path.extname(fileName)).replace(/[-_]+/g, " ").trim() || "Untitled diagram";
   return {
     schemaVersion: 2, id: randomUUID(), title, kind: "c4", variant: "container", theme: "studio-editorial",
+    renderTheme: normalizeRenderTheme(theme),
     nodes: [], relations: [], boundaries: [],
     layout: {
       profile: "elk-layered", direction: "RIGHT", routing: "orthogonal",
