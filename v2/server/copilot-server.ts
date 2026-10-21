@@ -410,7 +410,7 @@ function createDiagramTemplate(key: DiagramTemplateKey): DiagramDocument {
     schemaVersion: 2, id: "template-" + key, title: c4 ? "System Context" : sequence ? "Request Sequence" : "Service with Queue and Database",
     kind: sequence ? "sequence" : c4 ? "c4" : "flowchart", ...(c4 ? { variant: "context" as const } : {}),
     theme: "studio-editorial", nodes: [], relations: [], boundaries: [],
-    layout: { profile: sequence ? "sequence-standard" : c4 ? "architecture-flow" : "process-main-path", direction: "RIGHT", routing: sequence ? "polyline" : "orthogonal", nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 34, externalSide: "RIGHT", storageSide: "BOTTOM" }
+    layout: { profile: sequence ? "sequence-standard" : "elk-layered", direction: "RIGHT", routing: sequence ? "polyline" : "orthogonal", nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 34, externalSide: "RIGHT", storageSide: "BOTTOM" }
   };
   const node = (id: string, name: string, role: DiagramDocument["nodes"][number]["role"], visualRole: DiagramDocument["nodes"][number]["visualRole"]) => ({ id, name, role, visualRole, x: 0, y: 0, width: 190, height: 82, layoutHints: {} });
   const relation = (id: string, source: string, target: string, label: string, kind: DiagramDocument["relations"][number]["kind"], sequenceOrder?: number) => ({ id, source, target, label, kind, sequenceOrder, points: [] });
@@ -448,7 +448,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const document = createDiagramTemplate(key);
       document.id = randomUUID(); document.title = typeof req.body?.title === "string" ? req.body.title.slice(0, 200) : document.title;
       for (const node of document.nodes) node.id = key + "-" + node.id + "-" + randomUUID().slice(0, 5);
-      const nodeMap = new Map(document.nodes.map((node, index) => [[...(key === "c4-context" ? ["person","system","external-system"] : key === "sequence-request" ? ["client","api","service","store"] : ["client","api","worker","queue","database"])[index], node.id] as const]));
+      
       const originalKeys = key === "c4-context" ? ["person","system","external-system"] : key === "sequence-request" ? ["client","api","service","store"] : ["client","api","worker","queue","database"];
       const remap = new Map(originalKeys.map((id,index)=>[id,document.nodes[index].id]));
       for (const edge of document.relations) { edge.id = key + "-" + edge.id + "-" + randomUUID().slice(0,5); edge.source = remap.get(edge.source) || edge.source; edge.target = remap.get(edge.target) || edge.target; }
