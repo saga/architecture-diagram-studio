@@ -22,7 +22,7 @@ const PROFILE_OPTIONS = [
   { value: "elk-radial", label: "ELK Radial" }, { value: "elk-stress", label: "ELK Stress" },
   { value: "elk-force", label: "ELK Force" }, { value: "dagre-layered", label: "Dagre Layered" }
 ];
-function ConfigurationEditor() {
+function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChanged: (profiles: string[]) => void }) {
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [revisions, setRevisions] = useState(0);
   const [history, setHistory] = useState<Array<{revisionId:string;updatedAt:string;changeSummary:string}>>([]);
@@ -44,7 +44,7 @@ function ConfigurationEditor() {
       const response = await fetch("/api/workspace/configuration", {method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({config})});
       const payload = await response.json() as {config?:StudioConfig;error?:string};
       if (!response.ok || !payload.config) throw new Error(payload.error || "保存失败");
-      setConfig(payload.config); setMessage("配置已保存并追加到服务端 JSONL 版本历史"); await load();
+      setConfig(payload.config); onLayoutProfilesChanged(payload.config.layoutProfiles); setMessage("配置已保存并追加到服务端 JSONL 版本历史"); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
@@ -102,6 +102,7 @@ interface Props {
   drawioStatus: DrawioStatus;
   drawioStatusMessage: string;
   checkDrawioStatus: () => void;
+  onLayoutProfilesChanged: (profiles: string[]) => void;
 }
 
 /** Ant Design Button adapter retaining existing semantic HTML button attributes. */
@@ -286,7 +287,7 @@ export default function WorkspacePages(props: Props) {
         </div>
 
         <div className="settings-grid">
-          <ConfigurationEditor />
+          <ConfigurationEditor onLayoutProfilesChanged={props.onLayoutProfilesChanged} />
 
           <section className="settings-card">
             <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>GitHub Copilot SDK / Agent Runtime</h2><p>服务端 Copilot CLI runtime；使用已登录的 GitHub Copilot 身份</p></div></div>
