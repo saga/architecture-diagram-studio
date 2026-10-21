@@ -169,7 +169,7 @@ async function layoutLayered(doc: DiagramDocument): Promise<DiagramDocument> {
 function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
   const primaryPath = doc.flow?.primaryPath || [];
   const primary = new Set(primaryPath);
-  const rank = new Map(primaryPath.map((id, index) => [id, index]));
+  const rank = new Map(primaryPath.map((id, index) => [id, index] as const));
   const nodes = doc.nodes.map((node) => ({ ...node, layoutHints: { ...(node.layoutHints || {}) } }));
   const main = nodes.filter((node) => primary.has(node.id));
   const branches = nodes.filter((node) => !primary.has(node.id) && !node.layoutHints?.locked);
