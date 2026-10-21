@@ -58,6 +58,7 @@ let clientPromise: Promise<CopilotClient> | null = null;
 type RuntimeSession = {
   session: Awaited<ReturnType<CopilotClient["createSession"]>>;
   model: string;
+  workspaceId?: string;
   reasoningEffort?: string;
   lastUsedAt: number;
   tail: Promise<unknown>;
@@ -472,13 +473,13 @@ async function getOrResumeSession(sessionId: string, model: string, reasoningEff
       tools: [createProposeLayoutPlanTool(sessionId)],
       systemMessage: { content: await buildSystemMessage() }
     });
-    const runtime: RuntimeSession = { session, model, reasoningEffort: actualEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
+    const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, reasoningEffort: actualEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
     sessions.set(sessionId, runtime);
     attachSessionEvents(sessionId, session);
     await writeLog("session.created", { sessionId, model, reasoningEffort: actualEffort || "model-default" });
     return runtime;
   }
-  const runtime: RuntimeSession = { session, model, reasoningEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
+  const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, reasoningEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
   sessions.set(sessionId, runtime);
   attachSessionEvents(sessionId, session);
   await writeLog("session.resumed", { sessionId, requestedModel: model, resumed });
@@ -591,8 +592,9 @@ app.post("/api/copilot/intent", async (req, res) => {
   }
 });
 
-app.get("/api/copilot/sessions", (_req, res) => {
-  res.json({ sessions: [...sessions.entries()].map(([sessionId, item]) => ({
+app.get("/api/copilot/sessions", async (_req, res) => {
+  const workspace = await getProjectWorkspace();
+  res.json({ sessions: [...sessions.entries()].filter(([, item]) => !workspace || item.workspaceId === workspace.id).map(([sessionId, item]) => ({
     sessionId, model: item.model, reasoningEffort: item.reasoningEffort || "model-default", lastUsedAt: new Date(item.lastUsedAt).toISOString()
   })) });
 });
@@ -601,11 +603,12 @@ app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
   try {
     const { readFile } = await import("node:fs/promises");
     const raw = await readFile(LOG_FILE, "utf8").catch(() => "");
+    const workspace = await getProjectWorkspace();
     const logs = raw.split("\n").filter(Boolean).flatMap((line) => {
-      try { const entry = JSON.parse(line) as Record<string, unknown>; return entry.sessionId === req.params.id ? [entry] : []; }
+      try { const entry = JSON.parse(line) as Record<string, unknown>; return entry.sessionId === req.params.id && (!workspace || entry.workspaceId === workspace.id) ? [entry] : []; }
       catch { return []; }
     });
-    res.json({ sessionId: req.params.id, logFile: LOG_FILE, logs });
+    res.json({ sessionId: req.params.id, logFile: LOG_FILE, workspaceId: workspace?.id ?? null, logs });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
