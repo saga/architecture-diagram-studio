@@ -6,7 +6,7 @@ import type { DiagramDocument } from "../model/types";
 import type { DiagnosticEntry } from "../diagnostics";
 
 
-type PromptKey = "system" | "task" | "planTool" | "behavior" | "workspace" | "toolDescription" | "toolResult";
+type PromptKey = "system" | "task" | "planTool" | "behavior" | "workspace" | "supportedCommands" | "toolDescription" | "toolResult";
 type StudioConfig = { layoutProfiles: string[]; prompts: Record<PromptKey, string>; updatedAt: string; updatedBy?: string };
 const PROMPT_OPTIONS: Array<{ key: PromptKey; label: string; description: string }> = [
   { key: "system", label: "System Prompt", description: "定义 Copilot 的总体角色和任务范围。" },
@@ -14,6 +14,7 @@ const PROMPT_OPTIONS: Array<{ key: PromptKey; label: string; description: string
   { key: "planTool", label: "计划工具 Prompt", description: "说明何时以及如何调用结构化计划工具。" },
   { key: "behavior", label: "行为约束与安全规则", description: "控制允许执行的行为、预览确认和不可信上下文处理。" },
   { key: "workspace", label: "工作区上下文 Prompt", description: "支持 {{workspaceName}}、{{rootPath}}、{{primaryDiagram}} 三个运行时占位符。" },
+  { key: "supportedCommands", label: "支持的命令 Prompt", description: "支持 {{commands}} 占位符，运行时会填入服务端允许的命令列表。" },
   { key: "toolDescription", label: "结构化工具描述", description: "发送给模型的 propose_layout_plan 工具说明。" },
   { key: "toolResult", label: "工具执行结果 Prompt", description: "结构化计划工具返回给模型的说明。" }
 ];
