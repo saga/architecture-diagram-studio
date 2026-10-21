@@ -8,6 +8,7 @@ import { layoutDiagram, moveNode } from "../src/layout/layout";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
+import { fromDrawioXml } from "../src/import/drawio";
 import { randomUUID } from "node:crypto";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
@@ -196,6 +197,23 @@ app.post("/api/workspace/diagram/normalize-sequence", async (req, res) => {
     res.json({ document: result });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/workspace/diagram/import-drawio", async (req, res) => {
+  const xml = typeof req.body?.xml === "string" ? req.body.xml : "";
+  const baseDocument = req.body?.baseDocument;
+  if (!xml || xml.length > 20 * 1024 * 1024 || !isDiagramDocument(baseDocument)) {
+    res.status(400).json({ error: "Draw.io XML 或基础图形文档无效" }); return;
+  }
+  try {
+    const document = fromDrawioXml(xml, baseDocument);
+    if (!document.nodes.length) { res.status(422).json({ error: "没有从 Draw.io XML 解析出节点" }); return; }
+    await writeLog("diagram.drawio-imported", { documentId: document.id, xmlLength: xml.length, nodeCount: document.nodes.length, relationCount: document.relations.length });
+    res.json({ document });
+  } catch (error) {
+    await writeLog("diagram.drawio-import.failed", { error: error instanceof Error ? error.message : String(error), xmlLength: xml.length });
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
