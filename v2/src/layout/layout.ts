@@ -81,7 +81,7 @@ export async function layoutDiagram(document: DiagramDocument): Promise<DiagramD
   const alignedInitial = snapLayoutGeometry(initial);
   let best = repairOverlaps(alignedInitial, 0);
   let bestReport = evaluateLayout(best);
-  for (let variant = 1; variant <= 3; variant++) {
+  for (let variant = 1; variant <= 7; variant++) {
     // Evaluate independent route variants from the same aligned node geometry rather than
     // mutating the current winner cumulatively between candidates.
     const candidate = repairOverlaps({ ...alignedInitial, nodes: alignedInitial.nodes.map((node) => ({ ...node })) }, variant);
