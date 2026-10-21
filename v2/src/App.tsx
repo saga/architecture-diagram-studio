@@ -22,6 +22,8 @@ import type { DiagnosticEntry } from "./diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
+type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
+type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 type SavedAISettings = { baseUrl: string; model: string; reasoningEffort: "high" | "max" };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 function loadSavedTheme(): UiTheme {
@@ -178,8 +180,28 @@ export default function App() {
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const [serverHydrated, setServerHydrated] = useState(false);
+  const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
+  const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
+  const [workspaceChecking, setWorkspaceChecking] = useState(true);
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceRootPath, setWorkspaceRootPath] = useState("");
+  const [workspacePrimaryDiagram, setWorkspacePrimaryDiagram] = useState("");
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
+  const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("自动保存");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("无法读取项目工作区配置"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!result.configured || !workspace); if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
+    return () => { active = false; };
+  }, []);
+
+  async function saveProjectWorkspace() {
+    setWorkspaceSaving(true); setWorkspaceError("");
+    try { const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram || null }) }); const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; counts?: { files: number; diagrams: number; code: number; documents: number } }; if (!response.ok || !result.workspace) throw new Error(result.error || "工作区配置失败"); setProjectWorkspace(result.workspace); setWorkspaceFiles(result.files || []); setWorkspacePrimaryDiagram(result.workspace.primaryDiagram || ""); setWorkspaceSetupOpen(false); recordDiagnostic("workspace.project.configured", "项目工作区已配置", { workspaceId: result.workspace.id, rootPath: result.workspace.rootPath, ...(result.counts || {}) }); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } finally { setWorkspaceSaving(false); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -1015,6 +1037,19 @@ export default function App() {
       <XProvider>
         <AntApp>
     <Layout className="app-shell" data-theme={uiTheme}>
+      <Modal title="设置项目工作区" open={!workspaceChecking && workspaceSetupOpen} closable={Boolean(projectWorkspace)} maskClosable={false} onCancel={() => { if (projectWorkspace) setWorkspaceSetupOpen(false); }} footer={null} width={680}>
+        <div style={{ display: "grid", gap: 16, paddingTop: 8 }}>
+          <p>工作区是所有图形编辑、代码分析和 Agent 推理的项目边界。请选择运行 Studio 的这台机器上的项目根目录；服务端会扫描其中的 Draw.io 图、代码和设计文档，并将配置保存为 JSON。</p>
+          {workspaceError && <div role="alert" style={{ color: "#b42318", background: "#fef3f2", borderRadius: 6, padding: 10 }}>{workspaceError}</div>}
+          <label style={{ display: "grid", gap: 6 }}><strong>工作区名称</strong><Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="例如：Payments Architecture" /></label>
+          <label style={{ display: "grid", gap: 6 }}><strong>本机项目目录绝对路径</strong><Input value={workspaceRootPath} onChange={(event) => setWorkspaceRootPath(event.target.value)} placeholder="/Users/you/work/project" /></label>
+          <small style={{ color: "var(--muted, #667085)" }}>路径由本地 Node.js 服务访问，不是浏览器的文件选择器路径。可填写包含源码、ADR、README 和 .drawio 文件的项目根目录。</small>
+          {workspaceFiles.length > 0 && <div style={{ border: "1px solid var(--border, #e5e7eb)", borderRadius: 8, padding: 12 }}><strong>已发现文件</strong><div style={{ marginTop: 6 }}>{workspaceFiles.length} 个文件 · {workspaceFiles.filter((file) => file.kind === "diagram").length} 个图形 · {workspaceFiles.filter((file) => file.kind === "code").length} 个代码文件 · {workspaceFiles.filter((file) => file.kind === "document").length} 个文档</div></div>}
+          <label style={{ display: "grid", gap: 6 }}><strong>主要 Draw.io 图（可选）</strong><Select value={workspacePrimaryDiagram || undefined} allowClear showSearch placeholder="保存目录后可选择主要图形" options={workspaceFiles.filter((file) => file.kind === "diagram").map((file) => ({ value: file.path, label: file.path }))} onChange={(value) => setWorkspacePrimaryDiagram(value || "")} /></label>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><Button onClick={() => { void (async () => { try { setWorkspaceError(""); const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: null }) }); const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[] }; if (!response.ok || !result.workspace) throw new Error(result.error || "目录扫描失败"); setProjectWorkspace(result.workspace); setWorkspaceFiles(result.files || []); setWorkspacePrimaryDiagram(result.workspace.primaryDiagram || ""); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } })(); }}>验证目录并扫描文件</Button><Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim()} onClick={() => void saveProjectWorkspace()}>保存并进入 Studio</Button></div>
+          <small style={{ color: "var(--muted, #667085)" }}>配置文件：~/.architecture-diagram-studio/data/project-workspace.json。Agent/MCP 通过服务端接口访问工作区，不依赖浏览器 localStorage。</small>
+        </div>
+      </Modal>
       <Modal title="服务端版本历史" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760}>
         <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
           {versionHistoryLoading ? <p>正在加载版本历史…</p> : versionEntries.length === 0 ? <p>服务端还没有保存版本。</p> : [...versionEntries].reverse().map((version) => (
