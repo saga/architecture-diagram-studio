@@ -61,7 +61,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .canvas-kicker { font-size: 8px; letter-spacing: 1.15px; } .canvas-kicker span { color: #c0c6d0; margin: 0 3px; }
 .canvas-title { display: flex; align-items: center; gap: 11px; margin-top: 7px; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: #263446; }
 .canvas-subtitle { border-left: 1px solid #dfe4eb; padding-left: 10px; font-size: 10px; color: #8b97a7; font-weight: 400; letter-spacing: 0; }
-.canvas-tools { display: flex; align-items: center; gap: 9px; }
+.canvas-tools { display: flex; align-items: center; gap: 9px; }\n.layout-profile-control { display: flex; align-items: center; gap: 5px; color: #7a8798; font-size: 10px; white-space: nowrap; }\n.layout-profile-control .text-field { width: 142px; min-height: 32px; padding: 6px 7px; }
 .toolbar-button { border: 1px solid #dce2eb; color: #526175; background: white; border-radius: 7px; padding: 8px 11px; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 7px; white-space: nowrap; }
 .toolbar-button:hover { border-color: #c1cbed; color: #394fae; } .toolbar-button span:first-child { font-size: 16px; line-height: .8; }
 .segmented { background: #e9edf3; border: 1px solid #e2e7ee; padding: 2px; display: flex; border-radius: 7px; }
