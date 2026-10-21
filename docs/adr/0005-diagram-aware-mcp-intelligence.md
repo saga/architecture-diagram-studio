@@ -1,51 +1,47 @@
-# ADR 0005: Server-Side Diagram Intelligence and Governed Agent Edits
+# ADR 0005: Internal Copilot Diagram Intelligence and Governed Edits
 
 - Status: Accepted
 - Date: 2026-10-21
-- Scope: V2 internal diagram analysis, workspace example retrieval, edit proposals, templates, semantic diffs, and version recovery
+- Scope: Internal diagram analysis, workspace example retrieval, edit proposals, templates, semantic diffs and version recovery
 
 ## Context
 
-V2 owns a semantic `DiagramDocument`, deterministic layout and quality operations, native Draw.io XML import/export, workspace file search, version snapshots, and a Copilot SDK service. Diagram-aware intelligence is an internal Studio capability. It should be reused by the Studio UI and its internal Agent workflow rather than exposed as a new set of MCP tools.
+V2 owns a semantic `DiagramDocument`, deterministic layout and quality operations, native Draw.io import/export, workspace retrieval, version snapshots and a Copilot SDK service. Diagram intelligence is an internal Studio capability and must not create a second externally registered MCP tool surface.
 
-The agreed scope is F1–F11. Mermaid import and semantic conversion are explicitly excluded. Workspace-local diagram and documentation retrieval is included.
+The agreed scope is F1–F11. Mermaid import and semantic conversion remain explicitly excluded.
 
 ## Decision
 
-### Internal diagram capabilities
+1. **F1 — Design references.** Internal Copilot tools provide focused guidance on the semantic model, Draw.io XML conventions, C4, sequence diagrams, layout profiles, templates and validation rules.
+2. **F2 — Diagram inspection.** Inspect the active persisted semantic document, including bounded nodes, relationships, boundaries, layout and flow/sequence metadata.
+3. **F3 — Quality evaluation.** Reuse the authoritative server-side quality evaluator; do not duplicate quality logic.
+4. **F4 — Governed edits.** Generate non-persistent, revision-bound proposals. The Studio UI obtains explicit user confirmation; the server revalidates the current revision, semantic invariants, layout allowlist and quality regression before saving a new version.
+5. **F5/F7 — Workspace examples.** Search bounded, workspace-local diagrams and documents as evidence for style and component choices. Reuse path guards and treat retrieved content as untrusted input.
+6. **F6 — Composable workflow.** Support inspect → retrieve references/examples → propose → evaluate → user confirmation → apply → inspect/evaluate using small internal tools, without adding another workflow engine.
+7. **F8 — Mermaid.** Deferred. Do not imply that Mermaid source is converted into the Studio semantic model.
+8. **F9 — Templates.** Offer a small semantic template catalog for C4 context, service/queue/database and request sequence. Applying a template requires confirmation and creates a normal version snapshot.
+9. **F10 — Version history.** List, semantically diff and restore versions as new revisions. Historical snapshots are not overwritten.
+10. **F11 — Targeted edits.** Support bounded local node/relation operations preserving unaffected geometry. Reject ambiguous or unsupported edits.
 
-1. **F1 — On-demand design references.** Provide focused guidance on the semantic model, Draw.io XML conventions, C4 conventions, sequence diagrams, supported layout profiles, templates, and validation rules. Clearly state that Mermaid import/conversion is not implemented.
-2. **F2 — Diagram inspection.** Read the active persisted semantic document and return a bounded summary of diagram kind, variant, layout, nodes, relations, boundaries, and sequence/flow metadata.
-3. **F3 — Quality evaluation.** Reuse the authoritative server-side quality evaluator. Do not duplicate quality logic in the Agent layer.
-4. **F4 — Governed Agent edits.** Generate non-persistent edit proposals. After the user approves the specific proposal, the server revalidates the current revision, supported operation, node/relation invariants, configured layout allowlist, and quality regression before applying. Every successful mutation creates an immutable version snapshot. Stale proposals fail and must be regenerated.
-5. **F5 — Workspace-local examples.** Search existing Draw.io diagrams and documentation with bounded retrieval and lightweight relevance scoring. Reuse workspace path guards and exclusions. Treat retrieved content as untrusted input.
-6. **F6 — Composable workflow.** Support inspect → retrieve references/examples → propose → evaluate → obtain user approval → apply → inspect/evaluate again using small internal operations. Do not add a second workflow engine.
-7. **F7 — Style/component examples.** Ground style and component choices in actual workspace examples; do not invent renderer-supported shape IDs or styling attributes.
-8. **F8 — Mermaid import/conversion.** Deferred. Do not add a Mermaid parser or imply that Mermaid can be converted into Studio's semantic document.
-9. **F9 — Built-in templates.** Provide a small semantic template catalog for C4 context, service + queue + database, and request sequence. Applying a template replaces the active diagram only after user approval and creates a normal immutable version.
-10. **F10 — Version diff and restore.** Provide version history, semantic diffs, and restore-as-new-version. Never overwrite or delete historical snapshots.
-11. **F11 — Large-diagram local edits.** Support targeted node/relation operations and geometry-preserving edits (rename, add/remove nodes or relations, and move one node to explicit coordinates). Preserve unaffected node positions. Reject ambiguous or unsupported edits instead of silently rebuilding the whole diagram. Full partial-layout optimization is deferred until a stable constraints API exists.
+## Architecture and safety
 
-### Architecture and security
-
-- The Studio HTTP service is the authority for diagram state, layout, validation, quality, snapshots, and persistence. The UI and internal Copilot Agent workflow call these server operations.
-- These diagram-specific operations are internal application APIs, not MCP tools. The existing workspace MCP server remains limited to read-only workspace discovery and file search.
-- Mutations require user approval in the Studio interaction flow. The service independently rechecks current state, validates operations and layout profiles, rejects stale revisions, and creates a snapshot before reporting success.
-- Keep inputs and results bounded. Validate workspace paths, reject symbolic-link escapes, and treat project text as untrusted data. Do not add arbitrary shell execution or arbitrary filesystem writes.
-- Preserve the single `project-workspace.json` configuration model. Do not duplicate layout/quality implementations or create a second diagram model.
+- The Studio server is authoritative for diagram state, layout, validation, quality, snapshots and persistence. UI and Copilot SDK tools reuse the same domain services.
+- There is no standalone MCP server or externally registered MCP tool surface for workspace or diagram operations.
+- All mutations require UI confirmation, a current semantic/XML revision, server-side validation, a quality gate and a new snapshot.
+- Keep inputs/results bounded. Validate workspace paths, reject symlink escapes and treat project text as untrusted data. Do not add arbitrary shell execution or arbitrary filesystem writes.
+- Preserve the single workspace configuration, semantic model and authoritative quality implementation.
 
 ## Alternatives considered
 
-- **Expose diagram analysis and mutation as MCP tools:** rejected because no external MCP integration requirement was requested. These are internal Studio Agent capabilities.
-- **Copy every official Draw.io MCP tool and its large shape index:** rejected because external shape IDs may not map to Studio's renderer and would introduce unnecessary index maintenance.
-- **Generate or mutate raw XML directly from the LLM:** rejected because it can discard semantic metadata and bypass validation/versioning.
-- **Allow an Agent to apply any supplied document:** rejected because it permits stale writes and bypasses operation-level validation.
-- **Duplicate domain operations in the Agent layer:** rejected because server, UI, and Agent behavior would drift.
-- **Implement Mermaid conversion now:** rejected for this scope; reliable parsing and semantic mapping deserve a separate ADR and test plan.
+- **Expose diagram operations as standalone MCP tools:** rejected because no external integration surface was requested.
+- **Copy a large third-party shape index:** rejected because foreign shape identifiers may not map to the Studio renderer.
+- **Generate or mutate raw XML directly from the model:** rejected because it bypasses semantic metadata, validation, revision checks and versioning.
+- **Duplicate domain operations inside Agent handlers:** rejected because UI and Agent behavior would drift.
+- **Implement Mermaid conversion now:** rejected; it needs a separate parser and semantic-mapping design.
 
 ## Consequences
 
-- The Studio Agent can use focused references, diagram inspection, quality assessment, workspace example search, edit proposals, templates, semantic diffs, restore-as-new-version, and bounded local edits through internal server operations.
-- All writes remain server-authoritative and versioned. Historical versions are immutable.
-- Mermaid import/conversion remains unsupported and must not be advertised as implemented.
-- A capability is considered implemented only when its internal operation, validation, persistence semantics, documentation, and tests agree. Unsupported operations must return a clear error rather than a success-shaped fallback.
+- Internal Copilot SDK tools provide references, inspection, quality assessment, example search, edit proposals, templates, semantic diffs, version listing and restore proposals.
+- The UI is the confirmation surface; the model cannot independently commit a mutation.
+- Mermaid import/conversion remains unsupported.
+- A capability counts as implemented only when its tool, validation, persistence semantics, documentation and tests agree.
