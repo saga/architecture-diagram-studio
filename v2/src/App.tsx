@@ -158,7 +158,7 @@ export default function App() {
     setRevision((value) => value + 1);
     setLastAction(action);
     recordDiagnostic("diagram.change.committed", "正式图形文档已更新", {
-      action, diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
+      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
       hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml)
     });
   }, []);
@@ -271,7 +271,7 @@ export default function App() {
       const result = await applyIntent(document, effectiveText);
       recordDiagnostic(result.changed ? "copilot.intent.matched" : "copilot.intent.no_change",
         result.changed ? "布局意图已映射到可执行规则" : "布局意图没有匹配到可执行规则",
-        { summary: result.summary, changed: result.changed, requiresLayout: result.requiresLayout });
+        { changed: result.changed, requiresLayout: result.requiresLayout, commandLength: effectiveText.length });
       if (result.changed) {
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
@@ -565,15 +565,13 @@ export default function App() {
     const filename = document.title.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
     setLastAction("已导出原生 .drawio 文件");
-    recordDiagnostic("drawio.export.completed", "已导出 .drawio 文件", {
-      filename, xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length
-    });
+    recordDiagnostic("drawio.export.completed", "已导出 .drawio 文件", { xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length });
   }
 
   async function importDiagramFile(file: File | undefined) {
     if (!file) return;
     const startedAt = Date.now();
-    recordDiagnostic("drawio.import.started", "开始导入 Draw.io 文件", { filename: file.name, bytes: file.size });
+    recordDiagnostic("drawio.import.started", "开始导入 Draw.io 文件", { fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown" });
     try {
       const xml = await file.text();
       const empty: DiagramDocument = { ...document, id: newId("imported"), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
