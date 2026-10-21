@@ -19,13 +19,15 @@ export function matchesWorkspaceRevision(baseRevision: string | null | undefined
 export function workspaceRevision(document: unknown, drawioXml: string | null): string {
   return createHash("sha256").update(JSON.stringify(document)).update("\0").update(drawioXml ?? "").digest("hex");
 }
-export function retainRecentVersions<T extends { id: string; workspaceId?: string }>(versions: T[], maxPerWorkspace: number): T[] {
+export function retainRecentVersions<T extends { id: string; workspaceId?: string }>(versions: T[], maxPerWorkspace: number, maxTotalVersions = 500): T[] {
   const counts = new Map<string, number>();
   const retained = new Set<string>();
-  for (let i = versions.length - 1; i >= 0; i--) {
+  const totalLimit = Math.max(1, Math.floor(maxTotalVersions));
+  const workspaceLimit = Math.max(1, Math.floor(maxPerWorkspace));
+  for (let i = versions.length - 1; i >= 0 && retained.size < totalLimit; i--) {
     const version = versions[i], workspaceId = version.workspaceId ?? "__legacy__";
     const count = counts.get(workspaceId) ?? 0;
-    if (count >= maxPerWorkspace) continue;
+    if (count >= workspaceLimit) continue;
     counts.set(workspaceId, count + 1);
     retained.add(version.id);
   }

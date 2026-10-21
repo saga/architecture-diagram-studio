@@ -110,8 +110,9 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
   return workspaceState;
 }
 const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
+const MAX_TOTAL_DIAGRAM_VERSIONS = Math.min(5000, Math.max(100, Number(process.env.STUDIO_MAX_TOTAL_DIAGRAM_VERSIONS) || 500));
 function retainRecentVersions(versions: DiagramVersion[]): DiagramVersion[] {
-  return retainVersionsWithinLimit(versions, MAX_VERSIONS_PER_WORKSPACE);
+  return retainVersionsWithinLimit(versions, MAX_VERSIONS_PER_WORKSPACE, MAX_TOTAL_DIAGRAM_VERSIONS);
 }
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
