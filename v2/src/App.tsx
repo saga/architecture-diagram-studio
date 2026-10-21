@@ -262,8 +262,9 @@ export default function App() {
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "无法读取所选 Draw.io 文件");
         nextXml = fileResult.content;
-        nextDocument = fromDrawioXml(fileResult.content, document);
-        if (nextDocument === document) throw new Error("所选文件不是可识别的 Draw.io XML");
+        const parsedDocument = fromDrawioXml(fileResult.content, document);
+        if (parsedDocument === document) throw new Error("所选文件不是可识别的 Draw.io XML");
+        nextDocument = await requestServerSequenceNormalize(parsedDocument);
       } else if (workspaceChanged) {
         nextDocument = FIXTURES.c4();
         nextXml = null;
@@ -353,8 +354,9 @@ export default function App() {
           const result = await response.json() as { error?: string; content?: string };
           if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "无法加载主要 Draw.io 图");
           const baseDocument = FIXTURES.c4();
-          const imported = fromDrawioXml(result.content, baseDocument);
-          if (imported === baseDocument) throw new Error("所选文件不是可识别的 Draw.io XML");
+          const parsedDocument = fromDrawioXml(result.content, baseDocument);
+          if (parsedDocument === baseDocument) throw new Error("所选文件不是可识别的 Draw.io XML");
+          const imported = await requestServerSequenceNormalize(parsedDocument);
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
