@@ -90,7 +90,7 @@ Deterministic diagram operations run through the HTTP server so the UI and the S
 - `POST /api/workspace/diagram/normalize-sequence`: sequence-document normalization.
 - `POST /api/workspace/diagram/export-drawio`: Draw.io XML generation.
 - `POST /api/workspace/intent/apply`: deterministic intent-to-document mutation.
-- `GET /api/workspace/diagram/active`: active persisted document plus a semantic revision hash, for internal Agent operations.
+- `GET /api/workspace/diagram/active`: the current XML source, its XML-based revision hash, and a derived semantic projection for internal Agent operations.
 - `POST /api/workspace/diagram/proposals` and `POST /api/workspace/diagram/apply-proposal`: revision-bound, validated Agent edits with immutable version snapshots.
 - `GET /api/workspace/diagram/templates` and `POST /api/workspace/diagram/apply-template`: built-in semantic templates, with confirmation and version creation.
 - `POST /api/workspace/diagram/restore-version`: confirmed version restoration.
