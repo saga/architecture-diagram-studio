@@ -947,8 +947,8 @@ export default function App() {
       if (!response.ok || !restoredState || !isDiagramDocument(restoredState.document) || typeof restoredState.drawioXml !== "string") {
         throw new Error(result.error || "服务端版本恢复失败");
       }
-      const restored = restoredState.document;
-      const restoredXml = restoredState.drawioXml;
+      const restored = restoredState.document as DiagramDocument;
+      const restoredXml = restoredState.drawioXml as string;
       setDocument(restored);
       setNativeXmlOverride(restoredXml);
       setPreviewDocument(null);
@@ -1058,7 +1058,8 @@ export default function App() {
           <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</UiButton>
           <UiButton className="button button-quiet" onClick={resetDiagram}>重置示例</UiButton>
           <UiButton className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</UiButton>
-          <UiButton className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</UiButton>\n          <UiButton className="button button-secondary" onClick={() => void openVersionHistory()}>版本历史</UiButton>
+          <UiButton className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</UiButton>
+          <UiButton className="button button-secondary" onClick={() => void openVersionHistory()}>版本历史</UiButton>
           <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</UiButton>
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>返回画布</UiButton></div>}
       </header>
