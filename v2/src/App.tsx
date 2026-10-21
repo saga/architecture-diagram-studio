@@ -372,7 +372,9 @@ export default function App() {
   useEffect(() => {
     if (!canvasMenu) return;
     const close = () => setCanvasMenu(null);
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { close(); setConnectionSourceId(null); }
+    };
     window.addEventListener("pointerdown", close);
     window.addEventListener("blur", close);
     window.addEventListener("resize", close);
@@ -384,6 +386,18 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
     };
   }, [canvasMenu]);
+
+  useEffect(() => {
+    if (!connectionSourceId) return;
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setConnectionSourceId(null);
+        setLastAction("Connection cancelled");
+      }
+    };
+    window.addEventListener("keydown", cancelOnEscape);
+    return () => window.removeEventListener("keydown", cancelOnEscape);
+  }, [connectionSourceId]);
 
   useEffect(() => {
     try {
