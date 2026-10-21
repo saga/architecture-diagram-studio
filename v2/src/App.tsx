@@ -42,12 +42,12 @@ function loadSavedAISettings(): SavedAISettings {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
-      return { baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : "", model: typeof parsed.model === "string" ? parsed.model : "" };
+      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" ? parsed.model : "gpt-5" };
     }
   } catch {
     // The page can still use deterministic local rules when browser storage is unavailable.
   }
-  return { baseUrl: "", model: "" };
+  return { baseUrl: "copilot-sdk", model: "gpt-5" };
 }
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
 
@@ -285,12 +285,12 @@ export default function App() {
     try {
       let effectiveText = text;
       let modelReply = "";
-      if (aiBaseUrl.trim() && aiModel.trim()) {
+      if (aiModel.trim()) {
         recordDiagnostic("copilot.model.request", "请求兼容模型生成受限布局计划", {
-          model: aiModel.trim(), baseUrlConfigured: true, inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
+          model: aiModel.trim(), provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
-          { baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey },
+          { baseUrl: "copilot-sdk", model: aiModel },
           text,
           {
             kind: document.kind,
@@ -335,7 +335,7 @@ export default function App() {
       recordDiagnostic("copilot.request.failed", "处理布局意图失败，没有提交修改", {
         durationMs: Date.now() - startedAt,
         errorName: error instanceof Error ? error.name : typeof error,
-        detailRecordedByProvider: Boolean(aiBaseUrl.trim() && aiModel.trim())
+        detailRecordedByProvider: Boolean(aiModel.trim())
       }, "error");
       setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "没有提交修改：" + (error instanceof Error ? error.message : String(error)) }]);
     } finally {
@@ -358,9 +358,9 @@ export default function App() {
       setLastAction("无法保存模型接口设置；当前页面仍可使用已输入的配置");
     }
     recordDiagnostic("settings.model.saved", saved ? "模型接口配置已保存" : "模型接口配置无法写入浏览器存储", {
-      baseUrlConfigured: Boolean(next.baseUrl), model: next.model || "local-rules", apiKeyPresent: Boolean(aiApiKey), persisted: saved
+      provider: "github-copilot-sdk", model: next.model || "server-default", persisted: saved
     }, saved ? "info" : "warn");
-    if (saved) setLastAction(next.baseUrl && next.model ? "模型接口配置已保存" : "已切回本地规则模式");
+    if (saved) setLastAction(next.model ? "Copilot SDK 模型配置已保存" : "已切回本地规则模式");
   }
 
   function clearAISettings() {
