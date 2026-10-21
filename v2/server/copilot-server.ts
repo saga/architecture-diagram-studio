@@ -1,4 +1,6 @@
 import express from "express";
+import os from "node:os";
+import path from "node:path";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
@@ -11,8 +13,9 @@ async function getCopilotClient(): Promise<CopilotClient> {
   if (clientPromise) return clientPromise;
   clientPromise = (async () => {
     const client = new CopilotClient({
+      mode: "empty",
       useLoggedInUser: true,
-      ...(process.env.COPILOT_HOME ? { baseDirectory: process.env.COPILOT_HOME } : {})
+      baseDirectory: process.env.COPILOT_HOME || path.join(os.homedir(), ".copilot")
     });
     try {
       await client.start();
