@@ -12,7 +12,9 @@ import { toDrawioXml } from "../export/drawio";
 
 async function expectNoNodeOverlap(factory: () => ReturnType<typeof createC4Fixture>) {
   const result = await layoutDiagram(factory());
-  expect(evaluateLayout(result).metrics.nodeOverlaps).toBe(0);
+  const quality = evaluateLayout(result);
+  expect(quality.metrics.nodeOverlaps).toBe(0);
+  expect(quality.metrics.gridAlignmentScore).toBe(1);
 }
 
 describe("V2 diagram-specific layouts", () => {
@@ -33,6 +35,14 @@ describe("V2 diagram-specific layouts", () => {
     for (const factory of [createC4Fixture, createFlowFixture]) {
       expect(available).toContain(factory().layout.profile);
     }
+  });
+
+  it("snaps manual drops to the 4px grid", () => {
+    const document = createC4Fixture();
+    const result = moveNode(document, "snowflake", 641, 421);
+    const moved = result.nodes.find((node) => node.id === "snowflake");
+    expect(moved?.x !== undefined && moved.x % 4).toBe(0);
+    expect(moved?.y !== undefined && moved.y % 4).toBe(0);
   });
 
   it("keeps stacked fixtures distinguishable after a manual move on an unlaid-out document", () => {
