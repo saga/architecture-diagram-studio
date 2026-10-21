@@ -562,7 +562,7 @@ app.post("/api/workspace/diagram/restore-version", async (req, res) => {
     const workspace = await getProjectWorkspace();
     const version = versions.find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
     if (!version) { res.status(404).json({ error: "版本不存在" }); return; }
-    const restored = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
+    const restored = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore?includeXml=false", { method: "POST" });
     const payload = await restored.json();
     res.status(restored.status).json(payload);
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -832,7 +832,11 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       return { version, state: workspaceState };
     });
     if (!result) { res.status(404).json({ error: "版本不存在或其文档格式无效" }); return; }
-    res.json({ ok: true, ...result });
+    if (req.query.includeXml === "false") {
+      const { drawioXml: _versionXml, ...version } = result.version;
+      const { drawioXml: _stateXml, ...state } = result.state;
+      res.json({ ok: true, version, state });
+    } else res.json({ ok: true, ...result });
   } catch (error) {
     await writeLog("workspace.version.restore.failed", { versionId: req.params.id, error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "恢复服务端版本失败" });
