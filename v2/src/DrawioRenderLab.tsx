@@ -43,21 +43,21 @@ export default function DrawioRenderLab() {
     <main className="drawio-render-lab">
       <header className="drawio-render-lab-header">
         <div>
-          <h1>Draw.io 渲染实验室</h1>
-          <p>左侧是 Studio SVG，右侧是本地 Draw.io embed。用于核对关系线、箭头、自调用、生命线和 activation bar 的真实渲染。</p>
+          <h1>Draw.io rendering lab</h1>
+          <p>Studio SVG on the left, the local Draw.io embed on the right. Use it to compare relation lines, arrowheads, self-calls, lifelines, and activation bars against the real renderer.</p>
         </div>
         <div className="drawio-render-lab-controls">
-          <label>测试场景
-            <Select value={scenario} onChange={(value) => chooseScenario(value as Scenario)} options={[{ value: "sequence", label: "时序图（含调用与返回）" }, { value: "c4", label: "C4 架构图" }, { value: "flowchart", label: "流程图" }]} />
+          <label>Scenario
+            <Select value={scenario} onChange={(value) => chooseScenario(value as Scenario)} options={[{ value: "sequence", label: "Sequence (calls and returns)" }, { value: "c4", label: "C4 architecture" }, { value: "flowchart", label: "Flowchart" }]} />
           </label>
-          <Button onClick={() => setShowXml((value) => !value)}>{showXml ? "隐藏 XML" : "查看 XML"}</Button>
-          <Button onClick={() => chooseScenario(scenario)}>重置场景</Button>
-          <a href="/" target="_blank" rel="noreferrer">打开 Studio 主应用 ↗</a>
+          <Button onClick={() => setShowXml((value) => !value)}>{showXml ? "Hide XML" : "Show XML"}</Button>
+          <Button onClick={() => chooseScenario(scenario)}>Reset scenario</Button>
+          <a href="/" target="_blank" rel="noreferrer">Open the Studio app ↗</a>
         </div>
       </header>
       <section className="drawio-render-lab-panels">
         <article className="drawio-render-lab-panel">
-          <div className="drawio-render-lab-panel-title"><strong>Studio SVG</strong><span>共享语义模型</span></div>
+          <div className="drawio-render-lab-panel-title"><strong>Studio SVG</strong><span>Shared semantic model</span></div>
           <div className="drawio-render-lab-canvas">
             <DiagramCanvas document={document} zoom={1} viewResetToken={0}
               selectedNodeId={selectedNodeId} selectedRelationId={selectedRelationId}
@@ -69,7 +69,7 @@ export default function DrawioRenderLab() {
           </div>
         </article>
         <article className="drawio-render-lab-panel">
-          <div className="drawio-render-lab-panel-title"><strong>原生 Draw.io embed</strong><span>实际渲染与交互</span></div>
+          <div className="drawio-render-lab-panel-title"><strong>Native Draw.io embed</strong><span>Real rendering and interaction</span></div>
           <div className="drawio-render-lab-editor">
             <DrawioFrame key={scenario} document={document} xml={xml}
               onDocumentChange={(next, savedXml) => { setDocument(next); setNativeXml(savedXml); }} />
@@ -77,7 +77,7 @@ export default function DrawioRenderLab() {
         </article>
       </section>
       {showXml && <section className="drawio-render-lab-xml">
-        <div><strong>当前发送给 Draw.io 的 XML</strong><span>{xml.length.toLocaleString()} chars · {document.nodes.length} nodes · {document.relations.length} relations</span></div>
+        <div><strong>XML currently sent to Draw.io</strong><span>{xml.length.toLocaleString()} chars · {document.nodes.length} nodes · {document.relations.length} relations</span></div>
         <Input.TextArea readOnly spellCheck={false} value={xml} aria-label="Draw.io XML source" />
       </section>}
     </main>

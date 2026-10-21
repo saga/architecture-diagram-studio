@@ -224,7 +224,7 @@ export default function DiagramCanvas({
         const paint = relationPaint(relation);
         const selected = selectedRelationId === relation.id;
         return <g key={relation.id} className={"diagram-relation" + (selected ? " selected" : "")}
-          role="button" tabIndex={0} aria-label={"选择关系：" + (relation.label || relation.id)}
+          role="button" tabIndex={0} aria-label={"Select relation: " + (relation.label || relation.id)}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => selectRelation(event, relation.id)}
           onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectRelation(relation.id); } }}

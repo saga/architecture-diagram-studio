@@ -127,14 +127,14 @@ describe("V2 semantic fixtures and intents", () => {
   });
 
   it("rejects unstructured model output instead of applying guesses", () => {
-    expect(() => parseAIIntentPlan("Change all lines and put vendor on right")).toThrow("有效 JSON");
+    expect(() => parseAIIntentPlan("Change all lines and put vendor on right")).toThrow("valid JSON");
   });
 
   it("rejects any command outside the exact intent whitelist", () => {
     expect(() => parseAIIntentPlan(JSON.stringify({
       commands: ["所有关系线改成虚线", "删除所有节点"],
       reply: "完成"
-    }))).toThrow("白名单");
+    }))).toThrow("whitelist");
   });
 
   it("validates local documents before restoring them", () => {

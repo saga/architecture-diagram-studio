@@ -12,12 +12,12 @@ export interface LayoutProfileOption {
  * the layout dispatcher. Direction is a separate option shared by all engines.
  */
 export const LAYOUT_PROFILES: LayoutProfileOption[] = [
-  { value: "elk-layered", label: "ELK · 层级", description: "适用于 C4 与流程图，支持语义分层和边路由" },
-  { value: "dagre-layered", label: "Dagre · 层级", description: "轻量快速的有向图布局，支持横向和纵向" },
-  { value: "elk-mrtree", label: "ELK · 树形", description: "适用于树状依赖与层次结构" },
-  { value: "elk-radial", label: "ELK · 放射", description: "围绕中心节点组织关系" },
-  { value: "elk-stress", label: "ELK · 应力", description: "按图结构分布节点，适合网状关系" },
-  { value: "elk-force", label: "ELK · 力导向", description: "适用于探索式关系网络" },
+  { value: "elk-layered", label: "ELK · Layered", description: "Layered layout for C4 and flowcharts, with semantic ranks and edge routing" },
+  { value: "dagre-layered", label: "Dagre · Layered", description: "Lightweight directed layout, horizontal or vertical" },
+  { value: "elk-mrtree", label: "ELK · Tree", description: "For tree-shaped dependencies and hierarchies" },
+  { value: "elk-radial", label: "ELK · Radial", description: "Organizes relations around a central node" },
+  { value: "elk-stress", label: "ELK · Stress", description: "Distributes nodes by graph structure, suited to meshes" },
+  { value: "elk-force", label: "ELK · Force", description: "For exploratory relation networks" },
 ];
 
 export function resolveLayoutProfile(value: string): LayoutProfile {

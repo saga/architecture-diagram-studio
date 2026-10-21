@@ -26,8 +26,8 @@ describe("V2 diagram-specific layouts", () => {
   });
 
   it("keeps every sample on a profile the layout endpoint accepts", () => {
-    // 历史算法名（architecture-flow / process-main-path）会被布局接口当成"已禁用的算法"拒绝，
-    // 示例图因此永远排不了版，所有节点叠在原点。
+    // Legacy names (architecture-flow / process-main-path) are not in LAYOUT_PROFILES, so the layout
+    // endpoint used to reject them as a disabled engine and the sample never got any geometry.
     const available = LAYOUT_PROFILES.map((profile) => profile.value);
     for (const factory of [createC4Fixture, createFlowFixture]) {
       expect(available).toContain(factory().layout.profile);
@@ -36,7 +36,8 @@ describe("V2 diagram-specific layouts", () => {
 
   it("keeps stacked fixtures distinguishable after a manual move on an unlaid-out document", () => {
     const fixture = createC4Fixture();
-    // 拖拽只对单个节点生效：未排版的文档必须整体排版，否则其余节点仍然叠在原处
+    // A drag only moves one node: an unlaid-out document has to be laid out as a whole,
+    // otherwise the remaining nodes stay stacked on the origin.
     const moved = moveNode(fixture, "snowflake", 640, 420);
     const placed = moved.nodes.filter((node) => node.x !== 0 || node.y !== 0);
     expect(placed).toHaveLength(1);

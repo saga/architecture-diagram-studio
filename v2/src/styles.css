@@ -19,7 +19,8 @@ button:disabled { opacity: .58; cursor: wait; }
 .topbar-divider { height: 32px; width: 1px; background: #e7eaf0; }
 .document-breadcrumb { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; overflow: hidden; font-size: 12px; color: #8a95a4; }
 .document-breadcrumb strong { color: #344256; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; }
-.crumb-muted { font: 9px ui-monospace, monospace; letter-spacing: 1px; color: #9ba4b1; }
+/* Workspace names are long slugs, so the crumb truncates instead of wrapping onto extra lines. */
+.crumb-muted { font: 9px ui-monospace, monospace; letter-spacing: 1px; color: #9ba4b1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .save-state { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; margin-left: 5px; white-space: nowrap; color: #7b8797; }
 .save-state i, .local-indicator, .status-pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #3d9774; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
@@ -52,7 +53,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .kind-sequence i { position: absolute; height: 18px; width: 1px; top: 5px; border-left: 1px dashed #8090ad; }
 .kind-sequence i:nth-child(1) { left: 9px; } .kind-sequence i:nth-child(2) { right: 9px; }
 .add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 5px; }
-.add-grid button { border: 1px solid #e7eaf0; background: #fff; border-radius: 6px; padding: 8px 5px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; color: #5d6a7c; font-size: 9px; }
+.add-grid button { border: 1px solid #e7eaf0; background: #fff; border-radius: 6px; padding: 8px 5px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; color: #5d6a7c; font-size: 9px; min-width: 0; overflow-wrap: anywhere; }
 .add-grid button:hover { border-color: #bec9ef; color: #334ab4; background: #fafbff; } .add-glyph { font-size: 16px; color: #687cab; height: 18px; }
 .side-bottom { margin-top: auto; }
 .offline-card { background: #f8fafb; border: 1px solid #edf0f3; border-radius: 8px; padding: 10px; display: flex; gap: 8px; align-items: flex-start; }
@@ -854,6 +855,14 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .topbar::-webkit-scrollbar { display: none; }
 .topbar > * { flex-shrink: 0; }
 .topbar > .document-breadcrumb { flex-shrink: 1; }
+
+/* Between 1200px and 1600px the action bar leaves no room for workspace + title, and the canvas
+   header already shows both, so the topbar keeps only the save indicator. */
+@media (max-width: 1600px) {
+  .topbar .crumb-muted,
+  .topbar .crumb-sep,
+  .topbar .document-breadcrumb strong { display: none; }
+}
 .canvas-toolbar { flex-wrap: wrap; row-gap: 10px; }
 .canvas-tools { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
 

@@ -28,10 +28,10 @@ export const tokens = {
 } as const;
 
 export const roleLabels: Record<string, string> = {
-  actor: "Actor / 用户", source: "Source / 来源", entry: "Entry / 入口",
-  ui: "UI / 界面", domain: "Domain / 领域", business: "Business / 业务",
-  api: "API / 服务接口", worker: "Worker / 集成", data: "Data / 数据",
-  storage: "Storage / 存储", external: "External / 外部", vendor: "Vendor / 供应商",
-  infra: "Infra / 基础设施", decision: "Decision / 决策",
-  start: "Start / 开始", end: "End / 结束", service: "Service / 处理步骤"
+  actor: "Actor", source: "Source", entry: "Entry",
+  ui: "UI", domain: "Domain", business: "Business",
+  api: "API", worker: "Worker", data: "Data",
+  storage: "Storage", external: "External", vendor: "Vendor",
+  infra: "Infra", decision: "Decision",
+  start: "Start", end: "End", service: "Service"
 };

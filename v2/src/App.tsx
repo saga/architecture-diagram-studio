@@ -84,10 +84,10 @@ async function requestServerLayout(document: DiagramDocument): Promise<DiagramDo
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: string };
-    throw new Error(payload.error || "服务端布局计算失败（HTTP " + response.status + "）");
+    throw new Error(payload.error || "Server-side layout failed (HTTP " + response.status + ")");
   }
   const result = await response.json() as { document: DiagramDocument };
-  if (!isDiagramDocument(result.document)) throw new Error("服务端返回了无效的图形文档");
+  if (!isDiagramDocument(result.document)) throw new Error("The server returned an invalid diagram document");
   return result.document;
 }
 
@@ -113,7 +113,7 @@ async function requestServerSequenceNormalize(document: DiagramDocument): Promis
   });
   const payload = await response.json() as { document?: DiagramDocument; error?: string };
   if (!response.ok || !payload.document || !isDiagramDocument(payload.document)) {
-    throw new Error(payload.error || "服务端时序图规范化失败");
+    throw new Error(payload.error || "Server-side sequence normalisation failed");
   }
   return payload.document;
 }
@@ -165,6 +165,9 @@ export default function App() {
   const [aiModel, setAiModel] = useState(savedAISettings.model);
   const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
   const [aiApiKey, setAiApiKey] = useState("");
+  // Transcripts persisted by older sessions may open with a greeting that no longer exists;
+  // drop it so a restored conversation starts with real content.
+  const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the layout change you want"];
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const initial: ChatMessage[] = [];
     try {
@@ -177,7 +180,7 @@ export default function App() {
         ((item as ChatMessage).role === "assistant" || (item as ChatMessage).role === "user") &&
         typeof (item as ChatMessage).text === "string" &&
         typeof (item as ChatMessage).id === "number"
-      ).filter((item) => !(item.role === "assistant" && item.id === 1 && item.text.startsWith("描述想要的布局变化即可")));
+      ).filter((item) => !(item.role === "assistant" && item.id === 1 && LEGACY_GREETING_PREFIXES.some((prefix) => item.text.startsWith(prefix))));
       return restored.slice(-300);
     } catch {
       return initial;
@@ -196,7 +199,7 @@ export default function App() {
   /** Latest document, readable from effects that must not re-subscribe on every edit. */
   const documentRef = useRef(document);
   documentRef.current = document;
-  const [lastAction, setLastAction] = useState("已加载 Studio Editorial 示例");
+  const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
   const [isLayoutting, setIsLayoutting] = useState(false);
   const [relationTargetId, setRelationTargetId] = useState("");
   const [relationLabel, setRelationLabel] = useState("");
@@ -210,7 +213,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     void fetch("/api/workspace/diagram/quality", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: visibleDocument }) })
-      .then(async (response) => { if (!response.ok) throw new Error("布局质量评估失败"); return response.json() as Promise<{ report: import("./model/types").LayoutQualityReport }>; })
+      .then(async (response) => { if (!response.ok) throw new Error("Layout quality evaluation failed"); return response.json() as Promise<{ report: import("./model/types").LayoutQualityReport }>; })
       .then(({ report }) => { if (!cancelled) setQuality(report); })
       .catch(() => { if (!cancelled) setQuality(null); });
     return () => { cancelled = true; };
@@ -219,7 +222,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     void fetch("/api/workspace/diagram/export-drawio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document }) })
-      .then(async (response) => { const payload = await response.json() as { xml?: string; error?: string }; if (!response.ok || typeof payload.xml !== "string") throw new Error(payload.error || "Draw.io XML 生成失败"); return payload.xml; })
+      .then(async (response) => { const payload = await response.json() as { xml?: string; error?: string }; if (!response.ok || typeof payload.xml !== "string") throw new Error(payload.error || "Generating the Draw.io XML failed"); return payload.xml; })
       .then((xml) => { if (!cancelled) setGeneratedDrawioXml(xml); })
       .catch((error) => { if (!cancelled) setLastAction(error instanceof Error ? error.message : String(error)); });
     return () => { cancelled = true; };
@@ -239,7 +242,7 @@ export default function App() {
   useEffect(() => {
     let active = true;
     void fetch("/api/workspace/configuration")
-      .then(async (response) => { if (!response.ok) throw new Error("读取 Studio 配置失败"); return response.json() as Promise<{ config?: { layoutProfiles?: string[]; model?: string; reasoningEffort?: "high" | "max" }; revisions?: number; hasRuntimeSettings?: boolean }>; })
+      .then(async (response) => { if (!response.ok) throw new Error("Could not read the Studio configuration"); return response.json() as Promise<{ config?: { layoutProfiles?: string[]; model?: string; reasoningEffort?: "high" | "max" }; revisions?: number; hasRuntimeSettings?: boolean }>; })
       .then(async (payload) => {
         if (!active || !payload.config) return;
         if (Array.isArray(payload.config.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles);
@@ -247,23 +250,23 @@ export default function App() {
         if (!payload.hasRuntimeSettings) {
           const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: savedAISettings.model, reasoningEffort: savedAISettings.reasoningEffort } }) });
           const migrated = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max" }; error?: string };
-          if (!response.ok || !migrated.config) throw new Error(migrated.error || "迁移模型设置失败");
+          if (!response.ok || !migrated.config) throw new Error(migrated.error || "Migrating the model settings failed");
           if (active) { setAiModel(migrated.config.model || ""); setReasoningEffort(migrated.config.reasoningEffort || "max"); }
         } else {
           if (active && typeof payload.config.model === "string") setAiModel(payload.config.model);
           if (active && (payload.config.reasoningEffort === "high" || payload.config.reasoningEffort === "max")) setReasoningEffort(payload.config.reasoningEffort);
         }
       })
-      .catch((error) => { if (active) recordDiagnostic("settings.configuration.load.failed", "无法加载服务端版本化配置", { errorMessage: error instanceof Error ? error.message : String(error) }, "error"); });
+      .catch((error) => { if (active) recordDiagnostic("settings.configuration.load.failed", "Could not load the versioned server configuration", { errorMessage: error instanceof Error ? error.message : String(error) }, "error"); });
     return () => { active = false; };
   }, []);
   const [workspaceError, setWorkspaceError] = useState("");
-  const nextSaveLabelRef = useRef("自动保存");
+  const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
 
   useEffect(() => {
     let active = true;
-    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("无法读取项目工作区配置"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null; suggestedRootPath?: string }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!result.configured || !workspace); if (!workspace && result.suggestedRootPath) { setWorkspaceRootPath(result.suggestedRootPath); setWorkspaceName(result.suggestedRootPath.split(/[\\/]/).filter(Boolean).pop() || "Project Workspace"); } if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); void fetch("/api/workspace/files").then((response) => response.ok ? response.json() as Promise<{ files?: WorkspaceFile[] }> : Promise.resolve({ files: [] })).then((result) => { if (active) setWorkspaceFiles(result.files || []); }).catch(() => undefined); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
+    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("Could not read the project workspace configuration"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null; suggestedRootPath?: string }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!result.configured || !workspace); if (!workspace && result.suggestedRootPath) { setWorkspaceRootPath(result.suggestedRootPath); setWorkspaceName(result.suggestedRootPath.split(/[\\/]/).filter(Boolean).pop() || "Project Workspace"); } if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); void fetch("/api/workspace/files").then((response) => response.ok ? response.json() as Promise<{ files?: WorkspaceFile[] }> : Promise.resolve({ files: [] })).then((result) => { if (active) setWorkspaceFiles(result.files || []); }).catch(() => undefined); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
     return () => { active = false; };
   }, []);
 
@@ -272,19 +275,19 @@ export default function App() {
     try {
       const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram || null }) });
       const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; counts?: { files: number; diagrams: number; code: number; documents: number } };
-      if (!response.ok || !result.workspace) throw new Error(result.error || "工作区配置失败");
+      if (!response.ok || !result.workspace) throw new Error(result.error || "Configuring the workspace failed");
       const nextWorkspace = result.workspace;
       let nextDocument = document;
       let nextXml: string | null = nativeXmlOverride;
       const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
-      if (workspaceChanged) { setMessages([{ role: "assistant", id: Date.now(), text: "已切换到新项目工作区。后续分析将以该目录中的 Draw.io 图、代码和设计文档为依据。" }]); const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); }
+      if (workspaceChanged) { setMessages([{ role: "assistant", id: Date.now(), text: "Switched to a new project workspace. Later analysis will be based on the Draw.io diagrams, code, and design documents in that directory." }]); const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); }
       if (nextWorkspace.primaryDiagram && (workspaceChanged || projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram) && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
         const fileResponse = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(nextWorkspace.primaryDiagram));
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
-        if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "无法读取所选 Draw.io 文件");
+        if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "Could not read the selected Draw.io file");
         nextXml = fileResult.content;
         const parsedDocument = fromDrawioXml(fileResult.content, document);
-        if (parsedDocument === document) throw new Error("所选文件不是可识别的 Draw.io XML");
+        if (parsedDocument === document) throw new Error("The selected file is not recognisable Draw.io XML");
         nextDocument = await requestServerSequenceNormalize(parsedDocument);
       } else if (workspaceChanged) {
         nextDocument = await layoutSample(FIXTURES.c4());
@@ -305,7 +308,7 @@ export default function App() {
       setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
       setWorkspaceSetupOpen(false);
-      recordDiagnostic("workspace.project.configured", "项目工作区已配置", { workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram, ...(result.counts || {}) });
+      recordDiagnostic("workspace.project.configured", "Project workspace configured", { workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram, ...(result.counts || {}) });
     } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
     finally { setWorkspaceSaving(false); }
   }
@@ -315,7 +318,7 @@ export default function App() {
     const startedAt = Date.now();
     fetch("/api/workspace/state")
       .then(async (response) => {
-        if (!response.ok) throw new Error("服务端工作区加载失败（HTTP " + response.status + "）");
+        if (!response.ok) throw new Error("Could not load the server-side workspace (HTTP " + response.status + ")");
         return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[]; workspaceMismatch?: boolean }>;
       })
       .then((state) => {
@@ -330,13 +333,13 @@ export default function App() {
           historyIndexRef.current = 0;
           setCanUndo(false);
           setCanRedo(false);
-          recordDiagnostic("workspace.hydrated", "从服务端恢复工作区和原生 Draw.io XML", {
+          recordDiagnostic("workspace.hydrated", "Restored the workspace and native Draw.io XML from the server", {
             documentId: savedDocument.id, nodeCount: savedDocument.nodes.length,
             xmlLength: typeof state.drawioXml === "string" ? state.drawioXml.length : 0,
             durationMs: Date.now() - startedAt
           });
         }
-        if (state.workspaceMismatch) { const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); setMessages([{ role: "assistant", id: Date.now(), text: "当前项目工作区已变化，已清除上一个工作区的对话上下文。" }]); }
+        if (state.workspaceMismatch) { const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); setMessages([{ role: "assistant", id: Date.now(), text: "The project workspace changed, so the previous conversation context was cleared." }]); }
         if (typeof state.copilotSessionId === "string" && state.copilotSessionId.length >= 8) {
           setCopilotSessionId(state.copilotSessionId);
           try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", state.copilotSessionId); } catch { /* Server state remains authoritative. */ }
@@ -356,7 +359,7 @@ export default function App() {
         if (!active) return;
         setServerDocumentAvailable(false);
         setServerHydrated(true);
-        recordDiagnostic("workspace.hydrate.failed", "无法从服务端恢复工作区，暂时使用本地草稿", {
+        recordDiagnostic("workspace.hydrate.failed", "Could not restore the workspace from the server; using the local draft", {
           durationMs: Date.now() - startedAt,
           errorMessage: error instanceof Error ? error.message : String(error)
         }, "error");
@@ -373,16 +376,16 @@ export default function App() {
         if (projectWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(projectWorkspace.primaryDiagram)) {
           const response = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(projectWorkspace.primaryDiagram));
           const result = await response.json() as { error?: string; content?: string };
-          if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "无法加载主要 Draw.io 图");
+          if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "Could not load the primary Draw.io diagram");
           const baseDocument = FIXTURES.c4();
           const parsedDocument = fromDrawioXml(result.content, baseDocument);
-          if (parsedDocument === baseDocument) throw new Error("所选文件不是可识别的 Draw.io XML");
+          if (parsedDocument === baseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
           const imported = await requestServerSequenceNormalize(parsedDocument);
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
           setServerDocumentAvailable(true);
-          recordDiagnostic("workspace.primary-diagram.loaded", "已从项目工作区加载主要 Draw.io 图", { workspaceId: projectWorkspace.id, path: projectWorkspace.primaryDiagram, xmlLength: result.content.length });
+          recordDiagnostic("workspace.primary-diagram.loaded", "Loaded the primary Draw.io diagram from the project workspace", { workspaceId: projectWorkspace.id, path: projectWorkspace.primaryDiagram, xmlLength: result.content.length });
         } else {
           const laidOut = await requestServerLayout(FIXTURES.c4());
           if (!active) return;
@@ -390,7 +393,7 @@ export default function App() {
           historyRef.current = [laidOut]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
         }
       } catch (error) {
-        if (active) recordDiagnostic("workspace.primary-diagram.load.failed", "无法加载工作区主要图形", { workspaceId: projectWorkspace.id, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
+        if (active) recordDiagnostic("workspace.primary-diagram.load.failed", "Could not load the workspace primary diagram", { workspaceId: projectWorkspace.id, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
       }
     };
     void load();
@@ -407,11 +410,11 @@ export default function App() {
       }).then(async (response) => {
         if (!response.ok) throw new Error("HTTP " + response.status + ": " + (await response.text()).slice(0, 300));
         const result = await response.json() as { saved?: boolean; version?: { id?: string } | null };
-        if (result.saved) recordDiagnostic("workspace.version.persisted", "文档及 Draw.io XML 版本已持久化到服务端", {
+        if (result.saved) recordDiagnostic("workspace.version.persisted", "Document and Draw.io XML revision persisted to the server", {
           versionId: result.version?.id, xmlLength: drawioXml.length, nodeCount: document.nodes.length
         });
       }).catch((error: unknown) => {
-        recordDiagnostic("workspace.persist.failed", "服务端保存工作区失败", {
+        recordDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
           errorMessage: error instanceof Error ? error.message : String(error),
           xmlLength: drawioXml.length, nodeCount: document.nodes.length
         }, "error");
@@ -429,7 +432,7 @@ export default function App() {
     }).then((response) => {
       if (!response.ok) throw new Error("HTTP " + response.status);
     }).catch((error: unknown) => {
-      recordDiagnostic("copilot.chat.persist.failed", "Copilot 会话记录无法保存到服务端", {
+      recordDiagnostic("copilot.chat.persist.failed", "Could not save the Copilot conversation to the server", {
         sessionId: copilotSessionId, messageCount: messages.length,
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
@@ -462,13 +465,13 @@ export default function App() {
         .catch(() => setTraceEntries(readDiagnosticEntries()));
     };
     const handleWindowError = (event: ErrorEvent) => {
-      recordDiagnostic("runtime.window.error", "未捕获浏览器运行时错误", {
+      recordDiagnostic("runtime.window.error", "Uncaught browser runtime error", {
         errorMessage: event.message, fileName: event.filename, line: event.lineno, column: event.colno
       }, "error");
     };
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
-      recordDiagnostic("runtime.unhandled_rejection", "出现未处理的 Promise rejection", {
+      recordDiagnostic("runtime.unhandled_rejection", "Unhandled promise rejection", {
         reasonType: reason instanceof Error ? reason.name : typeof reason,
         reasonMessage: reason instanceof Error ? reason.message : String(reason).slice(0, 250)
       }, "error");
@@ -477,7 +480,7 @@ export default function App() {
     window.addEventListener("studio:diagnostic-clear", refreshTraces);
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
-    recordDiagnostic("app.started", "V2 工作区启动", {
+    recordDiagnostic("app.started", "V2 workspace started", {
       diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length
     });
     return () => {
@@ -493,7 +496,7 @@ export default function App() {
     try {
       window.localStorage.setItem("architecture-diagram-studio:v2:document", JSON.stringify(document));
     } catch {
-      setLastAction("浏览器存储不可用；本次会话仍可继续编辑");
+      setLastAction("Browser storage is unavailable; this session can still be edited");
     }
   }, [document]);
 
@@ -512,7 +515,7 @@ export default function App() {
     } catch {
       // The selected theme remains active in memory for this session.
     }
-    recordDiagnostic("ui.theme.changed", "更新界面配色主题", { theme: uiTheme });
+    recordDiagnostic("ui.theme.changed", "Updated the interface colour theme", { theme: uiTheme });
   }, [uiTheme]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
@@ -528,7 +531,7 @@ export default function App() {
     setDocument(next);
     setRevision((value) => value + 1);
     setLastAction(action);
-    recordDiagnostic("diagram.change.committed", "正式图形文档已更新", {
+    recordDiagnostic("diagram.change.committed", "The diagram document was updated", {
       diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
       hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml)
     });
@@ -556,13 +559,13 @@ export default function App() {
     if (!hasStackedGeometry(current)) return;
     void layoutSample(current).then((laidOut) => {
       if (hasStackedGeometry(laidOut) || documentRef.current.id !== current.id) return;
-      commitDocument(laidOut, "检测到节点位置重合，已自动完成排版");
-      recordDiagnostic("diagram.layout.auto-healed", "节点位置重合，已自动补算布局", {
+      commitDocument(laidOut, "Nodes shared a position, so the layout was computed automatically");
+      recordDiagnostic("diagram.layout.auto-healed", "Nodes shared a position; layout computed automatically", {
         documentId: laidOut.id, diagramKind: laidOut.kind, nodeCount: laidOut.nodes.length
       }, "warn");
     }).catch((error: unknown) => {
       geometryHealRef.current = false;
-      recordDiagnostic("diagram.layout.auto-heal.failed", "自动补算布局失败", {
+      recordDiagnostic("diagram.layout.auto-heal.failed", "Automatic layout repair failed", {
         documentId: current.id, errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
     });
@@ -570,24 +573,24 @@ export default function App() {
 
   const runLayout = useCallback(async (source: DiagramDocument = document) => {
     const startedAt = Date.now();
-    recordDiagnostic("layout.run.started", "开始重新计算布局、路由和重叠修复", {
+    recordDiagnostic("layout.run.started", "Started recomputing layout, routing, and overlap repair", {
       diagramKind: source.kind, nodeCount: source.nodes.length, relationCount: source.relations.length,
       routing: source.layout.routing, profile: source.layout.profile
     });
     setIsLayoutting(true);
     try {
       const next = await requestServerLayout(source);
-      recordDiagnostic("layout.run.completed", "布局计算成功", {
+      recordDiagnostic("layout.run.completed", "Layout computed", {
         durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length,
         routing: next.layout.routing, profile: next.layout.profile
       });
-      commitDocument(next, "已重新计算布局、路由并运行重叠修复");
+      commitDocument(next, "Recomputed layout and routing, and repaired overlaps");
     } catch (error) {
-      recordDiagnostic("layout.run.failed", "布局计算失败", {
+      recordDiagnostic("layout.run.failed", "Layout computation failed", {
         durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
-      setLastAction("布局失败：" + (error instanceof Error ? error.message : String(error)));
+      setLastAction("Layout failed: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setIsLayoutting(false);
     }
@@ -606,8 +609,8 @@ export default function App() {
     setCanUndo(historyIndexRef.current > 0);
     setCanRedo(true);
     setRevision((value) => value + 1);
-    setLastAction("已撤销到上一版本");
-    recordDiagnostic("diagram.history.undo", "已撤销到上一版本", {
+    setLastAction("Undid to the previous revision");
+    recordDiagnostic("diagram.history.undo", "Undid to the previous revision", {
       diagramKind: previous.kind, nodeCount: previous.nodes.length, relationCount: previous.relations.length
     });
   }
@@ -625,8 +628,8 @@ export default function App() {
     setCanUndo(historyIndexRef.current > 0);
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
     setRevision((value) => value + 1);
-    setLastAction("已重做到下一版本");
-    recordDiagnostic("diagram.history.redo", "已重做到下一版本", {
+    setLastAction("Redid to the next revision");
+    recordDiagnostic("diagram.history.redo", "Redid to the next revision", {
       diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
     });
   }
@@ -636,9 +639,9 @@ export default function App() {
     setPreviewSummary("");
     setSelectedRelationId(null);
     setViewMode("studio");
-    const label = "切换到 " + (kind === "c4" ? "C4 架构图" : kind === "sequence" ? "时序图" : "流程图");
+    const label = "Switched to " + (kind === "c4" ? "C4 diagram" : kind === "sequence" ? "sequence diagram" : "flowchart");
     // Fixtures carry no coordinates, so the layout has to exist before the first paint; committing the
-    // raw fixture first is what used to stack every node on one spot until "自动排版" was pressed.
+    // raw fixture first is what used to stack every node on one spot until "Auto layout" was pressed.
     void (async () => {
       const next = await layoutSample(FIXTURES[kind]());
       setSelectedNodeId(next.nodes[0]?.id || null);
@@ -651,7 +654,7 @@ export default function App() {
     const text = chatInput.trim();
     if (!text || chatBusy) return;
     const startedAt = Date.now();
-    recordDiagnostic("copilot.request.started", "开始处理布局意图", {
+    recordDiagnostic("copilot.request.started", "Layout intent handling started", {
       configuredModel: Boolean(aiModel.trim()), provider: aiModel.trim() ? "github-copilot-sdk" : "local-rules", model: aiModel.trim() || "local-rules",
       sessionId: copilotSessionId, diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
       inputLength: text.length
@@ -663,7 +666,7 @@ export default function App() {
       let effectiveText = text;
       let modelReply = "";
       if (aiModel.trim()) {
-        recordDiagnostic("copilot.agent.request", "请求 Copilot SDK Agent 生成受限布局计划", {
+        recordDiagnostic("copilot.agent.request", "Asked the Copilot SDK agent for a constrained layout plan", {
           sessionId: copilotSessionId, model: aiModel.trim(), reasoningEffort, provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
@@ -681,17 +684,17 @@ export default function App() {
           try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", plan.sessionId); } catch { /* Session remains active in memory. */ }
         }
         modelReply = plan.reply;
-        recordDiagnostic("copilot.agent.response", "已收到 Copilot SDK Agent 工具计划", {
+        recordDiagnostic("copilot.agent.response", "Received the tool plan from the Copilot SDK agent", {
           sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
           reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: "propose_layout_plan",
           commandCount: plan.commands.length, replyLength: plan.reply.length
         });
         if (!plan.commands.length) {
-          recordDiagnostic("copilot.plan.empty", "模型未返回可执行布局指令，未修改正式文档", {}, "warn");
-          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "未执行修改。 " + (modelReply || "这个请求没有匹配到当前支持的安全布局操作。") }]);
+          recordDiagnostic("copilot.plan.empty", "Model returned no executable layout command; document untouched", {}, "warn");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "No changes applied. " + (modelReply || "This request did not match any supported safe layout operation.") }]);
           return;
         }
-        effectiveText = plan.commands.join("；");
+        effectiveText = plan.commands.join("; ");
       }
       const applyResponse = await fetch("/api/workspace/intent/apply", {
         method: "POST",
@@ -701,42 +704,42 @@ export default function App() {
       });
       if (!applyResponse.ok) {
         const payload = await applyResponse.json().catch(() => ({})) as { error?: string };
-        throw new Error(payload.error || "服务端布局意图处理失败（HTTP " + applyResponse.status + "）");
+        throw new Error(payload.error || "Server-side layout intent failed (HTTP " + applyResponse.status + ")");
       }
       const result = await applyResponse.json() as {
         document: DiagramDocument; summary: string; requiresLayout: boolean; changed: boolean;
       };
       recordDiagnostic(result.changed ? "copilot.intent.matched" : "copilot.intent.no_change",
-        result.changed ? "布局意图已映射到可执行规则" : "布局意图没有匹配到可执行规则",
+        result.changed ? "Layout intent mapped to executable rules" : "Layout intent matched no executable rule",
         { changed: result.changed, requiresLayout: result.requiresLayout, commandLength: effectiveText.length });
       if (result.changed) {
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
         setViewMode("studio");
         const previewQualityResponse = await fetch("/api/workspace/diagram/quality", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: result.document }) });
-        if (!previewQualityResponse.ok) throw new Error("服务端布局质量评估失败");
+        if (!previewQualityResponse.ok) throw new Error("Server-side layout quality check failed");
         const previewQuality = (await previewQualityResponse.json() as { report: import("./model/types").LayoutQualityReport }).report;
         const prefix = modelReply ? modelReply + " " : "";
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查后应用或丢弃。" }]);
-        recordDiagnostic("copilot.preview.created", "已生成待确认的布局预览", {
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + ". A temporary preview was generated with layout score " + previewQuality.score + "; the document itself is unchanged. Review it, then apply or discard." }]);
+        recordDiagnostic("copilot.preview.created", "Layout preview created and awaiting confirmation", {
           durationMs: Date.now() - startedAt, qualityScore: previewQuality.score,
           nodeCount: result.document.nodes.length, relationCount: result.document.relations.length
         });
       } else {
         const reply = modelReply
-          ? "没有应用任何修改。 " + modelReply + "（模型计划未匹配到可执行的布局操作。）"
+          ? "No changes applied. " + modelReply + " (the model plan matched no executable layout operation.)"
           : result.summary;
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: reply }]);
       }
     } catch (error) {
-      recordDiagnostic("copilot.request.failed", "处理布局意图失败，没有提交修改", {
+      recordDiagnostic("copilot.request.failed", "Layout intent failed; nothing was committed", {
         durationMs: Date.now() - startedAt,
         errorName: error instanceof Error ? error.name : typeof error,
         detailRecordedByProvider: Boolean(aiModel.trim())
       }, "error");
-      setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "没有提交修改：" + (error instanceof Error ? error.message : String(error)) }]);
+      setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "Nothing was committed: " + (error instanceof Error ? error.message : String(error)) }]);
     } finally {
-      recordDiagnostic("copilot.request.finished", "布局意图处理流程结束", {
+      recordDiagnostic("copilot.request.finished", "Layout intent flow finished", {
         durationMs: Date.now() - startedAt, busy: false
       });
       setChatBusy(false);
@@ -748,16 +751,16 @@ export default function App() {
     try {
       const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: next }) });
       const payload = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max"; revisionId?: string }; error?: string };
-      if (!response.ok || !payload.config) throw new Error(payload.error || "服务端配置保存失败");
+      if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiBaseUrl("copilot-sdk");
       setAiModel(payload.config.model || "");
       setReasoningEffort(payload.config.reasoningEffort || "max");
       try { window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify({ baseUrl: "copilot-sdk", ...next })); } catch { /* Server JSONL is authoritative. */ }
-      recordDiagnostic("settings.model.saved", "模型与推理强度已写入服务端配置版本", { model: next.model || "local-rules", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
-      setLastAction(next.model ? "Copilot SDK 模型配置已保存并创建版本" : "已保存本地规则模式配置版本");
+      recordDiagnostic("settings.model.saved", "Model and reasoning effort written to a new server config revision", { model: next.model || "local-rules", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
+      setLastAction(next.model ? "Copilot SDK model settings saved as a new revision" : "Local-rules mode config saved as a new revision");
     } catch (error) {
-      setLastAction("模型配置保存失败：" + (error instanceof Error ? error.message : String(error)));
-      recordDiagnostic("settings.model.save.failed", "模型配置未保存", { errorMessage: error instanceof Error ? error.message : String(error) }, "error");
+      setLastAction("Saving model settings failed: " + (error instanceof Error ? error.message : String(error)));
+      recordDiagnostic("settings.model.save.failed", "Model settings were not saved", { errorMessage: error instanceof Error ? error.message : String(error) }, "error");
     }
   }
 
@@ -765,15 +768,15 @@ export default function App() {
     try {
       const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: "" } }) });
       const payload = await response.json() as { config?: { model?: string; revisionId?: string }; error?: string };
-      if (!response.ok || !payload.config) throw new Error(payload.error || "服务端配置保存失败");
+      if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiBaseUrl("");
       setAiModel("");
       setAiApiKey("");
       try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Server JSONL is authoritative. */ }
-      setLastAction("已保存本地规则模式配置版本");
-      recordDiagnostic("settings.model.cleared", "模型配置已在服务端版本历史中清除", { revisionId: payload.config.revisionId }, "warn");
+      setLastAction("Local-rules mode config saved as a new revision");
+      recordDiagnostic("settings.model.cleared", "Model settings cleared from the server revision history", { revisionId: payload.config.revisionId }, "warn");
     } catch (error) {
-      setLastAction("清除模型配置失败：" + (error instanceof Error ? error.message : String(error)));
+      setLastAction("Clearing model settings failed: " + (error instanceof Error ? error.message : String(error)));
     }
   }
 
@@ -795,7 +798,7 @@ export default function App() {
         fragments: [...(document.sequence?.fragments || []), fragment]
       }
     };
-    commitDocument(next, "已添加 alt 时序片段");
+    commitDocument(next, "Added an alt sequence fragment");
   }
 
   function updateSequenceFragment(fragmentId: string, patch: Partial<SequenceFragment>) {
@@ -819,7 +822,7 @@ export default function App() {
         fragments
       }
     };
-    commitDocument(next, "已更新时序片段");
+    commitDocument(next, "Sequence fragment updated");
   }
 
   function removeSequenceFragment(fragmentId: string) {
@@ -831,12 +834,12 @@ export default function App() {
         fragments: (document.sequence?.fragments || []).filter((fragment) => fragment.id !== fragmentId)
       }
     };
-    commitDocument(next, "已删除时序片段");
+    commitDocument(next, "Sequence fragment deleted");
   }
 
   async function changeRelationEndpoints(relationId: string, source: string, target: string) {
     if (!source || !target || source === target) {
-      setLastAction("关系线的源节点和目标节点必须不同");
+      setLastAction("A relation needs two different endpoints");
       return;
     }
     const current = document.relations.find((relation) => relation.id === relationId);
@@ -847,7 +850,7 @@ export default function App() {
         ? { ...relation, source, target, points: [] }
         : relation)
     });
-    commitDocument(next, "已更新关系线的源节点与目标节点");
+    commitDocument(next, "Relation endpoints updated");
     if (document.kind !== "sequence") void runLayout(next);
   }
 
@@ -886,7 +889,7 @@ export default function App() {
         return { ...node, ...patch, visualRole, layoutHints };
       })
     };
-    commitDocument(next, "已更新节点属性");
+    commitDocument(next, "Node properties updated");
   }
 
   function addNode(role: DiagramNode["role"]) {
@@ -900,7 +903,7 @@ export default function App() {
     };
     const next = { ...document, nodes: [...document.nodes, node] };
     setSelectedNodeId(id);
-    commitDocument(next, "添加节点：" + node.name);
+    commitDocument(next, "Added node: " + node.name);
     void runLayout(next);
   }
 
@@ -910,7 +913,7 @@ export default function App() {
       relation.source === selectedNode.id && relation.target === relationTargetId && relation.label === relationLabel.trim()
     );
     if (alreadyExists) {
-      setLastAction("这条关系已经存在");
+      setLastAction("That relation already exists");
       return;
     }
     const next = await requestServerSequenceNormalize({
@@ -926,7 +929,7 @@ export default function App() {
       }]
     });
     setRelationLabel("");
-    commitDocument(next, "已建立 " + selectedNode.name + " → " + (document.nodes.find((node) => node.id === relationTargetId)?.name || relationTargetId) + " 的关系");
+    commitDocument(next, "Linked " + selectedNode.name + " → " + (document.nodes.find((node) => node.id === relationTargetId)?.name || relationTargetId));
     if (document.kind !== "sequence") void runLayout(next);
   }
 
@@ -944,7 +947,7 @@ export default function App() {
       ...document,
       relations: document.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation)
     };
-    commitDocument(next, "已更新关系标签");
+    commitDocument(next, "Relation label updated");
   }
 
   async function removeRelation(relationId: string) {
@@ -955,7 +958,7 @@ export default function App() {
       delete updated[relationId];
       return updated;
     });
-    commitDocument(next, "已删除一条关系");
+    commitDocument(next, "Relation removed");
   }
 
   function reverseRelation(relationId: string) {
@@ -965,7 +968,7 @@ export default function App() {
         ? { ...relation, source: relation.target, target: relation.source, points: [] }
         : relation)
     };
-    commitDocument(next, "已反转关系方向");
+    commitDocument(next, "Relation direction reversed");
     if (document.kind !== "sequence") void runLayout(next);
   }
 
@@ -984,7 +987,7 @@ export default function App() {
       void runLayout(next);
       return;
     }
-    commitDocument(next, routingChanged ? "已更新关系线路由" : "已更新关系线型");
+    commitDocument(next, routingChanged ? "Relation routing updated" : "Relation line style updated");
   }
 
   async function removeSelectedNode() {
@@ -999,7 +1002,7 @@ export default function App() {
       sequence: document.sequence ? { ...document.sequence, participants: document.sequence.participants.filter((id) => id !== selectedNode.id) } : undefined
     });
     setSelectedNodeId(next.nodes[0]?.id || null);
-    commitDocument(next, "已删除节点及其关系");
+    commitDocument(next, "Node and its relations removed");
   }
 
   function resetDiagram() {
@@ -1007,8 +1010,8 @@ export default function App() {
     void (async () => {
       const next = await layoutSample(FIXTURES[document.kind]());
       setSelectedNodeId(next.nodes[0]?.id || null);
-      commitDocument(next, "已恢复示例图");
-      recordDiagnostic("diagram.reset", "用户恢复了当前图形类型的内置示例", {
+      commitDocument(next, "Sample diagram restored");
+      recordDiagnostic("diagram.reset", "User restored the built-in sample for this diagram kind", {
         diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
       }, "warn");
     })();
@@ -1017,54 +1020,54 @@ export default function App() {
   function acceptPreview() {
     if (!previewDocument) return;
     const next = previewDocument;
-    const summary = previewSummary || "已应用布局预览";
-    commitDocument(next, summary + "（已应用）");
-    recordDiagnostic("copilot.preview.applied", "用户确认应用布局预览", {
+    const summary = previewSummary || "Layout preview applied";
+    commitDocument(next, summary + " (applied)");
+    recordDiagnostic("copilot.preview.applied", "User applied the layout preview", {
       diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
     });
-    setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "预览已应用，正式文档已更新。" }]);
+    setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "Preview applied; the document has been updated." }]);
   }
 
   function discardPreview() {
     if (!previewDocument) return;
     setPreviewDocument(null);
     setPreviewSummary("");
-    setLastAction("已丢弃预览，正式文档保持不变");
-    recordDiagnostic("copilot.preview.discarded", "用户丢弃布局预览，正式文档未改变");
+    setLastAction("Preview discarded; document unchanged");
+    recordDiagnostic("copilot.preview.discarded", "User discarded the layout preview; document unchanged");
   }
 
   function exportDiagram() {
     const filename = document.title.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
-    setLastAction("已导出原生 .drawio 文件");
-    recordDiagnostic("drawio.export.completed", "已导出 .drawio 文件", { xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length });
+    setLastAction("Exported the native .drawio file");
+    recordDiagnostic("drawio.export.completed", "Exported a .drawio file", { xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length });
   }
 
   async function importDiagramFile(file: File | undefined) {
     if (!file) return;
     const startedAt = Date.now();
-    recordDiagnostic("drawio.import.started", "开始导入 Draw.io 文件", { fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown" });
+    recordDiagnostic("drawio.import.started", "Draw.io import started", { fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown" });
     try {
       const xml = await file.text();
       const empty: DiagramDocument = { ...document, id: newId("imported"), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
       const parsed = fromDrawioXml(xml, empty);
       if (!parsed.nodes.length) {
-        setLastAction("没有找到可导入的节点；请检查文件是否为有效的 .drawio XML");
+        setLastAction("No importable nodes found; check that the file is valid .drawio XML");
         return;
       }
       const next = await requestServerLayout(parsed);
       setSelectedRelationId(null);
       setSelectedNodeId(next.nodes[0]?.id || null);
-      commitDocument(next, "已导入 " + file.name + "，解析 " + next.nodes.length + " 个节点与 " + next.relations.length + " 条关系");
-      recordDiagnostic("drawio.import.completed", "Draw.io 文件解析并导入完成", {
+      commitDocument(next, "Imported " + file.name + " with " + next.nodes.length + " nodes and " + next.relations.length + " relations");
+      recordDiagnostic("drawio.import.completed", "Draw.io file parsed and imported", {
         durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length
       });
     } catch (error) {
-      recordDiagnostic("drawio.import.failed", "导入 Draw.io 文件失败", {
+      recordDiagnostic("drawio.import.failed", "Draw.io import failed", {
         durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
-      setLastAction("导入失败：" + (error instanceof Error ? error.message : String(error)));
+      setLastAction("Import failed: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       if (importFileRef.current) importFileRef.current.value = "";
     }
@@ -1072,9 +1075,9 @@ export default function App() {
 
   async function checkDrawioStatus() {
     setDrawioStatus("checking");
-    setDrawioStatusMessage("检查本地资源清单与编辑器入口…");
+    setDrawioStatusMessage("Checking the local asset manifest and editor entry…");
     const startedAt = Date.now();
-    recordDiagnostic("drawio.healthcheck.started", "手动检查本地 Draw.io 资源", {
+    recordDiagnostic("drawio.healthcheck.started", "Manual check of the local Draw.io assets", {
       manifestUrl: "/drawio/studio-bundle.json", entryUrl: "/drawio/index.html"
     });
     try {
@@ -1083,10 +1086,10 @@ export default function App() {
         fetch("/drawio/index.html", { method: "HEAD", cache: "no-store" })
       ]);
       if (!manifestResponse.ok || !entryResponse.ok) {
-        const message = "manifest HTTP " + manifestResponse.status + "；index.html HTTP " + entryResponse.status;
+        const message = "manifest HTTP " + manifestResponse.status + "; index.html HTTP " + entryResponse.status;
         setDrawioStatus("missing");
         setDrawioStatusMessage(message);
-        recordDiagnostic("drawio.healthcheck.missing", "Draw.io 本地资源不可用", {
+        recordDiagnostic("drawio.healthcheck.missing", "Local Draw.io assets are unavailable", {
           manifestStatus: manifestResponse.status, indexStatus: entryResponse.status,
           durationMs: Date.now() - startedAt
         }, "error");
@@ -1096,22 +1099,22 @@ export default function App() {
       const matches = manifest.version === "v32.0.2" && manifest.sha256 === "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
       if (!matches) {
         setDrawioStatus("missing");
-        setDrawioStatusMessage("资源已响应，但版本或 SHA-256 与固定版本不一致。");
-        recordDiagnostic("drawio.healthcheck.mismatch", "Draw.io 资源清单不匹配", {
+        setDrawioStatusMessage("Assets responded, but the version or SHA-256 does not match the pinned build.");
+        recordDiagnostic("drawio.healthcheck.mismatch", "Draw.io asset manifest mismatch", {
           installedVersion: manifest.version ?? null, checksumMatches: manifest.sha256 === "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7",
           durationMs: Date.now() - startedAt
         }, "error");
         return;
       }
       setDrawioStatus("ready");
-      setDrawioStatusMessage("v32.0.2 资源与 SHA-256 清单匹配；index.html HTTP " + entryResponse.status + "。此检查不代替 iframe embed 初始化握手。");
-      recordDiagnostic("drawio.healthcheck.ready", "Draw.io 本地资源检查通过", {
+      setDrawioStatusMessage("v32.0.2 assets match the SHA-256 manifest; index.html HTTP " + entryResponse.status + ". This check does not replace the iframe embed handshake.");
+      recordDiagnostic("drawio.healthcheck.ready", "Local Draw.io asset check passed", {
         version: manifest.version, indexStatus: entryResponse.status, durationMs: Date.now() - startedAt
       });
     } catch (error) {
       setDrawioStatus("error");
       setDrawioStatusMessage(error instanceof Error ? error.message : String(error));
-      recordDiagnostic("drawio.healthcheck.failed", "检查 Draw.io 本地资源时发生异常", {
+      recordDiagnostic("drawio.healthcheck.failed", "Checking the local Draw.io assets threw an error", {
         durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
@@ -1127,10 +1130,10 @@ export default function App() {
       const result = await response.json() as { versions?: VersionSummary[] };
       setVersionEntries(result.versions || []);
     } catch (error) {
-      recordDiagnostic("workspace.versions.load.failed", "无法加载服务端版本历史", {
+      recordDiagnostic("workspace.versions.load.failed", "Could not load the server-side version history", {
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
-      setLastAction("无法加载版本历史，请检查服务端日志");
+      setLastAction("Could not load version history; check the server log");
     } finally {
       setVersionHistoryLoading(false);
     }
@@ -1142,7 +1145,7 @@ export default function App() {
       const result = await response.json() as { error?: string; state?: { document?: unknown; drawioXml?: unknown }; version?: { id?: string } };
       const restoredState = result.state;
       if (!response.ok || !restoredState || !isDiagramDocument(restoredState.document) || typeof restoredState.drawioXml !== "string") {
-        throw new Error(result.error || "服务端版本恢复失败");
+        throw new Error(result.error || "Server-side version restore failed");
       }
       const restored = restoredState.document as DiagramDocument;
       const restoredXml = restoredState.drawioXml as string;
@@ -1157,23 +1160,23 @@ export default function App() {
       setCanUndo(false);
       setCanRedo(false);
       setRevision((value) => value + 1);
-      setLastAction("已从服务端版本历史恢复图形和原生 Draw.io XML");
+      setLastAction("Restored the diagram and native Draw.io XML from server version history");
       setVersionHistoryOpen(false);
-      recordDiagnostic("workspace.version.restored", "已恢复完整的服务端版本快照", {
+      recordDiagnostic("workspace.version.restored", "Restored the full server version snapshot", {
         sourceVersionId: versionId, newVersionId: result.version?.id,
         xmlLength: restoredXml.length, nodeCount: restored.nodes.length
       });
     } catch (error) {
-      recordDiagnostic("workspace.version.restore.failed", "恢复服务端版本失败", {
+      recordDiagnostic("workspace.version.restore.failed", "Restoring the server version failed", {
         sourceVersionId: versionId,
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
-      setLastAction("版本恢复失败：" + (error instanceof Error ? error.message : String(error)));
+      setLastAction("Version restore failed: " + (error instanceof Error ? error.message : String(error)));
     }
   }
 
   function refreshTraceHistory() {
-    recordDiagnostic("trace.refreshed", "刷新服务端应用轨迹");
+    recordDiagnostic("trace.refreshed", "Refreshed server-side app traces");
   }
 
   function openPage(page: WorkspacePage) {
@@ -1183,7 +1186,7 @@ export default function App() {
     } else {
       setActivePage(page);
     }
-    recordDiagnostic("navigation.opened", "打开工作区页面", { page });
+    recordDiagnostic("navigation.opened", "Opened a workspace page", { page });
   }
 
   function selectNode(id: string) {
@@ -1196,7 +1199,7 @@ export default function App() {
     if (!relation) return;
     setSelectedRelationId(id);
     setSelectedNodeId(relation.source);
-    recordDiagnostic("diagram.relation.selected", "在画布上选中一条关系线", { relationId: id });
+    recordDiagnostic("diagram.relation.selected", "Selected a relation on the canvas", { relationId: id });
   }
 
   return (
@@ -1217,28 +1220,28 @@ export default function App() {
       <XProvider>
         <AntApp>
     <Layout className="app-shell" data-theme={uiTheme}>
-      <Modal title="设置项目工作区" open={!workspaceChecking && workspaceSetupOpen} closable={Boolean(projectWorkspace)} maskClosable={false} onCancel={() => { if (projectWorkspace) setWorkspaceSetupOpen(false); }} footer={null} width={680}>
+      <Modal title="Set up project workspace" open={!workspaceChecking && workspaceSetupOpen} closable={Boolean(projectWorkspace)} maskClosable={false} onCancel={() => { if (projectWorkspace) setWorkspaceSetupOpen(false); }} footer={null} width={680}>
         <div style={{ display: "grid", gap: 16, paddingTop: 8 }}>
-          <p>工作区是所有图形编辑、代码分析和 Agent 推理的项目边界。默认建议使用当前代码仓库根目录（已预填），也可改为其他项目根目录；服务端会扫描其中的 Draw.io 图、代码和设计文档，并将配置保存为 JSON。</p>
+          <p>The workspace is the project boundary for every diagram edit, code analysis and agent run. The repository root is pre-filled and recommended, but any project root works; the server scans it for Draw.io diagrams, code and design docs, and stores the config as JSON.</p>
           {workspaceError && <div role="alert" style={{ color: "#b42318", background: "#fef3f2", borderRadius: 6, padding: 10 }}>{workspaceError}</div>}
-          <label style={{ display: "grid", gap: 6 }}><strong>工作区名称</strong><Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="例如：Payments Architecture" /></label>
-          <label style={{ display: "grid", gap: 6 }}><strong>本机项目目录绝对路径</strong><Input value={workspaceRootPath} onChange={(event) => setWorkspaceRootPath(event.target.value)} placeholder="默认使用仓库根目录；也可输入其他项目根目录" /></label>
-          <small style={{ color: "var(--muted, #667085)" }}>路径由本地 Node.js 服务访问，不是浏览器的文件选择器路径。可填写包含源码、ADR、README 和 .drawio 文件的项目根目录。</small>
-          {workspaceFiles.length > 0 && <div style={{ border: "1px solid var(--border, #e5e7eb)", borderRadius: 8, padding: 12 }}><strong>已发现文件</strong><div style={{ marginTop: 6 }}>{workspaceFiles.length} 个文件 · {workspaceFiles.filter((file) => file.kind === "diagram").length} 个图形 · {workspaceFiles.filter((file) => file.kind === "code").length} 个代码文件 · {workspaceFiles.filter((file) => file.kind === "document").length} 个文档</div></div>}
-          <label style={{ display: "grid", gap: 6 }}><strong>主要 Draw.io 图（可选）</strong><Select value={workspacePrimaryDiagram || undefined} allowClear showSearch placeholder="保存目录后可选择主要图形" options={workspaceFiles.filter((file) => file.kind === "diagram" && /\\.(drawio|dio|xml)$/i.test(file.path)).map((file) => ({ value: file.path, label: file.path }))} onChange={(value) => setWorkspacePrimaryDiagram(value || "")} /></label>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><Button onClick={() => { void (async () => { try { setWorkspaceError(""); const response = await fetch("/api/workspace/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath }) }); const result = await response.json() as { error?: string; files?: WorkspaceFile[]; workspace?: ProjectWorkspace }; if (!response.ok || !result.workspace) throw new Error(result.error || "目录扫描失败"); setWorkspaceFiles(result.files || []); if (projectWorkspace?.rootPath === result.workspace.rootPath && projectWorkspace.primaryDiagram) setWorkspacePrimaryDiagram(projectWorkspace.primaryDiagram); else setWorkspacePrimaryDiagram(""); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } })(); }}>验证目录并扫描文件</Button><Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim()} onClick={() => void saveProjectWorkspace()}>保存并进入 Studio</Button></div>
-          <small style={{ color: "var(--muted, #667085)" }}>配置文件：~/.architecture-diagram-studio/data/project-workspace.json。Agent/MCP 通过服务端接口访问工作区，不依赖浏览器 localStorage。</small>
+          <label style={{ display: "grid", gap: 6 }}><strong>Workspace name</strong><Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="e.g. Payments Architecture" /></label>
+          <label style={{ display: "grid", gap: 6 }}><strong>Absolute path of the local project directory</strong><Input value={workspaceRootPath} onChange={(event) => setWorkspaceRootPath(event.target.value)} placeholder="Defaults to the repository root; any other project root works too" /></label>
+          <small style={{ color: "var(--muted, #667085)" }}>The local Node.js server reads this path, not a browser file picker. Point it at a project root containing source, ADRs, READMEs and .drawio files.</small>
+          {workspaceFiles.length > 0 && <div style={{ border: "1px solid var(--border, #e5e7eb)", borderRadius: 8, padding: 12 }}><strong>Files found</strong><div style={{ marginTop: 6 }}>{workspaceFiles.length} files · {workspaceFiles.filter((file) => file.kind === "diagram").length} diagrams · {workspaceFiles.filter((file) => file.kind === "code").length} code files · {workspaceFiles.filter((file) => file.kind === "document").length} documents</div></div>}
+          <label style={{ display: "grid", gap: 6 }}><strong>Primary Draw.io diagram (optional)</strong><Select value={workspacePrimaryDiagram || undefined} allowClear showSearch placeholder="Save the directory first to pick a primary diagram" options={workspaceFiles.filter((file) => file.kind === "diagram" && /\\.(drawio|dio|xml)$/i.test(file.path)).map((file) => ({ value: file.path, label: file.path }))} onChange={(value) => setWorkspacePrimaryDiagram(value || "")} /></label>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><Button onClick={() => { void (async () => { try { setWorkspaceError(""); const response = await fetch("/api/workspace/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath }) }); const result = await response.json() as { error?: string; files?: WorkspaceFile[]; workspace?: ProjectWorkspace }; if (!response.ok || !result.workspace) throw new Error(result.error || "Directory scan failed"); setWorkspaceFiles(result.files || []); if (projectWorkspace?.rootPath === result.workspace.rootPath && projectWorkspace.primaryDiagram) setWorkspacePrimaryDiagram(projectWorkspace.primaryDiagram); else setWorkspacePrimaryDiagram(""); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } })(); }}>Verify directory and scan</Button><Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim()} onClick={() => void saveProjectWorkspace()}>Save and open Studio</Button></div>
+          <small style={{ color: "var(--muted, #667085)" }}>Config file: ~/.architecture-diagram-studio/data/project-workspace.json. Agents and MCP reach the workspace through the server API, never through browser localStorage.</small>
         </div>
       </Modal>
-      <Modal title="服务端版本历史" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760}>
+      <Modal title="Server version history" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760}>
         <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-          {versionHistoryLoading ? <p>正在加载版本历史…</p> : versionEntries.length === 0 ? <p>服务端还没有保存版本。</p> : [...versionEntries].reverse().map((version) => (
+          {versionHistoryLoading ? <p>Loading version history…</p> : versionEntries.length === 0 ? <p>The server has no saved versions yet.</p> : [...versionEntries].reverse().map((version) => (
             <div key={version.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 0", borderBottom: "1px solid var(--border, #e5e7eb)" }}>
               <div style={{ minWidth: 0 }}>
-                <strong>{version.title || "未命名图形"} · {version.label}</strong>
+                <strong>{version.title || "Untitled diagram"} · {version.label}</strong>
                 <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{new Date(version.createdAt).toLocaleString()} · {version.id}</div>
               </div>
-              <UiButton type="button" className="button button-secondary" onClick={() => void restoreVersion(version.id)}>恢复</UiButton>
+              <UiButton type="button" className="button button-secondary" onClick={() => void restoreVersion(version.id)}>Restore</UiButton>
             </div>
           ))}
         </div>
@@ -1249,65 +1252,65 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
-        <nav className="workspace-nav" aria-label="工作区页面">
-          {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent 轨迹"], ["settings", "配置"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
+        <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span className="crumb-sep">/</span><strong>{document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
+        <nav className="workspace-nav" aria-label="Workspace pages">
+          {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
-        <label className="theme-selector" title="切换整个工作界面的配色">
+        <label className="theme-selector" title="Switch the color theme of the whole workspace">
           <span aria-hidden="true">◐</span>
-          <UiSelect value={uiTheme} aria-label="界面配色主题" onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
-            <option value="editorial">经典编辑室</option>
-            <option value="youth">青春鲜艳</option>
-            <option value="warm">暖色纸感</option>
-            <option value="midnight">午夜深色</option>
+          <UiSelect value={uiTheme} aria-label="Interface color theme" onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
+            <option value="editorial">Editorial</option>
+            <option value="youth">Vivid</option>
+            <option value="warm">Warm paper</option>
+            <option value="midnight">Midnight</option>
           </UiSelect>
         </label>
         <UiInput ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
-          <UiButton className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</UiButton>
-          <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</UiButton>
-          <UiButton className="button button-quiet" onClick={resetDiagram}>重置示例</UiButton>
-          <UiButton className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</UiButton>
-          <UiButton className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</UiButton>
-          <UiButton className="button button-secondary" onClick={() => void openVersionHistory()}>版本历史</UiButton>
-          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</UiButton>
-        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>返回画布</UiButton></div>}
+          <UiButton className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
+          <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
+          <UiButton className="button button-quiet" title="Reload the built-in sample" onClick={resetDiagram}>Reset</UiButton>
+          <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
+          <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
+          <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
+          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Native Draw.io" : "Studio canvas"}</UiButton>
+        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to canvas</UiButton></div>}
       </header>
 
       {activePage === "studio" ? (
         <>
       <aside className="left-panel">
         <div className="workspace-label">DIAGRAM WORKSPACE</div>
-        {projectWorkspace && <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted, #667085)", overflowWrap: "anywhere" }} title={projectWorkspace.rootPath}><strong>{projectWorkspace.name}</strong><br />{projectWorkspace.rootPath}<br /><button type="button" style={{ marginTop: 6, cursor: "pointer" }} onClick={() => setWorkspaceSetupOpen(true)}>切换工作区</button></div>}
+        {projectWorkspace && <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted, #667085)", overflowWrap: "anywhere" }} title={projectWorkspace.rootPath}><strong>{projectWorkspace.name}</strong><br />{projectWorkspace.rootPath}<br /><button type="button" style={{ marginTop: 6, cursor: "pointer" }} onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</button></div>}
         <div className="side-section">
-          <div className="section-heading">图形类型 <span>03</span></div>
+          <div className="section-heading">Diagram kind <span>03</span></div>
           <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
-            <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 架构图</b><small>Context · Container · Component</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 architecture</b><small>Context · Container · Component</small></span><span className="kind-arrow">↗</span>
           </UiButton>
           <UiButton className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
-            <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>业务流程图</b><small>主路径 · 分支 · 合并</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>Process flow</b><small>Main path · Branch · Merge</small></span><span className="kind-arrow">↗</span>
           </UiButton>
           <UiButton className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
-            <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>时序图</b><small>Participant · Message · Return</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>Sequence diagram</b><small>Participant · Message · Return</small></span><span className="kind-arrow">↗</span>
           </UiButton>
         </div>
 
         <div className="side-section components-section">
-          <div className="section-heading">添加元素 <span>+</span></div>
+          <div className="section-heading">Add element <span>+</span></div>
           <div className="add-grid">
-            <UiButton onClick={() => addNode("ui")}><span className="add-glyph">▱</span>界面 / UI</UiButton>
-            <UiButton onClick={() => addNode("domain")}><span className="add-glyph">▰</span>业务服务</UiButton>
-            <UiButton onClick={() => addNode("storage")}><span className="add-glyph">▤</span>数据库</UiButton>
-            <UiButton onClick={() => addNode("external")}><span className="add-glyph">↗</span>外部系统</UiButton>
-            <UiButton onClick={() => addNode("infra")}><span className="add-glyph">⌘</span>基础设施</UiButton>
-            <UiButton onClick={() => addNode("decision")}><span className="add-glyph">◇</span>判断 / 分支</UiButton>
+            <UiButton onClick={() => addNode("ui")}><span className="add-glyph">▱</span>UI</UiButton>
+            <UiButton onClick={() => addNode("domain")}><span className="add-glyph">▰</span>Business service</UiButton>
+            <UiButton onClick={() => addNode("storage")}><span className="add-glyph">▤</span>Database</UiButton>
+            <UiButton onClick={() => addNode("external")}><span className="add-glyph">↗</span>External system</UiButton>
+            <UiButton onClick={() => addNode("infra")}><span className="add-glyph">⌘</span>Infrastructure</UiButton>
+            <UiButton onClick={() => addNode("decision")}><span className="add-glyph">◇</span>Decision / branch</UiButton>
           </div>
         </div>
 
         <div className="side-bottom">
-          <div className="offline-card"><span className="local-indicator" /><div><b>Local-first workspace</b><small>布局、质量检查与导出在本地执行</small></div></div>
+          <div className="offline-card"><span className="local-indicator" /><div><b>Local-first workspace</b><small>Layout, quality checks and export run locally</small></div></div>
           <div className="v1-note">V2 · independent implementation</div>
         </div>
       </aside>
@@ -1320,36 +1323,36 @@ export default function App() {
           </div>
           <div className="canvas-tools">
             {previewDocument && <div className="preview-toolbar-actions">
-              <UiButton type="button" className="preview-discard" onClick={discardPreview}>丢弃预览</UiButton>
-              <UiButton type="button" className="preview-accept" onClick={acceptPreview}>应用修改</UiButton>
+              <UiButton type="button" className="preview-discard" onClick={discardPreview}>Discard preview</UiButton>
+              <UiButton type="button" className="preview-accept" onClick={acceptPreview}>Apply changes</UiButton>
             </div>}
-            {document.kind === "sequence" && <UiButton className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</UiButton>}
-            <label className="layout-profile-control" title="选择自动布局算法">
-              <span>算法</span>
-              <UiSelect className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
+            {document.kind === "sequence" && <UiButton className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ Sequence fragment</UiButton>}
+            <label className="layout-profile-control" title="Choose the auto-layout algorithm">
+              <span>Algorithm</span>
+              <UiSelect className="text-field" aria-label="Auto-layout algorithm" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
                 disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
                   void runLayout(next);
                 }}>
-                {LAYOUT_PROFILES.filter((profile) => enabledLayoutProfiles.includes(profile.value) || profile.value === document.layout.profile).map((profile) => <option key={profile.value} value={profile.value} disabled={!enabledLayoutProfiles.includes(profile.value)}>{profile.label}{enabledLayoutProfiles.includes(profile.value) ? "" : "（已禁用，仅保留当前文档设置）"}</option>)}
+                {LAYOUT_PROFILES.filter((profile) => enabledLayoutProfiles.includes(profile.value) || profile.value === document.layout.profile).map((profile) => <option key={profile.value} value={profile.value} disabled={!enabledLayoutProfiles.includes(profile.value)}>{profile.label}{enabledLayoutProfiles.includes(profile.value) ? "" : " (disabled, current document setting kept)"}</option>)}
               </UiSelect>
             </label>
-            <label className="layout-profile-control" title="设置图的主方向">
-              <span>方向</span>
-              <UiSelect className="text-field" aria-label="布局方向" value={document.layout.direction}
+            <label className="layout-profile-control" title="Set the diagram's main direction">
+              <span>Direction</span>
+              <UiSelect className="text-field" aria-label="Layout direction" value={document.layout.direction}
                 disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, direction: event.target.value as DiagramDocument["layout"]["direction"] } };
                   void runLayout(next);
                 }}>
-                <option value="RIGHT">横向 · 左→右</option>
-                <option value="DOWN">纵向 · 上→下</option>
+                <option value="RIGHT">Left → right</option>
+                <option value="DOWN">Top → bottom</option>
               </UiSelect>
             </label>
-            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</UiButton>
+            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
             <div className="segmented"><UiButton disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</UiButton></div>
-            <UiButton className="toolbar-button" type="button" title="在独立页面并排比较 Studio 与真实 Draw.io embed 渲染" onClick={() => window.open("/drawio-lab", "_blank", "noopener,noreferrer")}>渲染实验 ↗</UiButton>
+            <UiButton className="toolbar-button" type="button" title="Compare Studio and the real Draw.io embed side by side on a standalone page" onClick={() => window.open("/drawio-lab", "_blank", "noopener,noreferrer")}>Render lab ↗</UiButton>
           </div>
         </div>
 
@@ -1360,20 +1363,20 @@ export default function App() {
               onMoveNode={(id, x, y) => {
                 // The drop is applied locally and committed right away. The server call used to own this step,
                 // so a slow or unreachable API made the node fall back into its previous spot on release,
-                // which reads as "拖开又重叠"; moveNode is pure geometry, so both sides compute the same result.
+                // which reads as "drag it apart and it snaps back"; moveNode is pure geometry, so both sides compute the same result.
                 const moved = moveNode(visibleDocument, id, x, y);
                 if (previewDocument) {
                   setPreviewDocument(moved);
-                  setPreviewSummary((summary) => summary ? summary + "；预览中手动调整了节点位置" : "预览中手动调整了节点位置");
+                  setPreviewSummary((summary) => summary ? summary + "; node positions adjusted manually in the preview" : "Node positions adjusted manually in the preview");
                 } else {
-                  commitDocument(moved, "已手动移动节点；该位置已锁定");
+                  commitDocument(moved, "Node moved manually; its position is now locked");
                 }
                 void fetch("/api/workspace/diagram/move-node", {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ document: visibleDocument, id, x, y })
                 }).then(async (response) => {
                   const payload = await response.json() as { document?: DiagramDocument; error?: string };
-                  if (!response.ok || !payload.document) throw new Error(payload.error || "节点移动失败");
+                  if (!response.ok || !payload.document) throw new Error(payload.error || "Node move failed");
                   const settled = payload.document.nodes.find((node) => node.id === id);
                   const local = moved.nodes.find((node) => node.id === id);
                   if (!settled || !local || (settled.x === local.x && settled.y === local.y)) return;
@@ -1381,31 +1384,31 @@ export default function App() {
                   // without creating a second undo step for the same drag.
                   if (previewDocument) setPreviewDocument(payload.document);
                   else replaceDocument(payload.document);
-                  recordDiagnostic("diagram.node-move.reconciled", "服务端按冲突规则微调了节点位置", {
+                  recordDiagnostic("diagram.node-move.reconciled", "Server nudged the node position per its conflict rules", {
                     documentId: payload.document.id, nodeId: id, localX: local.x, localY: local.y, serverX: settled.x, serverY: settled.y
                   });
                 }).catch((error: unknown) => {
-                  recordDiagnostic("diagram.node-move.sync-failed", "节点位置未能同步到服务端，已在本地保留", {
+                  recordDiagnostic("diagram.node-move.sync-failed", "Node position could not be synced to the server; kept locally", {
                     documentId: visibleDocument.id, nodeId: id, errorMessage: error instanceof Error ? error.message : String(error)
                   }, "warn");
                 });
               }} />
           ) : (
-            <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "已从原生 Draw.io 同步修改", nativeXml)} />
+            <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
           )}
-          <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动画布空白处可平移 · 拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
+          <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>Drag empty canvas to pan · drag nodes to reposition · auto layout respects locked nodes</span></div>
           {viewMode === "studio" && <div className="zoom-indicator">
-            <UiButton type="button" className="zoom-control" aria-label="缩小" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</UiButton>
-            <UiButton type="button" className="zoom-percent" aria-label="重置画布视图" title="重置平移与缩放" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</UiButton>
-            <UiButton type="button" className="zoom-control" aria-label="放大" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</UiButton>
+            <UiButton type="button" className="zoom-control" aria-label="Zoom out" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</UiButton>
+            <UiButton type="button" className="zoom-percent" aria-label="Reset canvas view" title="Reset pan and zoom" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</UiButton>
+            <UiButton type="button" className="zoom-control" aria-label="Zoom in" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</UiButton>
           </div>}
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout: {document.layout.profile || "elk-layered"}</span></div></div>
       </main>
 
       <aside className="right-panel">
-        <div className="right-tabs" role="tablist" aria-label="右侧检查面板">
-          {([["properties", "属性"], ["quality", "设计质量"], ["design", "样式规则"], ["copilot", "Layout Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
+        <div className="right-tabs" role="tablist" aria-label="Inspector panel">
+          {([["properties", "Properties"], ["quality", "Quality"], ["design", "Style"], ["copilot", "Layout Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
             <UiButton key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
               className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
               onClick={() => setRightPanelTab(tab)}>{label}</UiButton>
@@ -1429,47 +1432,47 @@ export default function App() {
           <div className="panel-section-heading"><span>SELECTED ELEMENT</span><span className="small-icon">⌗</span></div>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
-              <div className="field-label">已选中关系线 · 源节点</div>
-              <UiSelect className="text-field" aria-label="关系线源节点" value={selectedRelation.source}
+              <div className="field-label">Selected relation · source</div>
+              <UiSelect className="text-field" aria-label="Relation source node" value={selectedRelation.source}
                 onChange={(event) => changeRelationEndpoints(selectedRelation.id, event.target.value, selectedRelation.target)}>
                 {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
               </UiSelect>
-              <div className="field-label">目标节点</div>
-              <UiSelect className="text-field" aria-label="关系线目标节点" value={selectedRelation.target}
+              <div className="field-label">Target node</div>
+              <UiSelect className="text-field" aria-label="Relation target node" value={selectedRelation.target}
                 onChange={(event) => changeRelationEndpoints(selectedRelation.id, selectedRelation.source, event.target.value)}>
                 {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
               </UiSelect>
-              <div className="field-label">关系标签</div>
-              <UiInput className="text-field" aria-label="关系线标签" value={relationLabelDrafts[selectedRelation.id] ?? selectedRelation.label}
+              <div className="field-label">Relation label</div>
+              <UiInput className="text-field" aria-label="Relation label" value={relationLabelDrafts[selectedRelation.id] ?? selectedRelation.label}
                 onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [selectedRelation.id]: event.target.value }))}
                 onBlur={() => commitRelationLabel(selectedRelation.id)} />
               <div className="relation-actions">
-                <UiButton type="button" onClick={() => reverseRelation(selectedRelation.id)}>↔ 反转方向</UiButton>
-                <UiButton type="button" onClick={() => removeRelation(selectedRelation.id)}>删除关系</UiButton>
+                <UiButton type="button" onClick={() => reverseRelation(selectedRelation.id)}>↔ Reverse</UiButton>
+                <UiButton type="button" onClick={() => removeRelation(selectedRelation.id)}>Delete relation</UiButton>
               </div>
             </div>
           )}
           {selectedNode && !selectedRelation ? (
             <div className="inspector-form">
-              <div className="field-label">名称</div><UiInput key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-              <div className="field-label">语义角色</div>
+              <div className="field-label">Name</div><UiInput key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              <div className="field-label">Semantic role</div>
               <UiSelect className="text-field" value={selectedNode.role} onChange={(event) => changeNode({ role: event.target.value as DiagramNode["role"] })}>
                 {Object.entries(roleLabels).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
               </UiSelect>
-              <div className="field-label">技术 / 平台</div><UiInput key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="例如：Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-              <div className="field-label">描述</div><UiTextArea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="此组件的职责…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
-              <label className="lock-row"><UiInput type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>锁定当前位置</b><small>重排时保留此节点位置</small></span></label>
+              <div className="field-label">Technology / platform</div><UiInput key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="e.g. Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              <div className="field-label">Description</div><UiTextArea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="What this component is responsible for…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
+              <label className="lock-row"><UiInput type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>Lock current position</b><small>Keep this node in place during layout</small></span></label>
               <div className="relation-editor">
-                <div className="field-label">建立关系（当前节点 → 目标）</div>
+                <div className="field-label">Create relation (current node → target)</div>
                 <UiSelect className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
-                  <option value="">选择目标节点…</option>
+                  <option value="">Pick a target node…</option>
                   {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
                 </UiSelect>
-                <UiInput className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
-                <UiButton className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</UiButton>
+                <UiInput className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="Relation description (optional)" />
+                <UiButton className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ Add relation</UiButton>
               </div>
               <div className="connected-relations">
-                <div className="field-label">关联关系（{document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length}）</div>
+                <div className="field-label">Relations ({document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length})</div>
                 {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).map((relation) => (
                   <div className={"connected-relation" + (selectedRelationId === relation.id ? " active" : "")} key={relation.id}>
                     <div className="connected-relation-direction">
@@ -1480,90 +1483,90 @@ export default function App() {
                     <UiInput
                       className="text-field relation-label-field"
                       value={relationLabelDrafts[relation.id] ?? relation.label}
-                      placeholder="关系标签…"
+                      placeholder="Relation label…"
                       onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [relation.id]: event.target.value }))}
                       onBlur={() => commitRelationLabel(relation.id)}
                       onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
                     />
                     <div className="relation-style-controls">
-                      <label>路由
+                      <label>Routing
                         <UiSelect disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
                           const value = event.target.value;
                           updateRelationStyle(relation.id, { routing: value === "inherit" ? undefined : value as "orthogonal" | "polyline" | "curved" });
                         }}>
-                          <option value="inherit">默认</option>
-                          <option value="orthogonal">直角折线</option>
-                          <option value="polyline">折线</option>
-                          <option value="curved">曲线</option>
+                          <option value="inherit">Default</option>
+                          <option value="orthogonal">Orthogonal</option>
+                          <option value="polyline">Polyline</option>
+                          <option value="curved">Curved</option>
                         </UiSelect>
                       </label>
-                      <label>线型
+                      <label>Line style
                         <UiSelect value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
                           const value = event.target.value;
                           updateRelationStyle(relation.id, { dashed: value === "inherit" ? undefined : value === "dashed" });
                         }}>
-                          <option value="inherit">默认</option>
-                          <option value="solid">实线</option>
-                          <option value="dashed">虚线</option>
+                          <option value="inherit">Default</option>
+                          <option value="solid">Solid</option>
+                          <option value="dashed">Dashed</option>
                         </UiSelect>
                       </label>
                     </div>
                     <div className="relation-actions">
-                      <UiButton type="button" title="反转方向" onClick={() => reverseRelation(relation.id)}>↔ 方向</UiButton>
-                      <UiButton type="button" title="删除关系" onClick={() => removeRelation(relation.id)}>删除</UiButton>
+                      <UiButton type="button" title="Reverse direction" onClick={() => reverseRelation(relation.id)}>↔ Direction</UiButton>
+                      <UiButton type="button" title="Delete relation" onClick={() => removeRelation(relation.id)}>Delete</UiButton>
                     </div>
                   </div>
                 ))}
-                {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">当前元素没有关联线。</div>}
+                {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">This element has no relations yet.</div>}
               </div>
               {document.kind === "sequence" && (document.sequence?.fragments || []).length > 0 && <div className="sequence-fragment-editor">
-                <div className="field-label">时序片段（alt / opt / loop）</div>
+                <div className="field-label">Sequence fragments (alt / opt / loop)</div>
                 {(document.sequence?.fragments || []).map((fragment) => (
                   <div className="sequence-fragment-card" key={fragment.id}>
                     <UiSelect value={fragment.kind} onChange={(event) => updateSequenceFragment(fragment.id, { kind: event.target.value as SequenceFragment["kind"] })}>
-                      <option value="alt">alt · 条件分支</option>
-                      <option value="opt">opt · 可选</option>
-                      <option value="loop">loop · 循环</option>
+                      <option value="alt">alt · conditional</option>
+                      <option value="opt">opt · optional</option>
+                      <option value="loop">loop · loop</option>
                     </UiSelect>
-                    <UiInput key={fragment.id + ":" + fragment.label} className="text-field" defaultValue={fragment.label} placeholder="片段说明" onBlur={(event) => {
+                    <UiInput key={fragment.id + ":" + fragment.label} className="text-field" defaultValue={fragment.label} placeholder="Fragment description" onBlur={(event) => {
                       if (event.currentTarget.value !== fragment.label) updateSequenceFragment(fragment.id, { label: event.currentTarget.value });
                     }} />
                     <div className="sequence-fragment-range">
-                      <label>起始消息<UiInput key={fragment.id + ":start:" + fragment.startOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.startOrder} onBlur={(event) => {
+                      <label>Start message<UiInput key={fragment.id + ":start:" + fragment.startOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.startOrder} onBlur={(event) => {
                         const value = Number(event.currentTarget.value);
                         if (Number.isFinite(value) && value !== fragment.startOrder) updateSequenceFragment(fragment.id, { startOrder: value });
                       }} /></label>
-                      <label>结束消息<UiInput key={fragment.id + ":end:" + fragment.endOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.endOrder} onBlur={(event) => {
+                      <label>End message<UiInput key={fragment.id + ":end:" + fragment.endOrder} type="number" min="0" max={Math.max(0, document.relations.length - 1)} defaultValue={fragment.endOrder} onBlur={(event) => {
                         const value = Number(event.currentTarget.value);
                         if (Number.isFinite(value) && value !== fragment.endOrder) updateSequenceFragment(fragment.id, { endOrder: value });
                       }} /></label>
                     </div>
-                    <UiButton type="button" className="sequence-fragment-remove" onClick={() => removeSequenceFragment(fragment.id)}>删除片段</UiButton>
+                    <UiButton type="button" className="sequence-fragment-remove" onClick={() => removeSequenceFragment(fragment.id)}>Delete fragment</UiButton>
                   </div>
                 ))}
               </div>}
-              <UiButton className="delete-node-button" onClick={removeSelectedNode}>删除此元素</UiButton>
+              <UiButton className="delete-node-button" onClick={removeSelectedNode}>Delete this element</UiButton>
             </div>
-          ) : !selectedRelation ? <div className="empty-inspector">选择画布中的节点或关系线以查看属性。</div> : null}
+          ) : !selectedRelation ? <div className="empty-inspector">Select a node or relation on the canvas to inspect it.</div> : null}
         </section>}
         {rightPanelTab === "quality" && <section className="quality-section">
-          {!quality ? <div className="quality-footnote">正在由服务端评估布局质量…</div> : <>
+          {!quality ? <div className="quality-footnote">Evaluating layout quality on the server…</div> : <>
           <div className="panel-section-heading"><span>LAYOUT QUALITY</span><span className="quality-score">{quality.score}</span></div>
-          <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "布局状态良好" : quality.metrics.nodeOverlaps ? "需要修复重叠" : "建议检查连线"}</strong><small>确定性质量检查 · 非主观模型评分</small></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
+          <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "Layout looks healthy" : quality.metrics.nodeOverlaps ? "Overlaps need fixing" : "Check the connections"}</strong><small>Deterministic quality check · not a subjective model score</small></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
           <div className="metric-grid">
-            <div className={quality.metrics.nodeOverlaps ? "metric bad" : "metric"}><strong>{quality.metrics.nodeOverlaps}</strong><span>节点重叠</span></div>
-            <div className={quality.metrics.edgeNodeIntersections ? "metric bad" : "metric"}><strong>{quality.metrics.edgeNodeIntersections}</strong><span>线穿过节点</span></div>
-            <div className={quality.metrics.edgeCrossings ? "metric warn" : "metric"}><strong>{quality.metrics.edgeCrossings}</strong><span>可能交叉</span></div>
-            <div className="metric"><strong>{Math.round(quality.metrics.whitespaceScore * 100)}%</strong><span>留白分数</span></div>
+            <div className={quality.metrics.nodeOverlaps ? "metric bad" : "metric"}><strong>{quality.metrics.nodeOverlaps}</strong><span>Node overlaps</span></div>
+            <div className={quality.metrics.edgeNodeIntersections ? "metric bad" : "metric"}><strong>{quality.metrics.edgeNodeIntersections}</strong><span>Edges through nodes</span></div>
+            <div className={quality.metrics.edgeCrossings ? "metric warn" : "metric"}><strong>{quality.metrics.edgeCrossings}</strong><span>Possible crossings</span></div>
+            <div className="metric"><strong>{Math.round(quality.metrics.whitespaceScore * 100)}%</strong><span>Whitespace</span></div>
           </div>
-          <div className="quality-footnote">{quality.errors.length ? quality.errors[0].message : quality.warnings.length ? quality.warnings[0].message : "无节点重叠。质量检查持续评估线条交叉和留白。"}</div>
+          <div className="quality-footnote">{quality.errors.length ? quality.errors[0].message : quality.warnings.length ? quality.warnings[0].message : "No node overlaps. The check keeps evaluating line crossings and whitespace."}</div>
           </>}
         </section>}
         {rightPanelTab === "design" && <section className="design-section">
           <div className="panel-section-heading"><span>STYLE RULES</span><span className="small-icon">◌</span></div>
-          <div className="style-rule"><span className="style-rule-mark mark-solid" /><div><b>低对比边界</b><small>1px · neutral surface</small></div></div>
-          <div className="style-rule"><span className="style-rule-mark mark-flow" /><div><b>克制的语义色</b><small>颜色表达职责，不随机分配</small></div></div>
-          <div className="style-rule"><span className="style-rule-mark mark-spacing" /><div><b>结构化留白</b><small>{document.layout.nodeSpacing}px node · {document.layout.layerSpacing}px layer</small></div></div>
+          <div className="style-rule"><span className="style-rule-mark mark-solid" /><div><b>Low-contrast borders</b><small>1px · neutral surface</small></div></div>
+          <div className="style-rule"><span className="style-rule-mark mark-flow" /><div><b>Restrained semantic color</b><small>Color encodes responsibility, never randomization</small></div></div>
+          <div className="style-rule"><span className="style-rule-mark mark-spacing" /><div><b>Structured whitespace</b><small>{document.layout.nodeSpacing}px node · {document.layout.layerSpacing}px layer</small></div></div>
         </section>}
       </aside>
         </>

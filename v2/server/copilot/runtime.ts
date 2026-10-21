@@ -236,7 +236,7 @@ export class CopilotRuntime {
     this.modelsInFlight = this.withClient("listModels", (client) => client.listModels())
       .then(async (models) => {
         if (models.length) this.modelsCache = { at: Date.now(), models };
-        else await this.options.log("models.empty", { note: "账号或运行时暂未返回模型列表" });
+        else await this.options.log("models.empty", { note: "the account or runtime has not returned a model list yet" });
         return models;
       })
       .finally(() => { this.modelsInFlight = null; });
@@ -302,7 +302,7 @@ export class CopilotRuntime {
    */
   async withTurn<T>(conversationId: string, run: (turn: SessionTurn) => Promise<T>): Promise<T> {
     const queued = this.sessions.get(conversationId);
-    if (!queued) throw new Error(`没有可用的 Copilot 会话：${conversationId}`);
+    if (!queued) throw new Error(`No Copilot session is available for ${conversationId}`);
 
     const pending = this.turnLocks.get(conversationId);
     let release!: () => void;
@@ -468,10 +468,10 @@ function messageOf(error: unknown): string {
 
 /** One user-facing sentence per failure class; the raw SDK message stays in the JSONL log. */
 export function describeCopilotFailure(message: string): string {
-  if (/availableTools/i.test(message)) return "Copilot 会话缺少工具配置，本次请求没有执行。请重启 copilot 服务后重试。";
-  if (/quota|rate limit|402/i.test(message)) return "GitHub Copilot 配额已用尽或被限流，本次请求没有执行。请更换账号或稍后重试。";
-  if (/not logged in|authentication|401|unauthorized/i.test(message)) return "本机 Copilot 身份未登录或已过期，本次请求没有执行。请先在终端运行 copilot login。";
-  if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "所选模型不可用，本次请求没有执行。请在「配置」中换一个模型。";
-  if (/timeout|timed out/i.test(message)) return "Copilot 响应超时，本次请求没有执行。可以缩短指令后重试。";
-  return "Copilot 运行时出错，本次请求没有执行：" + (message.length > 300 ? message.slice(0, 300) + "…" : message);
+  if (/availableTools/i.test(message)) return "The Copilot session is missing its tool configuration, so this request was not executed. Restart the copilot service and try again.";
+  if (/quota|rate limit|402/i.test(message)) return "GitHub Copilot quota is exhausted or rate limited, so this request was not executed. Switch accounts or try again later.";
+  if (/not logged in|authentication|401|unauthorized/i.test(message)) return "The local Copilot identity is signed out or expired, so this request was not executed. Run copilot login in a terminal first.";
+  if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "The selected model is unavailable, so this request was not executed. Pick another model under Settings.";
+  if (/timeout|timed out/i.test(message)) return "Copilot did not answer in time, so this request was not executed. Shorten the instruction and try again.";
+  return "The Copilot runtime failed, so this request was not executed: " + (message.length > 300 ? message.slice(0, 300) + "…" : message);
 }
