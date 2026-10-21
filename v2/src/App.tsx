@@ -1,5 +1,5 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
@@ -21,6 +21,7 @@ import { clearDiagnosticEntries, readDiagnosticEntries, recordDiagnostic } from 
 import type { DiagnosticEntry } from "./diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
+type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
 type SavedAISettings = { baseUrl: string; model: string; reasoningEffort: "high" | "max" };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 function loadSavedTheme(): UiTheme {
@@ -155,6 +156,9 @@ export default function App() {
       return initial;
     }
   });
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
+  const [versionEntries, setVersionEntries] = useState<VersionSummary[]>([]);
   const [revision, setRevision] = useState(1);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -917,6 +921,58 @@ export default function App() {
     }
   }
 
+  async function openVersionHistory() {
+    setVersionHistoryOpen(true);
+    setVersionHistoryLoading(true);
+    try {
+      const response = await fetch("/api/workspace/versions");
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const result = await response.json() as { versions?: VersionSummary[] };
+      setVersionEntries(result.versions || []);
+    } catch (error) {
+      recordDiagnostic("workspace.versions.load.failed", "无法加载服务端版本历史", {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+      setLastAction("无法加载版本历史，请检查服务端日志");
+    } finally {
+      setVersionHistoryLoading(false);
+    }
+  }
+
+  async function restoreVersion(versionId: string) {
+    try {
+      const response = await fetch("/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
+      const result = await response.json() as { error?: string; state?: { document?: unknown; drawioXml?: unknown }; version?: { id?: string } };
+      if (!response.ok || !isDiagramDocument(result.state?.document) || typeof result.state?.drawioXml !== "string") {
+        throw new Error(result.error || "服务端版本恢复失败");
+      }
+      const restored = result.state.document;
+      setDocument(restored);
+      setNativeXmlOverride(result.state.drawioXml);
+      setPreviewDocument(null);
+      setPreviewSummary("");
+      setSelectedNodeId(restored.nodes[0]?.id || null);
+      setSelectedRelationId(null);
+      historyRef.current = [restored];
+      historyIndexRef.current = 0;
+      setCanUndo(false);
+      setCanRedo(false);
+      setRevision((value) => value + 1);
+      setLastAction("已从服务端版本历史恢复图形和原生 Draw.io XML");
+      setVersionHistoryOpen(false);
+      recordDiagnostic("workspace.version.restored", "已恢复完整的服务端版本快照", {
+        sourceVersionId: versionId, newVersionId: result.version?.id,
+        xmlLength: result.state.drawioXml.length, nodeCount: restored.nodes.length
+      });
+    } catch (error) {
+      recordDiagnostic("workspace.version.restore.failed", "恢复服务端版本失败", {
+        sourceVersionId: versionId,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+      setLastAction("版本恢复失败：" + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
   function clearTraces() {
     clearDiagnosticEntries();
     setTraceEntries([]);
@@ -960,6 +1016,19 @@ export default function App() {
       <XProvider>
         <AntApp>
     <Layout className="app-shell" data-theme={uiTheme}>
+      <Modal title="服务端版本历史" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760} destroyOnClose>
+        <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+          {versionHistoryLoading ? <p>正在加载版本历史…</p> : versionEntries.length === 0 ? <p>服务端还没有保存版本。</p> : [...versionEntries].reverse().map((version) => (
+            <div key={version.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 0", borderBottom: "1px solid var(--border, #e5e7eb)" }}>
+              <div style={{ minWidth: 0 }}>
+                <strong>{version.title || "未命名图形"} · {version.label}</strong>
+                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{new Date(version.createdAt).toLocaleString()} · {version.id}</div>
+              </div>
+              <UiButton type="button" className="button button-secondary" onClick={() => void restoreVersion(version.id)}>恢复</UiButton>
+            </div>
+          ))}
+        </div>
+      </Modal>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark"><i /><i /><i /><i /></div>
@@ -987,7 +1056,7 @@ export default function App() {
           <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</UiButton>
           <UiButton className="button button-quiet" onClick={resetDiagram}>重置示例</UiButton>
           <UiButton className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</UiButton>
-          <UiButton className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</UiButton>
+          <UiButton className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</UiButton>\n          <UiButton className="button button-secondary" onClick={() => void openVersionHistory()}>版本历史</UiButton>
           <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</UiButton>
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>返回画布</UiButton></div>}
       </header>
