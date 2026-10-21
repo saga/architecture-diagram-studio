@@ -10,6 +10,7 @@ import { LAYOUT_PROFILES, resolveLayoutProfile } from "../src/layout/profiles";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
+import { isDrawioXmlEnvelope, isStudioProjectionCurrent, patchStudioDocumentXml } from "./drawio-xml-source";
 import { createEmptyDrawioDocument, normalizeNewDrawioFileName } from "./diagram-file";
 import { createHash, randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
@@ -726,12 +727,13 @@ app.put("/api/workspace/document", async (req, res) => {
   const drawioXml = req.body?.drawioXml;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
   const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : req.body?.baseRevision === null ? null : undefined;
-  if (!isDiagramDocument(document) || typeof drawioXml !== "string" || drawioXml.length > 20_000_000) {
-    res.status(400).json({ error: "Invalid document or Draw.io XML, or the XML exceeds 20 MB" });
+  if (!isDiagramDocument(document) || typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000 || !isDrawioXmlEnvelope(drawioXml)) {
+    res.status(400).json({ error: "Invalid Draw.io XML envelope, invalid projection metadata, or the XML exceeds 20 MB" });
     return;
   }
-  const semanticErrors = validateDiagramSemantics(document);
-  if (semanticErrors.length) { res.status(422).json({ error: "Invalid diagram document", validationErrors: semanticErrors }); return; }
+  // Draw.io XML is canonical. Semantic/layout validation is not a persistence gate:
+  // valid native stencils, arbitrary cells and large diagrams must save even when the
+  // partial Studio projection cannot validate every cell.
   try {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState();
@@ -741,7 +743,7 @@ app.put("/api/workspace/document", async (req, res) => {
       const workspaceVersions = allVersions.filter((version) => versionMatchesActiveDiagram(version, workspace));
       const currentRevision = activeStateMatches && isDiagramDocument(state.document) ? workspaceRevision(state.document, state.drawioXml) : null;
       if (!matchesWorkspaceRevision(baseRevision, currentRevision)) return { status: 409 as const, error: "The document changed or the save is missing its base revision. Reload the latest version before saving.", workspaceRevision: currentRevision };
-      const unchanged = activeStateMatches && JSON.stringify(state.document) === JSON.stringify(document) && state.drawioXml === drawioXml;
+      const unchanged = activeStateMatches && state.drawioXml === drawioXml;
       if (!unchanged) {
         const version: DiagramVersion = {
           id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
