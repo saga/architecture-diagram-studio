@@ -13,6 +13,9 @@ export async function writeJsonAtomic(file: string, value: unknown): Promise<voi
   await writeFile(temp, JSON.stringify(value), "utf8");
   await rename(temp, file);
 }
+export function matchesWorkspaceRevision(baseRevision: string | null | undefined, currentRevision: string | null): boolean {
+  return baseRevision !== undefined && baseRevision === currentRevision;
+}
 export function workspaceRevision(document: unknown, drawioXml: string | null): string {
   return createHash("sha256").update(JSON.stringify(document)).update("\0").update(drawioXml ?? "").digest("hex");
 }

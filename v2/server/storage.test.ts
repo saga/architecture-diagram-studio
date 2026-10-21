@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createSerializedWriteQueue, retainRecentVersions, workspaceRevision } from "./storage";
+import { createSerializedWriteQueue, matchesWorkspaceRevision, retainRecentVersions, workspaceRevision } from "./storage";
 describe("server persistence primitives", () => {
   it("retains the most recent bounded number of versions per workspace", () => {
     const versions = Array.from({ length: 8 }, (_, index) => ({ id: "v" + index, workspaceId: "a" }));
     versions.push({ id: "b0", workspaceId: "b" }, { id: "b1", workspaceId: "b" });
     expect(retainRecentVersions(versions, 3).map((version) => version.id)).toEqual(["v5", "v6", "v7", "b0", "b1"]);
+  });
+  it("accepts only a supplied revision equal to the current server revision", () => {
+    expect(matchesWorkspaceRevision(undefined, null)).toBe(false);
+    expect(matchesWorkspaceRevision("stale", "current")).toBe(false);
+    expect(matchesWorkspaceRevision(null, null)).toBe(true);
+    expect(matchesWorkspaceRevision("current", "current")).toBe(true);
   });
   it("changes the revision when the document or native XML changes", () => {
     expect(workspaceRevision({ id: "a" }, "<xml/>")).not.toBe(workspaceRevision({ id: "a" }, "<changed/>"));

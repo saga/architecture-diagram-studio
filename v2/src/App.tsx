@@ -18,6 +18,7 @@ import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages"
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
+import { selectCompatibleWorkspaceDocument } from "./hooks/workspaceHydration";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
@@ -347,7 +348,7 @@ export default function App() {
       })
       .then((state) => {
         if (!active) return;
-        const savedDocument = isDiagramDocument(state.document) ? state.document : null;
+        const savedDocument = selectCompatibleWorkspaceDocument(state.document, Boolean(state.workspaceMismatch));
         setServerDocumentAvailable(Boolean(savedDocument));
         serverRevisionRef.current = typeof state.workspaceRevision === "string" ? state.workspaceRevision : null;
         setWorkspaceContentReady(Boolean(savedDocument && !state.workspaceMismatch));
