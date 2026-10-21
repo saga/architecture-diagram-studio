@@ -65,6 +65,12 @@ The main-lane flow layout keeps primary workflow steps aligned, places exception
 Run the V2 app and open `/drawio-lab` (for example, `http://localhost:5174/drawio-lab`) to compare the Studio SVG renderer with the actual bundled Draw.io embed side by side. Switch between the sequence, C4, and flowchart fixtures; inspect the exact XML sent to Draw.io; and reset a fixture to reproduce rendering differences. The sequence renderer and XML exporter share message geometry from `src/layout/sequence.ts`, including self-call waypoints.
 
 
+## Versioned Studio configuration
+
+The Settings page exposes the server-supported automatic layout algorithm allowlist and the shared Copilot system/task/plan-tool prompt sections. Configuration is stored on the server and each save appends a complete revision record to `studio-config-history.jsonl` under `STUDIO_DATA_DIR`; the active configuration is the latest valid record. Endpoints: `GET/PUT /api/workspace/configuration` and `GET /api/workspace/configuration/history`. Diagram-specific layout selection remains part of the diagram document and is separately versioned with the document/Draw.io XML.
+
+ADR: [0004 — Versioned Studio configuration in JSONL](../docs/adr/0004-versioned-studio-configuration-jsonl.md).
+
 ## Server-authoritative diagram operations
 
 Deterministic diagram operations run through the HTTP server so the UI, Copilot, and MCP can share the same implementation. The server currently provides:
