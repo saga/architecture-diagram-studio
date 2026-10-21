@@ -96,7 +96,7 @@ function routeRelationsForVariant(doc: DiagramDocument, routeVariant = 0): Diagr
     const end = ports.target.get(relation.id) || center(targetNode);
     const s = center(sourceNode), t = center(targetNode);
     const dx = t.x - s.x, dy = t.y - s.y;
-    const lane = 24 + ((index + routeVariant) % 4) * 16;
+    const lane = 24 + routeVariant * 16 + (index % 3) * 8;
     let points: Point[] = [];
 
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
@@ -223,7 +223,7 @@ export function routeRelations(doc: DiagramDocument, routeVariant?: number): Dia
   if (routeVariant !== undefined || doc.kind === "sequence") {
     return routeRelationsForVariant(doc, routeVariant ?? 0);
   }
-  const candidates = [0, 1, 2, 3].map((variant) => routeRelationsForVariant(doc, variant));
+  const candidates = [0, 1, 2, 3, 4, 5].map((variant) => routeRelationsForVariant(doc, variant));
   return candidates.reduce((best, candidate) =>
     routeCost(candidate) < routeCost(best) ? candidate : best
   );
