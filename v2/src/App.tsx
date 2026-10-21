@@ -120,6 +120,7 @@ export default function App() {
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "quality" | "design">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
+  const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [activePage, setActivePage] = useState<WorkspacePage>("studio");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
@@ -214,6 +215,7 @@ export default function App() {
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [workspacePrimaryDiagram, setWorkspacePrimaryDiagram] = useState("");
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
+  useEffect(() => { let active = true; void fetch("/api/workspace/configuration").then(async (response) => { if (!response.ok) throw new Error("读取布局算法配置失败"); return response.json() as Promise<{ config?: { layoutProfiles?: string[] } }>; }).then((payload) => { if (active && Array.isArray(payload.config?.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles); }).catch(() => undefined); return () => { active = false; }; }, []);
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("自动保存");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
@@ -1229,13 +1231,13 @@ export default function App() {
             {document.kind === "sequence" && <UiButton className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</UiButton>}
             <label className="layout-profile-control" title="选择自动布局算法">
               <span>算法</span>
-              <UiSelect className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : "elk-layered"}
+              <UiSelect className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
                 disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
                   void runLayout(next);
                 }}>
-                {LAYOUT_PROFILES.map((profile) => <option key={profile.value} value={profile.value}>{profile.label}</option>)}
+                {LAYOUT_PROFILES.filter((profile) => enabledLayoutProfiles.includes(profile.value) || profile.value === document.layout.profile).map((profile) => <option key={profile.value} value={profile.value} disabled={!enabledLayoutProfiles.includes(profile.value)}>{profile.label}{enabledLayoutProfiles.includes(profile.value) ? "" : "（已禁用，仅保留当前文档设置）"}</option>)}
               </UiSelect>
             </label>
             <label className="layout-profile-control" title="设置图的主方向">
@@ -1467,6 +1469,7 @@ export default function App() {
           drawioStatus={drawioStatus}
           drawioStatusMessage={drawioStatusMessage}
           checkDrawioStatus={() => void checkDrawioStatus()}
+          onLayoutProfilesChanged={setEnabledLayoutProfiles}
         />
       )}
     </Layout>
