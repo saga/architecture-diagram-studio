@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
-import { measureTextWidth, truncateTextToWidth } from "../design/text-metrics";
+import { measureTextWidth, truncateTextToWidth, wrapTextToWidth } from "../design/text-metrics";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 
 interface Props {
@@ -276,7 +276,13 @@ export default function DiagramCanvas({
         const availableTextWidth = Math.max(0, node.width - 34);
         const compactTitle = truncateTextToWidth(node.name, availableTextWidth, 13);
         const technologyLabel = node.technology ? truncateTextToWidth(node.technology, availableTextWidth, 13) : "";
-        const descriptionLabel = node.description ? truncateTextToWidth(node.description, availableTextWidth, 13) : "";
+        const descriptionY = node.y + (node.technology ? 64 : 52);
+        const descriptionLineCapacity = node.description
+          ? Math.max(1, Math.floor((node.height - (node.technology ? 64 : 52) - 6) / 15) + 1)
+          : 0;
+        const descriptionLines = node.description
+          ? wrapTextToWidth(node.description, availableTextWidth, 13, descriptionLineCapacity)
+          : [];
         const accessibleNode = "Node: " + node.name + (node.technology ? ". Technology: " + node.technology : "") + (node.description ? ". Description: " + node.description : "");
         return <g key={node.id} data-role={node.role} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
           role="button" tabIndex={0} aria-label={accessibleNode}
@@ -290,7 +296,9 @@ export default function DiagramCanvas({
           <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
             textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill="#0C1626">{compactTitle}</text>
           {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill="#0C1626">{technologyLabel}</text>}
-          {node.description && <text x={node.x + 17} y={node.y + (node.technology ? 64 : 52)} fontSize="13" fontWeight="500" fill="#0C1626">{descriptionLabel}</text>}
+          {node.description && <text fontSize="13" fontWeight="500" fill={tokens.ink}>
+            {descriptionLines.map((line, index) => <tspan key={index} x={node.x + 17} y={descriptionY + index * 15}>{line}</tspan>)}
+          </text>}
           {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 17} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">●</text>}
         </g>;
       })}
