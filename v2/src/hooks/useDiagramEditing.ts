@@ -7,12 +7,9 @@ interface Options {
   document: DiagramDocument;
   selectedNode: DiagramNode | null;
   selectedRelationId: string | null;
-  relationTargetId: string;
-  relationLabel: string;
   relationLabelDrafts: Record<string, string>;
   setSelectedNodeId: Dispatch<SetStateAction<string | null>>;
   setSelectedRelationId: Dispatch<SetStateAction<string | null>>;
-  setRelationLabel: (value: string) => void;
   setRelationLabelDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setLastAction: (message: string) => void;
   commitDocument: (next: DiagramDocument, action: string, preservedNativeXml?: string) => void;
@@ -20,8 +17,8 @@ interface Options {
 }
 export function useDiagramEditing(options: Options) {
   const {
-    document, selectedNode, selectedRelationId, relationTargetId, relationLabel, relationLabelDrafts,
-    setSelectedNodeId, setSelectedRelationId, setRelationLabel, setRelationLabelDrafts, setLastAction,
+    document, selectedNode, selectedRelationId, relationLabelDrafts,
+    setSelectedNodeId, setSelectedRelationId, setRelationLabelDrafts, setLastAction,
     commitDocument, runLayout
   } = options;
   function addSequenceFragment() {
@@ -151,29 +148,70 @@ export function useDiagramEditing(options: Options) {
     void runLayout(next);
   }
 
-  async function addRelation() {
-    if (!selectedNode || !relationTargetId || relationTargetId === selectedNode.id) return;
-    const alreadyExists = document.relations.some((relation) =>
-      relation.source === selectedNode.id && relation.target === relationTargetId && relation.label === relationLabel.trim()
-    );
-    if (alreadyExists) {
-      setLastAction("That relation already exists");
+  async function createRelation(sourceId: string, targetId: string, rawLabel = "") {
+    const source = document.nodes.find((node) => node.id === sourceId);
+    const target = document.nodes.find((node) => node.id === targetId);
+    if (!source || !target || sourceId === targetId) {
+      setLastAction("A relation needs two different existing nodes");
       return;
     }
+    const label = rawLabel.trim().slice(0, 500);
+    const duplicate = document.relations.some((relation) =>
+      relation.source === sourceId && relation.target === targetId && relation.label.trim() === label
+    );
+    if (duplicate) {
+      setLastAction("That relation already exists");
+      setSelectedRelationId(document.relations.find((relation) =>
+        relation.source === sourceId && relation.target === targetId && relation.label.trim() === label
+      )?.id || null);
+      return;
+    }
+    const relationId = newId("relation");
     const next = await requestServerSequenceNormalize({
       ...document,
       relations: [...document.relations, {
-        id: newId("relation"),
-        source: selectedNode.id,
-        target: relationTargetId,
-        label: relationLabel.trim(),
+        id: relationId, source: sourceId, target: targetId, label,
         kind: document.kind === "sequence" ? "call" : "flow",
         sequenceOrder: document.kind === "sequence" ? document.relations.length : undefined,
         points: []
       }]
     });
-    setRelationLabel("");
-    commitDocument(next, "Linked " + selectedNode.name + " → " + (document.nodes.find((node) => node.id === relationTargetId)?.name || relationTargetId));
+    setSelectedNodeId(sourceId);
+    setSelectedRelationId(relationId);
+    commitDocument(next, "Linked " + source.name + " → " + target.name);
+    if (document.kind !== "sequence") void runLayout(next);
+  }
+
+  function updateRelationLabel(relationId: string, rawLabel: string) {
+    const current = document.relations.find((relation) => relation.id === relationId);
+    if (!current) return;
+    const label = rawLabel.slice(0, 500);
+    if (label === current.label) return;
+    const next: DiagramDocument = {
+      ...document,
+      relations: document.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation)
+    };
+    setRelationLabelDrafts((drafts) => {
+      const updated = { ...drafts };
+      delete updated[relationId];
+      return updated;
+    });
+    commitDocument(next, "Relation label updated");
+  }
+
+  function duplicateNodeById(nodeId: string) {
+    const original = document.nodes.find((node) => node.id === nodeId);
+    if (!original) return;
+    const id = newId(original.role);
+    const duplicate: DiagramNode = {
+      ...original, id, name: original.name + " copy",
+      x: original.x + 32, y: original.y + 32,
+      layoutHints: { ...(original.layoutHints || {}), locked: false }
+    };
+    const next = { ...document, nodes: [...document.nodes, duplicate] };
+    setSelectedNodeId(id);
+    setSelectedRelationId(null);
+    commitDocument(next, "Duplicated node: " + original.name);
     if (document.kind !== "sequence") void runLayout(next);
   }
 
@@ -256,7 +294,7 @@ export function useDiagramEditing(options: Options) {
 
   return {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, addNode, addRelation, commitRelationLabel, removeRelation, reverseRelation,
-    updateRelationStyle, removeNodeById, removeSelectedNode
+    changeNode, addNode, createRelation, updateRelationLabel, commitRelationLabel, removeRelation, reverseRelation,
+    updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
   };
 }
