@@ -45,7 +45,11 @@ export function applySemanticSideConstraints(doc: DiagramDocument): DiagramDocum
   if (doc.kind === "sequence") return { ...doc, nodes };
   const unlocked = nodes.filter((node) => !node.layoutHints?.locked);
   const sideOf = (node: DiagramNode): "LEFT" | "RIGHT" | "TOP" | "BOTTOM" | undefined => {
+    // Explicit per-node constraints apply in either direction. Automatic C4 zoning
+    // is horizontal-first; forcing external/storage columns into vertical Dagre
+    // layouts would defeat the user's selected orientation.
     if (node.layoutHints?.preferredSide) return node.layoutHints.preferredSide;
+    if (doc.layout.direction !== "RIGHT") return undefined;
     if (node.role === "external" || node.role === "vendor") return doc.layout.externalSide;
     if (node.role === "storage" || node.role === "data") return doc.layout.storageSide;
     if (node.role === "infra") return "BOTTOM";
