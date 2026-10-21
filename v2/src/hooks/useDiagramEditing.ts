@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DiagramDocument, DiagramNode, EdgeKind, SequenceFragment, VisualRole } from "../model/types";
+import type { DiagramBoundary, DiagramDocument, DiagramNode, EdgeKind, SequenceFragment, VisualRole } from "../model/types";
 import { requestServerSequenceNormalize } from "../api/diagram-operations";
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
@@ -91,6 +91,32 @@ export function useDiagramEditing(options: Options) {
     });
     commitDocument(next, "Relation endpoints updated");
     if (document.kind !== "sequence") void runLayout(next);
+  }
+
+  function updateBoundary(boundaryId: string, patch: Partial<DiagramBoundary>) {
+    const current = document.boundaries.find((boundary) => boundary.id === boundaryId);
+    if (!current) return;
+    const members = patch.members === undefined ? current.members : [...new Set(patch.members.filter((id) => document.nodes.some((node) => node.id === id)) )];
+    const name = patch.name === undefined ? current.name : patch.name.trim().slice(0, 200);
+    if (!name || !members.length) {
+      setLastAction(!name ? "Boundary name cannot be empty" : "A boundary must contain at least one node");
+      return;
+    }
+    const next = { ...document, boundaries: document.boundaries.map((boundary) => boundary.id === boundaryId ? { ...boundary, ...patch, name, members } : boundary) };
+    commitDocument(next, "Boundary updated: " + name);
+  }
+
+  function createBoundaryForNode(nodeId: string) {
+    const node = document.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const boundary: DiagramBoundary = { id: newId("boundary"), name: node.name + " boundary", members: [nodeId] };
+    commitDocument({ ...document, boundaries: [...document.boundaries, boundary] }, "Created boundary around " + node.name);
+  }
+
+  function removeBoundary(boundaryId: string) {
+    const current = document.boundaries.find((boundary) => boundary.id === boundaryId);
+    if (!current) return;
+    commitDocument({ ...document, boundaries: document.boundaries.filter((boundary) => boundary.id !== boundaryId) }, "Boundary removed: " + current.name);
   }
 
   function renameNode(nodeId: string, name: string) {
@@ -283,6 +309,6 @@ export function useDiagramEditing(options: Options) {
   return {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
     changeNode, renameNode, addNode, createRelation, updateRelationLabel, removeRelation, reverseRelation,
-    updateRelationKind, updateRelationStyle, removeNodeById, duplicateNodeById
+    updateRelationKind, updateRelationStyle, updateBoundary, createBoundaryForNode, removeBoundary, removeNodeById, duplicateNodeById
   };
 }
