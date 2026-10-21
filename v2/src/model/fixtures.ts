@@ -64,6 +64,8 @@ export function createC4Fixture(): DiagramDocument {
 export function createFlowFixture(): DiagramDocument {
   const doc = base("flow-proxy-vote", "Proxy voting workflow", "flowchart");
   doc.layout.profile = "process-main-path";
+  doc.layout.nodeSpacing = 44;
+  doc.layout.layerSpacing = 72;
   doc.nodes = [
     node("start", "New ballot", "start", "primary"),
     node("ingest", "Import ballot", "entry", "primary", "Load vendor agenda and resolutions"),
@@ -78,6 +80,10 @@ export function createFlowFixture(): DiagramDocument {
     node("audit", "Persist audit trail", "storage", "secondary", "Evidence, decisions and timestamps"),
     node("end", "Completed", "end", "primary")
   ];
+  doc.nodes = doc.nodes.map((item) => ({
+    ...item,
+    width: item.role === "decision" ? 156 : item.role === "start" || item.role === "end" ? 154 : 172
+  }));
   doc.relations = [
     edge("f1", "start", "ingest", ""),
     edge("f2", "ingest", "validate", ""),
