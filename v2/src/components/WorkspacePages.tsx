@@ -106,7 +106,7 @@ interface Props {
 
 /** Ant Design Button adapter retaining existing semantic HTML button attributes. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <Button {...props} htmlType={type === "submit" ? "submit" : "button"} />;
+  return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
 }
 
 function formattedTime(timestamp: string): string {
