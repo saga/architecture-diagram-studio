@@ -212,7 +212,10 @@ export default function DiagramCanvas({
         </g>;
       })}
       {document.kind === "sequence" && (document.sequence?.fragments || []).map((fragment) => {
-        const participantNodes = displayNodes.filter((node) => (document.sequence?.participants || []).includes(node.id));
+        const fragmentParticipantIds = fragment.participants?.length
+          ? fragment.participants
+          : (document.sequence?.participants || []);
+        const participantNodes = displayNodes.filter((node) => fragmentParticipantIds.includes(node.id));
         if (!participantNodes.length) return null;
         const left = Math.min(...participantNodes.map((node) => node.x)) - 12;
         const right = Math.max(...participantNodes.map((node) => node.x + node.width)) + 12;
