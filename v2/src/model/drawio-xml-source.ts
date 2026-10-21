@@ -118,9 +118,18 @@ export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, pre
   }
 
   const included = new Set(source.cells.filter((cell) => nextIds.has(cell.id)).map((cell) => cell.id));
+  const newVertices: string[] = [];
+  const newEdges: string[] = [];
   for (const cell of next.cells) {
-    if (!included.has(cell.id)) merged.push(cell.raw);
+    if (included.has(cell.id)) continue;
+    if (attribute(cell.raw, "edge") === "1") newEdges.push(cell.raw);
+    else newVertices.push(cell.raw);
   }
+  // mxGraph paints edges behind vertices, so newly created vertices must be inserted
+  // before the first edge while newly created edges are appended after all vertices.
+  const firstEdge = merged.findIndex((raw) => attribute(raw, "edge") === "1");
+  if (newVertices.length) merged.splice(firstEdge < 0 ? merged.length : firstEdge, 0, ...newVertices);
+  merged.push(...newEdges);
   return sourceXml.slice(0, source.start) + merged.join("") + sourceXml.slice(source.end);
 }
 
