@@ -235,7 +235,7 @@ export default function DiagramCanvas({
     <svg ref={svgRef} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
       viewBox={(frame.width * (1 - 1 / zoom) / 2 + pan.x) + " " + (frame.height * (1 - 1 / zoom) / 2 + pan.y) + " " + (frame.width / zoom) + " " + (frame.height / zoom)}
       preserveAspectRatio={document.kind === "flowchart" ? "xMidYMin meet" : "xMidYMid meet"} onPointerDown={startPan}
-      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={(event) => { setConnectionDrag(null); endDrag(event); }}
+      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { setConnectionDrag(null); setDrag(null); setPanGesture(null); }}
       onContextMenu={(event) => { event.preventDefault(); onContextMenu({ kind: "canvas" }, event.clientX, event.clientY); }}
       role="group" aria-labelledby={titleId} aria-describedby={descriptionId}>
       <title id={titleId}>{document.title}</title>
