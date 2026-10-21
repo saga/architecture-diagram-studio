@@ -42,8 +42,15 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
     };
     // Lifelines run through each participant's center. During an active call,
     // connect to the activation bar's edge; otherwise connect to the lifeline.
-    start = { x: endpointX(source, tx), y };
-    end = { x: endpointX(target, sx), y };
+    if (source.id === target.id) {
+      const active = activeActivation(source.id);
+      const x = center(source).x + (active ? 7 : 0);
+      start = { x, y };
+      end = { x, y: y + 24 };
+    } else {
+      start = { x: endpointX(source, tx), y };
+      end = { x: endpointX(target, sx), y };
+    }
   } else {
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
@@ -58,7 +65,9 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
       end = { x: target.x + target.width, y: t.y };
     }
   }
-  const all = [start, ...points, end];
+  const all = document.kind === "sequence" && source.id === target.id
+    ? [start, { x: center(source).x + 34, y: start.y }, { x: center(source).x + 34, y: end.y }, end]
+    : [start, ...points, end];
   const routing = relation.routing || document.layout.routing;
   let d = "M " + all[0].x + " " + all[0].y;
   if (routing === "curved" && all.length > 2) {
