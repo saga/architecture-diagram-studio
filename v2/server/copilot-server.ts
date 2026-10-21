@@ -188,8 +188,11 @@ app.get("/api/workspace/configuration", async (_req, res) => {
   try {
     const config = await getStudioConfig();
     const historyText = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
-    const revisions = parseConfigHistory(historyText).length;
-    res.json({ config, revisions, historyFile: CONFIG_HISTORY_FILE });
+    const records = parseConfigHistory(historyText);
+    const revisions = records.length;
+    const latestConfigRecord = [...records].reverse().find((item) => Array.isArray(item.layoutProfiles) && item.prompts && typeof item.prompts === "object");
+    const hasRuntimeSettings = Boolean(latestConfigRecord && typeof latestConfigRecord.model === "string" && (latestConfigRecord.reasoningEffort === "high" || latestConfigRecord.reasoningEffort === "max"));
+    res.json({ config, revisions, hasRuntimeSettings, historyFile: CONFIG_HISTORY_FILE });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.get("/api/workspace/configuration/history", async (_req, res) => {
