@@ -488,7 +488,7 @@ app.get("/api/workspace/diagram/active", async (_req, res) => {
     if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) {
       res.status(404).json({ error: "当前工作区没有可用的已保存主图" }); return;
     }
-    res.json({ document: state.document, drawioXml: state.drawioXml, revision: documentRevision(state.document), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
+    res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: documentRevision(state.document), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/proposals", async (req, res) => {
@@ -795,7 +795,7 @@ app.get("/api/workspace/versions/:id", async (req, res) => {
     const workspace = await getProjectWorkspace();
     const version = (await getDiagramVersions()).find((item) => item.id === req.params.id && (!workspace || item.workspaceId === workspace.id));
     if (!version) { res.status(404).json({ error: "版本不存在" }); return; }
-    res.json({ version });
+    res.json({ version: req.query.includeXml === "false" ? { id: version.id, workspaceId: version.workspaceId, createdAt: version.createdAt, label: version.label, document: version.document } : version });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
