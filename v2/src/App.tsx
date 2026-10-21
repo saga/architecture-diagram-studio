@@ -286,7 +286,7 @@ export default function App() {
       let effectiveText = text;
       let modelReply = "";
       if (aiModel.trim()) {
-        recordDiagnostic("copilot.model.request", "请求兼容模型生成受限布局计划", {
+        recordDiagnostic("copilot.agent.request", "请求 Copilot SDK Agent 生成受限布局计划", {
           model: aiModel.trim(), provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
@@ -300,8 +300,10 @@ export default function App() {
           }
         );
         modelReply = plan.reply;
-        recordDiagnostic("copilot.model.response", "已收到模型布局计划", {
-          model: aiModel.trim(), commandCount: plan.commands.length, replyLength: plan.reply.length
+        recordDiagnostic("copilot.agent.response", "已收到 Copilot SDK Agent 工具计划", {
+          provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
+          durationMs: plan.durationMs, toolUsed: "propose_layout_plan",
+          commandCount: plan.commands.length, replyLength: plan.reply.length
         });
         if (!plan.commands.length) {
           recordDiagnostic("copilot.plan.empty", "模型未返回可执行布局指令，未修改正式文档", {}, "warn");
@@ -355,7 +357,7 @@ export default function App() {
       window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next));
     } catch {
       saved = false;
-      setLastAction("无法保存模型接口设置；当前页面仍可使用已输入的配置");
+      setLastAction("无法保存 Copilot SDK 模型设置；当前页面仍可继续使用");
     }
     recordDiagnostic("settings.model.saved", saved ? "模型接口配置已保存" : "模型接口配置无法写入浏览器存储", {
       provider: "github-copilot-sdk", model: next.model || "server-default", persisted: saved
