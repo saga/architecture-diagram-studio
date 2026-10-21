@@ -67,7 +67,8 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
   </section>;
 }
 
-\nexport type WorkspacePage = "studio" | "copilot" | "traces" | "settings";
+
+export type WorkspacePage = "studio" | "copilot" | "traces" | "settings";
 type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
