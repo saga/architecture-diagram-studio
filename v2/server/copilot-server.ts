@@ -142,7 +142,7 @@ app.put("/api/workspace/document", async (req, res) => {
           documentId: (document as { id: string }).id, xmlLength: drawioXml.length,
           nodeCount: (document as { nodes: unknown[] }).nodes.length,
           relationCount: (document as { relations: unknown[] }).relations.length
-        }) + "\\n", "utf8");
+        }) + "\n", "utf8");
         return { saved: true, version };
       }
       return { saved: false, version: versions[versions.length - 1] ?? null };
@@ -173,7 +173,7 @@ app.put("/api/workspace/chat", async (req, res) => {
       await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: new Date().toISOString(), event: "copilot.chat.persisted",
         sessionId: workspaceState.copilotSessionId, messageCount: chatMessages.length
-      }) + "\\n", "utf8");
+      }) + "\n", "utf8");
     });
     res.json({ ok: true, copilotSessionId, messageCount: chatMessages.length });
   } catch (error) {
@@ -198,7 +198,7 @@ app.post("/api/workspace/logs", async (req, res) => {
       message: item.message.slice(0, 1000),
       details: item.details && typeof item.details === "object" ? item.details : {}
     };
-    await withDataWrite(async () => { await mkdir(DATA_DIR, { recursive: true }); await appendFile(APP_LOG_FILE, JSON.stringify(record) + "\\n", "utf8"); });
+    await withDataWrite(async () => { await mkdir(DATA_DIR, { recursive: true }); await appendFile(APP_LOG_FILE, JSON.stringify(record) + "\n", "utf8"); });
     res.status(204).end();
   } catch (error) {
     console.error("[studio:server] failed to persist application log", error);
@@ -210,7 +210,7 @@ app.get("/api/workspace/logs", async (req, res) => {
   try {
     const raw = await readFile(APP_LOG_FILE, "utf8").catch(() => "");
     const limit = Math.min(10000, Math.max(1, Number(req.query.limit) || 2000));
-    const logs = raw.split("\\n").filter(Boolean).slice(-limit).flatMap((line) => {
+    const logs = raw.split("\n").filter(Boolean).slice(-limit).flatMap((line) => {
       try { return [JSON.parse(line)]; } catch { return []; }
     });
     res.json({ logs, logFile: APP_LOG_FILE });
