@@ -13,7 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
 import { createDiagramAgentTools, type AgentProposalView } from "./copilot/diagram-tools";
-import { createWorkspaceFileService, type ProjectWorkspace, type WorkspaceFileEntry } from "./workspace-files";
+import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
@@ -553,7 +553,7 @@ app.post("/api/workspace/scan", async (req, res) => {
     const previous = await getProjectWorkspace();
     const now = new Date().toISOString();
     const sameRoot = previous?.rootPath === rootPath;
-    const workspace: ProjectWorkspace = { schemaVersion: 1, id: sameRoot ? previous.id : randomUUID(), name: resolved.repositoryRoot ? path.basename(rootPath) : name, rootPath, primaryDiagram: null, includePatterns: sameRoot ? previous.includePatterns : [], excludePatterns: sameRoot ? previous.excludePatterns : [], createdAt: sameRoot ? previous.createdAt : now, updatedAt: now };
+    const workspace: ProjectWorkspace = { schemaVersion: 1, id: sameRoot && previous ? previous.id : randomUUID(), name: resolved.repositoryRoot ? path.basename(rootPath) : name, rootPath, primaryDiagram: null, includePatterns: sameRoot && previous ? previous.includePatterns : [], excludePatterns: sameRoot && previous ? previous.excludePatterns : [], createdAt: sameRoot && previous ? previous.createdAt : now, updatedAt: now };
     const files = await scanWorkspaceFiles(workspace);
     res.json({ workspace, requestedRoot: resolved.requestedPath, repositoryRoot: resolved.repositoryRoot, rootAdjusted: resolved.requestedPath !== rootPath, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } });
   } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -568,7 +568,7 @@ app.put("/api/workspace/config", async (req, res) => {
     const previous = await getProjectWorkspace();
     const now = new Date().toISOString();
     const sameRoot = previous?.rootPath === rootPath;
-    const workspace: ProjectWorkspace = { schemaVersion: 1, id: sameRoot ? previous.id : randomUUID(), name: resolved.repositoryRoot ? path.basename(rootPath) : name, rootPath, primaryDiagram: req.body?.primaryDiagram === null ? null : typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram : sameRoot ? previous.primaryDiagram : null, includePatterns: Array.isArray(req.body?.includePatterns) ? req.body.includePatterns.filter((v: unknown) => typeof v === "string").slice(0, 100) : sameRoot ? previous.includePatterns : [], excludePatterns: Array.isArray(req.body?.excludePatterns) ? req.body.excludePatterns.filter((v: unknown) => typeof v === "string").slice(0, 200) : sameRoot ? previous.excludePatterns : [], createdAt: sameRoot ? previous.createdAt : now, updatedAt: now };
+    const workspace: ProjectWorkspace = { schemaVersion: 1, id: sameRoot && previous ? previous.id : randomUUID(), name: resolved.repositoryRoot ? path.basename(rootPath) : name, rootPath, primaryDiagram: req.body?.primaryDiagram === null ? null : typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram : sameRoot && previous ? previous.primaryDiagram : null, includePatterns: Array.isArray(req.body?.includePatterns) ? req.body.includePatterns.filter((v: unknown) => typeof v === "string").slice(0, 100) : sameRoot && previous ? previous.includePatterns : [], excludePatterns: Array.isArray(req.body?.excludePatterns) ? req.body.excludePatterns.filter((v: unknown) => typeof v === "string").slice(0, 200) : sameRoot && previous ? previous.excludePatterns : [], createdAt: sameRoot && previous ? previous.createdAt : now, updatedAt: now };
     const files = await scanWorkspaceFiles(workspace);
     if (workspace.primaryDiagram && !files.some((item) => item.path === workspace.primaryDiagram && item.kind === "diagram")) workspace.primaryDiagram = null;
     await withDataWrite(async () => { projectWorkspace = workspace; await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace); });
