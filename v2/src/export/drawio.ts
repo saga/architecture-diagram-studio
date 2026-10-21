@@ -54,7 +54,9 @@ function boundaryXml(doc: DiagramDocument, boundary: DiagramDocument["boundaries
   const maxX = Math.max(...members.map((n) => n.x + n.width)) + padding;
   const maxY = Math.max(...members.map((n) => n.y + n.height)) + padding;
   const membersAttribute = boundary.members.join(",");
-  const style = "rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=5A6B84;strokeWidth=1;dashed=1;dashPattern=3 5;fontColor=#78869A;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=7;studioBoundary=1;studioMembers=" + membersAttribute + ";";
+  const style = "rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=none;strokeColor=" + tokens.borderStrong +
+    ";strokeWidth=1;dashed=1;dashPattern=3 5;fontColor=" + tokens.inkMuted +
+    ";fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=7;studioBoundary=1;studioMembers=" + membersAttribute + ";";
   return "<mxCell id=\"" + esc(boundary.id) + "\" value=\"" + esc(boundary.name.toUpperCase()) + "\" style=\"" + esc(style) +
     "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" + Math.round(minX) + "\" y=\"" + Math.round(minY) + "\" width=\"" +
     Math.round(maxX - minX) + "\" height=\"" + Math.round(maxY - minY) + "\" as=\"geometry\"/></mxCell>";
