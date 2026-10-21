@@ -5,7 +5,7 @@ import { readFile, readdir, realpath, stat, lstat } from "node:fs/promises";
 
 const DATA_DIR = process.env.STUDIO_DATA_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "data");
 const CONFIG_FILE = path.join(DATA_DIR, "project-workspace.json");
-const STUDIO_API_URL = (process.env.STUDIO_API_URL || "http://127.0.0.1:4175").replace(/\\/$/, "");
+const STUDIO_API_URL = (process.env.STUDIO_API_URL || "http://127.0.0.1:4175").replace(/\/$/, "");
 const MAX_RESULT_CHARS = 1_000_000;
 type Workspace = { schemaVersion: number; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type FileEntry = { path: string; name: string; kind: string; size: number; modifiedAt: string };
@@ -184,7 +184,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const limit = Math.min(20, Math.max(1, Number(args.limit) || 10));
     const files = (await listFiles(await getWorkspace())).filter((f) => f.kind === "diagram" || f.kind === "document").slice(0, 1000);
     const matches: Array<{ path: string; kind: string; score: number; excerpts: string[] }> = [];
-    const terms = query.split(/\\s+/).filter(Boolean).slice(0, 12);
+    const terms = query.split(/\s+/).filter(Boolean).slice(0, 12);
     for (const file of files) {
       if (file.size > 1024 * 1024) continue;
       const body = await readWorkspaceFile(file.path).catch(() => "");
@@ -192,7 +192,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       const lower = body.toLowerCase();
       const score = terms.length ? terms.reduce((sum, term) => sum + (lower.includes(term) ? 1 : 0), 0) : (file.kind === "diagram" ? 1 : 0);
       if (score === 0) continue;
-      const lines = body.split(/\\r?\\n/);
+      const lines = body.split(/\r?\n/);
       const excerpts = lines.filter((line) => !terms.length || terms.some((term) => line.toLowerCase().includes(term))).slice(0, 5).map((line) => line.slice(0, 400));
       matches.push({ path: file.path, kind: file.kind, score, excerpts });
     }
