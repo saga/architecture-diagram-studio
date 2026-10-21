@@ -95,6 +95,15 @@ export function useDiagramEditing(options: Options) {
     if (document.kind !== "sequence") void runLayout(next);
   }
 
+  function renameNode(nodeId: string, name: string) {
+    const normalized = name.trim().slice(0, 200);
+    if (!normalized) return;
+    const current = document.nodes.find((node) => node.id === nodeId);
+    if (!current || current.name === normalized) return;
+    const next = { ...document, nodes: document.nodes.map((node) => node.id === nodeId ? { ...node, name: normalized } : node) };
+    commitDocument(next, "Renamed node: " + normalized);
+  }
+
   function changeNode(patch: Partial<DiagramNode>) {
     if (!selectedNode) return;
     const next = {
@@ -294,7 +303,7 @@ export function useDiagramEditing(options: Options) {
 
   return {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, addNode, createRelation, updateRelationLabel, commitRelationLabel, removeRelation, reverseRelation,
+    changeNode, renameNode, addNode, createRelation, updateRelationLabel, commitRelationLabel, removeRelation, reverseRelation,
     updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
   };
 }
