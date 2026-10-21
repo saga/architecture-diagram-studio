@@ -22,7 +22,7 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 - Studio Editorial visual system, functional canvas zoom, draggable nodes, and nearest-free-position snapping when a drag would overlap another node.
 - Local Draw.io iframe mode, native editable XML export, and import of plain or compressed Draw.io XML (including Studio semantic metadata). Native XML is kept separately after Draw.io edits so the next model sync does not immediately overwrite unmodeled native styles.
 - Local intent commands for line style, routing, external placement, storage placement, layout direction and lock clearing; individual relations also expose label, direction, routing and dashed/solid controls.
-- Reviewable intent previews (apply/discard), 50-step in-session undo/redo, browser-local document persistence with runtime schema validation, deterministic route-variant scoring, hard layout checks, and regression tests.
+- Reviewable intent previews (apply/discard), 50-step in-session undo/redo, server-authoritative document persistence with runtime schema validation, deterministic route-variant scoring, hard layout checks, and regression tests.
 
 ## Intentional boundary
 
@@ -42,7 +42,7 @@ The V2 workspace uses `antd` for shared enterprise controls and theme tokens, wi
 
 ## Workspace pages and diagnostics
 
-The top navigation separates **Studio**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page stores structured events in browser-local storage and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. It is local application telemetry, not a remote LLM tracing service.
+The top navigation separates **Studio**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page reads structured application events from the server and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. This application log is separate from the full Copilot SDK session audit log.
 
 While `npm run dev` is running, browser events are also posted to a same-origin, development-only Vite middleware and printed to the terminal as `[studio:v2]` JSON records. The diagnostic payload is bounded and redacts credential-like keys, prompt bodies, and raw XML; it records metadata such as duration, event name, diagram counts, and error summaries.
 
