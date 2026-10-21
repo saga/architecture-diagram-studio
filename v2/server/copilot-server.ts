@@ -152,6 +152,15 @@ const sessions = new Map<string, RuntimeSession>();
 let logWriteQueue: Promise<void> = Promise.resolve();
 const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
 
+function logPrefixForEvent(event: string): string {
+  if (event.startsWith("layout.")) return "[studio:layout]";
+  if (event.startsWith("diagram.")) return "[studio:diagram]";
+  if (event.startsWith("workspace.") || event.startsWith("settings.") || event.startsWith("project.")) return "[studio:workspace]";
+  if (event.startsWith("client.") || event.startsWith("session.") || event.startsWith("sdk.") ||
+      event.startsWith("request.") || event.startsWith("turn.") || event.startsWith("tool.")) return "[studio:ai]";
+  return "[studio:server]";
+}
+
 async function writeLog(event: string, fields: Record<string, unknown> = {}): Promise<void> {
   const record = { timestamp: new Date().toISOString(), workspaceId: projectWorkspace?.id ?? null, event, ...fields };
   const line = JSON.stringify(record) + "\n";
@@ -160,11 +169,11 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
     await appendFile(LOG_FILE, line, "utf8");
   });
   logWriteQueue = persist.catch((error) => {
-    console.error("[studio:ai] failed to persist log", error instanceof Error ? error.message : String(error));
+    console.error("[studio:server] failed to persist log", error instanceof Error ? error.message : String(error));
   });
   await logWriteQueue;
   const level = event.endsWith(".failed") || event.endsWith(".error") ? "error" : "info";
-  (level === "error" ? console.error : console.info)("[studio:ai]", record);
+  (level === "error" ? console.error : console.info)(logPrefixForEvent(event), record);
 }
 
 async function getCopilotClient(): Promise<CopilotClient> {
@@ -1091,7 +1100,7 @@ app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
 });
 
 const server = app.listen(PORT, "127.0.0.1", () => {
-  console.log(`[studio:ai] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; logs=${LOG_FILE}`);
+  console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; logs=${LOG_FILE}`);
 });
 const cleanupTimer = SESSION_IDLE_TTL_MS > 0 ? setInterval(() => {
   const now = Date.now();
