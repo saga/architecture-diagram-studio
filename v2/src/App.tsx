@@ -215,7 +215,27 @@ export default function App() {
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [workspacePrimaryDiagram, setWorkspacePrimaryDiagram] = useState("");
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
-  useEffect(() => { let active = true; void fetch("/api/workspace/configuration").then(async (response) => { if (!response.ok) throw new Error("读取布局算法配置失败"); return response.json() as Promise<{ config?: { layoutProfiles?: string[] } }>; }).then((payload) => { if (active && Array.isArray(payload.config?.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles); }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/workspace/configuration")
+      .then(async (response) => { if (!response.ok) throw new Error("读取 Studio 配置失败"); return response.json() as Promise<{ config?: { layoutProfiles?: string[]; model?: string; reasoningEffort?: "high" | "max" }; revisions?: number }>; })
+      .then(async (payload) => {
+        if (!active || !payload.config) return;
+        if (Array.isArray(payload.config.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles);
+        // Migrate the previous browser-only model preference into the authoritative server JSONL config once.
+        if ((payload.revisions || 0) === 0) {
+          const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: savedAISettings.model, reasoningEffort: savedAISettings.reasoningEffort } }) });
+          const migrated = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max" }; error?: string };
+          if (!response.ok || !migrated.config) throw new Error(migrated.error || "迁移模型设置失败");
+          if (active) { setAiModel(migrated.config.model || ""); setReasoningEffort(migrated.config.reasoningEffort || "max"); }
+        } else {
+          if (active && typeof payload.config.model === "string") setAiModel(payload.config.model);
+          if (active && (payload.config.reasoningEffort === "high" || payload.config.reasoningEffort === "max")) setReasoningEffort(payload.config.reasoningEffort);
+        }
+      })
+      .catch((error) => { if (active) recordDiagnostic("settings.configuration.load.failed", "无法加载服务端版本化配置", { errorMessage: error instanceof Error ? error.message : String(error) }, "error"); });
+    return () => { active = false; };
+  }, []);
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("自动保存");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
@@ -662,30 +682,38 @@ export default function App() {
     }
   }
 
-  function saveAISettings() {
-    const next = { baseUrl: "copilot-sdk", model: aiModel.trim(), reasoningEffort };
-    setAiBaseUrl("copilot-sdk");
-    setAiModel(next.model);
-    let saved = true;
+  async function saveAISettings() {
+    const next = { model: aiModel.trim(), reasoningEffort };
     try {
-      window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next));
-    } catch {
-      saved = false;
-      setLastAction("无法保存 Copilot SDK 模型设置；当前页面仍可继续使用");
+      const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: next }) });
+      const payload = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max"; revisionId?: string }; error?: string };
+      if (!response.ok || !payload.config) throw new Error(payload.error || "服务端配置保存失败");
+      setAiBaseUrl("copilot-sdk");
+      setAiModel(payload.config.model || "");
+      setReasoningEffort(payload.config.reasoningEffort || "max");
+      try { window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify({ baseUrl: "copilot-sdk", ...next })); } catch { /* Server JSONL is authoritative. */ }
+      recordDiagnostic("settings.model.saved", "模型与推理强度已写入服务端配置版本", { model: next.model || "local-rules", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
+      setLastAction(next.model ? "Copilot SDK 模型配置已保存并创建版本" : "已保存本地规则模式配置版本");
+    } catch (error) {
+      setLastAction("模型配置保存失败：" + (error instanceof Error ? error.message : String(error)));
+      recordDiagnostic("settings.model.save.failed", "模型配置未保存", { errorMessage: error instanceof Error ? error.message : String(error) }, "error");
     }
-    recordDiagnostic("settings.model.saved", saved ? "模型接口配置已保存" : "模型接口配置无法写入浏览器存储", {
-      provider: "github-copilot-sdk", model: next.model || "server-default", persisted: saved
-    }, saved ? "info" : "warn");
-    if (saved) setLastAction(next.model ? "Copilot SDK 模型配置已保存" : "已切回本地规则模式");
   }
 
-  function clearAISettings() {
-    setAiBaseUrl("");
-    setAiModel("");
-    setAiApiKey("");
-    try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Ignore unavailable storage. */ }
-    setLastAction("已切回本地规则模式");
-    recordDiagnostic("settings.model.cleared", "已清除持久模型配置并切换到本地规则", {}, "warn");
+  async function clearAISettings() {
+    try {
+      const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: "" } }) });
+      const payload = await response.json() as { config?: { model?: string; revisionId?: string }; error?: string };
+      if (!response.ok || !payload.config) throw new Error(payload.error || "服务端配置保存失败");
+      setAiBaseUrl("");
+      setAiModel("");
+      setAiApiKey("");
+      try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Server JSONL is authoritative. */ }
+      setLastAction("已保存本地规则模式配置版本");
+      recordDiagnostic("settings.model.cleared", "模型配置已在服务端版本历史中清除", { revisionId: payload.config.revisionId }, "warn");
+    } catch (error) {
+      setLastAction("清除模型配置失败：" + (error instanceof Error ? error.message : String(error)));
+    }
   }
 
   function addSequenceFragment() {
