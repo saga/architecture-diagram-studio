@@ -37,9 +37,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode
   } = options;
 
-  return useCallback(async () => {
+  return useCallback(async (promptOverride?: string) => {
     if (!projectWorkspace) { setWorkspaceSetupOpen(true); return; }
-    const text = chatInput.trim();
+    const text = (promptOverride ?? chatInput).trim();
     if (!text || chatBusy) return;
     const startedAt = Date.now();
     recordDiagnostic("copilot.request.started", "Layout intent handling started", {
@@ -48,7 +48,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       inputLength: text.length
     });
     setMessages((items) => [...items, { role: "user", id: Date.now(), text }]);
-    setChatInput("");
+    if (!promptOverride) setChatInput("");
     setChatBusy(true);
     try {
       if (!workspaceContentReady) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
