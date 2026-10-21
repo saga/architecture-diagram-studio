@@ -20,8 +20,8 @@ const PROJECT_WORKSPACE_FILE = path.join(DATA_DIR, "project-workspace.json");
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFileEntry = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 let projectWorkspace: ProjectWorkspace | null | undefined;
-type DiagramVersion = { id: string; createdAt: string; label: string; document: unknown; drawioXml: string };
-type WorkspaceState = { document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
+type DiagramVersion = { id: string; workspaceId?: string; createdAt: string; label: string; document: unknown; drawioXml: string };
+type WorkspaceState = { workspaceId?: string; document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
 let dataWriteQueue: Promise<void> = Promise.resolve();
 let workspaceState: WorkspaceState | null = null;
 let diagramVersions: DiagramVersion[] | null = null;
@@ -195,7 +195,7 @@ async function collectAgentWorkspaceContext(): Promise<unknown> {
 }
 
 app.get("/api/workspace/config", async (_req, res) => { try { const workspace = await getProjectWorkspace(); res.json({ workspace, configured: Boolean(workspace) }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
-app.put("/api/workspace/config", async (req, res) => { try { const name = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : ""; const requestedRoot = typeof req.body?.rootPath === "string" ? req.body.rootPath.trim() : ""; if (!name || !requestedRoot || requestedRoot.length > 2048) { res.status(400).json({ error: "工作区名称和本机目录路径不能为空" }); return; } const rootPath = await realpath(path.resolve(requestedRoot)); const rootStat = await stat(rootPath); if (!rootStat.isDirectory()) { res.status(400).json({ error: "指定路径不是目录" }); return; } const previous = await getProjectWorkspace(); const now = new Date().toISOString(); const workspace: ProjectWorkspace = { schemaVersion: 1, id: previous?.id || randomUUID(), name, rootPath, primaryDiagram: typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram : previous?.primaryDiagram || null, includePatterns: Array.isArray(req.body?.includePatterns) ? req.body.includePatterns.filter((v: unknown) => typeof v === "string").slice(0, 100) : previous?.includePatterns || [], excludePatterns: Array.isArray(req.body?.excludePatterns) ? req.body.excludePatterns.filter((v: unknown) => typeof v === "string").slice(0, 200) : previous?.excludePatterns || [], createdAt: previous?.createdAt || now, updatedAt: now }; const files = await scanWorkspaceFiles(workspace); if (workspace.primaryDiagram && !files.some((item) => item.path === workspace.primaryDiagram && item.kind === "diagram")) workspace.primaryDiagram = null; await withDataWrite(async () => { projectWorkspace = workspace; await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace); }); await writeLog("workspace.project.configured", { workspaceId: workspace.id, name, rootPath, fileCount: files.length, diagramCount: files.filter((f) => f.kind === "diagram").length }); res.json({ workspace, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { await writeLog("workspace.project.configure.failed", { rootPath: req.body?.rootPath, error: error instanceof Error ? error.message : String(error) }); res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+app.put("/api/workspace/config", async (req, res) => { try { const name = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : ""; const requestedRoot = typeof req.body?.rootPath === "string" ? req.body.rootPath.trim() : ""; if (!name || !requestedRoot || requestedRoot.length > 2048) { res.status(400).json({ error: "工作区名称和本机目录路径不能为空" }); return; } const rootPath = await realpath(path.resolve(requestedRoot)); const rootStat = await stat(rootPath); if (!rootStat.isDirectory()) { res.status(400).json({ error: "指定路径不是目录" }); return; } const previous = await getProjectWorkspace(); const now = new Date().toISOString(); const workspace: ProjectWorkspace = { schemaVersion: 1, id: previous && previous.rootPath === rootPath ? previous.id : randomUUID(), name, rootPath, primaryDiagram: typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram : previous?.primaryDiagram || null, includePatterns: Array.isArray(req.body?.includePatterns) ? req.body.includePatterns.filter((v: unknown) => typeof v === "string").slice(0, 100) : previous?.includePatterns || [], excludePatterns: Array.isArray(req.body?.excludePatterns) ? req.body.excludePatterns.filter((v: unknown) => typeof v === "string").slice(0, 200) : previous?.excludePatterns || [], createdAt: previous?.createdAt || now, updatedAt: now }; const files = await scanWorkspaceFiles(workspace); if (workspace.primaryDiagram && !files.some((item) => item.path === workspace.primaryDiagram && item.kind === "diagram")) workspace.primaryDiagram = null; await withDataWrite(async () => { projectWorkspace = workspace; await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace); }); await writeLog("workspace.project.configured", { workspaceId: workspace.id, name, rootPath, fileCount: files.length, diagramCount: files.filter((f) => f.kind === "diagram").length }); res.json({ workspace, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { await writeLog("workspace.project.configure.failed", { rootPath: req.body?.rootPath, error: error instanceof Error ? error.message : String(error) }); res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
 app.get("/api/workspace/files", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "请先配置项目工作区" }); return; } const files = await scanWorkspaceFiles(workspace); res.json({ workspaceId: workspace.id, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
 app.get("/api/workspace/files/content", async (req, res) => { try { const relativePath = typeof req.query.path === "string" ? req.query.path : ""; const { workspace, absolutePath } = await resolveWorkspaceFile(relativePath); const info = await stat(absolutePath); if (info.size > 1024 * 1024) { res.status(413).json({ error: "文件超过 1 MiB，拒绝作为上下文读取" }); return; } const content = await readFile(absolutePath, "utf8"); await writeLog("workspace.file.read", { workspaceId: workspace.id, path: relativePath, bytes: info.size }); res.json({ workspaceId: workspace.id, path: relativePath, content, size: info.size }); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
 app.get("/api/workspace/agent-context", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "请先配置项目工作区" }); return; } const files = await scanWorkspaceFiles(workspace); const relevant = [...files.filter((f) => f.kind === "diagram"), ...files.filter((f) => f.kind === "code").slice(0, 100), ...files.filter((f) => f.kind === "document").slice(0, 100)].slice(0, 250); const snippets: Array<{path:string;kind:string;content:string;truncated:boolean}> = []; let budget = 120000; for (const item of relevant) { if (budget <= 0) break; if (item.size > 512 * 1024 || item.kind === "other") continue; if ([".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock"].includes(path.extname(item.path).toLowerCase())) continue; const absolute = path.resolve(workspace.rootPath, item.path); const content = await readFile(absolute, "utf8").catch(() => ""); const excerpt = content.slice(0, Math.min(content.length, budget, item.kind === "diagram" ? 24000 : 6000)); if (excerpt) { snippets.push({ path: item.path, kind: item.kind, content: excerpt, truncated: excerpt.length < content.length }); budget -= excerpt.length; } } res.json({ workspace: { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath, primaryDiagram: workspace.primaryDiagram }, files: relevant.map(({path: filePath, kind, size}) => ({ path: filePath, kind, size })), snippets }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
@@ -203,9 +203,12 @@ app.get("/api/workspace/agent-context", async (_req, res) => { try { const works
 app.get("/api/workspace/state", async (_req, res) => {
   try {
     const state = await getWorkspaceState();
-    const versions = await getDiagramVersions();
+    const workspace = await getProjectWorkspace();
+    const belongsToWorkspace = !state.workspaceId || !workspace || state.workspaceId === workspace.id;
+    const visibleState = belongsToWorkspace ? state : { ...state, document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null };
+    const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id || !version.workspaceId);
     const latest = versions[versions.length - 1];
-    res.json({ ...state, projectWorkspace: await getProjectWorkspace(), versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
+    res.json({ ...visibleState, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
   } catch (error) {
     await writeLog("workspace.state.read.failed", { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "无法读取服务端工作区数据" });
@@ -235,7 +238,7 @@ app.put("/api/workspace/document", async (req, res) => {
         };
         diagramVersions = [...versions, version];
         await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
-        workspaceState = { ...state, document, drawioXml, updatedAt: version.createdAt };
+        workspaceState = { ...state, workspaceId: workspace?.id, document, drawioXml, updatedAt: version.createdAt };
         await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
         await appendFile(APP_LOG_FILE, JSON.stringify({
           timestamp: version.createdAt, event: "diagram.version.created", versionId: version.id, label,
@@ -268,7 +271,7 @@ app.put("/api/workspace/chat", async (req, res) => {
   try {
     await withDataWrite(async () => {
       const state = await getWorkspaceState();
-      workspaceState = { ...state, copilotSessionId: copilotSessionId ?? state.copilotSessionId, chatMessages, updatedAt: new Date().toISOString() };
+      workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: copilotSessionId ?? state.copilotSessionId, chatMessages, updatedAt: new Date().toISOString() };
       await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: new Date().toISOString(), event: "copilot.chat.persisted",
@@ -321,7 +324,8 @@ app.get("/api/workspace/logs", async (req, res) => {
 
 app.get("/api/workspace/versions", async (_req, res) => {
   try {
-    const versions = await getDiagramVersions();
+    const workspace = await getProjectWorkspace();
+    const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id || !version.workspaceId);
     res.json({ versions: versions.map(({ id, createdAt, label, document }) => ({
       id, createdAt, label,
       documentId: (document as { id?: string } | null)?.id ?? null,
@@ -342,7 +346,8 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
   try {
     const result = await withDataWrite(async () => {
       const versions = await getDiagramVersions();
-      const source = versions.find((item) => item.id === req.params.id);
+      const workspace = await getProjectWorkspace();
+      const source = versions.find((item) => item.id === req.params.id && (!workspace || !item.workspaceId || item.workspaceId === workspace.id));
       if (!source || !isDiagramDocument(source.document)) return null;
       const state = await getWorkspaceState();
       const version: DiagramVersion = {
@@ -353,7 +358,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
         drawioXml: source.drawioXml
       };
       diagramVersions = [...versions, version];
-      workspaceState = { ...state, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
+      workspaceState = { ...state, workspaceId: workspace?.id, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
       await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
@@ -514,7 +519,7 @@ app.post("/api/copilot/intent", async (req, res) => {
 
   const startedAt = Date.now();
   await writeLog("request.received", { sessionId, model, reasoningEffort: requestedEffort, prompt, context });
-  await withDataWrite(async () => { const state = await getWorkspaceState(); workspaceState = { ...state, copilotSessionId: sessionId, updatedAt: new Date().toISOString() }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState); });
+  await withDataWrite(async () => { const state = await getWorkspaceState(); workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState); });
   try {
     const runtime = await getOrResumeSession(sessionId, model, requestedEffort);
     const previous = runtime.tail;
