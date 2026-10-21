@@ -73,7 +73,7 @@ ADR: [0004 — Versioned Studio configuration in JSONL](../docs/adr/0004-version
 
 ## Server-authoritative diagram operations
 
-Deterministic diagram operations run through the HTTP server so the UI, Copilot, and MCP can share the same implementation. The server currently provides:
+Deterministic diagram operations run through the HTTP server so the UI and the Studio's internal Copilot Agent workflow share the same implementation. These routes are internal application APIs, not additional MCP tools. The server currently provides:
 
 - `POST /api/workspace/layout`: Dagre/ELK layout, route generation, and overlap repair.
 - `POST /api/workspace/diagram/quality`: layout quality scoring.
@@ -81,10 +81,12 @@ Deterministic diagram operations run through the HTTP server so the UI, Copilot,
 - `POST /api/workspace/diagram/normalize-sequence`: sequence-document normalization.
 - `POST /api/workspace/diagram/export-drawio`: Draw.io XML generation.
 - `POST /api/workspace/intent/apply`: deterministic intent-to-document mutation.
-- `GET /api/workspace/diagram/active`: active persisted document plus a semantic revision hash.
-- `POST /api/workspace/diagram/proposals` and `POST /api/workspace/diagram/apply-proposal`: revision-bound, validated, confirmed Agent edits with immutable version snapshots.
-- `GET /api/workspace/diagram/templates` and `POST /api/workspace/diagram/apply-template`: built-in semantic templates, with explicit confirmation and version creation.
-- `POST /api/workspace/diagram/restore-version`: explicitly confirmed version restoration.
+- `GET /api/workspace/diagram/active`: active persisted document plus a semantic revision hash, for internal Agent operations.
+- `POST /api/workspace/diagram/proposals` and `POST /api/workspace/diagram/apply-proposal`: revision-bound, validated Agent edits with immutable version snapshots.
+- `GET /api/workspace/diagram/templates` and `POST /api/workspace/diagram/apply-template`: built-in semantic templates, with confirmation and version creation.
+- `POST /api/workspace/diagram/restore-version`: confirmed version restoration.
+
+These endpoints support the Studio UI and internal Agent workflow. The workspace MCP server does not expose these diagram-specific operations.
 
 The React UI requests server-side layout scoring, node movement, sequence normalization, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. Draw.io XML import parsing remains browser-side because the current parser depends on DOM APIs; moving it requires a portable parser implementation. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
 
