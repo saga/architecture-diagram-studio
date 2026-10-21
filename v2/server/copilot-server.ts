@@ -13,6 +13,7 @@ const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
 const LOG_DIR = process.env.COPILOT_LOG_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "logs");
 const LOG_FILE = path.join(LOG_DIR, "copilot-sessions.jsonl");
 const DATA_DIR = process.env.STUDIO_DATA_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "data");
+const SUGGESTED_WORKSPACE_ROOT = path.resolve(process.cwd(), path.basename(process.cwd()) === "v2" ? ".." : ".");
 const WORKSPACE_FILE = path.join(DATA_DIR, "workspace.json");
 const VERSIONS_FILE = path.join(DATA_DIR, "diagram-versions.json");
 const APP_LOG_FILE = path.join(DATA_DIR, "application-events.jsonl");
@@ -180,7 +181,7 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
   }
 });
 
-const DEFAULT_WORKSPACE_EXCLUDES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".venv", "venv", ".idea", ".vscode", "vendor"]);
+const DEFAULT_WORKSPACE_EXCLUDES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".venv", "venv", ".idea", "vendor"]);
 const DIAGRAM_EXTENSIONS = new Set([".drawio", ".dio", ".xml", ".mmd", ".mermaid", ".puml", ".plantuml"]);
 const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go", ".rs", ".cs", ".cpp", ".h", ".sql", ".sh", ".yaml", ".yml", ".json", ".toml", ".html", ".css"]);
 const DOCUMENT_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".rst", ".adoc"]);
@@ -207,7 +208,7 @@ async function collectAgentWorkspaceContext(): Promise<unknown> {
   return { configured: true, workspace: { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath, primaryDiagram: workspace.primaryDiagram }, files: relevant.map(({ path: filePath, kind, size }) => ({ path: filePath, kind, size })), snippets };
 }
 
-app.get("/api/workspace/config", async (_req, res) => { try { const workspace = await getProjectWorkspace(); res.json({ workspace, configured: Boolean(workspace) }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
+app.get("/api/workspace/config", async (_req, res) => { try { const workspace = await getProjectWorkspace(); res.json({ workspace, configured: Boolean(workspace), suggestedRootPath: SUGGESTED_WORKSPACE_ROOT }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
 app.post("/api/workspace/scan", async (req, res) => {
   try {
     const name = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : "Project workspace";
