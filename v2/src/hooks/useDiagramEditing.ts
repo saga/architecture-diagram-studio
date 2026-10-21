@@ -7,18 +7,16 @@ interface Options {
   document: DiagramDocument;
   selectedNode: DiagramNode | null;
   selectedRelationId: string | null;
-  relationLabelDrafts: Record<string, string>;
   setSelectedNodeId: Dispatch<SetStateAction<string | null>>;
   setSelectedRelationId: Dispatch<SetStateAction<string | null>>;
-  setRelationLabelDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setLastAction: (message: string) => void;
   commitDocument: (next: DiagramDocument, action: string, preservedNativeXml?: string) => void;
   runLayout: (source?: DiagramDocument) => Promise<void>;
 }
 export function useDiagramEditing(options: Options) {
   const {
-    document, selectedNode, selectedRelationId, relationLabelDrafts,
-    setSelectedNodeId, setSelectedRelationId, setRelationLabelDrafts, setLastAction,
+    document, selectedNode, selectedRelationId,
+    setSelectedNodeId, setSelectedRelationId, setLastAction,
     commitDocument, runLayout
   } = options;
   function addSequenceFragment(order?: number, kind: SequenceFragment["kind"] = "alt") {
@@ -200,11 +198,6 @@ export function useDiagramEditing(options: Options) {
       ...document,
       relations: document.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation)
     };
-    setRelationLabelDrafts((drafts) => {
-      const updated = { ...drafts };
-      delete updated[relationId];
-      return updated;
-    });
     commitDocument(next, "Relation label updated");
   }
 
@@ -224,31 +217,9 @@ export function useDiagramEditing(options: Options) {
     if (document.kind !== "sequence") void runLayout(next);
   }
 
-  function commitRelationLabel(relationId: string) {
-    const current = document.relations.find((relation) => relation.id === relationId);
-    if (!current) return;
-    const label = relationLabelDrafts[relationId] ?? current.label;
-    setRelationLabelDrafts((drafts) => {
-      const next = { ...drafts };
-      delete next[relationId];
-      return next;
-    });
-    if (label === current.label) return;
-    const next = {
-      ...document,
-      relations: document.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation)
-    };
-    commitDocument(next, "Relation label updated");
-  }
-
   async function removeRelation(relationId: string) {
     if (selectedRelationId === relationId) setSelectedRelationId(null);
     const next = await requestServerSequenceNormalize({ ...document, relations: document.relations.filter((relation) => relation.id !== relationId) });
-    setRelationLabelDrafts((drafts) => {
-      const updated = { ...drafts };
-      delete updated[relationId];
-      return updated;
-    });
     commitDocument(next, "Relation removed");
   }
 
@@ -307,15 +278,11 @@ export function useDiagramEditing(options: Options) {
     commitDocument(next, "Node and its relations removed");
   }
 
-  async function removeSelectedNode() {
-    if (!selectedNode) return;
-    await removeNodeById(selectedNode.id);
-  }
 
 
   return {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, renameNode, addNode, createRelation, updateRelationLabel, commitRelationLabel, removeRelation, reverseRelation,
-    updateRelationKind, updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
+    changeNode, renameNode, addNode, createRelation, updateRelationLabel, removeRelation, reverseRelation,
+    updateRelationKind, updateRelationStyle, removeNodeById, duplicateNodeById
   };
 }
