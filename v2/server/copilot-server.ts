@@ -241,17 +241,20 @@ app.put("/api/workspace/document", async (req, res) => {
   try {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState();
-      const versions = await getDiagramVersions();
-      const unchanged = JSON.stringify(state.document) === JSON.stringify(document) && state.drawioXml === drawioXml;
+      const workspace = await getProjectWorkspace();
+      const allVersions = await getDiagramVersions();
+      const workspaceVersions = allVersions.filter((version) => version.workspaceId === workspace?.id);
+      const unchanged = state.workspaceId === workspace?.id && JSON.stringify(state.document) === JSON.stringify(document) && state.drawioXml === drawioXml;
       if (!unchanged) {
         const version: DiagramVersion = {
           id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
+          workspaceId: workspace?.id,
           createdAt: new Date().toISOString(),
           label,
           document,
           drawioXml
         };
-        diagramVersions = [...versions, version];
+        diagramVersions = [...allVersions, version];
         await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
         if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
           const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
@@ -261,14 +264,13 @@ app.put("/api/workspace/document", async (req, res) => {
         workspaceState = { ...state, workspaceId: workspace?.id, document, drawioXml, updatedAt: version.createdAt };
         await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
         await appendFile(APP_LOG_FILE, JSON.stringify({
-          timestamp: version.createdAt, event: "diagram.version.created", versionId: version.id, label,
-          documentId: (document as { id: string }).id, xmlLength: drawioXml.length,
-          nodeCount: (document as { nodes: unknown[] }).nodes.length,
-          relationCount: (document as { relations: unknown[] }).relations.length
+          timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
+          versionId: version.id, label, documentId: document.id, xmlLength: drawioXml.length,
+          nodeCount: document.nodes.length, relationCount: document.relations.length
         }) + "\n", "utf8");
         return { saved: true, version };
       }
-      return { saved: false, version: versions[versions.length - 1] ?? null };
+      return { saved: false, version: workspaceVersions[workspaceVersions.length - 1] ?? null };
     });
     res.json({ ok: true, ...result });
   } catch (error) {
@@ -276,7 +278,6 @@ app.put("/api/workspace/document", async (req, res) => {
     res.status(500).json({ error: "服务端保存文档/Draw.io 版本失败" });
   }
 });
-
 app.put("/api/workspace/chat", async (req, res) => {
   const copilotSessionId = typeof req.body?.copilotSessionId === "string" && /^[a-zA-Z0-9._:-]{8,128}$/.test(req.body.copilotSessionId)
     ? req.body.copilotSessionId : null;
@@ -345,7 +346,7 @@ app.get("/api/workspace/logs", async (req, res) => {
 app.get("/api/workspace/versions", async (_req, res) => {
   try {
     const workspace = await getProjectWorkspace();
-    const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id || !version.workspaceId);
+    const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id);
     res.json({ versions: versions.map(({ id, createdAt, label, document }) => ({
       id, createdAt, label,
       documentId: (document as { id?: string } | null)?.id ?? null,
