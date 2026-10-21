@@ -24,7 +24,7 @@ export function nodePaint(node: DiagramNode): NodePaint {
   if (node.role === "storage" || node.role === "data") {
     return { ...base, fill: tokens.tealSoft, stroke: tokens.teal, accent: tokens.teal };
   }
-  if (node.role === "infra") return { ...base, fill: "#E9EDF4", stroke: tokens.borderStrong, accent: "#45566D" };
+  if (node.role === "infra") return { ...base, fill: "#E9EDF4", stroke: tokens.inkMuted, accent: "#45566D" };
   if (node.role === "decision") return { ...base, fill: tokens.amberSoft, stroke: tokens.amber, accent: tokens.amber, shape: "diamond" };
   if (node.role === "start" || node.role === "end") return { ...base, fill: tokens.accentSoft, stroke: tokens.accentBorder, accent: tokens.accent, shape: "pill" };
   if (node.visualRole === "highlight") return { ...base, fill: tokens.accentSoft, stroke: tokens.accentBorder };
