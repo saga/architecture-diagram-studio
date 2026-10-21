@@ -119,6 +119,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
+  const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("studio");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
@@ -181,8 +182,6 @@ export default function App() {
   documentRef.current = document;
   const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
   const [isLayoutting, setIsLayoutting] = useState(false);
-  const [relationTargetId, setRelationTargetId] = useState("");
-  const [relationLabel, setRelationLabel] = useState("");
   const [relationLabelDrafts, setRelationLabelDrafts] = useState<Record<string, string>>({});
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -577,11 +576,11 @@ export default function App() {
 
   const {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, addNode, addRelation, commitRelationLabel, removeRelation, reverseRelation,
-    updateRelationStyle, removeNodeById, removeSelectedNode
+    changeNode, renameNode, addNode, createRelation, updateRelationLabel, commitRelationLabel,
+    removeRelation, reverseRelation, updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
   } = useDiagramEditing({
-    document, selectedNode, selectedRelationId, relationTargetId, relationLabel, relationLabelDrafts,
-    setSelectedNodeId, setSelectedRelationId, setRelationLabel, setRelationLabelDrafts, setLastAction,
+    document, selectedNode, selectedRelationId, relationLabelDrafts,
+    setSelectedNodeId, setSelectedRelationId, setRelationLabelDrafts, setLastAction,
     commitDocument, runLayout
   });
 
@@ -972,7 +971,10 @@ export default function App() {
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {viewMode === "studio" ? (
             <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
-              selectedRelationId={selectedRelationId} onSelectNode={selectNode} onSelectRelation={selectRelation}
+              selectedRelationId={selectedRelationId} connectionSourceId={connectionSourceId} onConnectionSourceChange={setConnectionSourceId}
+              onSelectNode={selectNode} onSelectRelation={selectRelation}
+              onCreateRelation={(sourceId, targetId) => { void createRelation(sourceId, targetId); }}
+              onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel}
               onContextMenu={(target, x, y) => {
                 if (target.kind === "node") { setSelectedNodeId(target.id || null); setSelectedRelationId(null); }
                 if (target.kind === "relation") setSelectedRelationId(target.id || null);
@@ -1079,62 +1081,20 @@ export default function App() {
               <div className="field-label">Technology / platform</div><UiInput key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="e.g. Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">Description</div><UiTextArea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="What this component is responsible for…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
               <label className="lock-row"><UiInput type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>Lock position</b></span></label>
-              <div className="relation-editor">
-                <div className="field-label">Add relation</div>
-                <UiSelect className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
-                  <option value="">Pick a target node…</option>
-                  {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-                </UiSelect>
-                <UiInput className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="Relation description (optional)" />
-                <UiButton className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ Add relation</UiButton>
-              </div>
               <div className="connected-relations">
-                <div className="field-label">Relations ({document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length})</div>
+                <div className="field-label">Connected relations · {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length}</div>
                 {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).map((relation) => (
-                  <div className={"connected-relation" + (selectedRelationId === relation.id ? " active" : "")} key={relation.id}>
-                    <div className="connected-relation-direction">
+                  <button type="button" className={"connected-relation-link" + (selectedRelationId === relation.id ? " active" : "")}
+                    key={relation.id} onClick={() => selectRelation(relation.id)}>
+                    <span className="connected-relation-direction">
                       <span>{document.nodes.find((node) => node.id === relation.source)?.name || relation.source}</span>
                       <span className="relation-arrow">→</span>
                       <span>{document.nodes.find((node) => node.id === relation.target)?.name || relation.target}</span>
-                    </div>
-                    <UiInput
-                      className="text-field relation-label-field"
-                      value={relationLabelDrafts[relation.id] ?? relation.label}
-                      placeholder="Relation label…"
-                      onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [relation.id]: event.target.value }))}
-                      onBlur={() => commitRelationLabel(relation.id)}
-                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
-                    />
-                    <div className="relation-style-controls">
-                      <label>Routing
-                        <UiSelect className="text-field" disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
-                          const value = event.target.value;
-                          updateRelationStyle(relation.id, { routing: value === "inherit" ? undefined : value as "orthogonal" | "polyline" | "curved" });
-                        }}>
-                          <option value="inherit">Default</option>
-                          <option value="orthogonal">Orthogonal</option>
-                          <option value="polyline">Polyline</option>
-                          <option value="curved">Curved</option>
-                        </UiSelect>
-                      </label>
-                      <label>Line style
-                        <UiSelect className="text-field" value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
-                          const value = event.target.value;
-                          updateRelationStyle(relation.id, { dashed: value === "inherit" ? undefined : value === "dashed" });
-                        }}>
-                          <option value="inherit">Default</option>
-                          <option value="solid">Solid</option>
-                          <option value="dashed">Dashed</option>
-                        </UiSelect>
-                      </label>
-                    </div>
-                    <div className="relation-actions">
-                      <UiButton type="button" title="Reverse direction" onClick={() => reverseRelation(relation.id)}>↔ Direction</UiButton>
-                      <UiButton type="button" title="Delete relation" onClick={() => removeRelation(relation.id)}>Delete</UiButton>
-                    </div>
-                  </div>
+                    </span>
+                    <span className="connected-relation-label">{relation.label || "Double-click line to add a label"}</span>
+                  </button>
                 ))}
-                {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">This element has no relations yet.</div>}
+                {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">No relations yet. Drag from a connection point on this node to another node.</div>}
               </div>
               {document.kind === "sequence" && (document.sequence?.fragments || []).length > 0 && <div className="sequence-fragment-editor">
                 <div className="field-label">Sequence fragments (alt / opt / loop)</div>
@@ -1218,19 +1178,54 @@ export default function App() {
         return <div className="canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
           {menuNode && <>
             <div className="canvas-menu-title">{menuNode.name}</div>
-            <button type="button" role="menuitem" onClick={() => { changeNode({ layoutHints: { ...(menuNode.layoutHints || {}), locked: !menuNode.layoutHints?.locked } }); close(); }}>{menuNode.layoutHints?.locked ? "Unlock position" : "Lock position"}</button>
-            <button type="button" role="menuitem" onClick={() => { setRightPanelTab("properties"); close(); }}>Edit properties</button>
+            <button type="button" role="menuitem" onClick={() => { setConnectionSourceId(menuNode.id); setLastAction("Connecting from " + menuNode.name + " · click a target node or press Esc"); close(); }}>Connect from this node…</button>
+            <button type="button" role="menuitem" onClick={() => { duplicateNodeById(menuNode.id); close(); }}>Duplicate node</button>
+            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); changeNode({ layoutHints: { ...(menuNode.layoutHints || {}), locked: !menuNode.layoutHints?.locked } }); close(); }}>{menuNode.layoutHints?.locked ? "Unlock position" : "Lock position"}</button>
+            <div className="canvas-menu-divider" />
+            <div className="canvas-menu-caption">Change role</div>
+            {([
+              ["service", "Make service"], ["storage", "Make data store"],
+              ["external", "Make external system"], ["decision", "Make decision"]
+            ] as Array<[DiagramNode["role"], string]>).filter(([role]) => role !== menuNode.role).map(([role, label]) =>
+              <button type="button" role="menuitem" key={role} onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); changeNode({ role }); close(); }}>{label}</button>
+            )}
+            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); setRightPanelTab("properties"); close(); }}>More properties…</button>
+            <button type="button" role="menuitem" onClick={() => { void sendIntent("For node " + menuNode.name + " (id " + menuNode.id + "), inspect its connected relationships and propose a focused improvement. Use the structured diagram operation tool and return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
             <button type="button" role="menuitem" className="danger" onClick={() => { void removeNodeById(menuNode.id); close(); }}>Delete node</button>
           </>}
           {menuRelation && <>
             <div className="canvas-menu-title">{menuRelation.label || "Relation"}</div>
             <button type="button" role="menuitem" onClick={() => { void reverseRelation(menuRelation.id); close(); }}>Reverse direction</button>
-            <button type="button" role="menuitem" onClick={() => { setRightPanelTab("properties"); close(); }}>Edit relation</button>
+            <button type="button" role="menuitem" onClick={() => { setSelectedRelationId(menuRelation.id); setRightPanelTab("properties"); close(); }}>Edit endpoints…</button>
+            <div className="canvas-menu-divider" />
+            <div className="canvas-menu-caption">Routing</div>
+            {([
+              ["inherit", "Default routing", undefined], ["orthogonal", "Orthogonal", "orthogonal"],
+              ["polyline", "Polyline", "polyline"], ["curved", "Curved", "curved"]
+            ] as Array<[string, string, "orthogonal" | "polyline" | "curved" | undefined]>).map(([value, label, routing]) =>
+              <button type="button" role="menuitem" key={value} className={(menuRelation.routing || "inherit") === value ? "checked" : ""}
+                disabled={document.kind === "sequence"} onClick={() => { updateRelationStyle(menuRelation.id, { routing }); close(); }}>{label}</button>
+            )}
+            <div className="canvas-menu-caption">Line style</div>
+            {([
+              ["inherit", "Default line", undefined], ["solid", "Solid line", false], ["dashed", "Dashed line", true]
+            ] as Array<[string, string, boolean | undefined]>).map(([value, label, dashed]) =>
+              <button type="button" role="menuitem" key={value} className={(menuRelation.dashed === undefined ? "inherit" : menuRelation.dashed ? "dashed" : "solid") === value ? "checked" : ""}
+                onClick={() => { updateRelationStyle(menuRelation.id, { dashed }); close(); }}>{label}</button>
+            )}
+            <button type="button" role="menuitem" onClick={() => { void sendIntent("Improve relation " + menuRelation.id + " from " + menuRelation.source + " to " + menuRelation.target + " (label: " + menuRelation.label + "). Check semantics and path quality, then propose a focused structured diagram operation."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
             <button type="button" role="menuitem" className="danger" onClick={() => { void removeRelation(menuRelation.id); close(); }}>Delete relation</button>
           </>}
           {canvasMenu.kind === "canvas" && <>
+            <div className="canvas-menu-caption">Add to diagram</div>
+            <button type="button" role="menuitem" onClick={() => { addNode("service"); close(); }}>Add service</button>
+            <button type="button" role="menuitem" onClick={() => { addNode("storage"); close(); }}>Add data store</button>
+            <button type="button" role="menuitem" onClick={() => { addNode("external"); close(); }}>Add external system</button>
+            <button type="button" role="menuitem" onClick={() => { addNode("decision"); close(); }}>Add decision</button>
+            <div className="canvas-menu-divider" />
             <button type="button" role="menuitem" onClick={() => { void runLayout(); close(); }}>Auto layout</button>
             <button type="button" role="menuitem" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); close(); }}>Reset view</button>
+            <button type="button" role="menuitem" onClick={() => { void sendIntent("Inspect the active diagram quality and propose targeted fixes for the most important layout and semantic issues using structured diagram operations. Return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to improve diagram…</button>
           </>}
         </div>;
       })()}
