@@ -709,3 +709,9 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #26334a !important; stroke: #8293b1; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #2b3d5b !important; stroke: #8198d2; }
+
+
+.app-shell[data-theme="youth"] .button-primary,
+.app-shell[data-theme="youth"] .preview-accept { background: #b91f6d; border-color: #b91f6d; color: #ffffff; }
+.app-shell[data-theme="youth"] .button-primary:hover,
+.app-shell[data-theme="youth"] .preview-accept:hover { background: #a81960; border-color: #a81960; }
