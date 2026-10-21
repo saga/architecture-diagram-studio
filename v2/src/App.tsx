@@ -905,7 +905,7 @@ export default function App() {
           sendIntent={() => void sendIntent()}
           acceptPreview={acceptPreview}
           discardPreview={discardPreview}
-          openStudio={() => { setActivePage("studio"); setViewMode("studio"); }}
+          openStudio={() => { setViewMode("studio"); openPage("studio"); }}
           aiBaseUrl={aiBaseUrl}
           setAiBaseUrl={setAiBaseUrl}
           aiModel={aiModel}
