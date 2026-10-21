@@ -119,20 +119,28 @@ function parseDrawioXml(xml: string): XMLDocument | null {
 
   const parsed = parse(xml);
   if (!parsed) return null;
-  if (parsed.querySelector("mxGraphModel")) return parsed;
+  if (parsed.documentElement.localName === "mxGraphModel") return parsed;
 
-  // Draw.io files may contain either an embedded mxGraphModel or a compressed,
-  // base64-encoded diagram payload. Do not assume every <diagram> uses compression.
-  const diagram = parsed.querySelector("mxfile diagram");
-  const payload = diagram?.textContent?.trim();
+  // A multi-page mxfile is a single document, but the semantic projection is deliberately
+  // limited to the first page. The untouched full mxfile remains the persistence source.
+  // Never query all page roots together: identical cell IDs across pages are legal.
+  const diagram = parsed.documentElement.localName === "mxfile"
+    ? Array.from(parsed.documentElement.children).find((child) => child.localName === "diagram")
+    : null;
+  if (!diagram) return null;
+  const embeddedModel = Array.from(diagram.children).find((child) => child.localName === "mxGraphModel");
+  if (embeddedModel) return parse(new XMLSerializer().serializeToString(embeddedModel));
+
+  // Draw.io may store the page as a compressed, base64-encoded payload.
+  const payload = diagram.textContent?.trim();
   if (!payload) return null;
   if (payload.startsWith("<")) {
     const nested = parse(payload);
-    if (nested?.querySelector("mxGraphModel")) return nested;
+    if (nested?.documentElement.localName === "mxGraphModel") return nested;
   }
 
   try {
-    const binary = atob(payload.replace(/\\s+/g, ""));
+    const binary = atob(payload.replace(/\s+/g, ""));
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     let inflated: Uint8Array | null = null;
     try { inflated = inflateSync(bytes); } catch { /* Try zlib-wrapped data below. */ }
@@ -142,8 +150,6 @@ function parseDrawioXml(xml: string): XMLDocument | null {
     if (!inflated) return null;
 
     const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
-    // The official Draw.io encoding compresses encodeURIComponent(xml). Be tolerant
-    // of payloads containing plain UTF-8 XML as well.
     const candidates = [decoded];
     try {
       const uriDecoded = decodeURIComponent(decoded);
@@ -151,7 +157,7 @@ function parseDrawioXml(xml: string): XMLDocument | null {
     } catch { /* The decoded content may already be plain XML. */ }
     for (const candidate of candidates) {
       const nested = parse(candidate);
-      if (nested?.querySelector("mxGraphModel")) return nested;
+      if (nested?.documentElement.localName === "mxGraphModel") return nested;
     }
   } catch {
     return null;
