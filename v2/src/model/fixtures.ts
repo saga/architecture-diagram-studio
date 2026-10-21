@@ -20,7 +20,9 @@ const base = (id: string, title: string, kind: DiagramDocument["kind"]): Diagram
   schemaVersion: 2, id, title, kind, theme: "studio-editorial",
   nodes: [], relations: [], boundaries: [],
   layout: {
-    profile: kind === "c4" ? "architecture-flow" : kind === "flowchart" ? "process-main-path" : "sequence-standard",
+    // Real profile values from LAYOUT_PROFILES: legacy names like "architecture-flow" are not in the list,
+    // so the layout endpoint would reject the sample as a disabled engine.
+    profile: kind === "sequence" ? "sequence-standard" : "elk-layered",
     direction: "RIGHT", routing: kind === "sequence" ? "polyline" : "orthogonal",
     nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 34,
     externalSide: "RIGHT", storageSide: "BOTTOM"
@@ -63,7 +65,7 @@ export function createC4Fixture(): DiagramDocument {
 
 export function createFlowFixture(): DiagramDocument {
   const doc = base("flow-proxy-vote", "Proxy voting workflow", "flowchart");
-  doc.layout.profile = "process-main-path";
+  doc.layout.profile = "elk-layered";
   doc.layout.nodeSpacing = 44;
   doc.layout.layerSpacing = 72;
   doc.nodes = [

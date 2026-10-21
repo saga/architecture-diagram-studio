@@ -3,9 +3,10 @@ import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, 
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { isDiagramDocument } from "./model/types";
+import { hasStackedGeometry, isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
+import { moveNode } from "./layout/move";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { requestAIIntentPlan } from "./intent/aiProvider";
 import { downloadText } from "./export/drawio";
@@ -88,6 +89,22 @@ async function requestServerLayout(document: DiagramDocument): Promise<DiagramDo
   const result = await response.json() as { document: DiagramDocument };
   if (!isDiagramDocument(result.document)) throw new Error("服务端返回了无效的图形文档");
   return result.document;
+}
+
+/**
+ * Layout for a sample or an imported draft that has no geometry yet.
+ *
+ * The server owns layout and the enabled-profile policy, but the sample has to render even when the API is
+ * unreachable, so the same engine runs locally as a fallback. That engine is loaded on demand: it is only
+ * needed when a document arrives without coordinates, and it should not weigh on the first paint.
+ */
+async function layoutSample(document: DiagramDocument): Promise<DiagramDocument> {
+  try {
+    return await requestServerLayout(document);
+  } catch {
+    const { layoutDiagram } = await import("./layout/layout");
+    return layoutDiagram(document);
+  }
 }
 
 async function requestServerSequenceNormalize(document: DiagramDocument): Promise<DiagramDocument> {
@@ -174,6 +191,11 @@ export default function App() {
   const [canRedo, setCanRedo] = useState(false);
   const historyRef = useRef<DiagramDocument[]>([document]);
   const historyIndexRef = useRef(0);
+  /** Guards the auto-heal effect so the repair runs at most once per page load. */
+  const geometryHealRef = useRef(false);
+  /** Latest document, readable from effects that must not re-subscribe on every edit. */
+  const documentRef = useRef(document);
+  documentRef.current = document;
   const [lastAction, setLastAction] = useState("已加载 Studio Editorial 示例");
   const [isLayoutting, setIsLayoutting] = useState(false);
   const [relationTargetId, setRelationTargetId] = useState("");
@@ -265,7 +287,7 @@ export default function App() {
         if (parsedDocument === document) throw new Error("所选文件不是可识别的 Draw.io XML");
         nextDocument = await requestServerSequenceNormalize(parsedDocument);
       } else if (workspaceChanged) {
-        nextDocument = FIXTURES.c4();
+        nextDocument = await layoutSample(FIXTURES.c4());
         nextXml = null;
       }
       if (nextDocument !== document) {
@@ -512,6 +534,40 @@ export default function App() {
     });
   }, []);
 
+  /** Updates the document in place: the current history entry is replaced instead of pushing a new step. */
+  const replaceDocument = useCallback((next: DiagramDocument) => {
+    const index = historyIndexRef.current;
+    if (index >= 0) historyRef.current = [...historyRef.current.slice(0, index), next];
+    setDocument(next);
+    setRevision((value) => value + 1);
+  }, []);
+
+  /**
+   * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
+   * a fixture before it was laid out, and every later reload restored the stack of nodes on one spot.
+   *
+   * Runs once, after hydration, on whatever document the server handed back — the layouts of new documents
+   * are already computed by the paths that create them.
+   */
+  useEffect(() => {
+    if (!serverHydrated || geometryHealRef.current) return;
+    geometryHealRef.current = true;
+    const current = documentRef.current;
+    if (!hasStackedGeometry(current)) return;
+    void layoutSample(current).then((laidOut) => {
+      if (hasStackedGeometry(laidOut) || documentRef.current.id !== current.id) return;
+      commitDocument(laidOut, "检测到节点位置重合，已自动完成排版");
+      recordDiagnostic("diagram.layout.auto-healed", "节点位置重合，已自动补算布局", {
+        documentId: laidOut.id, diagramKind: laidOut.kind, nodeCount: laidOut.nodes.length
+      }, "warn");
+    }).catch((error: unknown) => {
+      geometryHealRef.current = false;
+      recordDiagnostic("diagram.layout.auto-heal.failed", "自动补算布局失败", {
+        documentId: current.id, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+    });
+  }, [serverHydrated, commitDocument]);
+
   const runLayout = useCallback(async (source: DiagramDocument = document) => {
     const startedAt = Date.now();
     recordDiagnostic("layout.run.started", "开始重新计算布局、路由和重叠修复", {
@@ -579,11 +635,15 @@ export default function App() {
     setPreviewDocument(null);
     setPreviewSummary("");
     setSelectedRelationId(null);
-    const next = FIXTURES[kind]();
-    setSelectedNodeId(next.nodes[0]?.id || null);
     setViewMode("studio");
-    commitDocument(next, "切换到 " + (kind === "c4" ? "C4 架构图" : kind === "sequence" ? "时序图" : "流程图"));
-    void runLayout(next);
+    const label = "切换到 " + (kind === "c4" ? "C4 架构图" : kind === "sequence" ? "时序图" : "流程图");
+    // Fixtures carry no coordinates, so the layout has to exist before the first paint; committing the
+    // raw fixture first is what used to stack every node on one spot until "自动排版" was pressed.
+    void (async () => {
+      const next = await layoutSample(FIXTURES[kind]());
+      setSelectedNodeId(next.nodes[0]?.id || null);
+      commitDocument(next, label);
+    })();
   }
 
   async function sendIntent() {
@@ -944,13 +1004,14 @@ export default function App() {
 
   function resetDiagram() {
     setSelectedRelationId(null);
-    const next = FIXTURES[document.kind]();
-    setSelectedNodeId(next.nodes[0]?.id || null);
-    commitDocument(next, "已恢复示例图");
-    recordDiagnostic("diagram.reset", "用户恢复了当前图形类型的内置示例", {
-      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
-    }, "warn");
-    void runLayout(next);
+    void (async () => {
+      const next = await layoutSample(FIXTURES[document.kind]());
+      setSelectedNodeId(next.nodes[0]?.id || null);
+      commitDocument(next, "已恢复示例图");
+      recordDiagnostic("diagram.reset", "用户恢复了当前图形类型的内置示例", {
+        diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
+      }, "warn");
+    })();
   }
 
   function acceptPreview() {
@@ -1297,19 +1358,37 @@ export default function App() {
             <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
               selectedRelationId={selectedRelationId} onSelectNode={selectNode} onSelectRelation={selectRelation}
               onMoveNode={(id, x, y) => {
+                // The drop is applied locally and committed right away. The server call used to own this step,
+                // so a slow or unreachable API made the node fall back into its previous spot on release,
+                // which reads as "拖开又重叠"; moveNode is pure geometry, so both sides compute the same result.
+                const moved = moveNode(visibleDocument, id, x, y);
+                if (previewDocument) {
+                  setPreviewDocument(moved);
+                  setPreviewSummary((summary) => summary ? summary + "；预览中手动调整了节点位置" : "预览中手动调整了节点位置");
+                } else {
+                  commitDocument(moved, "已手动移动节点；该位置已锁定");
+                }
                 void fetch("/api/workspace/diagram/move-node", {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ document: visibleDocument, id, x, y })
                 }).then(async (response) => {
                   const payload = await response.json() as { document?: DiagramDocument; error?: string };
                   if (!response.ok || !payload.document) throw new Error(payload.error || "节点移动失败");
-                  if (previewDocument) {
-                    setPreviewDocument(payload.document);
-                    setPreviewSummary((summary) => summary ? summary + "；预览中手动调整了节点位置" : "预览中手动调整了节点位置");
-                  } else {
-                    commitDocument(payload.document, "已手动移动节点；该位置已锁定");
-                  }
-                }).catch((error) => setLastAction(error instanceof Error ? error.message : String(error)));
+                  const settled = payload.document.nodes.find((node) => node.id === id);
+                  const local = moved.nodes.find((node) => node.id === id);
+                  if (!settled || !local || (settled.x === local.x && settled.y === local.y)) return;
+                  // The server only disagrees when its conflict search had to nudge the node; adopt that spot
+                  // without creating a second undo step for the same drag.
+                  if (previewDocument) setPreviewDocument(payload.document);
+                  else replaceDocument(payload.document);
+                  recordDiagnostic("diagram.node-move.reconciled", "服务端按冲突规则微调了节点位置", {
+                    documentId: payload.document.id, nodeId: id, localX: local.x, localY: local.y, serverX: settled.x, serverY: settled.y
+                  });
+                }).catch((error: unknown) => {
+                  recordDiagnostic("diagram.node-move.sync-failed", "节点位置未能同步到服务端，已在本地保留", {
+                    documentId: visibleDocument.id, nodeId: id, errorMessage: error instanceof Error ? error.message : String(error)
+                  }, "warn");
+                });
               }} />
           ) : (
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "已从原生 Draw.io 同步修改", nativeXml)} />

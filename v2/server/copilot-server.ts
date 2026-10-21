@@ -5,7 +5,7 @@ import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath
 import { isDiagramDocument, type DiagramDocument } from "../src/model/types";
 import { interpretIntent } from "../src/intent/applyIntent";
 import { layoutDiagram, moveNode } from "../src/layout/layout";
-import { LAYOUT_PROFILES } from "../src/layout/profiles";
+import { LAYOUT_PROFILES, resolveLayoutProfile } from "../src/layout/profiles";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
@@ -228,6 +228,18 @@ app.put("/api/workspace/configuration", async (req, res) => {
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
+/**
+ * Whether the document's layout engine is allowed by the studio configuration.
+ *
+ * Documents written by older builds carry profile names that no longer exist ("architecture-flow",
+ * "process-main-path"); the dispatcher resolves those to a real engine, so the policy has to be checked
+ * against the resolved value instead of rejecting the document as disabled.
+ */
+function layoutProfileEnabled(document: DiagramDocument, config: StudioConfig): boolean {
+  if (document.kind === "sequence") return true;
+  return config.layoutProfiles.includes(resolveLayoutProfile(document.layout.profile));
+}
+
 app.post("/api/workspace/layout", async (req, res) => {
   const document = req.body?.document;
   if (!isDiagramDocument(document)) {
@@ -242,7 +254,7 @@ app.post("/api/workspace/layout", async (req, res) => {
       profile: document.layout.profile, direction: document.layout.direction
     });
     const config = await getStudioConfig();
-    if (document.kind !== "sequence" && !config.layoutProfiles.includes(document.layout.profile)) { res.status(400).json({ error: `布局算法 ${document.layout.profile} 已在配置中禁用` }); return; }
+    if (!layoutProfileEnabled(document, config)) { res.status(400).json({ error: `布局算法 ${resolveLayoutProfile(document.layout.profile)} 已在配置中禁用` }); return; }
     const result = await layoutDiagram(document);
     await writeLog("layout.completed", {
       documentId: document.id, durationMs: Date.now() - startedAt,
@@ -443,7 +455,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       for (const edge of document.relations) { edge.id = key + "-" + edge.id + "-" + randomUUID().slice(0,5); edge.source = remap.get(edge.source) || edge.source; edge.target = remap.get(edge.target) || edge.target; }
       for (const boundary of document.boundaries) { boundary.id = key + "-" + boundary.id + "-" + randomUUID().slice(0,5); boundary.members = boundary.members.map((id)=>remap.get(id)||id); }
       if (document.sequence) document.sequence.participants = document.sequence.participants.map((id)=>remap.get(id)||id);
-      if (document.kind !== "sequence" && !config.layoutProfiles.includes(document.layout.profile)) return { status: 422 as const, error: "模板使用的布局算法已禁用" };
+      if (!layoutProfileEnabled(document, config)) return { status: 422 as const, error: "模板使用的布局算法已禁用" };
       const laidOut = document.kind === "sequence" ? normalizeSequenceDocument(document) : await layoutDiagram(document);
       const errors = validateDiagramSemantics(laidOut);
       if (errors.length) return { status: 422 as const, error: "模板未通过语义校验", validationErrors: errors };
@@ -486,7 +498,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const interpreted = interpretIntent(state.document, prompt);
     if (!interpreted.changed) { res.status(422).json({ error: "当前编辑意图不受支持；未生成或保存任何变更", supportedOperations: ["按节点 ID 或唯一名称重命名/删除节点", "添加节点", "按节点 ID 或唯一名称移动节点到指定坐标", "按关系 ID 或唯一标签修改标签/删除关系", "添加关系", "改关系线虚线/实线", "改曲线或折线路由", "移动 External/Vendor 到右侧", "移动数据库/存储到底部", "切换布局方向", "重新布局", "解除节点锁定"] }); return; }
     const config = await getStudioConfig();
-    if (interpreted.requiresLayout && interpreted.document.kind !== "sequence" && !config.layoutProfiles.includes(interpreted.document.layout.profile)) { res.status(400).json({ error: "当前布局算法已禁用" }); return; }
+    if (interpreted.requiresLayout && !layoutProfileEnabled(interpreted.document, config)) { res.status(400).json({ error: "当前布局算法已禁用" }); return; }
     const document = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
     const validationErrors = validateDiagramSemantics(document);
     if (validationErrors.length) { res.status(422).json({ error: "提案未通过语义校验", validationErrors }); return; }
@@ -510,7 +522,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       const validationErrors = validateDiagramSemantics(proposal.document);
       if (validationErrors.length) return { status: 422 as const, error: "提案未通过服务端语义校验", validationErrors };
       const config = await getStudioConfig();
-      if (proposal.document.kind !== "sequence" && !config.layoutProfiles.includes(proposal.document.layout.profile)) return { status: 422 as const, error: "提案使用的布局算法已禁用" };
+      if (!layoutProfileEnabled(proposal.document, config)) return { status: 422 as const, error: "提案使用的布局算法已禁用" };
       const quality = evaluateLayout(proposal.document);
       const baseQuality = evaluateLayout(state.document);
       if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {

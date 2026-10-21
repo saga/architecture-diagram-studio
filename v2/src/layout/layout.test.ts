@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "../model/fixtures";
 import { layoutDiagram, moveNode } from "./layout";
+import { hasStackedGeometry } from "../model/types";
 import { LAYOUT_PROFILES } from "./profiles";
 import { evaluateLayout } from "./quality";
 import { applyIntent } from "../intent/applyIntent";
@@ -16,6 +17,30 @@ async function expectNoNodeOverlap(factory: () => ReturnType<typeof createC4Fixt
 describe("V2 diagram-specific layouts", () => {
   it("lays out C4 without overlapping nodes", async () => {
     await expectNoNodeOverlap(createC4Fixture);
+  });
+
+  it("flags a sample that has no geometry yet, so it is laid out before the first paint", async () => {
+    const fixture = createC4Fixture();
+    expect(hasStackedGeometry(fixture)).toBe(true);
+    expect(hasStackedGeometry(await layoutDiagram(fixture))).toBe(false);
+  });
+
+  it("keeps every sample on a profile the layout endpoint accepts", () => {
+    // 历史算法名（architecture-flow / process-main-path）会被布局接口当成"已禁用的算法"拒绝，
+    // 示例图因此永远排不了版，所有节点叠在原点。
+    const available = LAYOUT_PROFILES.map((profile) => profile.value);
+    for (const factory of [createC4Fixture, createFlowFixture]) {
+      expect(available).toContain(factory().layout.profile);
+    }
+  });
+
+  it("keeps stacked fixtures distinguishable after a manual move on an unlaid-out document", () => {
+    const fixture = createC4Fixture();
+    // 拖拽只对单个节点生效：未排版的文档必须整体排版，否则其余节点仍然叠在原处
+    const moved = moveNode(fixture, "snowflake", 640, 420);
+    const placed = moved.nodes.filter((node) => node.x !== 0 || node.y !== 0);
+    expect(placed).toHaveLength(1);
+    expect(hasStackedGeometry(moved)).toBe(true);
   });
   it("lays out the main process flow without overlapping nodes", async () => {
     await expectNoNodeOverlap(createFlowFixture);

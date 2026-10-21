@@ -109,6 +109,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * True when two or more nodes share a top-left corner, which means the document was never laid out.
+ * Fixtures describe semantics only and start at the origin, and imported drafts can arrive the same way,
+ * so this is the check that decides whether the geometry has to be computed before the document is shown.
+ */
+export function hasStackedGeometry(document: DiagramDocument): boolean {
+  if (document.nodes.length < 2) return false;
+  const occupied = new Set<string>();
+  for (const node of document.nodes) {
+    const key = Math.round(node.x) + ":" + Math.round(node.y);
+    if (occupied.has(key)) return true;
+    occupied.add(key);
+  }
+  return false;
+}
+
 export function isDiagramDocument(value: unknown): value is DiagramDocument {
   if (!isRecord(value)) return false;
   const valueRecord = value as Record<string, unknown>;
