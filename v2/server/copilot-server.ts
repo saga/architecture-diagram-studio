@@ -363,10 +363,26 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 });
 
 
-type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null };
+type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null; nativeXml?: string };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
 const pendingAgentProposals = new Map<string, DiagramEditProposal>();
 function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
+function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null, proposedXml?: string | null): DiagramEditProposal {
+  const errors = validateDiagramSemantics(proposedDocument);
+  if (errors.length) throw new Error("The proposal failed semantic validation: " + errors.join("; "));
+  const proposal: DiagramEditProposal = {
+    id: randomUUID(), baseRevision: workspaceRevision(baseDocument, baseXml), document: proposedDocument,
+    summary: summary.slice(0, 500), baseQuality: evaluateLayout(baseDocument), quality: evaluateLayout(proposedDocument),
+    createdAt: Date.now(), workspaceId, ...(typeof proposedXml === "string" ? { nativeXml: proposedXml } : {})
+  };
+  diagramEditProposals.set(proposal.id, proposal);
+  for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
+  while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
+  return proposal;
+}
+function agentProposalView(proposal: DiagramEditProposal): AgentProposalView {
+  return { proposalId: proposal.id, baseRevision: proposal.baseRevision, document: proposal.document, summary: proposal.summary, baseQuality: proposal.baseQuality, quality: proposal.quality };
+}
 app.get("/api/workspace/diagram/templates", (_req, res) => {
   res.json({ templates: [
     { key: "c4-context", name: "C4 System Context", description: "Person, software system, and external system" },
@@ -467,7 +483,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {
         return { status: 422 as const, error: "The proposal degrades layout quality significantly and was not saved; adjust the request and generate a new proposal", quality, baseQuality };
       }
-      const xml = toDrawioXml(proposal.document);
+      const xml = proposal.nativeXml ?? toDrawioXml(proposal.document);
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, createdAt: new Date().toISOString(), label: "Agent edit: " + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
       const versions = await getDiagramVersions();
       diagramVersions = retainRecentVersions([...versions, version]);
@@ -929,7 +945,7 @@ app.post("/api/copilot/intent", async (req, res) => {
                 const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
                 if (!sourceVersion || !isDiagramDocument(sourceVersion.document)) throw new Error("The requested version is not available in the active workspace.");
                 const restored = { ...sourceVersion.document, id: state.document.id };
-                return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml));
+                return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
               },
               onProposal: (proposal) => {
                 const stored = diagramEditProposals.get(proposal.proposalId);
