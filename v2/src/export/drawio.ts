@@ -78,8 +78,12 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
   const participantNodes = doc.nodes.filter((node) => (doc.sequence?.participants || []).includes(node.id));
   for (const fragment of doc.sequence?.fragments || []) {
     if (!participantNodes.length) continue;
-    const minX = Math.round(Math.min(...participantNodes.map((node) => node.x)) - 12);
-    const maxX = Math.round(Math.max(...participantNodes.map((node) => node.x + node.width)) + 12);
+    const fragmentParticipants = fragment.participants?.length
+      ? participantNodes.filter((node) => fragment.participants?.includes(node.id))
+      : participantNodes;
+    if (!fragmentParticipants.length) continue;
+    const minX = Math.round(Math.min(...fragmentParticipants.map((node) => node.x)) - 12);
+    const maxX = Math.round(Math.max(...fragmentParticipants.map((node) => node.x + node.width)) + 12);
     const top = Math.round(148 + fragment.startOrder * 72 - 22);
     const bottom = Math.round(148 + fragment.endOrder * 72 + 22);
     const id = fragment.id + "__sequenceFragment";
