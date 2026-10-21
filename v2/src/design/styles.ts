@@ -55,7 +55,9 @@ export function mxNodeStyle(node: DiagramNode): string {
 export function mxEdgeStyle(relation: DiagramRelation, routing: string): string {
   const paint = relationPaint(relation);
   const edgeRouting = relation.routing || routing;
-  // Explicit Studio waypoints are authoritative. Letting mxGraph run its own router over those\n  // points can override the path and make exported connectors diverge from the Studio canvas.\n  const route = relation.points?.length ? "edgeStyle=none;" : edgeRouting === "orthogonal" ? "edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;" : "edgeStyle=none;";
+  // Explicit Studio waypoints are authoritative. Letting mxGraph run its own router over those
+  // points can override the path and make exported connectors diverge from the Studio canvas.
+  const route = relation.points?.length ? "edgeStyle=none;" : edgeRouting === "orthogonal" ? "edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;" : "edgeStyle=none;";
   const curve = edgeRouting === "curved" ? "curved=1;rounded=1;" : "rounded=0;";
   const shouldDash = relation.dashed ?? (relation.kind === "return");
   const dashed = shouldDash ? "dashed=1;dashPattern=5 5;" : "";
