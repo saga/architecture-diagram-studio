@@ -1,5 +1,10 @@
 name: V2 CI
 
+# Commits superseded on the same branch should not queue redundant full builds.
+concurrency:
+  group: v2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
