@@ -12,7 +12,7 @@ import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
-import { createDiagramAgentTools } from "./copilot/diagram-tools";
+import { createDiagramAgentTools, type AgentProposalView } from "./copilot/diagram-tools";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
@@ -852,7 +852,7 @@ registerCopilotIntentRoute(app, {
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
     await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
   }),
-  createDiagramTools: (sessionId, onProposal) => createDiagramAgentTools({
+  createDiagramTools: (_sessionId, onProposal) => createDiagramAgentTools({
     getActiveDocument: async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
