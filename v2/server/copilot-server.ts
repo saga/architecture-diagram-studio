@@ -59,8 +59,8 @@ app.use((req, res, next) => {
   const origin = req.get("origin");
   if (!origin) { next(); return; }
   try {
-    const hostname = new URL(origin).hostname.toLowerCase().replace(/^\\[|\\]$/g, "");
-    if (!["localhost", "127.0.0.1", "::1"].includes(hostname)) { res.status(403).json({ error: "Studio API 仅接受本机浏览器来源" }); return; }
+    const hostname = new URL(origin).hostname.toLowerCase();
+    if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname)) { res.status(403).json({ error: "Studio API 仅接受本机浏览器来源" }); return; }
     next();
   } catch {
     res.status(403).json({ error: "无效的请求来源" });
