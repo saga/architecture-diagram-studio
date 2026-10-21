@@ -161,6 +161,30 @@ describe("V2 diagram-specific layouts", () => {
     expect(xml).toContain('as="targetPoint"');
   });
 
+  it("exports explicit connector ports and native Draw.io port-anchor styles", async () => {
+    const result = await layoutDiagram(createC4Fixture());
+    expect(result.relations.every((relation) => relation.sourcePort && relation.targetPort)).toBe(true);
+    const xml = toDrawioXml(result);
+    expect(xml).toContain("exitX=");
+    expect(xml).toContain("entryX=");
+    expect(xml).toContain("exitPerimeter=0");
+    expect(xml).toContain("entryPerimeter=0");
+  });
+
+  it("limits a combined fragment to the declared participant subset", async () => {
+    const document = await layoutDiagram(createSequenceFixture());
+    document.sequence = {
+      ...(document.sequence || { participants: [] }),
+      fragments: [{ id: "subset-fragment", kind: "opt", label: "Cache hit", startOrder: 1, endOrder: 3, participants: ["web", "identity"] }]
+    };
+    const xml = toDrawioXml(document);
+    expect(xml).toContain("studioFragmentParticipants=web,identity");
+    const cellStart = xml.indexOf('<mxCell id="subset-fragment__sequenceFragment"');
+    const cellEnd = xml.indexOf("</mxCell>", cellStart);
+    const cell = xml.slice(cellStart, cellEnd);
+    expect(cell).toContain('width="630"');
+  });
+
   it("keeps polyline waypoints after a curve-to-polyline layout intent", async () => {
     const document = createC4Fixture();
     document.layout.routing = "curved";
