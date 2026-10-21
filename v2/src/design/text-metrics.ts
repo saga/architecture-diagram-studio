@@ -53,3 +53,46 @@ export function truncateTextToWidth(value: string, maxWidth: number, fontSize = 
   }
   return result + suffix;
 }
+
+export function wrapTextToWidth(value: string, maxWidth: number, fontSize = 13, maxLines?: number): string[] {
+  if (!value.trim()) return [];
+  if (maxWidth <= 0) return maxLines === undefined ? [value] : [truncateTextToWidth(value, maxWidth, fontSize)];
+  const lines: string[] = [];
+  let line = "";
+  const appendToken = (token: string) => {
+    let fragment = "";
+    for (const character of Array.from(token)) {
+      if (fragment && measureTextWidth(fragment + character, fontSize) > maxWidth) {
+        lines.push(fragment);
+        fragment = character;
+      } else if (!fragment && measureTextWidth(character, fontSize) > maxWidth) {
+        lines.push("…");
+      } else {
+        fragment += character;
+      }
+    }
+    return fragment;
+  };
+  for (const word of value.normalize("NFC").trim().split(/\s+/u)) {
+    const candidate = line ? line + " " + word : word;
+    if (measureTextWidth(candidate, fontSize) <= maxWidth) {
+      line = candidate;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = "";
+    const fragment = appendToken(word);
+    if (fragment) {
+      if (line && measureTextWidth(line + fragment, fontSize) <= maxWidth) line += fragment;
+      else {
+        if (line) lines.push(line);
+        line = fragment;
+      }
+    }
+  }
+  if (line) lines.push(line);
+  if (maxLines === undefined || lines.length <= maxLines) return lines;
+  const visible = lines.slice(0, Math.max(1, maxLines));
+  visible[visible.length - 1] = truncateTextToWidth(visible[visible.length - 1], maxWidth, fontSize);
+  return visible;
+}
