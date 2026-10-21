@@ -193,9 +193,9 @@ export default function DiagramCanvas({
       <title id={titleId}>{document.title}</title>
       <desc id={descriptionId}>{document.kind.toUpperCase() + " diagram with " + document.nodes.length + " nodes and " + document.relations.length + " relationships."}</desc>
       <defs>
-        <pattern id={safeSvgId + "-studio-grid" width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
-        <marker id={safeSvgId + "-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
-        <marker id={safeSvgId + "-arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#4C5C72" strokeWidth="1.3" /></marker>
+        <pattern id={safeSvgId + "-studio-grid"} width={tokens.grid * 6} height={tokens.grid * 6} patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
+        <marker id={safeSvgId + "-arrow"} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
+        <marker id={safeSvgId + "-arrow-open"} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#4C5C72" strokeWidth="1.3" /></marker>
       </defs>
       <rect width={frame.width} height={frame.height} fill={tokens.canvas} />
       <rect width={frame.width} height={frame.height} fill={"url(#" + safeSvgId + "-studio-grid)"} />
