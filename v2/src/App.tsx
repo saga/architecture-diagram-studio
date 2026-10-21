@@ -1409,9 +1409,9 @@ export default function App() {
       <aside className="right-panel">
         <div className="right-tabs" role="tablist" aria-label="Inspector panel">
           {([["properties", "Properties"], ["quality", "Quality"], ["design", "Style"], ["copilot", "Layout Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
-            <UiButton key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
+            <button key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
               className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
-              onClick={() => setRightPanelTab(tab)}>{label}</UiButton>
+              onClick={() => setRightPanelTab(tab)}>{label}</button>
           )}
         </div>
         {rightPanelTab === "copilot" && <div className="right-copilot-panel">
@@ -1490,7 +1490,7 @@ export default function App() {
                     />
                     <div className="relation-style-controls">
                       <label>Routing
-                        <UiSelect disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
+                        <UiSelect className="text-field" disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
                           const value = event.target.value;
                           updateRelationStyle(relation.id, { routing: value === "inherit" ? undefined : value as "orthogonal" | "polyline" | "curved" });
                         }}>
@@ -1501,7 +1501,7 @@ export default function App() {
                         </UiSelect>
                       </label>
                       <label>Line style
-                        <UiSelect value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
+                        <UiSelect className="text-field" value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
                           const value = event.target.value;
                           updateRelationStyle(relation.id, { dashed: value === "inherit" ? undefined : value === "dashed" });
                         }}>
@@ -1523,7 +1523,7 @@ export default function App() {
                 <div className="field-label">Sequence fragments (alt / opt / loop)</div>
                 {(document.sequence?.fragments || []).map((fragment) => (
                   <div className="sequence-fragment-card" key={fragment.id}>
-                    <UiSelect value={fragment.kind} onChange={(event) => updateSequenceFragment(fragment.id, { kind: event.target.value as SequenceFragment["kind"] })}>
+                    <UiSelect className="text-field" value={fragment.kind} onChange={(event) => updateSequenceFragment(fragment.id, { kind: event.target.value as SequenceFragment["kind"] })}>
                       <option value="alt">alt · conditional</option>
                       <option value="opt">opt · optional</option>
                       <option value="loop">loop · loop</option>
