@@ -15,15 +15,21 @@ interface Props {
   onSelectNode: (id: string) => void;
   onSelectRelation: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
+  onCreateRelation: (sourceId: string, targetId: string) => void;
+  onRenameNode: (nodeId: string, name: string) => void;
+  onUpdateRelationLabel: (relationId: string, label: string) => void;
+  connectionSourceId: string | null;
+  onConnectionSourceChange: (nodeId: string | null) => void;
   onContextMenu: (target: { kind: "node" | "relation" | "canvas"; id?: string }, x: number, y: number) => void;
 }
 interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; originX: number; originY: number; }
 interface PanState { startClientX: number; startClientY: number; originX: number; originY: number; }
+interface ConnectionDrag { sourceId: string; start: Point; current: Point; }
 
 function center(node: DiagramNode): Point {
   return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
 }
-function relationPath(document: DiagramDocument, relation: DiagramRelation): { d: string; label: Point } | null {
+function relationPath(document: DiagramDocument, relation: DiagramRelation): { d: string; label: Point; start: Point; end: Point } | null {
   const source = document.nodes.find((node) => node.id === relation.source);
   const target = document.nodes.find((node) => node.id === relation.target);
   if (!source || !target) return null;
@@ -90,7 +96,7 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
     }
     remaining -= segment;
   }
-  return { d, label };
+  return { d, label, start: all[0], end: all[all.length - 1] };
 }
 function nodePath(node: DiagramNode, shape: string): string {
   if (shape === "pill") {
@@ -107,6 +113,11 @@ export default function DiagramCanvas({
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [panGesture, setPanGesture] = useState<PanState | null>(null);
+  const [connectionDrag, setConnectionDrag] = useState<ConnectionDrag | null>(null);
+  const [editingRelationId, setEditingRelationId] = useState<string | null>(null);
+  const [relationLabelDraft, setRelationLabelDraft] = useState("");
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [nodeNameDraft, setNodeNameDraft] = useState("");
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const frame = useMemo(() => ({
     width: Math.max(1240, ...document.nodes.map((node) => node.x + node.width + 100)),
@@ -134,13 +145,34 @@ export default function DiagramCanvas({
     return { x: transformed.x, y: transformed.y };
   }
   function startDrag(event: ReactPointerEvent<SVGGElement>, node: DiagramNode) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || connectionSourceId) return;
     event.stopPropagation();
     const point = pointerToDiagram(event.clientX, event.clientY);
     setDrag({ id: node.id, offsetX: point.x - node.x, offsetY: point.y - node.y, x: node.x, y: node.y, originX: node.x, originY: node.y });
     onSelectNode(node.id);
     svgRef.current?.setPointerCapture(event.pointerId);
     event.preventDefault();
+  }
+  function startConnection(event: ReactPointerEvent<SVGCircleElement>, node: DiagramNode, start: Point) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDrag(null);
+    setPanGesture(null);
+    setConnectionDrag({ sourceId: node.id, start, current: pointerToDiagram(event.clientX, event.clientY) });
+    onSelectNode(node.id);
+    onConnectionSourceChange(null);
+    svgRef.current?.setPointerCapture(event.pointerId);
+  }
+  function finishRelationLabel(commit: boolean, value = relationLabelDraft) {
+    if (commit && editingRelationId) onUpdateRelationLabel(editingRelationId, value);
+    setEditingRelationId(null);
+    setRelationLabelDraft("");
+  }
+  function finishNodeName(commit: boolean, value = nodeNameDraft) {
+    if (commit && editingNodeId && value.trim()) onRenameNode(editingNodeId, value.trim());
+    setEditingNodeId(null);
+    setNodeNameDraft("");
   }
   function startPan(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.button !== 0 || drag) return;
@@ -151,6 +183,10 @@ export default function DiagramCanvas({
     event.preventDefault();
   }
   function moveDrag(event: ReactPointerEvent<SVGSVGElement>) {
+    if (connectionDrag) {
+      setConnectionDrag({ ...connectionDrag, current: pointerToDiagram(event.clientX, event.clientY) });
+      return;
+    }
     if (drag) {
       const point = pointerToDiagram(event.clientX, event.clientY);
       setDrag({ ...drag, x: Math.max(12, point.x - drag.offsetX), y: Math.max(12, point.y - drag.offsetY) });
@@ -167,7 +203,19 @@ export default function DiagramCanvas({
       });
     }
   }
-  function endDrag() {
+  function endDrag(event: ReactPointerEvent<SVGSVGElement>) {
+    if (connectionDrag) {
+      const point = pointerToDiagram(event.clientX, event.clientY);
+      const target = [...displayNodes].reverse().find((node) =>
+        node.id !== connectionDrag.sourceId &&
+        point.x >= node.x && point.x <= node.x + node.width &&
+        point.y >= node.y && point.y <= node.y + node.height
+      );
+      if (target) onCreateRelation(connectionDrag.sourceId, target.id);
+      setConnectionDrag(null);
+      setPanGesture(null);
+      return;
+    }
     if (drag) {
       if (Math.abs(drag.x - drag.originX) > 2 || Math.abs(drag.y - drag.originY) > 2) {
         onMoveNode(drag.id, drag.x, drag.y);
@@ -187,7 +235,7 @@ export default function DiagramCanvas({
     <svg ref={svgRef} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
       viewBox={(frame.width * (1 - 1 / zoom) / 2 + pan.x) + " " + (frame.height * (1 - 1 / zoom) / 2 + pan.y) + " " + (frame.width / zoom) + " " + (frame.height / zoom)}
       preserveAspectRatio={document.kind === "flowchart" ? "xMidYMin meet" : "xMidYMid meet"} onPointerDown={startPan}
-      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={(event) => { setConnectionDrag(null); endDrag(event); }}
       onContextMenu={(event) => { event.preventDefault(); onContextMenu({ kind: "canvas" }, event.clientX, event.clientY); }}
       role="group" aria-labelledby={titleId} aria-describedby={descriptionId}>
       <title id={titleId}>{document.title}</title>
@@ -240,6 +288,8 @@ export default function DiagramCanvas({
         return <rect className="sequence-activation" key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
           fill="#CFDDF1" stroke={tokens.borderStrong} strokeWidth="1.2" />;
       })}
+      {connectionSourceId && <text className="connection-mode-hint" x={24} y={30} fontSize="13" fontWeight="600" fill={tokens.accent}>Connecting from {displayNodes.find((node) => node.id === connectionSourceId)?.name || "node"} · select a target or press Esc</text>}
+      {connectionDrag && <path className="connection-preview" d={"M " + connectionDrag.start.x + " " + connectionDrag.start.y + " L " + connectionDrag.current.x + " " + connectionDrag.current.y} fill="none" stroke={tokens.accent} strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />}
       {displayDoc.relations.map((relation) => {
         const path = relationPath(displayDoc, relation);
         if (!path) return null;
@@ -253,6 +303,7 @@ export default function DiagramCanvas({
           role="button" tabIndex={0} aria-label={accessibleRelation}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => selectRelation(event, relation.id)}
+          onDoubleClick={(event) => { event.stopPropagation(); setEditingRelationId(relation.id); setRelationLabelDraft(relation.label); }}
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "relation", id: relation.id }, event.clientX, event.clientY); }}
           onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectRelation(relation.id); } }}
           style={{ cursor: "pointer" }}>
@@ -261,10 +312,20 @@ export default function DiagramCanvas({
             strokeWidth={selected ? Math.max(2.8, paint.width + 1.1) : paint.width}
             strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
             markerEnd={"url(#" + safeSvgId + "-" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
-          {relation.label && <g className="relation-label" pointerEvents="none">
+          {relation.label && editingRelationId !== relation.id && <g className="relation-label" pointerEvents="none">
             <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - 14} width={labelWidth} height="22" rx="4" fill={tokens.canvas} fillOpacity="0.98" />
             <text className="relation-label-text" x={path.label.x} y={path.label.y + 2} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">{relation.label}</text>
           </g>}
+          {editingRelationId === relation.id && <foreignObject x={path.label.x - Math.max(58, labelWidth / 2)} y={path.label.y - 18} width={Math.max(116, labelWidth)} height="34">
+            <input xmlns="http://www.w3.org/1999/xhtml" className="relation-inline-input" aria-label="Edit relation label" autoFocus
+              value={relationLabelDraft} onChange={(event) => setRelationLabelDraft(event.currentTarget.value)}
+              onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishRelationLabel(true, event.currentTarget.value); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                if (event.key === "Escape") { event.currentTarget.dataset.cancelled = "true"; finishRelationLabel(false); }
+              }}
+            />
+          </foreignObject>}
         </g>;
       })}
       {displayNodes.map((node) => {
@@ -284,22 +345,53 @@ export default function DiagramCanvas({
           ? wrapTextToWidth(node.description, availableTextWidth, 13, descriptionLineCapacity)
           : [];
         const accessibleNode = "Node: " + node.name + (node.technology ? ". Technology: " + node.technology : "") + (node.description ? ". Description: " + node.description : "");
-        return <g key={node.id} data-role={node.role} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
+        return <g key={node.id} data-node-id={node.id} data-role={node.role}
+          className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "") + (connectionSourceId === node.id ? " connection-source" : "")}
           role="button" tabIndex={0} aria-label={accessibleNode}
-          onPointerDown={(event) => startDrag(event, node)} onClick={(event) => { event.stopPropagation(); onSelectNode(node.id); }}
+          onPointerDown={(event) => startDrag(event, node)}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (connectionSourceId) {
+              if (connectionSourceId !== node.id) onCreateRelation(connectionSourceId, node.id);
+              onConnectionSourceChange(null);
+              return;
+            }
+            onSelectNode(node.id);
+          }}
+          onDoubleClick={(event) => { event.stopPropagation(); setEditingNodeId(node.id); setNodeNameDraft(node.name); }}
           onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectNode(node.id); } }}
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "node", id: node.id }, event.clientX, event.clientY); }}
-          style={{ cursor: "grab" }}>
+          style={{ cursor: connectionSourceId && connectionSourceId !== node.id ? "crosshair" : "grab" }}>
           <title>{accessibleNode}</title>
           <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2.4 : 1.4} />
           {!["decision", "start", "end"].includes(node.role) && <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3.4" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.6 : 1} />}
-          <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
-            textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill={tokens.ink}>{compactTitle}</text>
+          {editingNodeId !== node.id && <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
+            textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill={tokens.ink}>{compactTitle}</text>}
+          {editingNodeId === node.id && <foreignObject x={node.x + 8} y={node.y + 8} width={Math.max(80, node.width - 16)} height="34">
+            <input xmlns="http://www.w3.org/1999/xhtml" className="node-inline-input" aria-label="Rename node" autoFocus
+              value={nodeNameDraft} onChange={(event) => setNodeNameDraft(event.currentTarget.value)}
+              onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishNodeName(true, event.currentTarget.value); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                if (event.key === "Escape") { event.currentTarget.dataset.cancelled = "true"; finishNodeName(false); }
+              }}
+            />
+          </foreignObject>}
           {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill={tokens.inkMuted}>{technologyLabel}</text>}
           {node.description && <text fontSize="13" fontWeight="500" fill={tokens.inkMuted}>
             {descriptionLines.map((line, index) => <tspan key={index} x={node.x + 17} y={descriptionY + index * 15}>{line}</tspan>)}
           </text>}
           {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 17} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">●</text>}
+          {!editingNodeId && <>
+            <circle className="connection-handle" cx={node.x + node.width} cy={node.y + node.height / 2} r="5.5"
+              aria-label={"Connect from " + node.name} onPointerDown={(event) => startConnection(event, node, { x: node.x + node.width, y: node.y + node.height / 2 })} />
+            <circle className="connection-handle" cx={node.x} cy={node.y + node.height / 2} r="5.5"
+              aria-label={"Connect from " + node.name} onPointerDown={(event) => startConnection(event, node, { x: node.x, y: node.y + node.height / 2 })} />
+            <circle className="connection-handle" cx={node.x + node.width / 2} cy={node.y} r="5.5"
+              aria-label={"Connect from " + node.name} onPointerDown={(event) => startConnection(event, node, { x: node.x + node.width / 2, y: node.y })} />
+            <circle className="connection-handle" cx={node.x + node.width / 2} cy={node.y + node.height} r="5.5"
+              aria-label={"Connect from " + node.name} onPointerDown={(event) => startConnection(event, node, { x: node.x + node.width / 2, y: node.y + node.height })} />
+          </>}
         </g>;
       })}
     </svg>
