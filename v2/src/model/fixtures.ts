@@ -24,7 +24,7 @@ const base = (id: string, title: string, kind: DiagramDocument["kind"]): Diagram
     // so the layout endpoint would reject the sample as a disabled engine.
     profile: kind === "sequence" ? "sequence-standard" : "elk-layered",
     direction: "RIGHT", routing: kind === "sequence" ? "polyline" : "orthogonal",
-    nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 34,
+    nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 32,
     externalSide: "RIGHT", storageSide: "BOTTOM"
   }
 });
