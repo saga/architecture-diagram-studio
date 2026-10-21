@@ -4,6 +4,7 @@ import path from "node:path";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { isDiagramDocument } from "../src/model/types";
 import { applyIntent } from "../src/intent/applyIntent";
+import { layoutDiagram } from "../src/layout/layout";
 import { randomUUID } from "node:crypto";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
@@ -101,6 +102,36 @@ const ALLOWED_COMMANDS = new Set([
   "把所有 external 放到右侧", "把数据库和存储放到底部", "布局方向从左到右",
   "布局方向从上到下", "重新自动排版", "解除手动锁定"
 ]);
+
+app.post("/api/workspace/layout", async (req, res) => {
+  const document = req.body?.document;
+  if (!isDiagramDocument(document)) {
+    res.status(400).json({ error: "图形文档格式无效" });
+    return;
+  }
+  const startedAt = Date.now();
+  try {
+    await writeLog("layout.started", {
+      documentId: document.id, diagramKind: document.kind,
+      nodeCount: document.nodes.length, relationCount: document.relations.length,
+      profile: document.layout.profile, direction: document.layout.direction
+    });
+    const result = await layoutDiagram(document);
+    await writeLog("layout.completed", {
+      documentId: document.id, durationMs: Date.now() - startedAt,
+      nodeCount: result.nodes.length, relationCount: result.relations.length,
+      profile: result.layout.profile, direction: result.layout.direction
+    });
+    res.json({ document: result, durationMs: Date.now() - startedAt });
+  } catch (error) {
+    await writeLog("layout.failed", {
+      documentId: document.id, durationMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 app.post("/api/workspace/intent/apply", async (req, res) => {
   const document = req.body?.document;
