@@ -2,7 +2,7 @@ import { Children, isValidElement, useCallback, useEffect, useRef, useState } fr
 import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
-import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
@@ -53,8 +53,8 @@ function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
 }
 
-function UiInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  if (props.type === "file") return <input {...props} />;
+function UiInput({ ref, ...props }: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  if (props.type === "file") return <input {...props} ref={ref} />;
   if (props.type === "checkbox") return <Checkbox {...(props as any)} />;
   return <Input {...(props as any)} />;
 }
