@@ -214,7 +214,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   }
   if (name === "restore_diagram_version") {
     if (args.confirmed !== true) throw new Error("confirmed=true is required");
-    return studioApi("/api/workspace/versions/" + encodeURIComponent(String(args.versionId)) + "/restore", { method: "POST", body: JSON.stringify({}) });
+    return studioApi("/api/workspace/diagram/restore-version", { method: "POST", body: JSON.stringify({ versionId: args.versionId, confirmed: true }) });
   }
   const workspace = await getWorkspace();
   if (name === "workspace_info") return { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath, primaryDiagram: workspace.primaryDiagram, schemaVersion: workspace.schemaVersion };
@@ -261,7 +261,9 @@ rl.on("line", (line) => {
       } else if (request.method === "tools/call") {
         try {
           const result = await callTool(String(request.params?.name || ""), (request.params?.arguments || {}) as Record<string, unknown>);
-          send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false } });
+          const serialized = JSON.stringify(result, null, 2);
+          if (serialized.length > MAX_RESULT_CHARS) send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "Tool result exceeded the 1 MiB response limit; narrow the query or request a smaller result." }], isError: true } });
+          else send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: serialized }], isError: false } });
         } catch (error) {
           send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true } });
         }
