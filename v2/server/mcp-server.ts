@@ -100,7 +100,12 @@ const tools = [
 ];
 
 async function studioApi(pathname: string, init?: RequestInit): Promise<any> {
-  const response = await fetch(STUDIO_API_URL + pathname, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
+  let response: Response;
+  try {
+    response = await fetch(STUDIO_API_URL + pathname, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
+  } catch (error) {
+    throw new Error("Studio HTTP service is unavailable at " + STUDIO_API_URL + "; start npm run dev or set STUDIO_API_URL. " + (error instanceof Error ? error.message : String(error)));
+  }
   const text = await response.text();
   if (text.length > MAX_RESULT_CHARS) throw new Error("Studio API response exceeded the 1 MiB MCP result limit");
   let payload: any;
