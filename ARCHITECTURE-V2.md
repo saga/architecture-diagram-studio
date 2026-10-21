@@ -10,38 +10,20 @@
 
 V2 不应该把 draw.io 当成“自动布局引擎”，也不应该把 React Flow 当成最终渲染器。
 
-推荐采用三层职责：
+推荐采用以 XML 为唯一真源、语义能力可选的分层结构：
 
-```text
-                    Diagram Design System
-               ┌──────────────────────────┐
-               │ taste / tokens / grammar │
-               │ diagram-specific rules   │
-               └────────────┬─────────────┘
-                            │
-                            ▼
-┌──────────────┐     ┌────────────────────┐     ┌──────────────────┐
-│ AI / Manual  │ --> │ DiagramDocument V2 │ --> │ Layout Engine    │
-│ intent/edit  │     │ semantic truth     │     │ ELK/Dagre/custom │
-└──────────────┘     └────────────────────┘     └────────┬─────────┘
-                                                          │
-                                                          ▼
-                                                ┌──────────────────┐
-                                                │ Quality / Routing│
-                                                │ scorer + repair  │
-                                                └────────┬─────────┘
-                                                         │
-                                                         ▼
-                                                ┌──────────────────┐
-                                                │ draw.io Adapter  │
-                                                │ local bundled Web│
-                                                └────────┬─────────┘
-                                                         │
-                                                         ▼
-                                                ┌──────────────────┐
-                                                │ native draw.io   │
-                                                │ editable canvas  │
-                                                └──────────────────┘
+```mermaid
+flowchart TD
+    Intent["User / Copilot intent"] --> NativeEdit["Native Draw.io editor or governed cell operation"]
+    NativeEdit --> XML[("Draw.io mxfile XML<br/>single source of truth")]
+    XML --> Projection["Projection adapter"]
+    Projection --> Semantic["DiagramDocument<br/>derived, partial semantic view"]
+    Semantic --> Gate{"Lossless projection proven?"}
+    Gate -- Yes --> Layout["Optional semantic layout / quality tools"]
+    Layout --> Patch["Cell-ID XML patch"]
+    Patch --> XML
+    Gate -- No --> NativeOnly["Native Draw.io editing only"]
+    XML --> Renderer["Bundled Draw.io renderer / export"]
 ```
 
 最重要的一条原则：
@@ -1434,7 +1416,7 @@ Supported tool outputs and context are bounded. Retrieved project contents are u
 
 | 当前能力 | V2 处理方式 |
 |---|---|
-| `DiagramDocument` | 升级 schema v2，继续作为 semantic source of truth |
+| `DiagramDocument` | 保留为派生的部分语义投影；不是持久化真源，所有修改 patch 回权威 XML |
 | ELK | 保留，升级成 C4/Flow 的底层 engine |
 | Dagre | 保留，作为轻量 fallback / prototype engine |
 | D3 hierarchy/force | 保留为实验能力，默认 UI 不暴露 |
@@ -1591,9 +1573,9 @@ C4、Flow、Sequence 是三种不同的视觉语法。
 
 必须经过 quality engine。
 
-## 决策 5：不要把 React Flow 或 draw.io 当成 semantic source of truth
+## 决策 5：Draw.io XML 是唯一的文档真源
 
-`DiagramDocument V2` 才是唯一业务真相。
+完整的 `mxfile` XML 才是唯一持久化源。React / Studio 使用的 `DiagramDocument` 只是派生的局部语义视图；任何语义修改必须通过受控 cell-ID patch 写回 XML，绝不能用投影重建整份文档。
 
 ## 决策 6：不要用公网 Embed 作为生产默认
 
