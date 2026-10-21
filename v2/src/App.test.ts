@@ -4,6 +4,7 @@ import { interpretIntent } from "./intent/applyIntent";
 import { mxEdgeStyle, relationPaint } from "./design/styles";
 import { parseAIIntentPlan } from "./intent/aiProvider";
 import { isDiagramDocument } from "./model/types";
+import { layoutDiagram } from "./layout/layout";
 
 describe("V2 semantic fixtures and intents", () => {
   it("keeps first-class diagram types limited to C4, flowchart and sequence", () => {
@@ -28,6 +29,21 @@ describe("V2 semantic fixtures and intents", () => {
     expect(result.requiresLayout).toBe(true);
     expect(result.document.layout.routing).toBe("polyline");
     expect(result.document.relations.every((edge) => edge.points?.length === 0)).toBe(true);
+  });
+
+  it("keeps flowchart exception branches close to their connected main-path steps", async () => {
+    const laidOut = await layoutDiagram(createFlowFixture());
+    const centerX = (id: string) => {
+      const node = laidOut.nodes.find((item) => item.id === id)!;
+      return node.x + node.width / 2;
+    };
+    const branchCenterX = (id: string) => centerX(id);
+    const reviewExpected = (centerX("valid") + centerX("enrich")) / 2;
+    const approvalExpected = (centerX("approve") + centerX("submit")) / 2;
+    expect(Math.abs(branchCenterX("review") - reviewExpected)).toBeLessThan(2);
+    expect(Math.abs(branchCenterX("approval") - approvalExpected)).toBeLessThan(2);
+    expect(laidOut.nodes.find((node) => node.id === "review")!.y)
+      .toBeGreaterThan(laidOut.nodes.find((node) => node.id === "valid")!.y);
   });
 
   it("models external placement as a semantic constraint", () => {
