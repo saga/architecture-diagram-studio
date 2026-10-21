@@ -180,9 +180,10 @@ export async function requestAIIntentPlan(
     throw new Error("模型接口返回了无法解析的响应");
   }
   if (!response.ok) {
-    const providerError = payload && typeof payload === "object"
-      ? (payload as { error?: { code?: unknown; type?: unknown; message?: unknown } }).error
-      : undefined;
+    const providerError: { code?: unknown; type?: unknown; message?: unknown } | undefined =
+      payload !== null && typeof payload === "object"
+        ? (payload as { error?: { code?: unknown; type?: unknown; message?: unknown } }).error
+        : undefined;
     const providerErrorCode = typeof providerError?.code === "string" ? providerError.code.slice(0, 100) : null;
     const providerErrorType = typeof providerError?.type === "string" ? providerError.type.slice(0, 100) : null;
     recordDiagnostic("copilot.http.response.error", "模型接口返回错误状态；响应正文未写入轨迹", {
