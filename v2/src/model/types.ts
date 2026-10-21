@@ -94,8 +94,16 @@ export interface LayoutQualityReport {
     labelCollisions: number;
     disconnectedComponents: number;
     alignmentScore: number;
+    gridAlignmentScore: number;
     whitespaceScore: number;
     densityScore: number;
+    labelOverflowCount: number;
+    edgeLabelOutOfBoundsCount: number;
+    connectorRoutingViolations: number;
+    portSpacingViolations: number;
+    contrastViolations: number;
+    cjkWidthViolations: number;
+    complexityWarnings: number;
   };
 }
 export interface IntentResult {
