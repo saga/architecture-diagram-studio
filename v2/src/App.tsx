@@ -271,8 +271,10 @@ export default function App() {
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "Could not read the selected Draw.io file");
         nextXml = fileResult.content;
-        const parsedDocument = fromDrawioXml(fileResult.content, document);
-        if (parsedDocument === document) throw new Error("The selected file is not recognisable Draw.io XML");
+        // A workspace switch must not inherit semantic metadata from the previous project's diagram.
+        const importBaseDocument = workspaceChanged ? FIXTURES.c4() : document;
+        const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
+        if (parsedDocument === importBaseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
         nextDocument = await requestServerSequenceNormalize(parsedDocument);
       } else if (workspaceChanged) {
         nextDocument = await layoutSample(FIXTURES.c4());
