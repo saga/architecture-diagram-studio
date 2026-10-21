@@ -22,6 +22,7 @@ export function validateDiagramSemantics(document: DiagramDocument): string[] {
     if (!nodeIds.has(relation.source) || !nodeIds.has(relation.target)) errors.push("Relation endpoint does not exist: " + relation.id);
     if (!relationKinds.has(relation.kind) || relation.label.length > 1000) errors.push("Invalid relation kind or label: " + relation.id);
     if ((relation.points || []).some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.abs(point.x) > 100000 || Math.abs(point.y) > 100000)) errors.push("Invalid relation path coordinates: " + relation.id);
+    if ([relation.sourcePort, relation.targetPort].some((point) => point && (!Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.abs(point.x) > 100000 || Math.abs(point.y) > 100000))) errors.push("Invalid relation port coordinates: " + relation.id);
   }
   for (const boundary of document.boundaries) {
     if (!boundary.id || boundary.id.length > 128 || boundaryIds.has(boundary.id)) errors.push("Boundary id is empty, too long or duplicated: " + boundary.id);
