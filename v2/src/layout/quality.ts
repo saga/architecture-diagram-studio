@@ -179,6 +179,10 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       errors.push({ code: "invalid-relation", severity: "error", message: "Relation " + edge.id + " references a missing source or target node", relationIds: [edge.id] });
     }
   }
+  if (doc.boundaries.length > 3) warnings.push({
+    code: "complexity-boundaries", severity: "warning",
+    message: "Diagram has " + doc.boundaries.length + " boundaries; verify that zones remain visually hierarchical"
+  });
   for (const boundary of doc.boundaries) {
     const missing = boundary.members.filter((id) => !doc.nodes.some((node) => node.id === id));
     if (missing.length) {
@@ -288,6 +292,7 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       }
     }
   }
+  const crossedRelationIds = new Set<string>();
   for (let i = 0; i < paths.length; i++) {
     for (let j = i + 1; j < paths.length; j++) {
       const left = doc.relations.find((r) => r.id === paths[i].id);
@@ -302,7 +307,11 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
           }
         }
       }
-      if (crossed) edgeCrossings++;
+      if (crossed) {
+        edgeCrossings++;
+        crossedRelationIds.add(left.id);
+        crossedRelationIds.add(right.id);
+      }
     }
   }
 
@@ -341,8 +350,21 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
     message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node",
     nodeIds: [...edgeNodeIssueNodeIds], relationIds: [...edgeNodeIssueRelationIds]
   });
-  if (edgeCrossings) warnings.push({ code: "edge-crossing", severity: "warning", message: edgeCrossings + " possible edge crossing(s)" });
-  if (labelCollisions) warnings.push({ code: "label-collision", severity: "warning", message: labelCollisions + " estimated edge-label collision(s)" });
+  if (edgeCrossings) warnings.push({
+    code: "edge-crossing", severity: "warning",
+    message: edgeCrossings + " possible edge crossing(s)",
+    relationIds: [...crossedRelationIds]
+  });
+  if (labelCollisions) warnings.push({
+    code: "label-collision", severity: "warning",
+    message: labelCollisions + " estimated edge-label collision(s)",
+    relationIds: [...new Set(boxes.filter((current) => {
+      const edge = doc.relations.find((item) => item.id === current.relationId);
+      const collidesWithNode = doc.nodes.some((node) => node.id !== edge?.source && node.id !== edge?.target && overlaps(current, node, 0));
+      const collidesWithLabel = boxes.some((other) => other.relationId !== current.relationId && overlaps(current, other, 2));
+      return collidesWithNode || collidesWithLabel;
+    }).map((box) => box.relationId))]
+  });
   if (disconnectedComponents) warnings.push({ code: "disconnected-components", severity: "warning", message: disconnectedComponents + " disconnected component(s) beyond the first" });
   if (offGridCoordinates) warnings.push({ code: "off-grid-node", severity: "warning", message: offGridCoordinates + " node coordinate(s) are not aligned to the 4px grid" });
   if (portSpacingViolations) warnings.push({ code: "port-spacing", severity: "warning", message: portSpacingViolations + " connector port pair(s) are closer than their minimum spacing" });
