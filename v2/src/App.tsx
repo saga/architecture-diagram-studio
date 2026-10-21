@@ -822,7 +822,7 @@ export default function App() {
       setLastAction("这条关系已经存在");
       return;
     }
-    const next = normalizeSequenceDocument({
+    const next = await requestServerSequenceNormalize({
       ...document,
       relations: [...document.relations, {
         id: newId("relation"),
