@@ -40,7 +40,7 @@ function applyC4SemanticRanks(doc: DiagramDocument): DiagramDocument {
   return { ...doc, nodes };
 }
 
-function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
+export function applySemanticSideConstraints(doc: DiagramDocument): DiagramDocument {
   const nodes = doc.nodes.map((node) => ({ ...node, layoutHints: { ...(node.layoutHints || {}) } }));
   if (doc.kind === "sequence") return { ...doc, nodes };
   const unlocked = nodes.filter((node) => !node.layoutHints?.locked);
@@ -63,25 +63,48 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   const bottom = buckets.get("BOTTOM") || [];
   const left = buckets.get("LEFT") || [];
   const right = buckets.get("RIGHT") || [];
+  const maxTopHeight = Math.max(0, ...top.map((node) => node.height));
+
+  // Reserve a proper top lane. Only unlocked internal nodes move; manually locked
+  // geometry remains authoritative and is left for the quality checker to report.
+  if (top.length && maxTopHeight > 0) {
+    for (const node of fixedAndInternal) {
+      if (!node.layoutHints?.locked) node.y += maxTopHeight + gap;
+    }
+  }
   const leftWidth = Math.max(0, ...left.map((node) => node.width));
-  // Create real room for a left-side external column without moving locked nodes.
-  const leftInset = left.length ? 24 + leftWidth + gap : 0;
-  const shift = left.length ? Math.max(0, leftInset - Math.min(48, ...fixedAndInternal.map((node) => node.x))) : 0;
-  if (shift) fixedAndInternal.filter((node) => !node.layoutHints?.locked).forEach((node) => { node.x += shift; });
-  const updatedMinX = Math.min(48, ...fixedAndInternal.map((node) => node.x));
-  const updatedMaxX = Math.max(48, ...fixedAndInternal.map((node) => node.x + node.width));
-  const updatedMaxY = Math.max(56, ...fixedAndInternal.map((node) => node.y + node.height));
-  const leftX = left.length ? Math.max(24, updatedMinX - leftWidth - gap) : 24;
-  const rightX = updatedMaxX + gap;
-  const topY = Math.max(24, Math.min(56, ...fixedAndInternal.map((node) => node.y)) - gap);
-  const bottomY = updatedMaxY + gap;
+  const minUnlockedX = Math.min(...fixedAndInternal.filter((node) => !node.layoutHints?.locked).map((node) => node.x));
+  const leftXShift = left.length && Number.isFinite(minUnlockedX)
+    ? Math.max(0, 24 + leftWidth + gap - minUnlockedX)
+    : 0;
+  if (leftXShift) {
+    fixedAndInternal.filter((node) => !node.layoutHints?.locked).forEach((node) => { node.x += leftXShift; });
+  }
 
+  const minX = Math.min(48, ...fixedAndInternal.map((node) => node.x));
+  const maxX = Math.max(48, ...fixedAndInternal.map((node) => node.x + node.width));
+  const maxY = Math.max(56, ...fixedAndInternal.map((node) => node.y + node.height));
+  const rightX = maxX + gap;
+  const topY = 24;
+  const bottomY = maxY + gap;
   const sortStable = (items: DiagramNode[]) => items.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
-  sortStable(left).forEach((node, index) => { node.x = leftX; node.y = 56 + index * (node.height + doc.layout.nodeSpacing); });
-  sortStable(right).forEach((node, index) => { node.x = rightX; node.y = 56 + index * (node.height + doc.layout.nodeSpacing); });
-  sortStable(top).forEach((node, index) => { node.x = 48 + index * (node.width + doc.layout.nodeSpacing); node.y = topY; });
-  sortStable(bottom).forEach((node, index) => { node.x = 48 + index * (node.width + doc.layout.nodeSpacing); node.y = bottomY; });
 
+  sortStable(left).forEach((node, index) => {
+    node.x = Math.max(24, minX - leftWidth - gap);
+    node.y = 56 + index * (node.height + doc.layout.nodeSpacing);
+  });
+  sortStable(right).forEach((node, index) => {
+    node.x = rightX;
+    node.y = 56 + index * (node.height + doc.layout.nodeSpacing);
+  });
+  sortStable(top).forEach((node, index) => {
+    node.x = 48 + index * (node.width + doc.layout.nodeSpacing);
+    node.y = topY;
+  });
+  sortStable(bottom).forEach((node, index) => {
+    node.x = 48 + index * (node.width + doc.layout.nodeSpacing);
+    node.y = bottomY;
+  });
   return { ...doc, nodes };
 }
 
@@ -134,7 +157,7 @@ export async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProf
     if (doc.kind === "flowchart") next = applyFlowLanes(next);
     else {
       next = applyC4SemanticRanks(next);
-      next = applySemanticLanes(next);
+      next = applySemanticSideConstraints(next);
     }
   }
   return routeRelations(next);
