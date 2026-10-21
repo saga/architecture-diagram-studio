@@ -8,7 +8,7 @@ import { layoutDiagram, moveNode } from "../src/layout/layout";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
@@ -691,7 +691,8 @@ async function getOrResumeSessionUnlocked(sessionId: string, model: string, reas
   const client = await getCopilotClient();
   const systemMessage = await buildSystemMessage(activeConfig);
   // Keep the UI conversation ID stable while isolating SDK history by configuration revision.
-  const sdkSessionId = sessionId + ".cfg." + activeConfig.revisionId;
+  const sessionConfigKey = createHash("sha256").update([activeConfig.revisionId, model, reasoningEffort || activeConfig.reasoningEffort].join("\\0")).digest("hex").slice(0, 16);
+  const sdkSessionId = sessionId + ".cfg." + sessionConfigKey;
   let session: RuntimeSession["session"];
   let resumed = false;
   try {
