@@ -14,4 +14,4 @@ Start the new application:
     npm install
     npm run dev
 
-V2 focuses on C4, sequence and process-flow diagrams, with a Studio Editorial design system, semantic ELK layout, route-quality scoring, preview-before-commit Copilot, optional OpenAI-compatible intent planning, manual relation editing, and a pinned locally bundled Draw.io editor. See v2/README.md for supported features and offline setup.
+V2 focuses on C4, sequence and process-flow diagrams, with a Studio Editorial design system, semantic ELK layout, route-quality scoring, preview-before-commit Copilot, Copilot SDK agent-backed intent planning, manual relation editing, and a pinned locally bundled Draw.io editor. See v2/README.md for supported features and offline setup.
