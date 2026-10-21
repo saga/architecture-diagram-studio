@@ -22,7 +22,7 @@ import { clearDiagnosticEntries, readDiagnosticEntries, recordDiagnostic } from 
 import type { DiagnosticEntry } from "./diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
-type SavedAISettings = { baseUrl: string; model: string };
+type SavedAISettings = { baseUrl: string; model: string; reasoningEffort: "high" | "max" };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 function loadSavedTheme(): UiTheme {
   try {
@@ -42,12 +42,12 @@ function loadSavedAISettings(): SavedAISettings {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
-      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "claude-sonnet-5.5" };
+      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "claude-sonnet-5.5", reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max" };
     }
   } catch {
     // The page can still use deterministic local rules when browser storage is unavailable.
   }
-  return { baseUrl: "copilot-sdk", model: "claude-sonnet-5.5" };
+  return { baseUrl: "copilot-sdk", model: "claude-sonnet-5.5", reasoningEffort: "max" };
 }
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -106,6 +106,7 @@ export default function App() {
   const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
   const [aiBaseUrl, setAiBaseUrl] = useState(savedAISettings.baseUrl);
   const [aiModel, setAiModel] = useState(savedAISettings.model);
+  const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
   const [aiApiKey, setAiApiKey] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", id: 1, text: "描述想要的布局变化即可，例如「所有 external 移到右侧」「数据库放到底部」或「所有连线改成直角折线」。未配置模型时使用本地规则；配置后会把请求转换为受限的布局指令，并先生成预览供确认。" }
@@ -314,7 +315,7 @@ export default function App() {
           model: aiModel.trim(), provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
-          { baseUrl: "copilot-sdk", model: aiModel },
+          { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort },
           text,
           {
             kind: document.kind,
@@ -373,7 +374,7 @@ export default function App() {
   }
 
   function saveAISettings() {
-    const next = { baseUrl: "copilot-sdk", model: aiModel.trim() };
+    const next = { baseUrl: "copilot-sdk", model: aiModel.trim(), reasoningEffort };
     setAiBaseUrl("copilot-sdk");
     setAiModel(next.model);
     let saved = true;
@@ -1081,6 +1082,8 @@ export default function App() {
           setAiBaseUrl={setAiBaseUrl}
           aiModel={aiModel}
           setAiModel={setAiModel}
+          reasoningEffort={reasoningEffort}
+          setReasoningEffort={setReasoningEffort}
           aiApiKey={aiApiKey}
           setAiApiKey={setAiApiKey}
           saveAISettings={saveAISettings}
