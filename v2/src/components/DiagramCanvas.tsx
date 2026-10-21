@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
@@ -165,7 +165,7 @@ export default function DiagramCanvas({
     }
     setPanGesture(null);
   }
-  function selectRelation(event: React.MouseEvent<SVGGElement>, relationId: string) {
+  function selectRelation(event: ReactMouseEvent<SVGGElement>, relationId: string) {
     event.stopPropagation();
     onSelectRelation(relationId);
   }
@@ -183,8 +183,8 @@ export default function DiagramCanvas({
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B" /></marker>
         <marker id="arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#778496" strokeWidth="1.2" /></marker>
       </defs>
-      <rect width={frame.width} height={frame.height} fill="#FBFCFD" onPointerDown={startPan} />
-      <rect width={frame.width} height={frame.height} fill="url(#studio-grid)" onPointerDown={startPan} />
+      <rect width={frame.width} height={frame.height} fill="#FBFCFD" />
+      <rect width={frame.width} height={frame.height} fill="url(#studio-grid)" />
       {displayDoc.boundaries.map((boundary) => {
         const members = displayNodes.filter((node) => boundary.members.includes(node.id));
         if (!members.length) return null;
