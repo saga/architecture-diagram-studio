@@ -340,7 +340,7 @@ export default function DiagramCanvas({
               aria-label="Reconnect relation target" onPointerDown={(event) => startReconnect(event, relation, "target", path.end)} />
           </>}
           {editingRelationId === relation.id && <foreignObject x={path.label.x - Math.max(58, labelWidth / 2)} y={path.label.y - 18} width={Math.max(116, labelWidth)} height="34">
-            <input xmlns="http://www.w3.org/1999/xhtml" className="relation-inline-input" aria-label="Edit relation label" autoFocus
+            <input className="relation-inline-input" aria-label="Edit relation label" autoFocus
               value={relationLabelDraft} onChange={(event) => setRelationLabelDraft(event.currentTarget.value)}
               onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishRelationLabel(true, event.currentTarget.value); }}
               onKeyDown={(event) => {
@@ -391,7 +391,7 @@ export default function DiagramCanvas({
           {editingNodeId !== node.id && <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
             textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill={tokens.ink}>{compactTitle}</text>}
           {editingNodeId === node.id && <foreignObject x={node.x + 8} y={node.y + 8} width={Math.max(80, node.width - 16)} height="34">
-            <input xmlns="http://www.w3.org/1999/xhtml" className="node-inline-input" aria-label="Rename node" autoFocus
+            <input className="node-inline-input" aria-label="Rename node" autoFocus
               onPointerDown={(event) => event.stopPropagation()}
               value={nodeNameDraft} onChange={(event) => setNodeNameDraft(event.currentTarget.value)}
               onBlur={(event) => { if (event.currentTarget.dataset.cancelled !== "true") finishNodeName(true, event.currentTarget.value); }}
