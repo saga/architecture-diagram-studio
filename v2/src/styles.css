@@ -1097,3 +1097,37 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
   .app-shell { grid-template-columns: var(--left-w, 240px) 5px minmax(280px, 1fr); }
   .app-shell .panel-resizer-right { display: none; }
 }
+
+
+/* Graph-first interactions: handles appear on demand; common operations stay on the drawing. */
+.diagram-node .connection-handle { opacity: 0; pointer-events: none; fill: var(--theme-panel); stroke: var(--theme-accent); stroke-width: 2; cursor: crosshair; transition: opacity .12s, r .12s; }
+.diagram-node:hover .connection-handle,
+.diagram-node.selected .connection-handle,
+.diagram-node.connection-source .connection-handle { opacity: 1; pointer-events: all; }
+.diagram-node.connection-source path:first-child { stroke: var(--theme-accent) !important; stroke-width: 2.4; }
+.diagram-node.connection-source .connection-handle { fill: var(--theme-accent); stroke: var(--theme-panel); }
+.connection-preview { stroke-dasharray: 6 4; filter: drop-shadow(0 1px 1px #233b751e); }
+.connection-mode-hint { paint-order: stroke; stroke: var(--theme-panel); stroke-width: 5px; stroke-linejoin: round; }
+.relation-inline-input, .node-inline-input {
+  display: block; width: 100%; height: 28px; margin: 0; padding: 3px 7px;
+  border: 1px solid var(--theme-accent); border-radius: 5px;
+  background: var(--theme-panel); color: var(--theme-text);
+  box-shadow: 0 2px 8px #15223820; font: 12px/1.4 inherit; outline: 2px solid color-mix(in srgb, var(--theme-accent) 18%, transparent);
+}
+.node-inline-input { font-weight: 600; }
+.connected-relation-link {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; margin-top: 6px; padding: 8px;
+  border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-panel);
+  color: var(--theme-text); text-align: left; cursor: pointer;
+}
+.connected-relation-link:hover, .connected-relation-link.active { background: var(--theme-soft); border-color: var(--theme-accent); }
+.connected-relation-link .connected-relation-direction { display: flex; align-items: flex-start; gap: 5px; font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+.connected-relation-link .connected-relation-direction span:first-child,
+.connected-relation-link .connected-relation-direction span:last-child { min-width: 0; flex: 1; }
+.connected-relation-link .relation-arrow { flex: 0 0 auto; color: var(--theme-secondary); }
+.connected-relation-label { color: var(--theme-muted); font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+.canvas-menu { max-height: min(78vh, 560px); overflow: auto; }
+.canvas-menu button.checked { background: var(--theme-soft); color: var(--theme-accent); font-weight: 600; }
+.canvas-menu button:disabled { opacity: .45; cursor: not-allowed; }
+.canvas-menu-caption { padding: 6px 8px 3px; color: var(--theme-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.canvas-menu-divider { height: 1px; flex: 0 0 1px; margin: 4px 2px; background: var(--theme-border); }
