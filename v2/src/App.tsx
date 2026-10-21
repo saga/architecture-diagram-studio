@@ -246,6 +246,7 @@ export default function App() {
   function changeKind(kind: DiagramKind) {
     setPreviewDocument(null);
     setPreviewSummary("");
+    setSelectedRelationId(null);
     const next = FIXTURES[kind]();
     setSelectedNodeId(next.nodes[0]?.id || null);
     setViewMode("studio");
@@ -562,6 +563,7 @@ export default function App() {
   }
 
   function resetDiagram() {
+    setSelectedRelationId(null);
     const next = FIXTURES[document.kind]();
     setSelectedNodeId(next.nodes[0]?.id || null);
     commitDocument(next, "已恢复示例图");
@@ -610,6 +612,7 @@ export default function App() {
         return;
       }
       const next = await layoutDiagram(parsed);
+      setSelectedRelationId(null);
       setSelectedNodeId(next.nodes[0]?.id || null);
       commitDocument(next, "已导入 " + file.name + "，解析 " + next.nodes.length + " 个节点与 " + next.relations.length + " 条关系");
       recordDiagnostic("drawio.import.completed", "Draw.io 文件解析并导入完成", {
