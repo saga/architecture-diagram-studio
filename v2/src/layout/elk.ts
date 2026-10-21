@@ -40,7 +40,7 @@ function applyC4SemanticRanks(doc: DiagramDocument): DiagramDocument {
   return { ...doc, nodes };
 }
 
-export function applySemanticSideConstraints(doc: DiagramDocument): DiagramDocument {
+export function applySemanticSideConstraints(doc: DiagramDocument, automaticRolePlacement = true): DiagramDocument {
   const nodes = doc.nodes.map((node) => ({ ...node, layoutHints: { ...(node.layoutHints || {}) } }));
   if (doc.kind === "sequence") return { ...doc, nodes };
   const unlocked = nodes.filter((node) => !node.layoutHints?.locked);
@@ -49,7 +49,7 @@ export function applySemanticSideConstraints(doc: DiagramDocument): DiagramDocum
     // is horizontal-first; forcing external/storage columns into vertical Dagre
     // layouts would defeat the user's selected orientation.
     if (node.layoutHints?.preferredSide) return node.layoutHints.preferredSide;
-    if (doc.layout.direction !== "RIGHT") return undefined;
+    if (!automaticRolePlacement || doc.layout.direction !== "RIGHT") return undefined;
     if (node.role === "external" || node.role === "vendor") return doc.layout.externalSide;
     if (node.role === "storage" || node.role === "data") return doc.layout.storageSide;
     if (node.role === "infra") return "BOTTOM";
@@ -158,11 +158,17 @@ export async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProf
   // Semantic lane/rank post-processing is specific to layered diagrams. Applying it
   // after radial, tree, stress or force layout would destroy the selected algorithm's geometry.
   if (profile === "elk-layered") {
-    if (doc.kind === "flowchart") next = applyFlowLanes(next);
-    else {
+    if (doc.kind === "flowchart") {
+      next = applyFlowLanes(next);
+      next = applySemanticSideConstraints(next);
+    } else {
       next = applyC4SemanticRanks(next);
       next = applySemanticSideConstraints(next);
     }
+  } else {
+    // Preserve the selected tree/radial/force geometry unless a node explicitly
+    // requests a side; explicit constraints are still part of the document contract.
+    next = applySemanticSideConstraints(next, false);
   }
   return routeRelations(next);
 }
