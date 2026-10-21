@@ -29,6 +29,7 @@ export default function DrawioRenderLab() {
   const [showXml, setShowXml] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
+  const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
   const xml = useMemo(() => nativeXml ?? toDrawioXml(document), [nativeXml, document]);
 
   function chooseScenario(next: Scenario) {
@@ -37,6 +38,7 @@ export default function DrawioRenderLab() {
     setNativeXml(null);
     setSelectedNodeId(null);
     setSelectedRelationId(null);
+    setConnectionSourceId(null);
   }
 
   return (
@@ -61,8 +63,42 @@ export default function DrawioRenderLab() {
           <div className="drawio-render-lab-canvas">
             <DiagramCanvas document={document} zoom={1} viewResetToken={0}
               selectedNodeId={selectedNodeId} selectedRelationId={selectedRelationId}
+              connectionSourceId={connectionSourceId} onConnectionSourceChange={setConnectionSourceId}
               onSelectNode={(id) => { setSelectedNodeId(id); setSelectedRelationId(null); }}
               onSelectRelation={(id) => { setSelectedRelationId(id); setSelectedNodeId(null); }}
+              onCreateRelation={(sourceId, targetId) => {
+                if (document.kind === "sequence" && sourceId === targetId) return;
+                setNativeXml(null);
+                setDocument((current) => ({
+                  ...current,
+                  relations: [...current.relations, {
+                    id: "lab-relation-" + Date.now(), source: sourceId, target: targetId, label: "",
+                    kind: current.kind === "sequence" ? "call" : "flow",
+                    sequenceOrder: current.kind === "sequence" ? current.relations.length : undefined,
+                    points: []
+                  }]
+                }));
+              }}
+              onReconnectRelation={(relationId, endpoint, nodeId) => {
+                setNativeXml(null);
+                setDocument((current) => ({
+                  ...current,
+                  relations: current.relations.map((relation) => relation.id !== relationId ? relation : {
+                    ...relation,
+                    source: endpoint === "source" ? nodeId : relation.source,
+                    target: endpoint === "target" ? nodeId : relation.target,
+                    points: []
+                  })
+                }));
+              }}
+              onRenameNode={(nodeId, name) => {
+                setNativeXml(null);
+                setDocument((current) => ({ ...current, nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, name } : node) }));
+              }}
+              onUpdateRelationLabel={(relationId, label) => {
+                setNativeXml(null);
+                setDocument((current) => ({ ...current, relations: current.relations.map((relation) => relation.id === relationId ? { ...relation, label } : relation) }));
+              }}
               onMoveNode={(id, x, y) => { setNativeXml(null); setDocument((current) => ({
                 ...current, nodes: current.nodes.map((node) => node.id === id ? { ...node, x, y } : node)
               })); }} onContextMenu={() => {}} />
