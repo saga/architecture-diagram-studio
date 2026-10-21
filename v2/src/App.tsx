@@ -6,7 +6,7 @@ import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttribu
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
-import { layoutDiagram, moveNode } from "./layout/layout";
+import { moveNode } from "./layout/layout";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { evaluateLayout } from "./layout/quality";
 import { requestAIIntentPlan } from "./intent/aiProvider";
@@ -73,6 +73,22 @@ function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectH
 }
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
+
+async function requestServerLayout(document: DiagramDocument): Promise<DiagramDocument> {
+  const response = await fetch("/api/workspace/layout", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ document }),
+    signal: AbortSignal.timeout(70_000)
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(payload.error || "服务端布局计算失败（HTTP " + response.status + "）");
+  }
+  const result = await response.json() as { document: DiagramDocument };
+  if (!isDiagramDocument(result.document)) throw new Error("服务端返回了无效的图形文档");
+  return result.document;
+}
 
 export default function App() {
   const [document, setDocument] = useState<DiagramDocument>(() => {
@@ -200,7 +216,7 @@ export default function App() {
         }
         setServerHydrated(true);
         if (!savedDocument) {
-          layoutDiagram(document).then((laidOut) => {
+          requestServerLayout(document).then((laidOut) => {
             if (!active) return;
             setDocument(laidOut);
             historyRef.current = [laidOut];
@@ -225,7 +241,7 @@ export default function App() {
           durationMs: Date.now() - startedAt,
           errorMessage: error instanceof Error ? error.message : String(error)
         }, "error");
-        layoutDiagram(document).then((laidOut) => { if (active) setDocument(laidOut); }).catch(() => undefined);
+        requestServerLayout(document).then((laidOut) => { if (active) setDocument(laidOut); }).catch(() => undefined);
       });
     return () => { active = false; };
   }, []);
@@ -375,7 +391,7 @@ export default function App() {
     });
     setIsLayoutting(true);
     try {
-      const next = await layoutDiagram(source);
+      const next = await requestServerLayout(source);
       recordDiagnostic("layout.run.completed", "布局计算成功", {
         durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length,
         routing: next.layout.routing, profile: next.layout.profile
@@ -835,7 +851,7 @@ export default function App() {
         setLastAction("没有找到可导入的节点；请检查文件是否为有效的 .drawio XML");
         return;
       }
-      const next = await layoutDiagram(parsed);
+      const next = await requestServerLayout(parsed);
       setSelectedRelationId(null);
       setSelectedNodeId(next.nodes[0]?.id || null);
       commitDocument(next, "已导入 " + file.name + "，解析 " + next.nodes.length + " 个节点与 " + next.relations.length + " 条关系");
