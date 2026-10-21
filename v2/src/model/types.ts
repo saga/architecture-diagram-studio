@@ -54,6 +54,8 @@ export interface SequenceFragment {
   label: string;
   startOrder: number;
   endOrder: number;
+  /** Optional subset of lifelines enclosed by this fragment; omitted means all participants. */
+  participants?: string[];
 }
 
 export interface DiagramDocument {
@@ -185,7 +187,8 @@ export function isDiagramDocument(value: unknown): value is DiagramDocument {
       isRecord(fragment) && typeof fragment.id === "string" &&
       ["alt", "opt", "loop"].includes(String(fragment.kind)) &&
       typeof fragment.label === "string" && typeof fragment.startOrder === "number" &&
-      typeof fragment.endOrder === "number" && fragment.startOrder <= fragment.endOrder
+      typeof fragment.endOrder === "number" && fragment.startOrder <= fragment.endOrder &&
+      (fragment.participants === undefined || (Array.isArray(fragment.participants) && fragment.participants.every((id) => typeof id === "string")))
     ))) return false;
   }
   return true;
