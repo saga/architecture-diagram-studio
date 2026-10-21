@@ -452,6 +452,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document)) return { status: 404 as const, error: "当前没有可替换的已保存主图" };
+      if (state.workspaceId && workspace && state.workspaceId !== workspace.id) return { status: 409 as const, error: "当前图形属于另一个工作区，请先重新加载主图" };
       if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== documentRevision(state.document)) return { status: 409 as const, error: "图形已变化，请重新读取后应用模板" };
       const config = await getStudioConfig();
       const document = createDiagramTemplate(key);
