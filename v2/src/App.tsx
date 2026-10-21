@@ -69,7 +69,7 @@ function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectH
     const option = child as ReactElement<{ value?: string; disabled?: boolean; children?: ReactNode }>;
     return { value: option.props.value ?? "", label: option.props.children, disabled: option.props.disabled };
   });
-  return <Select {...props} value={value as string | undefined} defaultValue={defaultValue as string | undefined}
+  return <Select {...(props as any)} value={value as string | undefined} defaultValue={defaultValue as string | undefined}
     options={options} onChange={(nextValue) => onChange?.({ target: { value: nextValue } } as unknown as ChangeEvent<HTMLSelectElement>)} />;
 }
 
@@ -102,6 +102,19 @@ export default function App() {
   const [studioZoom, setStudioZoom] = useState(1);
   const [canvasViewResetToken, setCanvasViewResetToken] = useState(0);
   const [chatInput, setChatInput] = useState("");
+  const [copilotSessionId, setCopilotSessionId] = useState(() => {
+    try {
+      const key = "architecture-diagram-studio:v2:copilot-session-id";
+      const saved = window.localStorage.getItem(key);
+      if (saved) return saved;
+      const created = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
+      window.localStorage.setItem(key, created);
+      return created;
+    } catch {
+      return newId("session");
+    }
+  });
+
   const [chatBusy, setChatBusy] = useState(false);
   const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
   const [aiBaseUrl, setAiBaseUrl] = useState(savedAISettings.baseUrl);
@@ -315,7 +328,7 @@ export default function App() {
           model: aiModel.trim(), provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
-          { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort },
+          { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId },
           text,
           {
             kind: document.kind,
@@ -324,6 +337,10 @@ export default function App() {
             nodes: document.nodes.slice(0, 80).map((node) => ({ id: node.id, name: node.name, role: node.role }))
           }
         );
+        if (plan.sessionId && plan.sessionId !== copilotSessionId) {
+          setCopilotSessionId(plan.sessionId);
+          try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", plan.sessionId); } catch { /* Session remains active in memory. */ }
+        }
         modelReply = plan.reply;
         recordDiagnostic("copilot.agent.response", "已收到 Copilot SDK Agent 工具计划", {
           provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
