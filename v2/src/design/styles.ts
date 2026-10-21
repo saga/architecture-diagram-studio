@@ -45,7 +45,7 @@ export function relationPaint(relation: DiagramRelation) {
 
 export function mxNodeStyle(node: DiagramNode): string {
   const paint = nodePaint(node);
-  const shape = paint.shape === "pill" ? "rounded=1;arcSize=50;" : paint.shape === "diamond" ? "rhombus;" : "rounded=1;arcSize=10;";
+  const shape = paint.shape === "pill" ? "rounded=1;arcSize=50;" : paint.shape === "diamond" ? "rhombus;" : "rounded=1;arcSize=8;";
   return shape + "whiteSpace=wrap;html=1;fillColor=" + paint.fill +
     ";strokeColor=" + paint.stroke + ";strokeWidth=1.4;fontColor=" + paint.text +
     ";fontSize=13;fontFamily=Arial;align=left;verticalAlign=middle;spacingLeft=13;spacingRight=10;" +
@@ -62,5 +62,5 @@ export function mxEdgeStyle(relation: DiagramRelation, routing: string): string 
   const shouldDash = relation.dashed ?? (relation.kind === "return");
   const dashed = shouldDash ? "dashed=1;dashPattern=5 5;" : "";
   const arrow = relation.kind === "return" || relation.kind === "async" || relation.kind === "event" ? "endArrow=open;endFill=0;" : "endArrow=block;endFill=1;";
-  return route + curve + dashed + arrow + "html=1;strokeColor=" + paint.stroke + ";strokeWidth=" + paint.width + ";fontColor=#2E4056;fontSize=11;labelBackgroundColor=#FFFFFF;";
+  return route + curve + dashed + arrow + "html=1;strokeColor=" + paint.stroke + ";strokeWidth=" + paint.width + ";fontColor=" + tokens.inkSecondary + ";fontSize=13;labelBackgroundColor=" + tokens.canvas + ";";
 }
