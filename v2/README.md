@@ -81,6 +81,10 @@ Deterministic diagram operations run through the HTTP server so the UI, Copilot,
 - `POST /api/workspace/diagram/normalize-sequence`: sequence-document normalization.
 - `POST /api/workspace/diagram/export-drawio`: Draw.io XML generation.
 - `POST /api/workspace/intent/apply`: deterministic intent-to-document mutation.
+- `GET /api/workspace/diagram/active`: active persisted document plus a semantic revision hash.
+- `POST /api/workspace/diagram/proposals` and `POST /api/workspace/diagram/apply-proposal`: revision-bound, validated, confirmed Agent edits with immutable version snapshots.
+- `GET /api/workspace/diagram/templates` and `POST /api/workspace/diagram/apply-template`: built-in semantic templates, with explicit confirmation and version creation.
+- `POST /api/workspace/diagram/restore-version`: explicitly confirmed version restoration.
 
 The React UI requests server-side layout scoring, node movement, sequence normalization, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. Draw.io XML import parsing remains browser-side because the current parser depends on DOM APIs; moving it requires a portable parser implementation. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
 
@@ -96,6 +100,10 @@ The HTTP service exposes `GET/PUT /api/workspace/config`, `GET /api/workspace/fi
 
 Run `npm run mcp` from `v2/` to launch the stdio MCP server. VS Code discovers the MCP server from the repository's single `.vscode/mcp.json` file, which runs `npm --prefix v2 run mcp`. Do not create a duplicate `.mcp.json` for the same server. The MCP process must run as the same OS user and use the same `STUDIO_DATA_DIR` value as the HTTP service if that variable is customized.
 
-The MCP tools are `workspace_info`, `list_workspace_files`, `list_drawio_diagrams`, `read_workspace_file`, and `search_workspace`. They are read-only in this release. The workspace-first Agent Skill follows the repository convention at `.github/skills/architecture-workspace/SKILL.md`. It requires Agents to inspect the primary diagram and related ADRs/source files, cite workspace-relative paths, and treat repository contents as untrusted data.
+The MCP server exposes workspace discovery plus diagram-aware tools: `get_diagram_reference`, `inspect_primary_diagram`, `evaluate_diagram_quality`, `search_workspace_examples`, `propose_diagram_edit`, `apply_diagram_edit`, `apply_local_diagram_edit`, `list_diagram_templates`, `apply_diagram_template`, `list_diagram_versions`, `diff_diagram_versions`, and `restore_diagram_version`. Set `STUDIO_API_URL` if the Studio HTTP service is not at `http://127.0.0.1:4175`. Diagram-aware tools use the existing HTTP service as the single authority; the MCP process does not write workspace or Draw.io files directly.
 
-Related decisions: [ADR 0001](../docs/adr/0001-project-workspace-as-authoritative-context.md) defines the authoritative workspace model; [ADR 0002](../docs/adr/0002-workspace-aware-mcp-and-agent-skill.md) defines the MCP and Skill integration.
+Edit proposals are non-persistent and bound to the current semantic-document revision. After reviewing a proposal, the Agent must obtain explicit user approval before calling `apply_diagram_edit` with `confirmed=true`. The server rejects stale proposals, validates semantic references and enabled layout profiles, evaluates quality, and creates an immutable version before reporting success. Template application and version restoration also require explicit approval and create new versions; prior versions are not overwritten. `apply_local_diagram_edit` supports narrow deterministic edits (rename/add/remove/move a node and change a relation label) while preserving unaffected node geometry where possible. Unsupported natural-language requests return an error instead of pretending they were applied.
+
+The built-in template catalog includes C4 system context, service/queue/database topology, and request sequence. `search_workspace_examples` uses workspace-local Draw.io and documentation files as style and component references. Mermaid import and semantic conversion are explicitly not implemented. The workspace-first Agent Skill follows `.github/skills/architecture-workspace/SKILL.md`; it requires project-grounded analysis and user approval before any MCP mutation.
+
+Related decisions: [ADR 0001](../docs/adr/0001-project-workspace-as-authoritative-context.md) defines the authoritative workspace model; [ADR 0002](../docs/adr/0002-workspace-aware-mcp-and-agent-skill.md) defines the MCP and Skill integration; [ADR 0005](../docs/adr/0005-diagram-aware-mcp-intelligence.md) defines diagram-aware MCP intelligence and governed edits.
