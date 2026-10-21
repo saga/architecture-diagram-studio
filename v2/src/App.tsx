@@ -22,7 +22,13 @@ type SavedAISettings = { baseUrl: string; model: string };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 function loadSavedTheme(): UiTheme {
   try {
-    const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ui-theme");
+    const storageKey = "architecture-diagram-studio:v2:ui-theme";
+    const versionKey = "architecture-diagram-studio:v2:ui-theme-version";
+    const saved = window.localStorage.getItem(storageKey);
+    const migrated = window.localStorage.getItem(versionKey) === "2";
+    // "editorial" was the cold, low-contrast default before the theme chooser existed.
+    // Migrate that default once, while preserving an already-selected vibrant/warm/dark theme.
+    if (saved === "editorial" && !migrated) return "warm";
     if (saved === "editorial" || saved === "youth" || saved === "warm" || saved === "midnight") return saved;
   } catch { /* Theme selection is optional when browser storage is disabled. */ }
   return "warm";
@@ -158,6 +164,7 @@ export default function App() {
   useEffect(() => {
     try {
       window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme", uiTheme);
+      window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme-version", "2");
     } catch {
       // The selected theme remains active in memory for this session.
     }
