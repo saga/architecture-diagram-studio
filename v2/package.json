@@ -14,7 +14,8 @@
     "test": "vitest run",
     "dev:web": "vite --host 0.0.0.0",
     "dev:copilot": "tsx server/copilot-server.ts",
-    "start:copilot": "tsx server/copilot-server.ts"
+    "start:copilot": "tsx server/copilot-server.ts",
+    "mcp": "tsx server/mcp-server.ts"
   },
   "dependencies": {
     "@ant-design/x": "^2.9.0",
