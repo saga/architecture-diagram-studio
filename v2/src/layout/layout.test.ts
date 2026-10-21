@@ -9,6 +9,7 @@ import { applyIntent } from "../intent/applyIntent";
 import { normalizeSequenceDocument } from "./sequence";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "./sequence";
 import { toDrawioXml } from "../export/drawio";
+import { tokens } from "../design/tokens";
 
 async function expectNoNodeOverlap(factory: () => ReturnType<typeof createC4Fixture>) {
   const result = await layoutDiagram(factory());
@@ -172,7 +173,7 @@ describe("V2 diagram-specific layouts", () => {
     const xml = toDrawioXml(document);
     expect(xml).toContain("alt-token__sequenceFragment");
     expect(xml).toContain("studioSequenceFragment=1");
-    expect(xml).toContain("fillColor=none;fillOpacity=0;strokeColor=#B8C4D4");
+    expect(xml).toContain("fillColor=none;fillOpacity=0;strokeColor=" + tokens.borderStrong);
     expect(xml).toContain("studioKind=call");
     expect(xml).toContain("studioSequenceOrder=0");
     for (const relation of document.relations) {
