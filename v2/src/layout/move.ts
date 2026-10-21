@@ -11,8 +11,8 @@ export function moveNode(document: DiagramDocument, id: string, x: number, y: nu
   const moving = document.nodes.find((node) => node.id === id);
   if (!moving) return document;
   const others = document.nodes.filter((node) => node.id !== id);
-  let chosenX = Math.max(20, Math.round(x / 8) * 8);
-  let chosenY = Math.max(20, Math.round(y / 8) * 8);
+  let chosenX = Math.max(20, Math.round(x / 4) * 4);
+  let chosenY = Math.max(20, Math.round(y / 4) * 4);
 
   const isFree = (candidateX: number, candidateY: number) => !others.some((other) =>
     candidateX < other.x + other.width + 14 &&
@@ -23,7 +23,7 @@ export function moveNode(document: DiagramDocument, id: string, x: number, y: nu
 
   if (!isFree(chosenX, chosenY)) {
     const originX = chosenX, originY = chosenY;
-    const step = 24;
+    const step = 8;
     let found = false;
     for (let radius = 1; radius <= 60 && !found; radius++) {
       const candidates: Point[] = [];
