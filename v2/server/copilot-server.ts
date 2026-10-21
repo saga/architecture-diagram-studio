@@ -37,7 +37,7 @@ function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
     }
     if (inString) {
       if (escaped) escaped = false;
-      else if (ch === "\\\\") escaped = true;
+      else if (ch === "\\") escaped = true;
       else if (ch === '"') inString = false;
       continue;
     }
