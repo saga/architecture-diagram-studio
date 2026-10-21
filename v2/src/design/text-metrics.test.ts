@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containsWideCharacters, measureTextWidth, truncateTextToWidth } from "./text-metrics";
+import { containsWideCharacters, measureTextWidth, truncateTextToWidth, wrapTextToWidth } from "./text-metrics";
 
 describe("Unicode-aware text metrics", () => {
   it("allocates full-em width to CJK glyphs and less than one em to Latin glyphs", () => {
