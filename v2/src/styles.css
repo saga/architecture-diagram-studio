@@ -756,3 +756,27 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .diagram-svg .sequence-activation { fill: #354660; stroke: #95a8c7; }
 .app-shell[data-theme="midnight"] .diagram-svg .relation-label-bg { fill: #2a3850; }
 .app-shell[data-theme="midnight"] .diagram-svg .relation-label-text { fill: #e2eaf8; }
+
+
+/* Real embedded Draw.io rendering test bench */
+.drawio-render-lab { min-height: 100vh; display: flex; flex-direction: column; gap: 14px; padding: 16px; background: #f3f5f9; color: #253348; box-sizing: border-box; }
+.drawio-render-lab-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.drawio-render-lab-header h1 { margin: 0 0 5px; font-size: 19px; font-weight: 650; }
+.drawio-render-lab-header p { margin: 0; max-width: 760px; color: #68778b; font-size: 12px; line-height: 1.6; }
+.drawio-render-lab-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.drawio-render-lab-controls label { display: flex; flex-direction: column; gap: 4px; color: #69788c; font-size: 10px; }
+.drawio-render-lab-controls select, .drawio-render-lab-controls button, .drawio-render-lab-controls a { min-height: 32px; border: 1px solid #d7deea; border-radius: 6px; padding: 6px 10px; background: #fff; color: #33445b; font-size: 11px; text-decoration: none; }
+.drawio-render-lab-controls a { display: inline-flex; align-items: center; }
+.drawio-render-lab-panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; flex: 1; min-height: 650px; }
+.drawio-render-lab-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid #dce2eb; border-radius: 9px; overflow: hidden; background: #fff; }
+.drawio-render-lab-panel-title { height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #e6eaf0; font-size: 11px; }
+.drawio-render-lab-panel-title span { color: #8490a2; font-size: 10px; }
+.drawio-render-lab-canvas { height: 620px; min-height: 450px; }
+.drawio-render-lab-canvas .diagram-svg { height: 100%; }
+.drawio-render-lab-editor { height: 620px; min-height: 450px; }
+.drawio-render-lab-editor .drawio-frame-wrap { height: 100%; }
+.drawio-render-lab-xml { display: flex; flex-direction: column; gap: 8px; min-height: 220px; border: 1px solid #dce2eb; border-radius: 9px; padding: 12px; background: #fff; }
+.drawio-render-lab-xml > div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.drawio-render-lab-xml > div span { color: #8490a2; }
+.drawio-render-lab-xml textarea { width: 100%; min-height: 250px; resize: vertical; border: 1px solid #e1e6ed; border-radius: 6px; padding: 10px; color: #43536a; background: #f8fafc; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (max-width: 980px) { .drawio-render-lab-panels { grid-template-columns: minmax(0, 1fr); } .drawio-render-lab-canvas, .drawio-render-lab-editor { height: 560px; } }
