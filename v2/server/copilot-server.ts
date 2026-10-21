@@ -10,7 +10,8 @@ import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
-import { CopilotClient, ToolSet, defineTool } from "@github/copilot-sdk";
+import { defineTool } from "@github/copilot-sdk";
+import { CopilotRuntime, describeCopilotFailure } from "./copilot/runtime";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
@@ -137,20 +138,7 @@ app.use((req, res, next) => {
     res.status(403).json({ error: "无效的请求来源" });
   }
 });
-let clientPromise: Promise<CopilotClient> | null = null;
-type RuntimeSession = {
-  session: Awaited<ReturnType<CopilotClient["createSession"]>>;
-  model: string;
-  workspaceId?: string;
-  configRevisionId: string;
-  requestedReasoningEffort: "high" | "max";
-  reasoningEffort?: string;
-  lastUsedAt: number;
-  tail: Promise<unknown>;
-};
-const sessions = new Map<string, RuntimeSession>();
 let logWriteQueue: Promise<void> = Promise.resolve();
-const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
 
 function logPrefixForEvent(event: string): string {
   if (event.startsWith("layout.")) return "[studio:layout]";
@@ -176,33 +164,10 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
   (level === "error" ? console.error : console.info)(logPrefixForEvent(event), record);
 }
 
-async function getCopilotClient(): Promise<CopilotClient> {
-  if (clientPromise) return clientPromise;
-  clientPromise = (async () => {
-    // "empty" keeps the runtime free of host capabilities: no built-in shell/file tools. The SDK
-    // requires every session in this mode to declare its tools, so only our own custom tool is allowed.
-    const client = new CopilotClient({
-      mode: "empty",
-      useLoggedInUser: true,
-      baseDirectory: process.env.COPILOT_HOME || path.join(os.homedir(), ".copilot")
-    });
-    try {
-      await client.start();
-      await writeLog("client.started", { defaultModel: DEFAULT_MODEL, logFile: LOG_FILE });
-      return client;
-    } catch (error) {
-      clientPromise = null;
-      await writeLog("client.start.failed", { error: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
-  })();
-  return clientPromise;
-}
-
 function resultProfileDisabled(document: { layout: { profile: string } }, allowedProfiles: string[]): boolean { return !allowedProfiles.includes(document.layout.profile); }
 
-// Only tools the SDK itself registers for this session: the layout-plan tool. Built-in CLI tools stay off.
-const sessionAvailableTools = () => new ToolSet().addCustom("*");
+const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
+const copilot = new CopilotRuntime({ log: writeLog, defaultModel: DEFAULT_MODEL, idleTtlMs: SESSION_IDLE_TTL_MS });
 
 const ALLOWED_COMMANDS = new Set([
   "所有关系线改成虚线", "所有关系线改成实线", "把曲线改成直角折线", "把曲线改成折线",
@@ -867,14 +832,16 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
   }
 });
 
-app.get("/api/copilot/health", (_req, res) => {
-  res.json({ ok: true, provider: "github-copilot-sdk", defaultModel: DEFAULT_MODEL, activeSessions: sessions.size });
+app.get("/api/copilot/health", async (_req, res) => {
+  const health = await copilot.health();
+  res.json({ ok: true, provider: "github-copilot-sdk", defaultModel: DEFAULT_MODEL, ...health });
 });
 
-app.get("/api/copilot/models", async (_req, res) => {
+app.get("/api/copilot/models", async (req, res) => {
   try {
-    const client = await getCopilotClient();
-    const models = await client.listModels();
+    // The SDK answers with an empty list until entitlements resolve; `refresh` rebuilds the client so the
+    // user can retry after fixing an account or quota problem without restarting the studio server.
+    const models = await copilot.listModels({ refresh: req.query.refresh === "1" });
     res.json({
       defaultModel: DEFAULT_MODEL,
       models: models.map((model) => ({
@@ -890,94 +857,6 @@ app.get("/api/copilot/models", async (_req, res) => {
     res.status(502).json({ error: "无法从 Copilot SDK 获取模型列表：" + message.slice(0, 300) });
   }
 });
-
-function attachSessionEvents(sessionId: string, session: RuntimeSession["session"]): void {
-  session.on((event) => {
-    void writeLog("sdk.event", { sessionId, event });
-  });
-}
-
-const sessionInitialization = new Map<string, Promise<void>>();
-async function getOrResumeSession(sessionId: string, model: string, reasoningEffort?: "high" | "max"): Promise<RuntimeSession> {
-  const pending = sessionInitialization.get(sessionId);
-  if (pending) {
-    await pending;
-    return getOrResumeSession(sessionId, model, reasoningEffort);
-  }
-  let release!: () => void;
-  const lock = new Promise<void>((resolve) => { release = resolve; });
-  sessionInitialization.set(sessionId, lock);
-  try {
-    return await getOrResumeSessionUnlocked(sessionId, model, reasoningEffort);
-  } finally {
-    if (sessionInitialization.get(sessionId) === lock) sessionInitialization.delete(sessionId);
-    release();
-  }
-}
-
-async function getOrResumeSessionUnlocked(sessionId: string, model: string, reasoningEffort?: "high" | "max"): Promise<RuntimeSession> {
-  const activeConfig = await getStudioConfig();
-  const current = sessions.get(sessionId);
-  if (current && current.configRevisionId === activeConfig.revisionId && current.model === model && current.requestedReasoningEffort === (reasoningEffort || activeConfig.reasoningEffort)) {
-    current.lastUsedAt = Date.now();
-    return current;
-  }
-  if (current) {
-    await current.tail.catch(() => undefined);
-    try { await current.session.disconnect(); } catch (error) { await writeLog("session.disconnect.configuration-change.failed", { sessionId, error: error instanceof Error ? error.message : String(error) }); }
-    sessions.delete(sessionId);
-    await writeLog("session.configuration.changed", { sessionId, previousRevisionId: current.configRevisionId, revisionId: activeConfig.revisionId, previousModel: current.model, model });
-  }
-  const client = await getCopilotClient();
-  const systemMessage = await buildSystemMessage(activeConfig);
-  // The runtime rejects session ids containing dots, so keep the UI conversation id stable and encode
-  // the configuration revision with dashes only.
-  const sessionConfigKey = createHash("sha256").update([activeConfig.revisionId, model, reasoningEffort || activeConfig.reasoningEffort].join("\\0")).digest("hex").slice(0, 16);
-  const sdkSessionId = (sessionId.replace(/[^a-zA-Z0-9-]/g, "-") + "-cfg-" + sessionConfigKey).slice(0, 100);
-  let session: RuntimeSession["session"];
-  let resumed = false;
-  try {
-    session = await client.resumeSession(sdkSessionId, {
-      streaming: true,
-      availableTools: sessionAvailableTools(),
-      tools: [createProposeLayoutPlanTool(sessionId, activeConfig)],
-      systemMessage: { content: systemMessage }
-    });
-    resumed = true;
-  } catch (resumeError) {
-    await writeLog("session.resume.unavailable", {
-      sessionId, requestedModel: model,
-      error: resumeError instanceof Error ? resumeError.message : String(resumeError)
-    });
-    const modelInfo = (await client.listModels()).find((item) => item.id === model);
-    const supportedEfforts = modelInfo?.supportedReasoningEfforts || [];
-    const actualEffort = supportedEfforts.includes(reasoningEffort || "max")
-      ? (reasoningEffort || "max")
-      : supportedEfforts.includes("max") ? "max"
-      : supportedEfforts.includes("xhigh") ? "xhigh"
-      : supportedEfforts.includes("high") ? "high"
-      : undefined;
-    session = await client.createSession({
-      sessionId: sdkSessionId,
-      model,
-      ...(actualEffort ? { reasoningEffort: actualEffort as "low" | "medium" | "high" | "xhigh" | "max" } : {}),
-      streaming: true,
-      availableTools: sessionAvailableTools(),
-      tools: [createProposeLayoutPlanTool(sessionId, activeConfig)],
-      systemMessage: { content: systemMessage }
-    });
-    const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, configRevisionId: activeConfig.revisionId, requestedReasoningEffort: reasoningEffort || activeConfig.reasoningEffort, reasoningEffort: actualEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
-    sessions.set(sessionId, runtime);
-    attachSessionEvents(sessionId, session);
-    await writeLog("session.created", { sessionId, model, reasoningEffort: actualEffort || "model-default" });
-    return runtime;
-  }
-  const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, configRevisionId: activeConfig.revisionId, requestedReasoningEffort: reasoningEffort || activeConfig.reasoningEffort, reasoningEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
-  sessions.set(sessionId, runtime);
-  attachSessionEvents(sessionId, session);
-  await writeLog("session.resumed", { sessionId, requestedModel: model, resumed });
-  return runtime;
-}
 
 async function buildSystemMessage(config: StudioConfig): Promise<string> {
   const workspace = await getProjectWorkspace();
@@ -1043,60 +922,69 @@ app.post("/api/copilot/intent", async (req, res) => {
   await writeLog("request.received", { sessionId, model, reasoningEffort: requestedEffort, prompt, context });
   await withDataWrite(async () => { const state = await getWorkspaceState(); workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState); });
   try {
-    const runtime = await getOrResumeSession(sessionId, model, requestedEffort);
-    const previous = runtime.tail;
-    let release!: () => void;
-    runtime.tail = new Promise<void>((resolve) => { release = resolve; });
-    await previous.catch(() => undefined);
-    pendingPlans.delete(sessionId);
-    await writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
-    try {
+    const runtime = await copilot.acquireSession({
+      conversationId: sessionId,
+      model,
+      requestedEffort,
+      prepare: async () => {
+        const config = await getStudioConfig();
+        return {
+          configRevisionId: config.revisionId,
+          systemMessage: await buildSystemMessage(config),
+          tools: [createProposeLayoutPlanTool(sessionId, config)],
+          workspaceId: (await getProjectWorkspace())?.id
+        };
+      }
+    });
+    const plan = await copilot.withTurn(sessionId, async (turn) => {
+      pendingPlans.delete(sessionId);
+      await writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
       const projectContext = await collectAgentWorkspaceContext();
       await writeLog("turn.workspace-context.loaded", { sessionId, workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null, snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0 });
-      const firstTurn = await runtime.session.sendAndWait(
+      const firstTurn = await turn.send(
         { prompt: JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext }) },
         50000
       );
-      let plan = pendingPlans.get(sessionId) || null;
+      let captured = pendingPlans.get(sessionId) || null;
       pendingPlans.delete(sessionId);
       let modelText = assistantText(firstTurn);
-      if (!plan) {
+      if (!captured) {
         // Models answer greetings and small talk in prose; one explicit nudge makes them answer through the tool,
         // which is the only channel this server can validate and apply.
         await writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
-        const nudged = await runtime.session.sendAndWait(
+        const nudged = await turn.send(
           { prompt: JSON.stringify({ request: "请改用 propose_layout_plan 工具回答上一个请求；如果不需要改动布局，就提交空命令列表，并在 reply 字段里说明原因。", diagram: context }) },
           25000
         );
-        plan = pendingPlans.get(sessionId) || null;
+        captured = pendingPlans.get(sessionId) || null;
         pendingPlans.delete(sessionId);
         modelText = assistantText(nudged) || modelText;
       }
-      if (!plan) {
-        // Some models answer with a JSON block instead of calling the tool; accept it after the same whitelist check.
-        plan = planFromText(modelText);
-        if (plan) await writeLog("turn.plan.parsed-from-text", { sessionId, commandCount: plan.commands.length });
-      }
-      if (!plan) {
-        // Nothing to apply: answer with the model's own words instead of an error the user cannot act on.
-        await writeLog("turn.completed.without-plan", { sessionId, model: runtime.model, modelText: modelText.slice(0, 2000) });
-        res.json({
-          commands: [], reply: modelText.slice(0, 500) || "这次没有生成布局计划，图形未改动。可以说得更具体一些，例如「把数据库放到最底部」。",
-          sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
-          provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
-        });
-        return;
-      }
-      const response = {
-        ...plan, sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
-        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
-      };
-      await writeLog("turn.completed", { sessionId, model: runtime.model, durationMs: response.durationMs, response });
-      res.json(response);
-    } finally {
-      release();
-      runtime.lastUsedAt = Date.now();
+      return { captured, modelText, session: turn.session };
+    });
+    let resolved = plan.captured;
+    let modelText = plan.modelText;
+    if (!resolved) {
+      // Some models answer with a JSON block instead of calling the tool; accept it after the same whitelist check.
+      resolved = planFromText(modelText);
+      if (resolved) await writeLog("turn.plan.parsed-from-text", { sessionId, commandCount: resolved.commands.length });
     }
+    if (!resolved) {
+      // Nothing to apply: answer with the model's own words instead of an error the user cannot act on.
+      await writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000) });
+      res.json({
+        commands: [], reply: modelText.slice(0, 500) || "这次没有生成布局计划，图形未改动。可以说得更具体一些，例如「把数据库放到最底部」。",
+        sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
+      });
+      return;
+    }
+    const response = {
+      ...resolved, sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+      provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
+    };
+    await writeLog("turn.completed", { sessionId, model: plan.session.model, durationMs: response.durationMs, response });
+    res.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeLog("turn.failed", {
@@ -1127,20 +1015,9 @@ function planFromText(text: string): { commands: string[]; reply: string } | nul
   return { commands, reply: typeof value.reply === "string" ? value.reply.trim().slice(0, 500) : "" };
 }
 
-// Chat surfaces this text directly, so keep it in the user's language; the raw SDK message stays in the JSONL log.
-function describeCopilotFailure(message: string): string {  if (/availableTools/i.test(message)) return "Copilot 会话缺少工具配置，本次请求没有执行。请重启 copilot 服务后重试。";
-  if (/quota|rate limit|402/i.test(message)) return "GitHub Copilot 配额已用尽或被限流，本次请求没有执行。请更换账号或稍后重试。";
-  if (/not logged in|authentication|401|unauthorized/i.test(message)) return "本机 Copilot 身份未登录或已过期，本次请求没有执行。请先在终端运行 copilot 登录。";
-  if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "所选模型不可用，本次请求没有执行。请在「配置」中换一个模型。";
-  if (/timeout|timed out/i.test(message)) return "Copilot 响应超时，本次请求没有执行。可以缩短指令后重试。";
-  return "Copilot 运行时出错，本次请求没有执行：" + (message.length > 300 ? message.slice(0, 300) + "…" : message);
-}
-
 app.get("/api/copilot/sessions", async (_req, res) => {
   const workspace = await getProjectWorkspace();
-  res.json({ sessions: [...sessions.entries()].filter(([, item]) => !workspace || item.workspaceId === workspace.id).map(([sessionId, item]) => ({
-    sessionId, model: item.model, reasoningEffort: item.reasoningEffort || "model-default", lastUsedAt: new Date(item.lastUsedAt).toISOString()
-  })) });
+  res.json({ sessions: copilot.listSessions(workspace?.id) });
 });
 
 app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
@@ -1161,32 +1038,10 @@ app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
 const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; logs=${LOG_FILE}`);
 });
-const cleanupTimer = SESSION_IDLE_TTL_MS > 0 ? setInterval(() => {
-  const now = Date.now();
-  for (const [sessionId, runtime] of sessions) {
-    if (now - runtime.lastUsedAt < SESSION_IDLE_TTL_MS) continue;
-    void runtime.session.disconnect().then(() => {
-      sessions.delete(sessionId);
-      void writeLog("session.disconnected.idle", { sessionId, idleMs: now - runtime.lastUsedAt });
-    }).catch((error) => {
-      void writeLog("session.disconnect.failed", { sessionId, error: error instanceof Error ? error.message : String(error) });
-    });
-  }
-}, Math.min(Math.max(SESSION_IDLE_TTL_MS, 60_000), 5 * 60_000)) : null;
-cleanupTimer?.unref();
 
 async function shutdown(): Promise<void> {
-  if (cleanupTimer) clearInterval(cleanupTimer);
   server.close();
-  for (const [sessionId, runtime] of sessions) {
-    try { await runtime.session.disconnect(); await writeLog("session.disconnected.shutdown", { sessionId }); }
-    catch (error) { await writeLog("session.disconnect.failed", { sessionId, error: error instanceof Error ? error.message : String(error) }); }
-  }
-  sessions.clear();
-  if (clientPromise) {
-    try { await (await clientPromise).stop(); } catch { /* best-effort runtime shutdown */ }
-    clientPromise = null;
-  }
+  await copilot.stop();
   await writeLog("server.stopped");
 }
 process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });

@@ -130,6 +130,7 @@ export default function WorkspacePages(props: Props) {
   ]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsMessage, setModelsMessage] = useState("");
+  const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const filteredTraces = useMemo(() => traceEntries.filter((entry) => {
     if (traceFilter === "all") return true;
     if (traceFilter === "error") return entry.level === "error" || entry.level === "warn";
@@ -147,7 +148,8 @@ export default function WorkspacePages(props: Props) {
     if (page !== "settings") return;
     let cancelled = false;
     setModelsLoading(true);
-    fetch("/api/copilot/models")
+    if (modelsRefreshKey > 0) setModelsMessage("正在重新读取 SDK 模型列表…");
+    fetch("/api/copilot/models" + (modelsRefreshKey > 0 ? "?refresh=1" : ""))
       .then(async (response) => {
         const payload = await response.json() as { models?: Array<{ id?: string; name?: string; label?: string }>; error?: string };
         if (!response.ok) throw new Error(payload.error || "模型列表请求失败");
@@ -172,7 +174,7 @@ export default function WorkspacePages(props: Props) {
       })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
-  }, [page, aiModel]);
+  }, [page, aiModel, modelsRefreshKey]);
 
   if (page === "copilot") {
     return (
@@ -313,7 +315,7 @@ export default function WorkspacePages(props: Props) {
             </label>
             <p className="settings-description">通过 Copilot SDK 的 reasoningEffort 传递。仅当所选模型支持该档位时生效；服务端会依据 SDK 模型能力选择兼容档位。</p>
             <div className="settings-security-note"><strong>Agent 能力与安全边界</strong><span>服务端通过 @github/copilot-sdk 创建会话，并要求 Agent 调用 propose_layout_plan 工具提交结构化布局计划。模型凭据不经过浏览器；服务使用本机已登录的 Copilot CLI。Agent 只能提出白名单中的布局命令，不能执行任意代码或直接写入图形。计划通过校验后仍需在 Studio 中预览并由你确认。</span></div>
-            <div className="settings-card-actions"><UiButton type="button" className="button button-quiet" onClick={clearAISettings}>清除模型配置</UiButton><UiButton type="button" className="button button-primary" onClick={saveAISettings}>保存配置</UiButton></div>
+            <div className="settings-card-actions"><UiButton type="button" className="button button-quiet" onClick={() => setModelsRefreshKey((key) => key + 1)}>重新读取模型</UiButton><UiButton type="button" className="button button-quiet" onClick={clearAISettings}>清除模型配置</UiButton><UiButton type="button" className="button button-primary" onClick={saveAISettings}>保存配置</UiButton></div>
           </section>
 
           <section className="settings-card">
