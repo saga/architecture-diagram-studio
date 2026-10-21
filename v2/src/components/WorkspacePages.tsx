@@ -42,7 +42,7 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
     if (!config) return;
     setBusy(true); setMessage("");
     try {
-      const response = await fetch("/api/workspace/configuration", {method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({config})});
+      const response = await fetch("/api/workspace/configuration", {method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({config:{layoutProfiles:config.layoutProfiles,prompts:config.prompts}})});
       const payload = await response.json() as {config?:StudioConfig;error?:string};
       if (!response.ok || !payload.config) throw new Error(payload.error || "保存失败");
       setConfig(payload.config); onLayoutProfilesChanged(payload.config.layoutProfiles); setMessage("配置已保存并追加到服务端 JSONL 版本历史"); await load();
@@ -242,7 +242,7 @@ export default function WorkspacePages(props: Props) {
           </div>
 
           <div className="trace-metrics">
-            <div><span>全部事件</span><strong>{traceEntries.length}</strong><small>当前浏览器会话历史</small></div>
+            <div><span>全部事件</span><strong>{traceEntries.length}</strong><small>服务端与浏览器事件</small></div>
             <div><span>Copilot 阶段</span><strong>{copilotCount}</strong><small>请求、解析与执行结果</small></div>
             <div><span>布局阶段</span><strong>{layoutCount}</strong><small>布局开始、结束和失败</small></div>
             <div className={errorCount ? "has-errors" : ""}><span>错误事件</span><strong>{errorCount}</strong><small>异常与初始化失败</small></div>
@@ -254,7 +254,7 @@ export default function WorkspacePages(props: Props) {
                 <UiButton type="button" key={value} className={traceFilter === value ? "active" : ""} onClick={() => setTraceFilter(value)}>{label}</UiButton>
               )}
             </div>
-            <span>按时间倒序 · 不记录 API Key、提示词正文或原始 XML</span>
+            <span>按时间倒序 · 浏览器诊断事件不保存完整提示词或原始 XML；服务端 Copilot 审计日志单独保留请求与上下文信息</span>
           </div>
 
           <div className="trace-list">
@@ -324,7 +324,7 @@ export default function WorkspacePages(props: Props) {
 
           <section className="settings-card settings-logs-card">
             <div className="settings-card-heading"><div className="settings-card-icon">⌘</div><div><h2>终端日志与诊断轨迹</h2><p>浏览器事件 → Vite 开发终端 → 本地轨迹页面</p></div></div>
-            <p className="settings-description">运行 <code>npm run dev</code> 会同时启动 Vite 与 Copilot SDK Agent 服务。服务端会记录 Agent 请求耗时、模型和工具调用结果；不会记录完整提示词、凭据或原始 XML。</p>
+            <p className="settings-description">运行 <code>npm run dev</code> 会同时启动 Vite 与 Copilot SDK Agent 服务。浏览器诊断事件不保存完整提示词、凭据或原始 XML；服务端 Copilot 会话审计日志会保存用户请求、图形上下文摘要及工具事件。请将本地审计日志视为可能包含项目敏感信息的数据。</p>
             <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] receivedAt=… level=info event=layout.run.completed durationMs=…</code></div>
             <div className="settings-card-actions"><span className="settings-trace-count">{traceEntries.length} 条本地轨迹 · {errorCount} 条错误</span></div>
           </section>
