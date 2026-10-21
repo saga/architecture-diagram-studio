@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/saga/architecture-diagram-studio/blob/main/v2/schemas/project-workspace.schema.json",
+  "title": "Architecture Diagram Studio Project Workspace",
+  "description": "Server-authoritative binding between Studio, a local project directory, and its primary diagram.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "rootPath", "primaryDiagram", "includePatterns", "excludePatterns", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "rootPath": { "type": "string", "minLength": 1, "description": "Canonical absolute path on the machine running the Studio Node.js service." },
+    "primaryDiagram": { "type": ["string", "null"], "description": "Workspace-relative path to the main Draw.io/XML or diagram source file." },
+    "includePatterns": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+    "excludePatterns": { "type": "array", "items": { "type": "string" }, "maxItems": 200 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}
