@@ -988,6 +988,13 @@ export default function App() {
               selectedRelationId={selectedRelationId} connectionSourceId={connectionSourceId} onConnectionSourceChange={setConnectionSourceId}
               onSelectNode={selectNode} onSelectRelation={selectRelation}
               onCreateRelation={(sourceId, targetId) => { void createRelation(sourceId, targetId); }}
+              onReconnectRelation={(relationId, endpoint, nodeId) => {
+                const relation = visibleDocument.relations.find((item) => item.id === relationId);
+                if (!relation) return;
+                void changeRelationEndpoints(relationId,
+                  endpoint === "source" ? nodeId : relation.source,
+                  endpoint === "target" ? nodeId : relation.target);
+              }}
               onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel}
               onContextMenu={(target, x, y) => {
                 if (target.kind === "node") { setSelectedNodeId(target.id || null); setSelectedRelationId(null); }
