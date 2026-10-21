@@ -833,8 +833,10 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
     });
     if (!result) { res.status(404).json({ error: "版本不存在或其文档格式无效" }); return; }
     if (req.query.includeXml === "false") {
-      const { drawioXml: _versionXml, ...version } = result.version;
-      const { drawioXml: _stateXml, ...state } = result.state;
+      const version = { ...result.version };
+      const state = { ...result.state };
+      delete (version as Partial<DiagramVersion>).drawioXml;
+      delete (state as Partial<WorkspaceState>).drawioXml;
       res.json({ ok: true, version, state });
     } else res.json({ ok: true, ...result });
   } catch (error) {
