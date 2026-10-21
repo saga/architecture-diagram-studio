@@ -38,3 +38,11 @@ While `npm run dev` is running, browser events are also posted to a same-origin,
 ### Draw.io initialization troubleshooting
 
 The native iframe waits for the Draw.io embed API's `init` event before sending the XML document. The iframe's browser `load` event alone does not mean the editor API is ready. If initialization does not finish, the editor shows a timeout with a retry action. In the **配置** page, use **检查本地 Draw.io** to verify `/drawio/studio-bundle.json` and `/drawio/index.html`; then review `drawio.handshake.*` and `drawio.init.timeout` entries in Agent 轨迹 alongside the terminal output.
+
+## Interface themes and canvas interaction
+
+The header's theme selector switches among **经典编辑室**, **青春鲜艳**, **暖色纸感**, and **午夜深色**. The selection is stored locally in the browser.
+
+In Studio mode, drag a node to move it; drag an empty part of the canvas to pan. Connectors have a wider invisible hit area: click one to highlight it and focus the corresponding relationship in the inspector. Sequence messages attach to participant lifelines or to the active-call bar when a participant is executing a nested request.
+
+The native Draw.io iframe starts with the shape sidebar, Format panel, and floating windows hidden using the supported `sidebar=0`, `format=0`, and `windows=0` URL options. Users can still use Draw.io's menus to open panels when needed.
