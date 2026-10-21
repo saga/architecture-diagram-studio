@@ -4,7 +4,7 @@ import path from "node:path";
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
-const DEFAULT_MODEL = process.env.COPILOT_MODEL || "gpt-5";
+const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
 const app = express();
 app.use(express.json({ limit: "128kb" }));
 let clientPromise: Promise<CopilotClient> | null = null;
@@ -36,6 +36,24 @@ const ALLOWED_COMMANDS = new Set([
 
 app.get("/api/copilot/health", (_req, res) => {
   res.json({ ok: true, provider: "github-copilot-sdk", defaultModel: DEFAULT_MODEL });
+});
+
+app.get("/api/copilot/models", async (_req, res) => {
+  try {
+    const client = await getCopilotClient();
+    const models = await client.listModels();
+    res.json({
+      defaultModel: DEFAULT_MODEL,
+      models: models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        label: model.name && model.name !== model.id ? model.name + " (" + model.id + ")" : model.id
+      }))
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ error: "无法从 Copilot SDK 获取模型列表：" + message.slice(0, 300) });
+  }
 });
 
 app.post("/api/copilot/intent", async (req, res) => {
