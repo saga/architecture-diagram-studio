@@ -343,3 +343,9 @@ button:disabled { opacity: .58; cursor: wait; }
   .settings-logs-card { grid-column: auto; }
   .trace-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.preview-toolbar-actions { display: flex; gap: 5px; align-items: center; }
+.preview-toolbar-actions button { white-space: nowrap; border-radius: 6px; padding: 7px 9px; font-size: 9px; font-weight: 650; }
+.preview-toolbar-actions .preview-discard { background: #fff; border: 1px solid #dfe4ec; color: #647286; }
+.preview-toolbar-actions .preview-accept { background: #425bc7; border: 1px solid #425bc7; color: #fff; }
+@media (max-width: 1440px) { .preview-toolbar-actions button { padding: 6px 7px; font-size: 8px; } }
