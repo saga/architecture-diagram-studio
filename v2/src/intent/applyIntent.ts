@@ -75,6 +75,33 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
     }
   }
 
+  const addRelationMatch = text.match(/^(?:新增|添加)关系\\s*[“"']?(.+?)[”"']?\\s*(?:->|→|到|连接到)\\s*[“"']?(.+?)[”"']?(?:[，, ]+(?:标签为|标签|label)\\s*[“"']?(.+?)[”"']?)?$/i)
+    || text.match(/^add\\s+relation\\s+["']?(.+?)["']?\\s*(?:->|to)\\s*["']?(.+?)["']?(?:\\s+label\\s+["']?(.+?)["']?)?$/i);
+  if (addRelationMatch && !changed) {
+    const sourceName = addRelationMatch[1].trim(), targetName = addRelationMatch[2].trim(), label = (addRelationMatch[3] || "Depends on").trim();
+    const sources = next.nodes.filter((node) => node.id.toLowerCase() === sourceName.toLowerCase() || node.name.toLowerCase() === sourceName.toLowerCase());
+    const targets = next.nodes.filter((node) => node.id.toLowerCase() === targetName.toLowerCase() || node.name.toLowerCase() === targetName.toLowerCase());
+    if (sources.length === 1 && targets.length === 1 && sources[0].id !== targets[0].id && label.length <= 1000) {
+      const baseId = (sources[0].id + "-" + targets[0].id).toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 80) || "relation";
+      let id = baseId, suffix = 2;
+      while (next.relations.some((edge) => edge.id === id)) id = baseId + "-" + suffix++;
+      next.relations.push({ id, source: sources[0].id, target: targets[0].id, label, kind: "dependency", points: [] });
+      summaries.push(`已添加关系「${sources[0].name}」→「${targets[0].name}」，标签为「${label}」；现有节点位置保持不变`);
+      changed = true;
+    }
+  }
+
+  const removeRelationMatch = text.match(/^(?:删除|移除)关系\\s*[“"']?(.+?)[”"']?$/) || text.match(/^delete\\s+relation\\s+["']?(.+?)["']?$/i);
+  if (removeRelationMatch && !changed) {
+    const target = removeRelationMatch[1].trim();
+    const matches = next.relations.filter((edge) => edge.id.toLowerCase() === target.toLowerCase() || edge.label.toLowerCase() === target.toLowerCase());
+    if (matches.length === 1) {
+      next.relations = next.relations.filter((edge) => edge.id !== matches[0].id);
+      summaries.push(`关系「${matches[0].label}」已删除，节点位置保持不变`);
+      changed = true;
+    }
+  }
+
   const moveMatch = text.match(/^(?:将|把)节点\s*[“"']?(.+?)[”"']?\s*移动到\s*x\s*=\s*(-?\d+(?:\.\d+)?)\s*[,， ]\s*y\s*=\s*(-?\d+(?:\.\d+)?)$/i)
     || text.match(/^move\s+node\s+["']?(.+?)["']?\s+to\s+x\s*=\s*(-?\d+(?:\.\d+)?),?\s*y\s*=\s*(-?\d+(?:\.\d+)?)$/i);
   if (moveMatch && !changed) {
