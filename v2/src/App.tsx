@@ -9,7 +9,6 @@ import { FIXTURES } from "./model/fixtures";
 import { layoutDiagram, moveNode } from "./layout/layout";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { evaluateLayout } from "./layout/quality";
-import { applyIntent } from "./intent/applyIntent";
 import { requestAIIntentPlan } from "./intent/aiProvider";
 import { normalizeSequenceDocument } from "./layout/sequence";
 import { downloadText, toDrawioXml } from "./export/drawio";
@@ -488,7 +487,19 @@ export default function App() {
         }
         effectiveText = plan.commands.join("；");
       }
-      const result = await applyIntent(document, effectiveText);
+      const applyResponse = await fetch("/api/workspace/intent/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ document, prompt: effectiveText }),
+        signal: AbortSignal.timeout(70_000)
+      });
+      if (!applyResponse.ok) {
+        const payload = await applyResponse.json().catch(() => ({})) as { error?: string };
+        throw new Error(payload.error || "服务端布局意图处理失败（HTTP " + applyResponse.status + "）");
+      }
+      const result = await applyResponse.json() as {
+        document: DiagramDocument; summary: string; requiresLayout: boolean; changed: boolean;
+      };
       recordDiagnostic(result.changed ? "copilot.intent.matched" : "copilot.intent.no_change",
         result.changed ? "布局意图已映射到可执行规则" : "布局意图没有匹配到可执行规则",
         { changed: result.changed, requiresLayout: result.requiresLayout, commandLength: effectiveText.length });
