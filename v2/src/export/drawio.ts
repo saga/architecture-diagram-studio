@@ -74,7 +74,7 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const x = node.x + node.width / 2;
     vertices.push(invisiblePoint(node.id + "__lifelineEnd", x, maxY));
     const lifeline: DiagramRelation = { id: node.id + "__lifeline", source: node.id, target: node.id + "__lifelineEnd", label: "", kind: "dependency", dashed: true };
-    edges.push("<mxCell id=\"" + esc(lifeline.id) + "\" value=\"\" style=\"edgeStyle=none;dashed=1;dashPattern=3 5;strokeColor=#B8C2D0;strokeWidth=1;endArrow=none;startArrow=none;\" edge=\"1\" parent=\"1\" source=\"" +
+    edges.push("<mxCell id=\"" + esc(lifeline.id) + "\" value=\"\" style=\"edgeStyle=none;dashed=1;dashPattern=3 5;strokeColor=" + tokens.borderStrong + ";strokeWidth=1;endArrow=none;startArrow=none;\" edge=\"1\" parent=\"1\" source=\"" +
       esc(node.id) + "\" target=\"" + esc(node.id + "__lifelineEnd") + "\"><mxGeometry relative=\"1\" as=\"geometry\"/></mxCell>");
   }
   const participantNodes = doc.nodes.filter((node) => (doc.sequence?.participants || []).includes(node.id));
@@ -91,7 +91,7 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const id = fragment.id + "__sequenceFragment";
     // mxGraph paints edges below vertices. A filled fragment vertex would cover every
     // message/lifeline behind it, so keep the fragment interior transparent and only draw its frame.
-    const style = "rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=none;fillOpacity=0;strokeColor=#B8C4D4;strokeWidth=1;dashed=1;dashPattern=5 4;fontColor=#536276;fontSize=11;align=left;verticalAlign=top;spacingLeft=58;spacingTop=5;studioSequenceFragment=1;studioFragmentKind=" + fragment.kind + ";studioStartOrder=" + fragment.startOrder + ";studioEndOrder=" + fragment.endOrder + ";studioFragmentParticipants=" + (fragment.participants || []).join(",") + ";";
+    const style = "rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=none;fillOpacity=0;strokeColor=" + tokens.borderStrong + ";strokeWidth=1;dashed=1;dashPattern=5 4;fontColor=" + tokens.inkMuted + ";fontSize=11;align=left;verticalAlign=top;spacingLeft=58;spacingTop=5;studioSequenceFragment=1;studioFragmentKind=" + fragment.kind + ";studioStartOrder=" + fragment.startOrder + ";studioEndOrder=" + fragment.endOrder + ";studioFragmentParticipants=" + (fragment.participants || []).join(",") + ";";
     const label = fragment.kind.toUpperCase() + " · " + fragment.label;
     vertices.push("<mxCell id=\"" + esc(id) + "\" value=\"" + esc(label) + "\" style=\"" + esc(style) + "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" +
       minX + "\" y=\"" + top + "\" width=\"" + (maxX - minX) + "\" height=\"" + (bottom - top) + "\" as=\"geometry\"/></mxCell>");
@@ -103,7 +103,7 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const y = Math.round(148 + activation.startOrder * 72 + 5);
     const height = Math.max(12, Math.round((activation.endOrder - activation.startOrder) * 72 - 10));
     const activationId = activation.id + "__sequenceActivation";
-    vertices.push("<mxCell id=\"" + esc(activationId) + "\" value=\"\" style=\"rounded=0;whiteSpace=wrap;html=1;fillColor=#E7EDF7;strokeColor=#B7C5D9;strokeWidth=1;\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" +
+    vertices.push("<mxCell id=\"" + esc(activationId) + "\" value=\"\" style=\"rounded=0;whiteSpace=wrap;html=1;fillColor=#E7EDF7;strokeColor=" + tokens.borderStrong + ";strokeWidth=1;\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" +
       x + "\" y=\"" + y + "\" width=\"14\" height=\"" + height + "\" as=\"geometry\"/></mxCell>");
   }
   for (const relation of doc.relations) {
