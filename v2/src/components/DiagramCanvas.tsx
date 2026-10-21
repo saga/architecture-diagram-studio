@@ -8,6 +8,7 @@ import { deriveSequenceActivations } from "../layout/sequence";
 interface Props {
   document: DiagramDocument;
   zoom: number;
+  viewResetToken: number;
   selectedNodeId: string | null;
   selectedRelationId: string | null;
   onSelectNode: (id: string) => void;
@@ -110,7 +111,7 @@ function nodePath(node: DiagramNode, shape: string): string {
   return "M " + (node.x + 8) + " " + node.y + " H " + (node.x + node.width - 8) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + 8) + " V " + (node.y + node.height - 8) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - 8) + " " + (node.y + node.height) + " H " + (node.x + 8) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - 8) + " V " + (node.y + 8) + " Q " + node.x + " " + node.y + " " + (node.x + 8) + " " + node.y + " Z";
 }
 export default function DiagramCanvas({
-  document, zoom, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode
+  document, zoom, viewResetToken, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -124,7 +125,7 @@ export default function DiagramCanvas({
   useEffect(() => {
     setPan({ x: 0, y: 0 });
     setPanGesture(null);
-  }, [document.id, document.kind]);
+  }, [document.id, document.kind, viewResetToken]);
 
   function pointerToDiagram(clientX: number, clientY: number): Point {
     const svg = svgRef.current;
