@@ -4,6 +4,16 @@ import { evaluateLayout } from "./quality";
 import { layoutDiagram } from "./layout";
 
 describe("layout quality hard constraints", () => {
+  it("keeps the quality score within the documented 0–100 range", () => {
+    const document = createC4Fixture();
+    document.nodes = [];
+    document.relations = [];
+    document.boundaries = [];
+    const report = evaluateLayout(document);
+    expect(report.score).toBeLessThanOrEqual(100);
+    expect(report.score).toBeGreaterThanOrEqual(0);
+  });
+
   it("reports diagonal links that cut through a third node", () => {
     const document = createC4Fixture();
     document.nodes = [
