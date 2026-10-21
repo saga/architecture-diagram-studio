@@ -224,13 +224,13 @@ export default function DiagramCanvas({
         const tag = fragment.kind.toUpperCase();
         const tagWidth = Math.max(44, tag.length * 8.6 + 16);
         return <g key={fragment.id} className="sequence-fragment">
-          <rect className="sequence-fragment-frame" x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#EDF1F9" fillOpacity="0.9" stroke="#7E8EA6" strokeWidth="1.4" strokeDasharray="5 4" />
-          <rect className="sequence-fragment-tag" x={left + 10} y={top - 2} width={tagWidth} height="24" rx="4" fill="#DCE3F0" stroke="#7E8EA6" strokeWidth="1.2" />
+          <rect className="sequence-fragment-frame" x={left} y={top} width={right - left} height={bottom - top} rx="5" fill="#EDF1F9" fillOpacity="0.9" stroke={tokens.borderStrong} strokeWidth="1.4" strokeDasharray="5 4" />
+          <rect className="sequence-fragment-tag" x={left + 10} y={top - 2} width={tagWidth} height="24" rx="4" fill="#DCE3F0" stroke={tokens.borderStrong} strokeWidth="1.2" />
           <text className="sequence-fragment-kind" x={left + 18} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{tag}</text>
           <text className="sequence-fragment-label" x={left + 10 + tagWidth + 10} y={top + 15} fontSize="13" fontWeight="500" fill="#0C1626">{fragment.label}</text>
         </g>;
       })}
-      {document.kind === "sequence" && displayNodes.map((node) => <line className="sequence-lifeline" key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke="#7C8CA3" strokeWidth="1.2" strokeDasharray="4 5" />)}
+      {document.kind === "sequence" && displayNodes.map((node) => <line className="sequence-lifeline" key={node.id + "-lifeline"} x1={center(node).x} y1={node.y + node.height} x2={center(node).x} y2={148 + Math.max(0, document.relations.length - 1) * 72 + 62} stroke={tokens.borderStrong} strokeWidth="1.2" strokeDasharray="4 5" />)}
       {document.kind === "sequence" && deriveSequenceActivations(displayDoc).map((activation) => {
         const participant = displayNodes.find((node) => node.id === activation.participantId);
         if (!participant) return null;
@@ -238,7 +238,7 @@ export default function DiagramCanvas({
         const y = 148 + activation.startOrder * 72;
         const height = Math.max(12, (activation.endOrder - activation.startOrder) * 72);
         return <rect className="sequence-activation" key={activation.id} x={center(participant).x - 7} y={y} width="14" height={height} rx="3"
-          fill="#CFDDF1" stroke="#6E88AC" strokeWidth="1.2" />;
+          fill="#CFDDF1" stroke={tokens.borderStrong} strokeWidth="1.2" />;
       })}
       {displayDoc.relations.map((relation) => {
         const path = relationPath(displayDoc, relation);
