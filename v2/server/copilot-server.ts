@@ -239,6 +239,40 @@ app.get("/api/workspace/versions/:id", async (req, res) => {
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
+app.post("/api/workspace/versions/:id/restore", async (req, res) => {
+  try {
+    const result = await withDataWrite(async () => {
+      const versions = await getDiagramVersions();
+      const source = versions.find((item) => item.id === req.params.id);
+      if (!source || !isDiagramDocument(source.document)) return null;
+      const state = await getWorkspaceState();
+      const version: DiagramVersion = {
+        id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
+        createdAt: new Date().toISOString(),
+        label: "恢复版本：" + source.label,
+        document: source.document,
+        drawioXml: source.drawioXml
+      };
+      diagramVersions = [...versions, version];
+      workspaceState = { ...state, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
+      await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await mkdir(DATA_DIR, { recursive: true });
+      await appendFile(APP_LOG_FILE, JSON.stringify({
+        timestamp: version.createdAt, event: "diagram.version.restored",
+        sourceVersionId: source.id, versionId: version.id, label: version.label,
+        xmlLength: version.drawioXml.length
+      }) + "\n", "utf8");
+      return { version, state: workspaceState };
+    });
+    if (!result) { res.status(404).json({ error: "版本不存在或其文档格式无效" }); return; }
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    await writeLog("workspace.version.restore.failed", { versionId: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: "恢复服务端版本失败" });
+  }
+});
+
 app.get("/api/copilot/health", (_req, res) => {
   res.json({ ok: true, provider: "github-copilot-sdk", defaultModel: DEFAULT_MODEL, activeSessions: sessions.size });
 });
