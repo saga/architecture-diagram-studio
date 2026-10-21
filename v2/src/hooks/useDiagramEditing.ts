@@ -128,35 +128,28 @@ export function useDiagramEditing(options: Options) {
     commitDocument(next, "Renamed node: " + normalized);
   }
 
-  function changeNode(patch: Partial<DiagramNode>) {
-    if (!selectedNode) return;
+  function updateNodeById(nodeId: string, patch: Partial<DiagramNode>) {
+    const current = document.nodes.find((node) => node.id === nodeId);
+    if (!current) return;
     const next = {
       ...document,
       nodes: document.nodes.map((node) => {
-        if (node.id !== selectedNode.id) return node;
+        if (node.id !== nodeId) return node;
         if (patch.role === undefined) return { ...node, ...patch };
         const nextRole = patch.role;
-        let layoutHints = { ...(node.layoutHints || {}) };
+        const layoutHints = { ...(node.layoutHints || {}) };
         if (
           (node.role === "external" || node.role === "vendor") &&
           layoutHints.preferredSide === "RIGHT" &&
           nextRole !== "external" && nextRole !== "vendor"
-        ) {
-          delete layoutHints.preferredSide;
-        }
+        ) delete layoutHints.preferredSide;
         if (
           (node.role === "storage" || node.role === "data") &&
           layoutHints.preferredSide === "BOTTOM" &&
           nextRole !== "storage" && nextRole !== "data"
-        ) {
-          delete layoutHints.preferredSide;
-        }
-        if ((nextRole === "external" || nextRole === "vendor") && !layoutHints.preferredSide) {
-          layoutHints.preferredSide = "RIGHT";
-        }
-        if ((nextRole === "storage" || nextRole === "data") && !layoutHints.preferredSide) {
-          layoutHints.preferredSide = "BOTTOM";
-        }
+        ) delete layoutHints.preferredSide;
+        if ((nextRole === "external" || nextRole === "vendor") && !layoutHints.preferredSide) layoutHints.preferredSide = "RIGHT";
+        if ((nextRole === "storage" || nextRole === "data") && !layoutHints.preferredSide) layoutHints.preferredSide = "BOTTOM";
         const visualRole: VisualRole = nextRole === "external" || nextRole === "vendor"
           ? "external"
           : node.visualRole === "external" ? "secondary" : node.visualRole;
@@ -164,6 +157,14 @@ export function useDiagramEditing(options: Options) {
       })
     };
     commitDocument(next, "Node properties updated");
+    if (patch.role !== undefined || patch.layoutHints?.preferredSide !== undefined) {
+      if (document.kind !== "sequence") void runLayout(next);
+    }
+  }
+
+  function changeNode(patch: Partial<DiagramNode>) {
+    if (!selectedNode) return;
+    updateNodeById(selectedNode.id, patch);
   }
 
   function addNode(role: DiagramNode["role"]) {
@@ -308,7 +309,7 @@ export function useDiagramEditing(options: Options) {
 
   return {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, renameNode, addNode, createRelation, updateRelationLabel, removeRelation, reverseRelation,
+    changeNode, updateNodeById, renameNode, addNode, createRelation, updateRelationLabel, removeRelation, reverseRelation,
     updateRelationKind, updateRelationStyle, updateBoundary, createBoundaryForNode, removeBoundary, removeNodeById, duplicateNodeById
   };
 }
