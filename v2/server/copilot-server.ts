@@ -12,7 +12,7 @@ import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./copilot/runtime";
-import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, workspaceRevision, retainRecentVersions } from "./storage";
+import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
@@ -106,11 +106,14 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
   if (!workspaceState) workspaceState = await readJsonFile<WorkspaceState>(WORKSPACE_FILE, { document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null });
   return workspaceState;
 }
+const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
+function retainRecentVersions(versions: DiagramVersion[]): DiagramVersion[] {
+  return retainVersionsWithinLimit(versions, MAX_VERSIONS_PER_WORKSPACE);
+}
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
-  if (!diagramVersions) diagramVersions = retainRecentVersions(await readJsonFile<DiagramVersion[]>(VERSIONS_FILE, []), MAX_VERSIONS_PER_WORKSPACE);
+  if (!diagramVersions) diagramVersions = retainRecentVersions(await readJsonFile<DiagramVersion[]>(VERSIONS_FILE, []));
   return diagramVersions;
 }
-const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 app.use((req, res, next) => {
