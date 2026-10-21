@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat, lstat } from "node:fs/promises";
 
 const DATA_DIR = process.env.STUDIO_DATA_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "data");
 const CONFIG_FILE = path.join(DATA_DIR, "project-workspace.json");
@@ -52,7 +52,12 @@ async function readWorkspaceFile(relativePath: string): Promise<string> {
   const workspace = await getWorkspace();
   if (!relativePath || path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).some((part) => part === "..")) throw new Error("Invalid relative file path.");
   const root = await realpath(workspace.rootPath);
-  const target = await realpath(path.resolve(root, relativePath));
+  const unresolved = path.resolve(root, relativePath);
+  const lexical = path.relative(root, unresolved);
+  if (lexical.startsWith("..") || path.isAbsolute(lexical)) throw new Error("File is outside the configured workspace.");
+  let cursor = root;
+  for (const part of lexical.split(path.sep).filter(Boolean)) { cursor = path.join(cursor, part); if ((await lstat(cursor)).isSymbolicLink()) throw new Error("Symbolic links are not allowed in workspace reads."); }
+  const target = await realpath(unresolved);
   if (target !== root && !target.startsWith(root + path.sep)) throw new Error("File is outside the configured workspace.");
   if (!(await stat(target)).isFile()) throw new Error("Target is not a file.");
   const info = await stat(target);
