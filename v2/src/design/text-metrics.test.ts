@@ -18,6 +18,13 @@ describe("Unicode-aware text metrics", () => {
     expect(english.every((line) => measureTextWidth(line, 13) <= 75)).toBe(true);
   });
 
+  it("adds an ellipsis when vertical capacity hides wrapped lines", () => {
+    const limited = wrapTextToWidth("A long description that uses multiple lines", 65, 13, 1);
+    expect(limited).toHaveLength(1);
+    expect(limited[0].endsWith("…")).toBe(true);
+    expect(measureTextWidth(limited[0], 13)).toBeLessThanOrEqual(65);
+  });
+
   it("truncates by rendered-width estimate without splitting a surrogate pair", () => {
     const value = "存储 Service";
     const truncated = truncateTextToWidth(value, 44, 13);
