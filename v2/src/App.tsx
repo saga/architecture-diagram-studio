@@ -71,6 +71,7 @@ export default function App() {
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
   const [studioZoom, setStudioZoom] = useState(1);
+  const [canvasViewResetToken, setCanvasViewResetToken] = useState(0);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
@@ -801,7 +802,7 @@ export default function App() {
 
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {viewMode === "studio" ? (
-            <DiagramCanvas document={visibleDocument} zoom={studioZoom} selectedNodeId={selectedNodeId}
+            <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
               selectedRelationId={selectedRelationId} onSelectNode={selectNode} onSelectRelation={selectRelation}
               onMoveNode={(id, x, y) => {
                 const moved = moveNode(visibleDocument, id, x, y);
@@ -815,10 +816,10 @@ export default function App() {
           ) : (
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "已从原生 Draw.io 同步修改", nativeXml)} />
           )}
-          <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
+          <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动画布空白处可平移 · 拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
           {viewMode === "studio" && <div className="zoom-indicator">
             <button type="button" className="zoom-control" aria-label="缩小" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</button>
-            <button type="button" className="zoom-percent" aria-label="重置缩放" onClick={() => setStudioZoom(1)}>{Math.round(studioZoom * 100)}%</button>
+            <button type="button" className="zoom-percent" aria-label="重置画布视图" title="重置平移与缩放" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</button>
             <button type="button" className="zoom-control" aria-label="放大" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</button>
           </div>}
         </div>
