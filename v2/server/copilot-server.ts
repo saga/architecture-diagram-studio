@@ -221,8 +221,22 @@ app.get("/api/workspace/logs", async (req, res) => {
 });
 
 app.get("/api/workspace/versions", async (_req, res) => {
-  try { res.json({ versions: await getDiagramVersions() }); }
-  catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+  try {
+    const versions = await getDiagramVersions();
+    res.json({ versions: versions.map(({ id, createdAt, label, document }) => ({
+      id, createdAt, label,
+      documentId: (document as { id?: string } | null)?.id ?? null,
+      title: (document as { title?: string } | null)?.title ?? null
+    })) });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+
+app.get("/api/workspace/versions/:id", async (req, res) => {
+  try {
+    const version = (await getDiagramVersions()).find((item) => item.id === req.params.id);
+    if (!version) { res.status(404).json({ error: "版本不存在" }); return; }
+    res.json({ version });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
 app.get("/api/copilot/health", (_req, res) => {
