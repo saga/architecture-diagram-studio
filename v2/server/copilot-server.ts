@@ -5,6 +5,25 @@ const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "gpt-5";
 const app = express();
 app.use(express.json({ limit: "128kb" }));
+let clientPromise: Promise<CopilotClient> | null = null;
+
+async function getCopilotClient(): Promise<CopilotClient> {
+  if (clientPromise) return clientPromise;
+  clientPromise = (async () => {
+    const client = new CopilotClient({
+      useLoggedInUser: true,
+      ...(process.env.COPILOT_HOME ? { baseDirectory: process.env.COPILOT_HOME } : {})
+    });
+    try {
+      await client.start();
+      return client;
+    } catch (error) {
+      clientPromise = null;
+      throw error;
+    }
+  })();
+  return clientPromise;
+}
 
 const ALLOWED_COMMANDS = new Set([
   "所有关系线改成虚线", "所有关系线改成实线", "把曲线改成直角折线", "把曲线改成折线",
@@ -52,14 +71,11 @@ app.post("/api/copilot/intent", async (req, res) => {
     }
   });
 
-  const client = new CopilotClient({
-    useLoggedInUser: true,
-    ...(process.env.COPILOT_HOME ? { baseDirectory: process.env.COPILOT_HOME } : {})
-  });
+  let client: CopilotClient | undefined;
   let session: Awaited<ReturnType<CopilotClient["createSession"]>> | undefined;
   const startedAt = Date.now();
   try {
-    await client.start();
+    client = await getCopilotClient();
     session = await client.createSession({
       model,
       streaming: true,
@@ -100,10 +116,19 @@ app.post("/api/copilot/intent", async (req, res) => {
     res.status(502).json({ error: message.slice(0, 500) });
   } finally {
     try { await session?.disconnect(); } catch { /* best-effort session cleanup */ }
-    try { await client.stop(); } catch { /* best-effort runtime cleanup */ }
   }
 });
 
-app.listen(PORT, "127.0.0.1", () => {
+const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`[studio:copilot-sdk] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}`);
 });
+
+async function shutdown(): Promise<void> {
+  server.close();
+  if (clientPromise) {
+    try { await (await clientPromise).stop(); } catch { /* best-effort runtime shutdown */ }
+    clientPromise = null;
+  }
+}
+process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
+process.once("SIGTERM", () => { void shutdown().finally(() => process.exit(0)); });
