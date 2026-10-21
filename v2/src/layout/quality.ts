@@ -182,7 +182,23 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   for (const boundary of doc.boundaries) {
     const missing = boundary.members.filter((id) => !doc.nodes.some((node) => node.id === id));
     if (missing.length) {
-      errors.push({ code: "invalid-boundary-member", severity: "error", message: "Boundary " + boundary.name + " contains missing node(s): " + missing.join(", ") });
+      errors.push({
+        code: "invalid-boundary-member", severity: "error",
+        message: "Boundary " + boundary.name + " contains missing node(s): " + missing.join(", ")
+      });
+    }
+    if (new Set(boundary.members).size !== boundary.members.length) {
+      warnings.push({
+        code: "duplicate-boundary-member", severity: "warning",
+        message: "Boundary " + boundary.name + " lists one or more members multiple times"
+      });
+    }
+    if (boundary.members.length === 1) {
+      warnings.push({
+        code: "single-node-boundary", severity: "warning",
+        message: "Boundary " + boundary.name + " contains only one node; verify that a grouping boundary is intended",
+        nodeIds: [...boundary.members]
+      });
     }
   }
 
