@@ -224,6 +224,27 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
     }
   }
 
+  if (doc.kind === "sequence") {
+    const maxOrder = doc.relations.length - 1;
+    for (const fragment of doc.sequence?.fragments || []) {
+      if (fragment.startOrder < 0 || fragment.endOrder > maxOrder) {
+        warnings.push({
+          code: "sequence-fragment-out-of-range", severity: "warning",
+          message: "Sequence fragment " + fragment.id + " extends beyond the current message timeline",
+          relationIds: doc.relations.filter((edge) => edge.sequenceOrder === fragment.startOrder || edge.sequenceOrder === fragment.endOrder).map((edge) => edge.id)
+        });
+      }
+      const missingParticipants = (fragment.participants || []).filter((id) => !doc.nodes.some((node) => node.id === id));
+      if (missingParticipants.length) warnings.push({
+        code: "sequence-fragment-invalid-participant", severity: "warning",
+        message: "Sequence fragment " + fragment.id + " references missing participant(s): " + missingParticipants.join(", "),
+        nodeIds: missingParticipants
+      });
+    }
+  }
+
+  const edgeNodeIssueRelationIds = new Set<string>();
+  const edgeNodeIssueNodeIds = new Set<string>();
   const paths = doc.relations.map((edge) => ({ id: edge.id, points: pathFor(doc, edge.id) }));
   for (const path of paths) {
     const edge = doc.relations.find((item) => item.id === path.id);
@@ -235,11 +256,17 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
         connectorRoutingViolations++;
         errors.push({ code: "diagonal-orthogonal-route", severity: "error", message: "Orthogonal relation " + path.id + " contains a diagonal segment", relationIds: [path.id] });
       }
-      const hit = doc.nodes.some((node) => {
-        if (!edge || node.id === edge.source || node.id === edge.target) return false;
-        return segmentIntersectsRect(a, b, node);
-      });
-      if (hit) edgeNodeIntersections++;
+      let hit = false;
+      for (const node of doc.nodes) {
+        if (!edge || node.id === edge.source || node.id === edge.target) continue;
+        if (!segmentIntersectsRect(a, b, node)) continue;
+        hit = true;
+        edgeNodeIssueNodeIds.add(node.id);
+      }
+      if (hit) {
+        edgeNodeIntersections++;
+        if (edge) edgeNodeIssueRelationIds.add(edge.id);
+      }
     }
   }
   for (let i = 0; i < paths.length; i++) {
@@ -290,7 +317,11 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   const densityScore = Math.max(0, Math.min(1, 1 - doc.nodes.length / 32));
   const portSpacingViolations = countPortSpacingViolations(doc);
 
-  if (edgeNodeIntersections) errors.push({ code: "edge-through-node", severity: "error", message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node" });
+  if (edgeNodeIntersections) errors.push({
+    code: "edge-through-node", severity: "error",
+    message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node",
+    nodeIds: [...edgeNodeIssueNodeIds], relationIds: [...edgeNodeIssueRelationIds]
+  });
   if (edgeCrossings) warnings.push({ code: "edge-crossing", severity: "warning", message: edgeCrossings + " possible edge crossing(s)" });
   if (labelCollisions) warnings.push({ code: "label-collision", severity: "warning", message: labelCollisions + " estimated edge-label collision(s)" });
   if (disconnectedComponents) warnings.push({ code: "disconnected-components", severity: "warning", message: disconnectedComponents + " disconnected component(s) beyond the first" });
