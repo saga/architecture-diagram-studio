@@ -510,7 +510,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     diagramEditProposals.set(proposal.id, proposal);
     for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
     while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
-    res.json({ proposalId: proposal.id, baseRevision, summary: proposal.summary, document, quality: proposal.quality, expiresInSeconds: 900, requiresConfirmation: true });
+    res.json({ proposalId: proposal.id, baseRevision, summary: proposal.summary, document, baseQuality: proposal.baseQuality, quality: proposal.quality, expiresInSeconds: 900, requiresConfirmation: true });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
