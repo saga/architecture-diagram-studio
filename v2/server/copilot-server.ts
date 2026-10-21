@@ -506,7 +506,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const document = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
     const validationErrors = validateDiagramSemantics(document);
     if (validationErrors.length) { res.status(422).json({ error: "提案未通过语义校验", validationErrors }); return; }
-    const proposal: DiagramEditProposal = { id: randomUUID(), baseRevision, document, summary: interpreted.summary, quality: evaluateLayout(document), createdAt: Date.now(), workspaceId: workspace?.id ?? null };
+    const proposal: DiagramEditProposal = { id: randomUUID(), baseRevision, document, summary: interpreted.summary, baseQuality: evaluateLayout(state.document), quality: evaluateLayout(document), createdAt: Date.now(), workspaceId: workspace?.id ?? null };
     diagramEditProposals.set(proposal.id, proposal);
     for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
     while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
@@ -528,6 +528,10 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       const config = await getStudioConfig();
       if (proposal.document.kind !== "sequence" && !config.layoutProfiles.includes(proposal.document.layout.profile)) return { status: 422 as const, error: "提案使用的布局算法已禁用" };
       const quality = evaluateLayout(proposal.document);
+      const baseQuality = evaluateLayout(state.document);
+      if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {
+        return { status: 422 as const, error: "提案导致布局质量明显退化，未保存；请调整请求后重新生成提案", quality, baseQuality };
+      }
       const xml = toDrawioXml(proposal.document);
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, createdAt: new Date().toISOString(), label: "Agent 编辑：" + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
       const versions = await getDiagramVersions();
