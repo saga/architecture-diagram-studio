@@ -182,7 +182,6 @@ export default function App() {
   documentRef.current = document;
   const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
   const [isLayoutting, setIsLayoutting] = useState(false);
-  const [relationLabelDrafts, setRelationLabelDrafts] = useState<Record<string, string>>({});
   const importFileRef = useRef<HTMLInputElement>(null);
 
   const visibleDocument = previewDocument || document;
@@ -590,11 +589,11 @@ export default function App() {
 
   const {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, renameNode, addNode, createRelation, updateRelationLabel, commitRelationLabel,
-    removeRelation, reverseRelation, updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
+    changeNode, renameNode, addNode, createRelation, updateRelationLabel,
+    removeRelation, reverseRelation, updateRelationKind, updateRelationStyle, removeNodeById, duplicateNodeById
   } = useDiagramEditing({
-    document, selectedNode, selectedRelationId, relationLabelDrafts,
-    setSelectedNodeId, setSelectedRelationId, setRelationLabelDrafts, setLastAction,
+    document, selectedNode, selectedRelationId,
+    setSelectedNodeId, setSelectedRelationId, setLastAction,
     commitDocument, runLayout
   });
 
