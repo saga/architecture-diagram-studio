@@ -518,16 +518,31 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       const state = await getWorkspaceState();
       const workspace = await getProjectWorkspace();
       if ((workspace?.id ?? null) !== proposal.workspaceId || !state.document || !isDiagramDocument(state.document) || workspaceRevision(state.document, state.drawioXml) !== proposal.baseRevision) return { status: 409 as const, error: "The diagram or native XML changed, or the workspace switched; generate a new proposal" };
-      const validationErrors = validateDiagramSemantics(proposal.document);
-      if (validationErrors.length) return { status: 422 as const, error: "The proposal failed server-side semantic validation", validationErrors };
-      const config = await getStudioConfig();
-      if (!layoutProfileEnabled(proposal.document, config)) return { status: 422 as const, error: "The layout algorithm used by the proposal is disabled" };
-      const quality = evaluateLayout(proposal.document);
-      const baseQuality = evaluateLayout(state.document);
-      if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {
-        return { status: 422 as const, error: "The proposal degrades layout quality significantly and was not saved; adjust the request and generate a new proposal", quality, baseQuality };
+      let quality = evaluateLayout(proposal.document);
+      let xml: string;
+      if (typeof proposal.nativeXml === "string") {
+        // Explicit version restore: XML is the payload. Restore it byte-for-byte and
+        // do not try to validate the partial semantic projection as if it were complete.
+        xml = proposal.nativeXml;
+        if (!isDrawioXmlEnvelope(xml) || Buffer.byteLength(xml, "utf8") > 20_000_000) return { status: 422 as const, error: "The version's authoritative Draw.io XML is invalid or exceeds the size limit" };
+      } else {
+        if (typeof state.drawioXml === "string" && !isStudioProjectionCurrent(state.drawioXml, state.document)) {
+          return { status: 409 as const, error: "This document can no longer be edited through the semantic projection. The authoritative Draw.io XML was not changed; use native Draw.io editing." };
+        }
+        const validationErrors = validateDiagramSemantics(proposal.document);
+        if (validationErrors.length) return { status: 422 as const, error: "The proposal failed server-side semantic validation", validationErrors };
+        const config = await getStudioConfig();
+        if (!layoutProfileEnabled(proposal.document, config)) return { status: 422 as const, error: "The layout algorithm used by the proposal is disabled" };
+        const baseQuality = evaluateLayout(state.document);
+        if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {
+          return { status: 422 as const, error: "The proposal degrades layout quality significantly and was not saved; adjust the request and generate a new proposal", quality, baseQuality };
+        }
+        const patchedXml = typeof state.drawioXml === "string"
+          ? patchStudioDocumentXml(state.drawioXml, state.document, proposal.document)
+          : toDrawioXml(proposal.document);
+        if (!patchedXml) return { status: 409 as const, error: "The semantic edit could not be patched into the authoritative Draw.io XML without data loss; no changes were saved." };
+        xml = patchedXml;
       }
-      const xml = proposal.nativeXml ?? toDrawioXml(proposal.document);
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: new Date().toISOString(), label: "Agent edit: " + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
       const versions = await getDiagramVersions();
       diagramVersions = retainRecentVersions([...versions, version]);
@@ -999,6 +1014,7 @@ registerCopilotIntentRoute(app, {
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
         throw new Error("No valid active diagram is available.");
       }
+      if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) throw new Error("The authoritative Draw.io XML contains cells or properties outside the Studio projection. Use native Draw.io editing; no semantic operation was applied.");
       const base = state.document;
       let next: DiagramDocument = structuredClone(base);
       let summary = "";
@@ -1263,6 +1279,7 @@ registerCopilotIntentRoute(app, {
     proposeEdit: async (intent) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
+      if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) throw new Error("The authoritative Draw.io XML contains content outside the lossless Studio projection. Use native Draw.io editing; no semantic proposal was generated.");
       const interpreted = interpretIntent(state.document, intent.trim());
       if (!interpreted.changed) throw new Error("This edit intent is unsupported or ambiguous; no proposal was generated.");
       const config = await getStudioConfig();
@@ -1274,6 +1291,7 @@ registerCopilotIntentRoute(app, {
       if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
+      if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) throw new Error("A Studio template cannot replace a native Draw.io document that the semantic projection cannot represent losslessly. Create a new Studio diagram instead.");
       const config = await getStudioConfig(), next = createDiagramTemplate(templateKey as DiagramTemplateKey);
       next.id = randomUUID();
       if (title?.trim()) next.title = title.trim().slice(0, 200);
