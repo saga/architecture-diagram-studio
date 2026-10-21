@@ -72,7 +72,9 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const top = Math.round(148 + fragment.startOrder * 72 - 22);
     const bottom = Math.round(148 + fragment.endOrder * 72 + 22);
     const id = fragment.id + "__sequenceFragment";
-    const style = "rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=#F8FAFD;fillOpacity=65;strokeColor=#B8C4D4;strokeWidth=1;dashed=1;dashPattern=5 4;fontColor=#536276;fontSize=11;align=left;verticalAlign=top;spacingLeft=58;spacingTop=5;studioSequenceFragment=1;studioFragmentKind=" + fragment.kind + ";studioStartOrder=" + fragment.startOrder + ";studioEndOrder=" + fragment.endOrder + ";";
+    // mxGraph paints edges below vertices. A filled fragment vertex would cover every
+    // message/lifeline behind it, so keep the fragment interior transparent and only draw its frame.
+    const style = "rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=none;fillOpacity=0;strokeColor=#B8C4D4;strokeWidth=1;dashed=1;dashPattern=5 4;fontColor=#536276;fontSize=11;align=left;verticalAlign=top;spacingLeft=58;spacingTop=5;studioSequenceFragment=1;studioFragmentKind=" + fragment.kind + ";studioStartOrder=" + fragment.startOrder + ";studioEndOrder=" + fragment.endOrder + ";";
     const label = fragment.kind.toUpperCase() + " · " + fragment.label;
     vertices.push("<mxCell id=\"" + esc(id) + "\" value=\"" + esc(label) + "\" style=\"" + esc(style) + "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" +
       minX + "\" y=\"" + top + "\" width=\"" + (maxX - minX) + "\" height=\"" + (bottom - top) + "\" as=\"geometry\"/></mxCell>");
