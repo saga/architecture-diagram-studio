@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DiagramDocument, DiagramNode, SequenceFragment, VisualRole } from "../model/types";
+import type { DiagramDocument, DiagramNode, DiagramRelation, EdgeKind, SequenceFragment, VisualRole } from "../model/types";
 import { requestServerSequenceNormalize } from "../api/diagram-operations";
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
@@ -263,6 +263,16 @@ export function useDiagramEditing(options: Options) {
     if (document.kind !== "sequence") void runLayout(next);
   }
 
+  function updateRelationKind(relationId: string, kind: EdgeKind) {
+    const next = {
+      ...document,
+      relations: document.relations.map((relation) => relation.id === relationId
+        ? { ...relation, kind }
+        : relation)
+    };
+    commitDocument(next, "Relation type updated");
+  }
+
   function updateRelationStyle(
     relationId: string,
     patch: { dashed?: boolean; routing?: "orthogonal" | "polyline" | "curved" | undefined }
@@ -306,6 +316,6 @@ export function useDiagramEditing(options: Options) {
   return {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
     changeNode, renameNode, addNode, createRelation, updateRelationLabel, commitRelationLabel, removeRelation, reverseRelation,
-    updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
+    updateRelationKind, updateRelationStyle, removeNodeById, removeSelectedNode, duplicateNodeById
   };
 }
