@@ -19,6 +19,14 @@ import type { DiagnosticEntry } from "./diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type SavedAISettings = { baseUrl: string; model: string };
+type UiTheme = "editorial" | "youth" | "warm" | "midnight";
+function loadSavedTheme(): UiTheme {
+  try {
+    const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ui-theme");
+    if (saved === "editorial" || saved === "youth" || saved === "warm" || saved === "midnight") return saved;
+  } catch { /* Theme selection is optional when browser storage is disabled. */ }
+  return "editorial";
+}
 function loadSavedAISettings(): SavedAISettings {
   try {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
@@ -49,6 +57,8 @@ export default function App() {
   const [previewDocument, setPreviewDocument] = useState<DiagramDocument | null>(null);
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
+  const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
+  const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [activePage, setActivePage] = useState<WorkspacePage>("studio");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
@@ -144,6 +154,15 @@ export default function App() {
       setLastAction("浏览器存储不可用；本次会话仍可继续编辑");
     }
   }, [document]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme", uiTheme);
+    } catch {
+      // The selected theme remains active in memory for this session.
+    }
+    recordDiagnostic("ui.theme.changed", "更新界面配色主题", { theme: uiTheme });
+  }, [uiTheme]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
     setPreviewDocument(null);
@@ -667,8 +686,21 @@ export default function App() {
     recordDiagnostic("navigation.opened", "打开工作区页面", { page });
   }
 
+  function selectNode(id: string) {
+    setSelectedNodeId(id);
+    setSelectedRelationId(null);
+  }
+
+  function selectRelation(id: string) {
+    const relation = document.relations.find((item) => item.id === id);
+    if (!relation) return;
+    setSelectedRelationId(id);
+    setSelectedNodeId(relation.source);
+    recordDiagnostic("diagram.relation.selected", "在画布上选中一条关系线", { relationId: id });
+  }
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={uiTheme}>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark"><i /><i /><i /><i /></div>
@@ -681,6 +713,15 @@ export default function App() {
             <button key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</button>
           )}
         </nav>
+        <label className="theme-selector" title="切换整个工作界面的配色">
+          <span aria-hidden="true">◐</span>
+          <select value={uiTheme} aria-label="界面配色主题" onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
+            <option value="editorial">经典编辑室</option>
+            <option value="youth">青春鲜艳</option>
+            <option value="warm">暖色纸感</option>
+            <option value="midnight">午夜深色</option>
+          </select>
+        </label>
         <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
           <button className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</button>
@@ -746,7 +787,8 @@ export default function App() {
 
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {viewMode === "studio" ? (
-            <DiagramCanvas document={visibleDocument} zoom={studioZoom} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
+            <DiagramCanvas document={visibleDocument} zoom={studioZoom} selectedNodeId={selectedNodeId}
+              selectedRelationId={selectedRelationId} onSelectNode={selectNode} onSelectRelation={selectRelation}
               onMoveNode={(id, x, y) => {
                 const moved = moveNode(visibleDocument, id, x, y);
                 if (previewDocument) {
@@ -795,7 +837,7 @@ export default function App() {
               <div className="connected-relations">
                 <div className="field-label">关联关系（{document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length}）</div>
                 {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).map((relation) => (
-                  <div className="connected-relation" key={relation.id}>
+                  <div className={"connected-relation" + (selectedRelationId === relation.id ? " active" : "")} key={relation.id}>
                     <div className="connected-relation-direction">
                       <span>{document.nodes.find((node) => node.id === relation.source)?.name || relation.source}</span>
                       <span className="relation-arrow">→</span>
