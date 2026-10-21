@@ -610,3 +610,40 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .relation-label-field,
 .app-shell .inspector-form .text-field { font-size: 11px; }
 .app-shell .theme-selector select { font-size: 11px; }
+
+
+/* Keep role colours meaningful while adapting the diagram palette to the selected theme. */
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="actor"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="source"] path:first-child { fill: #fff7df !important; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="ui"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="domain"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="entry"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="api"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="business"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="worker"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="service"] path:first-child { fill: #fff0f8 !important; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="storage"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="data"] path:first-child { fill: #e8fbf4 !important; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="external"] path:first-child,
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="vendor"] path:first-child { fill: #fff2d6 !important; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="infra"] path:first-child { fill: #ecf2ff !important; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #fff3c7 !important; }
+
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="actor"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="source"] path:first-child { fill: #fffdf5 !important; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="ui"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="domain"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="entry"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="api"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="business"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="worker"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="service"] path:first-child { fill: #fff5e7 !important; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="storage"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="data"] path:first-child { fill: #eef4e7 !important; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="external"] path:first-child,
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="vendor"] path:first-child { fill: #f7e8d8 !important; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="infra"] path:first-child { fill: #eeece4 !important; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #f8ebd1 !important; }
+
+.app-shell[data-theme="youth"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b5476; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b6c57; }
