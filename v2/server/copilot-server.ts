@@ -373,6 +373,116 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
   }
 });
 
+
+type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null };
+const diagramEditProposals = new Map<string, DiagramEditProposal>();
+function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
+function validateDiagramSemantics(document: import("../src/model/types").DiagramDocument): string[] {
+  const errors: string[] = [];
+  if (document.nodes.length > 500 || document.relations.length > 2000 || document.boundaries.length > 300) errors.push("图形规模超过服务端限制");
+  const nodeIds = new Set<string>(), relationIds = new Set<string>(), boundaryIds = new Set<string>();
+  for (const node of document.nodes) {
+    if (!node.id || nodeIds.has(node.id)) errors.push("节点 ID 为空或重复：" + node.id);
+    nodeIds.add(node.id);
+    if (![node.x,node.y,node.width,node.height].every(Number.isFinite) || node.width <= 0 || node.height <= 0) errors.push("节点几何属性无效：" + node.id);
+    if (node.name.length > 500 || (node.description || "").length > 4000) errors.push("节点文本过长：" + node.id);
+  }
+  for (const relation of document.relations) {
+    if (!relation.id || relationIds.has(relation.id)) errors.push("关系 ID 为空或重复：" + relation.id);
+    relationIds.add(relation.id);
+    if (!nodeIds.has(relation.source) || !nodeIds.has(relation.target)) errors.push("关系端点不存在：" + relation.id);
+    if (relation.label.length > 1000) errors.push("关系标签过长：" + relation.id);
+  }
+  for (const boundary of document.boundaries) {
+    if (!boundary.id || boundaryIds.has(boundary.id)) errors.push("边界 ID 为空或重复：" + boundary.id);
+    boundaryIds.add(boundary.id);
+    if (boundary.members.some((id) => !nodeIds.has(id))) errors.push("边界引用了不存在的节点：" + boundary.id);
+  }
+  if (document.kind !== "sequence" && !LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile)) errors.push("不支持的布局算法：" + document.layout.profile);
+  return [...new Set(errors)].slice(0, 100);
+}
+app.get("/api/workspace/diagram/active", async (_req, res) => {
+  try {
+    const state = await getWorkspaceState();
+    const workspace = await getProjectWorkspace();
+    if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) {
+      res.status(404).json({ error: "当前工作区没有可用的已保存主图" }); return;
+    }
+    res.json({ document: state.document, drawioXml: state.drawioXml, revision: documentRevision(state.document), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+app.post("/api/workspace/diagram/proposals", async (req, res) => {
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  try {
+    if (!prompt || prompt.length > 4000) { res.status(400).json({ error: "编辑意图必须为 1–4000 个字符" }); return; }
+    const state = await getWorkspaceState();
+    const workspace = await getProjectWorkspace();
+    if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) { res.status(404).json({ error: "当前工作区没有可用的已保存主图" }); return; }
+    const baseRevision = documentRevision(state.document);
+    if (typeof req.body?.baseRevision === "string" && req.body.baseRevision !== baseRevision) { res.status(409).json({ error: "图形已变化，请重新读取后生成提案", revision: baseRevision }); return; }
+    const interpreted = interpretIntent(state.document, prompt);
+    if (!interpreted.changed) { res.status(422).json({ error: "当前编辑意图不受支持；未生成或保存任何变更", supportedOperations: ["改关系线虚线/实线", "改曲线或折线路由", "移动 External/Vendor 到右侧", "移动数据库/存储到底部", "切换布局方向", "重新布局", "解除节点锁定"] }); return; }
+    const config = await getStudioConfig();
+    if (interpreted.requiresLayout && interpreted.document.kind !== "sequence" && !config.layoutProfiles.includes(interpreted.document.layout.profile)) { res.status(400).json({ error: "当前布局算法已禁用" }); return; }
+    const document = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
+    const validationErrors = validateDiagramSemantics(document);
+    if (validationErrors.length) { res.status(422).json({ error: "提案未通过语义校验", validationErrors }); return; }
+    const proposal: DiagramEditProposal = { id: randomUUID(), baseRevision, document, summary: interpreted.summary, quality: evaluateLayout(document), createdAt: Date.now(), workspaceId: workspace?.id ?? null };
+    diagramEditProposals.set(proposal.id, proposal);
+    for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
+    while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
+    res.json({ proposalId: proposal.id, baseRevision, summary: proposal.summary, document, quality: proposal.quality, expiresInSeconds: 900, requiresConfirmation: true });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
+  const proposalId = typeof req.body?.proposalId === "string" ? req.body.proposalId : "";
+  if (req.body?.confirmed !== true) { res.status(403).json({ error: "必须通过显式 confirmed=true 确认应用提案" }); return; }
+  try {
+    const result = await withDataWrite(async () => {
+      const proposal = diagramEditProposals.get(proposalId);
+      if (!proposal || Date.now() - proposal.createdAt > 15 * 60 * 1000) return { status: 404 as const, error: "提案不存在或已过期" };
+      const state = await getWorkspaceState();
+      const workspace = await getProjectWorkspace();
+      if ((workspace?.id ?? null) !== proposal.workspaceId || !state.document || !isDiagramDocument(state.document) || documentRevision(state.document) !== proposal.baseRevision) return { status: 409 as const, error: "当前图形已变化或工作区已切换；请重新生成提案" };
+      const validationErrors = validateDiagramSemantics(proposal.document);
+      if (validationErrors.length) return { status: 422 as const, error: "提案未通过服务端语义校验", validationErrors };
+      const config = await getStudioConfig();
+      if (proposal.document.kind !== "sequence" && !config.layoutProfiles.includes(proposal.document.layout.profile)) return { status: 422 as const, error: "提案使用的布局算法已禁用" };
+      const quality = evaluateLayout(proposal.document);
+      const xml = toDrawioXml(proposal.document);
+      const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, createdAt: new Date().toISOString(), label: "Agent 编辑：" + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
+      const versions = await getDiagramVersions();
+      diagramVersions = [...versions, version];
+      await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      if (workspace?.primaryDiagram && /\\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
+        const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
+        await writeTextAtomic(absolutePath, xml);
+      }
+      workspaceState = { ...state, workspaceId: workspace?.id, document: proposal.document, drawioXml: xml, updatedAt: version.createdAt };
+      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await mkdir(DATA_DIR, { recursive: true });
+      await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\\n", "utf8");
+      diagramEditProposals.delete(proposalId);
+      return { status: 200 as const, version, document: proposal.document, revision: documentRevision(proposal.document), quality };
+    });
+    if (result.status !== 200) { res.status(result.status).json(result); return; }
+    await writeLog("diagram.agent-edit.applied", { proposalId, versionId: result.version.id, qualityScore: result.quality.score });
+    res.json({ ok: true, ...result });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+app.post("/api/workspace/diagram/restore-version", async (req, res) => {
+  const versionId = typeof req.body?.versionId === "string" ? req.body.versionId : "";
+  try {
+    const versions = await getDiagramVersions();
+    const workspace = await getProjectWorkspace();
+    const version = versions.find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
+    if (!version) { res.status(404).json({ error: "版本不存在" }); return; }
+    const restored = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
+    const payload = await restored.json();
+    res.status(restored.status).json(payload);
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+
 const DEFAULT_WORKSPACE_EXCLUDES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".venv", "venv", ".idea", "vendor"]);
 const DIAGRAM_EXTENSIONS = new Set([".drawio", ".dio", ".xml", ".mmd", ".mermaid", ".puml", ".plantuml"]);
 const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go", ".rs", ".cs", ".cpp", ".h", ".sql", ".sh", ".yaml", ".yml", ".json", ".toml", ".html", ".css"]);
