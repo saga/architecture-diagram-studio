@@ -143,7 +143,7 @@ app.get("/api/workspace/configuration", async (_req, res) => {
 app.get("/api/workspace/configuration/history", async (_req, res) => {
   try {
     const text = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
-    res.json({ revisions: text.split(/\\r?\\n/).filter(Boolean).map((line) => { try { const item = JSON.parse(line); return { revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy, changeSummary: item.changeSummary, layoutProfiles: item.layoutProfiles, prompts: item.prompts }; } catch { return null; } }).filter(Boolean) });
+    res.json({ revisions: text.split(/\r?\n/).filter(Boolean).map((line) => { try { const item = JSON.parse(line); return { revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy, changeSummary: item.changeSummary, layoutProfiles: item.layoutProfiles, prompts: item.prompts }; } catch { return null; } }).filter(Boolean) });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.put("/api/workspace/configuration", async (req, res) => {
@@ -633,7 +633,7 @@ async function getOrResumeSession(sessionId: string, model: string, reasoningEff
   return runtime;
 }
 
-async function buildSystemMessage(config: StudioConfig = await getStudioConfig()): Promise<string> {
+async function buildSystemMessage(config: StudioConfig): Promise<string> {
   const workspace = await getProjectWorkspace();
   const workspaceContext = config.prompts.workspace
     .replaceAll("{{workspaceName}}", workspace?.name || "not configured")
