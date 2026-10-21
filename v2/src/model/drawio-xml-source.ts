@@ -1,72 +1,53 @@
 import type { DiagramDocument } from "./types";
 
-interface ParsedPage {
-  document: XMLDocument;
-  model: Element;
-  root: Element;
-  diagram: Element | null;
+interface RootSlice {
+  start: number;
+  end: number;
+  inner: string;
+  cellMap: Map<string, string>;
+  cells: Array<{ id: string; raw: string }>;
 }
 
-function directChildren(element: Element, localName: string): Element[] {
-  return Array.from(element.children).filter((child) => child.localName === localName);
+function attribute(raw: string, name: string): string | null {
+  const match = new RegExp("\\b" + name + "=(['\"])([\\s\\S]*?)\\1").exec(raw);
+  return match?.[2] ?? null;
 }
 
-function parseSinglePlainPage(xml: string): ParsedPage | null {
-  if (typeof DOMParser === "undefined") return null;
-  const parsed = new DOMParser().parseFromString(xml, "application/xml");
-  if (parsed.querySelector("parsererror")) return null;
-  const documentRoot = parsed.documentElement;
-  if (documentRoot.localName === "mxGraphModel") {
-    const root = directChildren(documentRoot, "root")[0];
-    return root ? { document: parsed, model: documentRoot, root, diagram: null } : null;
+function parseRootSlice(xml: string): RootSlice | null {
+  const rootMatches = [...xml.matchAll(/<root\b[^>]*>([\s\S]*?)<\/root>/g)];
+  if (rootMatches.length !== 1) return null;
+
+  const mxfile = /<mxfile\b/.test(xml);
+  const modelCount = (xml.match(/<mxGraphModel\b/g) || []).length;
+  const pageCount = (xml.match(/<diagram\b/g) || []).length;
+  if (mxfile ? pageCount !== 1 || modelCount !== 1 : modelCount !== 1 || pageCount !== 0) return null;
+
+  const match = rootMatches[0];
+  const inner = match[1];
+  const rawCells = inner.match(/<mxCell\b[^>]*(?:\/>|>[\s\S]*?<\/mxCell>)/g) || [];
+  if (inner.replace(/<mxCell\b[^>]*(?:\/>|>[\s\S]*?<\/mxCell>)/g, "").trim()) return null;
+
+  const parsedCells: Array<{ id: string; raw: string }> = [];
+  const cellMap = new Map<string, string>();
+  for (const raw of rawCells) {
+    const id = attribute(raw, "id");
+    if (!id || cellMap.has(id)) return null;
+    cellMap.set(id, raw);
+    parsedCells.push({ id, raw });
   }
-  if (documentRoot.localName !== "mxfile") return null;
+  if (!cellMap.has("0") || !cellMap.has("1")) return null;
 
-  const diagrams = directChildren(documentRoot, "diagram");
-  // Semantic editing deliberately declines multi-page and compressed files. They remain
-  // fully editable in Draw.io, while their complete original mxfile remains authoritative.
-  if (diagrams.length !== 1) return null;
-  const diagram = diagrams[0];
-  const model = directChildren(diagram, "mxGraphModel")[0];
-  if (!model) return null;
-  const root = directChildren(model, "root")[0];
-  return root ? { document: parsed, model, root, diagram } : null;
+  const rootOpenEnd = match[0].indexOf(">") + 1;
+  const start = (match.index ?? 0) + rootOpenEnd;
+  return { start, end: start + inner.length, inner, cellMap, cells: parsedCells };
 }
 
-function cells(root: Element): Element[] {
-  return Array.from(root.children).filter((child) => child.localName === "mxCell");
+function styleOf(raw: string): string {
+  return attribute(raw, "style") || "";
 }
 
-function cellMap(root: Element): Map<string, Element> | null {
-  const direct = Array.from(root.children);
-  if (direct.some((child) => child.localName !== "mxCell")) return null;
-  const result = new Map<string, Element>();
-  for (const cell of direct) {
-    const id = cell.getAttribute("id");
-    if (!id || result.has(id)) return null;
-    result.set(id, cell);
-  }
-  return result;
-}
-
-function attributeSignature(element: Element): string {
-  return Array.from(element.attributes)
-    .map((attribute) => [attribute.name, attribute.value] as const)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, value]) => name + "=" + value)
-    .join("\u0000");
-}
-
-function subtreeSignature(element: Element): string {
-  const attributes = attributeSignature(element);
-  const children = Array.from(element.children).map(subtreeSignature).join("\u0001");
-  return element.localName + "[" + attributes + "]{" + children + "}";
-}
-
-function hasStudioMarker(cell: Element): boolean {
-  const id = cell.getAttribute("id") || "";
-  const style = cell.getAttribute("style") || "";
-  return /(?:^|;)studio(?:Role|VisualRole|Kind|Boundary|SequenceFragment|Members|SequenceOrder|StartOrder|EndOrder|FragmentKind|Source|Target|Theme|AccentColor|FragmentParticipants)=?/.test(style) ||
+function isStudioManagedCell(id: string, raw: string): boolean {
+  return /(?:^|;)studio(?:Role|VisualRole|Kind|Boundary|SequenceFragment|Members|SequenceOrder|StartOrder|EndOrder|FragmentKind|Source|Target|Theme|AccentColor|FragmentParticipants)=?/.test(styleOf(raw)) ||
     /__(?:studioAccent|sequenceActivation|sequenceFragment|lifeline|lifelineEnd|messageSourceAnchor|messageTargetAnchor)$/.test(id);
 }
 
@@ -90,89 +71,70 @@ function managedCellIds(document: DiagramDocument): Set<string> {
 }
 
 /**
- * Returns true only when the current projection accounts for every cell and preserves
- * each cell's full structure. This is a safety gate, not a diagram-type classifier.
+ * True only if the entire single-page XML cell inventory is represented byte-for-byte
+ * by the current Studio projection. This intentionally has false negatives: a native
+ * document with custom structure stays in Draw.io instead of risking a lossy edit.
  */
 export function canEditInStudio(sourceXml: string, projectionXml: string, document: DiagramDocument): boolean {
-  const source = parseSinglePlainPage(sourceXml);
-  const projection = parseSinglePlainPage(projectionXml);
-  if (!source || !projection) return false;
-
-  const sourceCells = cellMap(source.root);
-  const projectedCells = cellMap(projection.root);
-  if (!sourceCells || !projectedCells || sourceCells.size !== projectedCells.size) return false;
-  if ([...sourceCells.keys()].some((id) => !projectedCells.has(id))) return false;
+  const source = parseRootSlice(sourceXml);
+  const projection = parseRootSlice(projectionXml);
+  if (!source || !projection || source.cellMap.size !== projection.cellMap.size) return false;
+  for (const [id, raw] of source.cellMap) {
+    if (projection.cellMap.get(id) !== raw) return false;
+  }
 
   for (const node of document.nodes) {
-    const cell = sourceCells.get(node.id);
-    if (!cell || cell.getAttribute("vertex") !== "1" || !/(?:^|;)studioRole=/.test(cell.getAttribute("style") || "")) return false;
+    const cell = source.cellMap.get(node.id);
+    if (!cell || attribute(cell, "vertex") !== "1" || !/(?:^|;)studioRole=/.test(styleOf(cell))) return false;
   }
   for (const relation of document.relations) {
-    const cell = sourceCells.get(relation.id);
-    if (!cell || cell.getAttribute("edge") !== "1" || !/(?:^|;)studioKind=/.test(cell.getAttribute("style") || "")) return false;
-  }
-
-  // Every cell must match the current semantic projection structurally and visually.
-  // If a custom shape, wrapper, unknown style key, custom attribute, or unmodeled label
-  // exists, keep the document in native mode instead of silently normalizing it away.
-  for (const [id, sourceCell] of sourceCells) {
-    const projectedCell = projectedCells.get(id);
-    if (!projectedCell) return false;
-    if (attributeSignature(sourceCell) !== attributeSignature(projectedCell)) return false;
-    const sourceGeometry = directChildren(sourceCell, "mxGeometry")[0];
-    const projectedGeometry = directChildren(projectedCell, "mxGeometry")[0];
-    if (Boolean(sourceGeometry) !== Boolean(projectedGeometry)) return false;
-    if (sourceGeometry && projectedGeometry && subtreeSignature(sourceGeometry) !== subtreeSignature(projectedGeometry)) return false;
+    const cell = source.cellMap.get(relation.id);
+    if (!cell || attribute(cell, "edge") !== "1" || !/(?:^|;)studioKind=/.test(styleOf(cell))) return false;
   }
   return true;
 }
 
 /**
- * Applies a generated semantic projection to the authoritative plain, single-page XML.
- * The enclosing mxfile, diagram attributes, mxGraphModel settings and any opaque cells
- * are retained. Existing cells are matched by ID; generated support cells are added or
- * removed by identity. Returns null when the XML cannot be patched safely.
+ * Patch the authoritative XML by cell identity. The caller must first verify
+ * canEditInStudio(source, currentProjection, currentDocument). This function retains
+ * the source XML outside <root>, and preserves the order and bytes of unchanged cells.
  */
 export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, previousDocument: DiagramDocument): string | null {
-  const source = parseSinglePlainPage(sourceXml);
-  const next = parseSinglePlainPage(nextProjectionXml);
+  const source = parseRootSlice(sourceXml);
+  const next = parseRootSlice(nextProjectionXml);
   if (!source || !next) return null;
-  const sourceCells = cellMap(source.root);
-  const nextCells = cellMap(next.root);
-  if (!sourceCells || !nextCells) return null;
 
-  const retainedIds = managedCellIds(previousDocument);
-  const generatedIds = new Set([...nextCells.keys()].filter((id) => id !== "0" && id !== "1"));
-  for (const [id, oldCell] of sourceCells) {
-    if (id === "0" || id === "1") continue;
-    const nextCell = nextCells.get(id);
-    if (nextCell) {
-      oldCell.replaceWith(source.document.importNode(nextCell, true));
-    } else if (retainedIds.has(id) || hasStudioMarker(oldCell)) {
-      oldCell.remove();
+  const managedIds = managedCellIds(previousDocument);
+  const nextIds = new Set(next.cells.map((cell) => cell.id));
+  const merged: string[] = [];
+  for (const old of source.cells) {
+    if (old.id === "0" || old.id === "1") {
+      merged.push(next.cellMap.get(old.id) || old.raw);
+      continue;
     }
+    const replacement = next.cellMap.get(old.id);
+    if (replacement !== undefined) merged.push(replacement);
+    else if (!(managedIds.has(old.id) || isStudioManagedCell(old.id, old.raw))) merged.push(old.raw);
   }
 
-  const refreshed = cellMap(source.root);
-  if (!refreshed) return null;
-  for (const id of generatedIds) {
-    if (refreshed.has(id)) continue;
-    const cell = nextCells.get(id);
-    if (cell) source.root.appendChild(source.document.importNode(cell, true));
+  const included = new Set(source.cells.filter((cell) => nextIds.has(cell.id)).map((cell) => cell.id));
+  for (const cell of next.cells) {
+    if (!included.has(cell.id)) merged.push(cell.raw);
   }
-  return new XMLSerializer().serializeToString(source.document);
+  return sourceXml.slice(0, source.start) + merged.join("") + sourceXml.slice(source.end);
 }
 
-/** Checks the XML envelope only; it does not require every cell to be understood by Studio. */
+/** XML envelope validation accepts native cell types unknown to Studio. */
 export function isDrawioXmlDocument(xml: string): boolean {
   if (!xml.trim() || typeof DOMParser === "undefined") return false;
   const parsed = new DOMParser().parseFromString(xml, "application/xml");
   if (parsed.querySelector("parsererror")) return false;
   const root = parsed.documentElement;
-  if (root.localName === "mxGraphModel") return Boolean(directChildren(root, "root").length);
+  if (root.localName === "mxGraphModel") return Boolean(root.querySelector(":scope > root"));
   if (root.localName !== "mxfile") return false;
-  const pages = directChildren(root, "diagram");
+  const pages = Array.from(root.children).filter((child) => child.localName === "diagram");
   return pages.length > 0 && pages.every((page) =>
-    directChildren(page, "mxGraphModel").length > 0 || Boolean(page.textContent?.trim())
+    Array.from(page.children).some((child) => child.localName === "mxGraphModel") ||
+    Boolean(page.textContent?.trim())
   );
 }
