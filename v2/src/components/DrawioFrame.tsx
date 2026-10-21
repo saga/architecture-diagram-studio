@@ -149,6 +149,11 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         try {
           const currentDocument = documentRef.current;
           const next = fromDrawioXml(data.xml, currentDocument);
+          if (next === currentDocument) {
+            setStartupError("Draw.io returned XML that could not be mapped to a semantic diagram. The previous document was preserved; this save was not synced.");
+            recordDiagnostic("drawio.document.parse.failed", "Ignored Draw.io autosave XML that could not be mapped to the current semantic model", { event: data.event, xmlLength: data.xml.length }, "error");
+            return;
+          }
           recordDiagnostic("drawio.document.saved", "Draw.io autosave result synced into the Studio model", {
             event: data.event, xmlLength: data.xml.length, nodeCount: next.nodes.length, relationCount: next.relations.length
           });
