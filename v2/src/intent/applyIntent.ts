@@ -19,6 +19,74 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
   let requiresLayout = false;
   let changed = false;
 
+  const renameMatch = text.match(/^(?:将|把)\\s*[“"']?(.+?)[”"']?\\s*(?:节点)?\\s*(?:重命名为|改名为|改为)\\s*[“"']?(.+?)[”"']?$/)
+    || text.match(/^rename\\s+(?:node\\s+)?["']?(.+?)["']?\\s+to\\s+["']?(.+?)["']?$/i);
+  if (renameMatch) {
+    const target = renameMatch[1].trim(), replacement = renameMatch[2].trim();
+    const matches = next.nodes.filter((node) => node.id.toLowerCase() === target.toLowerCase() || node.name.toLowerCase() === target.toLowerCase());
+    if (matches.length === 1 && replacement && replacement.length <= 500) {
+      next.nodes = next.nodes.map((node) => node.id === matches[0].id ? { ...node, name: replacement } : node);
+      summaries.push(`节点「${matches[0].name}」已重命名为「${replacement}」，位置保持不变`);
+      changed = true;
+    }
+  }
+
+  const relationLabelMatch = text.match(/^(?:将|把)\\s*关系\\s*[“"']?(.+?)[”"']?\\s*(?:的)?标签(?:改为|设为)\\s*[“"']?(.+?)[”"']?$/)
+    || text.match(/^set\\s+relation\\s+["']?(.+?)["']?\\s+label\\s+to\\s+["']?(.+?)["']?$/i);
+  if (relationLabelMatch && !changed) {
+    const target = relationLabelMatch[1].trim(), replacement = relationLabelMatch[2].trim();
+    const matches = next.relations.filter((edge) => edge.id.toLowerCase() === target.toLowerCase() || edge.label.toLowerCase() === target.toLowerCase());
+    if (matches.length === 1 && replacement.length <= 1000) {
+      next.relations = next.relations.map((edge) => edge.id === matches[0].id ? { ...edge, label: replacement } : edge);
+      summaries.push(`关系「${matches[0].label}」的标签已更新，节点布局保持不变`);
+      changed = true;
+    }
+  }
+
+  const removeMatch = text.match(/^(?:删除|移除)节点\\s*[“"']?(.+?)[”"']?$/) || text.match(/^delete\\s+node\\s+["']?(.+?)["']?$/i);
+  if (removeMatch && !changed) {
+    const target = removeMatch[1].trim();
+    const matches = next.nodes.filter((node) => node.id.toLowerCase() === target.toLowerCase() || node.name.toLowerCase() === target.toLowerCase());
+    if (matches.length === 1) {
+      const id = matches[0].id;
+      next.nodes = next.nodes.filter((node) => node.id !== id);
+      next.relations = next.relations.filter((edge) => edge.source !== id && edge.target !== id);
+      next.boundaries = next.boundaries.map((boundary) => ({ ...boundary, members: boundary.members.filter((member) => member !== id) }));
+      if (next.sequence) next.sequence = { ...next.sequence, participants: next.sequence.participants.filter((participant) => participant !== id) };
+      if (next.flow) next.flow = { ...next.flow, primaryPath: next.flow.primaryPath.filter((nodeId) => nodeId !== id) };
+      summaries.push(`节点「${matches[0].name}」及其关联关系已删除，其他节点位置保持不变`);
+      changed = true;
+    }
+  }
+
+  const addMatch = text.match(/^(?:新增|添加)(?:一个|一条)?(?:服务|service)?节点(?:，|,)?(?:名称为|名为|叫)?\\s*[“"']?(.+?)[”"']?$/)
+    || text.match(/^add\\s+(?:a\\s+)?(?:service\\s+)?node\\s+["']?(.+?)["']?$/i);
+  if (addMatch && !changed) {
+    const name = addMatch[1].trim();
+    if (name && name.length <= 500 && !next.nodes.some((node) => node.name.toLowerCase() === name.toLowerCase())) {
+      const idBase = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "service";
+      let id = idBase, suffix = 2;
+      while (next.nodes.some((node) => node.id === id)) id = idBase + "-" + suffix++;
+      const x = next.nodes.length ? Math.max(...next.nodes.map((node) => node.x + node.width)) + 60 : 80;
+      const y = next.nodes.length ? Math.min(...next.nodes.map((node) => node.y)) : 80;
+      next.nodes.push({ id, name, role: "service", visualRole: "primary", x, y, width: 190, height: 82, layoutHints: {} });
+      summaries.push(`已添加节点「${name}」，原有节点位置保持不变；请按需补充关系`);
+      changed = true;
+    }
+  }
+
+  const moveMatch = text.match(/^(?:将|把)节点\\s*[“"']?(.+?)[”"']?\\s*移动到\\s*x\\s*=\\s*(-?\\d+(?:\\.\\d+)?)\\s*[,， ]\\s*y\\s*=\\s*(-?\\d+(?:\\.\\d+)?)$/i)
+    || text.match(/^move\\s+node\\s+["']?(.+?)["']?\\s+to\\s+x\\s*=\\s*(-?\\d+(?:\\.\\d+)?),?\\s*y\\s*=\\s*(-?\\d+(?:\\.\\d+)?)$/i);
+  if (moveMatch && !changed) {
+    const target = moveMatch[1].trim(), x = Number(moveMatch[2]), y = Number(moveMatch[3]);
+    const matches = next.nodes.filter((node) => node.id.toLowerCase() === target.toLowerCase() || node.name.toLowerCase() === target.toLowerCase());
+    if (matches.length === 1 && Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 100000 && Math.abs(y) <= 100000) {
+      next.nodes = next.nodes.map((node) => node.id === matches[0].id ? { ...node, x, y, layoutHints: { ...(node.layoutHints || {}), locked: true } } : node);
+      summaries.push(`节点「${matches[0].name}」已移动到指定坐标并锁定位置`);
+      changed = true;
+    }
+  }
+
   if (/虚线|dashed|dash(ed)? line/.test(lower)) {
     next.relations = next.relations.map((relation) => ({ ...relation, dashed: true }));
     summaries.push("所有关系线已改为虚线");
@@ -89,7 +157,7 @@ export function interpretIntent(document: DiagramDocument, raw: string): IntentR
   if (!changed) {
     return {
       document: next,
-      summary: "目前可直接执行：线条改虚线/实线、曲线改折线、External 放右侧、Storage 放底部、切换布局方向、重新排版、解除手动锁定。复杂的业务语义编辑需要接入模型服务。",
+      summary: "当前确定性编辑支持节点重命名/新增/删除/移动、关系标签修改、线型与路由调整、External/Storage 位置约束、布局方向和自动排版。更复杂的语义变更需要额外建模支持。",
       requiresLayout: false,
       changed: false
     };
