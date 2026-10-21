@@ -135,7 +135,7 @@ export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, pre
 
 /** XML envelope validation accepts native cell types unknown to Studio. */
 export function isDrawioXmlDocument(xml: string): boolean {
-  if (!xml.trim() || typeof DOMParser === "undefined") return false;
+  if (!xml.trim() || /<!DOCTYPE/i.test(xml) || typeof DOMParser === "undefined") return false;
   const parsed = new DOMParser().parseFromString(xml, "application/xml");
   if (parsed.querySelector("parsererror")) return false;
   const root = parsed.documentElement;
