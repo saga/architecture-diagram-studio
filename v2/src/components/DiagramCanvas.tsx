@@ -38,7 +38,7 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
     const endpointX = (participant: DiagramNode, towardX: number) => {
       const activation = activeActivation(participant.id);
       if (!activation) return center(participant).x;
-      return center(participant).x + (towardX >= center(participant).x ? -7 : 7);
+      return center(participant).x + (towardX >= center(participant).x ? 7 : -7);
     };
     // Lifelines run through each participant's center. During an active call,
     // connect to the activation bar's edge; otherwise connect to the lifeline.
@@ -189,7 +189,7 @@ export default function DiagramCanvas({
   return (
     <svg ref={svgRef} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
       viewBox={(frame.width * (1 - 1 / zoom) / 2 + pan.x) + " " + (frame.height * (1 - 1 / zoom) / 2 + pan.y) + " " + (frame.width / zoom) + " " + (frame.height / zoom)}
-      preserveAspectRatio="xMidYMid meet" onPointerDown={startPan}
+      preserveAspectRatio={document.kind === "flowchart" ? "xMidYMin meet" : "xMidYMid meet"} onPointerDown={startPan}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       role="group" aria-label={document.title}>
       <defs>
