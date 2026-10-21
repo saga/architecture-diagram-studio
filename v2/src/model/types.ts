@@ -37,6 +37,9 @@ export interface DiagramRelation {
   dashed?: boolean;
   routing?: Routing;
   points?: Point[];
+  /** Explicit attachment points, computed by the router and preserved by Draw.io export. */
+  sourcePort?: Point;
+  targetPort?: Point;
   sequenceOrder?: number;
 }
 export interface DiagramBoundary {
@@ -166,7 +169,9 @@ export function isDiagramDocument(value: unknown): value is DiagramDocument {
     typeof relation.id === "string" && typeof relation.source === "string" &&
     typeof relation.target === "string" && typeof relation.label === "string" &&
     typeof relation.kind === "string" &&
-    (relation.points === undefined || Array.isArray(relation.points)));
+    (relation.points === undefined || Array.isArray(relation.points)) &&
+    (relation.sourcePort === undefined || (isRecord(relation.sourcePort) && typeof relation.sourcePort.x === "number" && typeof relation.sourcePort.y === "number")) &&
+    (relation.targetPort === undefined || (isRecord(relation.targetPort) && typeof relation.targetPort.x === "number" && typeof relation.targetPort.y === "number")));
   const validBoundaries = valueRecord.boundaries.every((boundary) => isRecord(boundary) &&
     typeof boundary.id === "string" && typeof boundary.name === "string" &&
     Array.isArray(boundary.members) && boundary.members.every((member) => typeof member === "string"));
