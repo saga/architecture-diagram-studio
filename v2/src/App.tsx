@@ -180,6 +180,8 @@ export default function App() {
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const [serverHydrated, setServerHydrated] = useState(false);
+  const [serverDocumentAvailable, setServerDocumentAvailable] = useState(false);
+  const workspaceInitialLoadRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
@@ -227,6 +229,8 @@ export default function App() {
         setCanRedo(false);
       }
       setNativeXmlOverride(nextXml);
+      workspaceInitialLoadRef.current = nextWorkspace.id;
+      setServerDocumentAvailable(true);
       setProjectWorkspace(nextWorkspace);
       setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
@@ -247,6 +251,7 @@ export default function App() {
       .then((state) => {
         if (!active) return;
         const savedDocument = isDiagramDocument(state.document) ? state.document : null;
+        setServerDocumentAvailable(Boolean(savedDocument));
         if (savedDocument) {
           setDocument(savedDocument);
           setSelectedNodeId(savedDocument.nodes[0]?.id || null);
@@ -274,36 +279,49 @@ export default function App() {
           if (savedMessages.length) setMessages(savedMessages);
         }
         setServerHydrated(true);
-        if (!savedDocument) {
-          requestServerLayout(document).then((laidOut) => {
-            if (!active) return;
-            setDocument(laidOut);
-            historyRef.current = [laidOut];
-            historyIndexRef.current = 0;
-            recordDiagnostic("layout.initial.completed", "首次工作区布局完成", {
-              durationMs: Date.now() - startedAt, nodeCount: laidOut.nodes.length, relationCount: laidOut.relations.length
-            });
-          }).catch((error: unknown) => {
-            if (!active) return;
-            recordDiagnostic("layout.initial.failed", "首次工作区布局失败", {
-              durationMs: Date.now() - startedAt,
-              errorMessage: error instanceof Error ? error.message : String(error)
-            }, "error");
-            setLastAction("布局器异常：" + (error instanceof Error ? error.message : String(error)));
-          });
-        }
+
       })
       .catch((error: unknown) => {
         if (!active) return;
+        setServerDocumentAvailable(false);
         setServerHydrated(true);
         recordDiagnostic("workspace.hydrate.failed", "无法从服务端恢复工作区，暂时使用本地草稿", {
           durationMs: Date.now() - startedAt,
           errorMessage: error instanceof Error ? error.message : String(error)
         }, "error");
-        requestServerLayout(document).then((laidOut) => { if (active) setDocument(laidOut); }).catch(() => undefined);
       });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!serverHydrated || !projectWorkspace || serverDocumentAvailable || workspaceInitialLoadRef.current === projectWorkspace.id) return;
+    let active = true;
+    workspaceInitialLoadRef.current = projectWorkspace.id;
+    const load = async () => {
+      try {
+        if (projectWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(projectWorkspace.primaryDiagram)) {
+          const response = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(projectWorkspace.primaryDiagram));
+          const result = await response.json() as { error?: string; content?: string };
+          if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "无法加载主要 Draw.io 图");
+          const imported = fromDrawioXml(result.content, FIXTURES.c4());
+          if (!active) return;
+          setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
+          historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
+          setServerDocumentAvailable(true);
+          recordDiagnostic("workspace.primary-diagram.loaded", "已从项目工作区加载主要 Draw.io 图", { workspaceId: projectWorkspace.id, path: projectWorkspace.primaryDiagram, xmlLength: result.content.length });
+        } else {
+          const laidOut = await requestServerLayout(FIXTURES.c4());
+          if (!active) return;
+          setDocument(laidOut); setNativeXmlOverride(null); setSelectedNodeId(laidOut.nodes[0]?.id || null);
+          historyRef.current = [laidOut]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
+        }
+      } catch (error) {
+        if (active) recordDiagnostic("workspace.primary-diagram.load.failed", "无法加载工作区主要图形", { workspaceId: projectWorkspace.id, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [serverHydrated, projectWorkspace, serverDocumentAvailable]);
 
   useEffect(() => {
     if (!serverHydrated || !projectWorkspace) return;
