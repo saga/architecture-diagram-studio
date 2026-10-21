@@ -186,8 +186,7 @@ async function collectAgentWorkspaceContext(): Promise<unknown> {
   for (const item of relevant) {
     if (budget <= 0) break;
     if (item.size > (item.kind === "diagram" ? 20 * 1024 * 1024 : 512 * 1024) || item.kind === "other" || [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock"].includes(path.extname(item.path).toLowerCase())) continue;
-    const absolute = path.resolve(workspace.rootPath, item.path);
-    const content = await readFile(absolute, "utf8").catch(() => "");
+    const content = await resolveWorkspaceFile(item.path).then(({ absolutePath }) => readFile(absolutePath, "utf8")).catch(() => "");
     const maxLength = item.kind === "diagram" ? 20000 : 4000;
     const excerpt = content.slice(0, Math.min(content.length, budget, maxLength));
     if (excerpt) { snippets.push({ path: item.path, kind: item.kind, content: excerpt, truncated: excerpt.length < content.length }); budget -= excerpt.length; }
