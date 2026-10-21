@@ -1,5 +1,6 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import { layoutWithDagre } from "./dagre";
+import { resolveLayoutProfile, type ElkLayoutProfile } from "./profiles";
 import type { DiagramDocument, DiagramNode, Point } from "../model/types";
 import { evaluateLayout } from "./quality";
 import { normalizeSequenceDocument } from "./sequence";
@@ -120,24 +121,7 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   };
 }
 
-type ElkLayoutProfile = "elk-layered" | "elk-mrtree" | "elk-radial" | "elk-stress" | "elk-force";
-export type LayoutProfile = ElkLayoutProfile | "dagre-layered";
-
-export const LAYOUT_PROFILES: Array<{ value: LayoutProfile; label: string; description: string }> = [
-  { value: "elk-layered", label: "ELK · 层级", description: "适用于 C4 与流程图，支持语义分层和边路由" },
-  { value: "dagre-layered", label: "Dagre · 层级", description: "轻量快速的有向图布局，支持横向和纵向" },
-  { value: "elk-mrtree", label: "ELK · 树形", description: "适用于树状依赖与层次结构" },
-  { value: "elk-radial", label: "ELK · 放射", description: "围绕中心节点组织关系" },
-  { value: "elk-stress", label: "ELK · 应力", description: "按图结构分布节点，适合网状关系" },
-  { value: "elk-force", label: "ELK · 力导向", description: "适用于探索式关系网络" },
-];
-
-function layoutProfile(doc: DiagramDocument): LayoutProfile {
-  const profile = doc.layout.profile;
-  return LAYOUT_PROFILES.some((item) => item.value === profile) ? profile as LayoutProfile : "elk-layered";
-}
-
-async function layoutLayered(doc: DiagramDocument, profile: ElkLayoutProfile = "elk-layered"): Promise<DiagramDocument> {
+async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProfile = "elk-layered"): Promise<DiagramDocument> {
   const children = doc.nodes.map((node) => {
     const constraint = node.layoutHints?.preferredSide === "LEFT" ? "FIRST" :
       node.layoutHints?.preferredSide === "RIGHT" || node.role === "external" || node.role === "vendor" ? "LAST_SEPARATE" : undefined;
@@ -342,12 +326,12 @@ function repairOverlaps(doc: DiagramDocument, routeVariant = 0): DiagramDocument
 }
 
 export async function layoutDiagram(document: DiagramDocument): Promise<DiagramDocument> {
-  const profile = layoutProfile(document);
+  const profile = resolveLayoutProfile(document.layout.profile);
   const initial = document.kind === "sequence"
     ? layoutSequence(document)
     : profile === "dagre-layered"
       ? routeRelations(layoutWithDagre(document))
-      : await layoutLayered(document, profile);
+      : await layoutWithElk(document, profile);
   let best = repairOverlaps(initial, 0);
   let bestReport = evaluateLayout(best);
   for (let variant = 1; variant <= 3; variant++) {
