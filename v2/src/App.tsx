@@ -209,6 +209,7 @@ export default function App() {
 
   function undoDocument() {
     if (historyIndexRef.current <= 0) return;
+    setSelectedRelationId(null);
     historyIndexRef.current -= 1;
     const previous = historyRef.current[historyIndexRef.current];
     setPreviewDocument(null);
@@ -227,6 +228,7 @@ export default function App() {
 
   function redoDocument() {
     if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    setSelectedRelationId(null);
     historyIndexRef.current += 1;
     const next = historyRef.current[historyIndexRef.current];
     setPreviewDocument(null);
@@ -510,6 +512,7 @@ export default function App() {
   }
 
   function removeRelation(relationId: string) {
+    if (selectedRelationId === relationId) setSelectedRelationId(null);
     const next = normalizeSequenceDocument({ ...document, relations: document.relations.filter((relation) => relation.id !== relationId) });
     setRelationLabelDrafts((drafts) => {
       const updated = { ...drafts };
@@ -550,6 +553,7 @@ export default function App() {
 
   function removeSelectedNode() {
     if (!selectedNode) return;
+    setSelectedRelationId(null);
     const next = normalizeSequenceDocument({
       ...document,
       nodes: document.nodes.filter((node) => node.id !== selectedNode.id),
