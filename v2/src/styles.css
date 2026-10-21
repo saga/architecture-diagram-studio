@@ -719,3 +719,38 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="decision"] text,
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="start"] text,
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="end"] text { fill: #eef3ff; }
+
+
+/* Bring non-node diagram annotations into the selected palette as well. */
+.app-shell[data-theme="youth"] .diagram-svg .diagram-boundary-frame { fill: #fff0f7; stroke: #e4a4c5; }
+.app-shell[data-theme="youth"] .diagram-svg .diagram-boundary-label { fill: #9a3c6a; }
+.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-frame { fill: #fff5fb; stroke: #dfabcb; }
+.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-tag { fill: #f9deee; stroke: #dfabcb; }
+.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-kind,
+.app-shell[data-theme="youth"] .diagram-svg .sequence-fragment-label { fill: #79405f; }
+.app-shell[data-theme="youth"] .diagram-svg .sequence-lifeline { stroke: #d9a9c5; }
+.app-shell[data-theme="youth"] .diagram-svg .sequence-activation { fill: #fbe0ef; stroke: #d79abf; }
+.app-shell[data-theme="youth"] .diagram-svg .relation-label-bg { fill: #fffaff; }
+.app-shell[data-theme="youth"] .diagram-svg .relation-label-text { fill: #66334e; }
+
+.app-shell[data-theme="warm"] .diagram-svg .diagram-boundary-frame { fill: #f5e9d9; stroke: #d2b89a; }
+.app-shell[data-theme="warm"] .diagram-svg .diagram-boundary-label { fill: #76583f; }
+.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-frame { fill: #fff5e8; stroke: #d3b79b; }
+.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-tag { fill: #f2dfc8; stroke: #cfad87; }
+.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-kind,
+.app-shell[data-theme="warm"] .diagram-svg .sequence-fragment-label { fill: #6e5039; }
+.app-shell[data-theme="warm"] .diagram-svg .sequence-lifeline { stroke: #bca58f; }
+.app-shell[data-theme="warm"] .diagram-svg .sequence-activation { fill: #eee0ce; stroke: #bea184; }
+.app-shell[data-theme="warm"] .diagram-svg .relation-label-bg { fill: #fffaf2; }
+.app-shell[data-theme="warm"] .diagram-svg .relation-label-text { fill: #5c4533; }
+
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-boundary-frame { fill: #202d42; stroke: #667792; }
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-boundary-label { fill: #c1cde2; }
+.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-frame { fill: #1e2b40; stroke: #71819d; }
+.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-tag { fill: #34455f; stroke: #7f91b0; }
+.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-kind,
+.app-shell[data-theme="midnight"] .diagram-svg .sequence-fragment-label { fill: #d4def2; }
+.app-shell[data-theme="midnight"] .diagram-svg .sequence-lifeline { stroke: #72829c; }
+.app-shell[data-theme="midnight"] .diagram-svg .sequence-activation { fill: #354660; stroke: #95a8c7; }
+.app-shell[data-theme="midnight"] .diagram-svg .relation-label-bg { fill: #2a3850; }
+.app-shell[data-theme="midnight"] .diagram-svg .relation-label-text { fill: #e2eaf8; }
