@@ -91,7 +91,7 @@ function attachSessionEvents(sessionId: string, session: RuntimeSession["session
   });
 }
 
-async function getOrResumeSession(sessionId: string, model: string, reasoningEffort?: string): Promise<RuntimeSession> {
+async function getOrResumeSession(sessionId: string, model: string, reasoningEffort?: "high" | "max"): Promise<RuntimeSession> {
   const current = sessions.get(sessionId);
   if (current) {
     current.lastUsedAt = Date.now();
