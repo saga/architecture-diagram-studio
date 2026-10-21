@@ -1,8 +1,8 @@
-import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { FIXTURES } from "../model/fixtures";
-import { isDiagramDocument, type DiagramDocument } from "../model/types";
+import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
-import { layoutSample, requestServerLayout, requestServerSequenceNormalize } from "../api/diagram-operations";
+import { requestServerLayout, requestServerSequenceNormalize } from "../api/diagram-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { selectCompatibleWorkspaceDocument } from "./workspaceHydration";
 
@@ -10,7 +10,6 @@ type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 interface Options {
   projectWorkspace: ProjectWorkspace | null;
-  document: DiagramDocument;
   setDocument: Dispatch<SetStateAction<DiagramDocument>>;
   setNativeXmlOverride: Dispatch<SetStateAction<string | null>>;
   setSelectedNodeId: Dispatch<SetStateAction<string | null>>;
@@ -25,7 +24,7 @@ interface Options {
 }
 export function useWorkspaceBootstrap(options: Options) {
   const {
-    projectWorkspace, document, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
+    projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic
   } = options;
   const [serverHydrated, setServerHydrated] = useState(false);
@@ -131,5 +130,5 @@ export function useWorkspaceBootstrap(options: Options) {
     return () => { active = false; };
   }, [serverHydrated, projectWorkspace, serverDocumentAvailable]);
 
-  return { serverHydrated, serverDocumentAvailable, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef };
+  return { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef };
 }
