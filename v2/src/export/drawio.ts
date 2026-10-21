@@ -1,6 +1,6 @@
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { mxEdgeStyle, mxNodeStyle, nodePaint } from "../design/styles";
-import { deriveSequenceActivations } from "../layout/sequence";
+import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 
 function esc(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -91,26 +91,19 @@ function sequenceSupport(doc: DiagramDocument): { vertices: string; edges: strin
     const source = doc.nodes.find((n) => n.id === relation.source);
     const target = doc.nodes.find((n) => n.id === relation.target);
     if (!source || !target) continue;
-    const order = relation.sequenceOrder || 0;
-    const y = 148 + order * 72;
-    const sourceX = source.x + source.width / 2;
-    const targetX = target.x + target.width / 2;
-    const leftToRight = sourceX < targetX;
-    const fromX = leftToRight ? source.x + source.width : source.x;
-    const toX = leftToRight ? target.x : target.x + target.width;
-    const style = mxEdgeStyle({ ...relation, points: [], routing: "polyline" }, "polyline") +
+    const geometry = sequenceMessageGeometry(doc, relation);
+    if (!geometry) continue;
+    const style = mxEdgeStyle({ ...relation, points: geometry.points, routing: "polyline" }, "polyline") +
       ";studioSource=" + esc(relation.source) + ";studioTarget=" + esc(relation.target) +
       ";studioKind=" + relation.kind +
       (relation.sequenceOrder === undefined ? "" : ";studioSequenceOrder=" + relation.sequenceOrder) + ";";
-    // A sequence message is a time-positioned, floating edge rather than a normal
-    // node-to-node connector. Using invisible 1x1 anchor vertices is unreliable in
-    // mxGraph: imported edges may be retained in XML but not painted by the editor.
-    // Explicit sourcePoint/targetPoint geometry renders consistently and metadata
-    // preserves the semantic participant endpoints when Draw.io autosaves.
+    // Floating endpoints keep the message on the shared timeline. Self-calls
+    // additionally carry waypoints so Draw.io paints the same loop as Studio.
     edges.push("<mxCell id=\"" + esc(relation.id) + "\" value=\"" + esc(relation.label) +
       "\" style=\"" + esc(style) + "\" edge=\"1\" parent=\"1\"><mxGeometry relative=\"1\" as=\"geometry\">" +
-      "<mxPoint x=\"" + Math.round(fromX) + "\" y=\"" + Math.round(y) + "\" as=\"sourcePoint\"/>" +
-      "<mxPoint x=\"" + Math.round(toX) + "\" y=\"" + Math.round(y) + "\" as=\"targetPoint\"/>" +
+      "<mxPoint x=\"" + Math.round(geometry.start.x) + "\" y=\"" + Math.round(geometry.start.y) + "\" as=\"sourcePoint\"/>" +
+      pointXml(geometry.points) +
+      "<mxPoint x=\"" + Math.round(geometry.end.x) + "\" y=\"" + Math.round(geometry.end.y) + "\" as=\"targetPoint\"/>" +
       "</mxGeometry></mxCell>");
   }
   return { vertices: vertices.join(""), edges: edges.join("") };
