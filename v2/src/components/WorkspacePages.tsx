@@ -75,7 +75,7 @@ export default function WorkspacePages(props: Props) {
               <h1>问问 Layout Copilot</h1>
               <p>当前文档：{document.title}。用自然语言说明希望如何组织图形。Copilot 将请求转换为受限布局指令；修改先以预览呈现，确认后才写入正式文档。</p>
             </div>
-            <div className="page-hero-status"><i />{aiBaseUrl.trim() && aiModel.trim() ? "兼容模型 + 本地规则" : "本地规则模式"}</div>
+            <div className="page-hero-status"><i /><Tag color={aiBaseUrl.trim() && aiModel.trim() ? "processing" : "default"}>{aiBaseUrl.trim() && aiModel.trim() ? "兼容模型 + 本地规则" : "本地规则模式"}</Tag></div>
           </div>
 
           <section className="gemini-chat">
@@ -103,9 +103,9 @@ export default function WorkspacePages(props: Props) {
               <div className="preview-pill">布局预览 · 未应用</div>
               <div className="preview-summary">{previewSummary || "布局预览已生成"}</div>
               <div className="preview-buttons">
-                <button type="button" className="preview-discard" onClick={discardPreview}>丢弃预览</button>
-                <button type="button" className="preview-discard" onClick={openStudio}>到 Studio 画布检查</button>
-                <button type="button" className="preview-accept" onClick={acceptPreview}>应用到正式图</button>
+                <Button onClick={discardPreview}>丢弃预览</Button>
+                <Button onClick={openStudio}>到 Studio 画布检查</Button>
+                <Button type="primary" onClick={acceptPreview}>应用到正式图</Button>
               </div>
             </div>}
 
