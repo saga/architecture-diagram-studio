@@ -64,6 +64,7 @@ export default function App() {
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<"properties" | "quality" | "design">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [activePage, setActivePage] = useState<WorkspacePage>("studio");
@@ -860,8 +861,14 @@ export default function App() {
       </main>
 
       <aside className="right-panel">
-        <div className="right-tabs"><span className="right-tab active">属性检查</span><span className="right-tab">设计质量</span><span className="right-tab-label">STUDIO</span></div>
-        <section className="inspector-section">
+        <div className="right-tabs" role="tablist" aria-label="右侧检查面板">
+          {([["properties", "属性"], ["quality", "设计质量"], ["design", "样式规则"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
+            <button key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
+              className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
+              onClick={() => setRightPanelTab(tab)}>{label}</button>
+          )}
+        </div>
+        {rightPanelTab === "properties" && <section className="inspector-section">
           <div className="panel-section-heading"><span>SELECTED ELEMENT</span><span className="small-icon">⌗</span></div>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
@@ -885,7 +892,7 @@ export default function App() {
               </div>
             </div>
           )}
-          {selectedNode ? (
+          {selectedNode && !selectedRelation ? (
             <div className="inspector-form">
               <div className="field-label">名称</div><input key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">语义角色</div>
@@ -980,10 +987,9 @@ export default function App() {
               </div>}
               <button className="delete-node-button" onClick={removeSelectedNode}>删除此元素</button>
             </div>
-          ) : <div className="empty-inspector">选择画布中的节点以查看和编辑其属性。</div>}
-        </section>
-
-        <section className="quality-section">
+          ) : !selectedRelation ? <div className="empty-inspector">选择画布中的节点或关系线以查看属性。</div> : null}
+        </section>}
+        {rightPanelTab === "quality" && <section className="quality-section">
           <div className="panel-section-heading"><span>LAYOUT QUALITY</span><span className="quality-score">{quality.score}</span></div>
           <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "布局状态良好" : quality.metrics.nodeOverlaps ? "需要修复重叠" : "建议检查连线"}</strong><small>确定性质量检查 · 非主观模型评分</small></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
           <div className="metric-grid">
@@ -993,15 +999,13 @@ export default function App() {
             <div className="metric"><strong>{Math.round(quality.metrics.whitespaceScore * 100)}%</strong><span>留白分数</span></div>
           </div>
           <div className="quality-footnote">{quality.errors.length ? quality.errors[0].message : quality.warnings.length ? quality.warnings[0].message : "无节点重叠。质量检查持续评估线条交叉和留白。"}</div>
-        </section>
-
-        <section className="design-section">
+        </section>}
+        {rightPanelTab === "design" && <section className="design-section">
           <div className="panel-section-heading"><span>STYLE RULES</span><span className="small-icon">◌</span></div>
           <div className="style-rule"><span className="style-rule-mark mark-solid" /><div><b>低对比边界</b><small>1px · neutral surface</small></div></div>
           <div className="style-rule"><span className="style-rule-mark mark-flow" /><div><b>克制的语义色</b><small>颜色表达职责，不随机分配</small></div></div>
           <div className="style-rule"><span className="style-rule-mark mark-spacing" /><div><b>结构化留白</b><small>{document.layout.nodeSpacing}px node · {document.layout.layerSpacing}px layer</small></div></div>
-        </section>
-
+        </section>}
       </aside>
         </>
       ) : (
