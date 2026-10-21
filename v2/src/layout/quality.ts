@@ -1,6 +1,14 @@
 import type { DiagramDocument, LayoutQualityReport, Point, QualityIssue } from "../model/types";
+import { sequenceMessageGeometry } from "./sequence";
+import { countPortSpacingViolations } from "./routing";
+import { measureTextWidth, containsWideCharacters } from "../design/text-metrics";
+import { contrastRatio } from "../design/contrast";
+import { nodePaint, relationPaint } from "../design/styles";
+import { tokens } from "../design/tokens";
+import { evaluateComplexityBudget } from "./complexity";
 
-function overlaps(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }, gap = 0): boolean {
+type Rect = { x: number; y: number; width: number; height: number };
+function overlaps(a: Rect, b: Rect, gap = 0): boolean {
   return a.x < b.x + b.width + gap && a.x + a.width + gap > b.x &&
     a.y < b.y + b.height + gap && a.y + a.height + gap > b.y;
 }
@@ -22,7 +30,7 @@ function intersects(a: Point, b: Point, c: Point, d: Point): boolean {
   if (Math.abs(o4) <= 0.001 && onSegment(c, d, b)) return true;
   return false;
 }
-function segmentIntersectsRect(a: Point, b: Point, rect: { x: number; y: number; width: number; height: number }): boolean {
+function segmentIntersectsRect(a: Point, b: Point, rect: Rect): boolean {
   let tMin = 0, tMax = 1;
   const dx = b.x - a.x, dy = b.y - a.y;
   const p = [-dx, dx, -dy, dy];
@@ -43,6 +51,8 @@ function segmentIntersectsRect(a: Point, b: Point, rect: { x: number; y: number;
   }
   return tMin < tMax && tMax > 0 && tMin < 1;
 }
+
+/** Uses the same canonical sequence geometry as the SVG and Draw.io renderers. */
 function pathFor(doc: DiagramDocument, id: string): Point[] {
   const edge = doc.relations.find((relation) => relation.id === id);
   if (!edge) return [];
@@ -50,14 +60,8 @@ function pathFor(doc: DiagramDocument, id: string): Point[] {
   const target = doc.nodes.find((node) => node.id === edge.target);
   if (!source || !target) return [];
   if (doc.kind === "sequence") {
-    const order = edge.sequenceOrder ?? 0;
-    const y = 148 + order * 72;
-    const sourceX = source.x + source.width / 2;
-    const targetX = target.x + target.width / 2;
-    return [
-      { x: sourceX + (targetX >= sourceX ? 1 : -1) * source.width * 0.42, y },
-      { x: targetX + (targetX >= sourceX ? -1 : 1) * target.width * 0.42, y }
-    ];
+    const geometry = sequenceMessageGeometry(doc, edge);
+    return geometry ? [geometry.start, ...geometry.points, geometry.end] : [];
   }
   const sc = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
   const tc = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
@@ -74,6 +78,39 @@ function pathFor(doc: DiagramDocument, id: string): Point[] {
     end = { x: target.x + target.width, y: tc.y };
   }
   return [start, ...(edge.points || []), end];
+}
+function midpoint(points: Point[]): Point | null {
+  if (points.length < 2) return null;
+  const segments = points.slice(1).map((point, index) => ({
+    start: points[index], end: point,
+    length: Math.hypot(point.x - points[index].x, point.y - points[index].y)
+  }));
+  const total = segments.reduce((sum, segment) => sum + segment.length, 0);
+  let remaining = total / 2;
+  for (const segment of segments) {
+    if (remaining <= segment.length) {
+      const ratio = segment.length < 0.001 ? 0.5 : remaining / segment.length;
+      return {
+        x: segment.start.x + (segment.end.x - segment.start.x) * ratio,
+        y: segment.start.y + (segment.end.y - segment.start.y) * ratio
+      };
+    }
+    remaining -= segment.length;
+  }
+  return points[points.length - 1];
+}
+function labelBoxes(doc: DiagramDocument): Array<Rect & { relationId: string }> {
+  return doc.relations.filter((edge) => edge.label.trim()).flatMap((edge) => {
+    const point = midpoint(pathFor(doc, edge.id));
+    if (!point) return [];
+    return [{
+      relationId: edge.id,
+      x: point.x - Math.max(24, measureTextWidth(edge.label, 13) / 2 + 10),
+      y: point.y - 22,
+      width: Math.max(48, measureTextWidth(edge.label, 13) + 20),
+      height: 22
+    }];
+  });
 }
 function countComponents(doc: DiagramDocument): number {
   if (!doc.nodes.length) return 0;
@@ -98,20 +135,35 @@ function countComponents(doc: DiagramDocument): number {
   }
   return count;
 }
-function labelBoxes(doc: DiagramDocument): Array<{ relationId: string; x: number; y: number; width: number; height: number }> {
-  return doc.relations.filter((edge) => edge.label.trim()).flatMap((edge) => {
-    const path = pathFor(doc, edge.id);
-    if (path.length < 2) return [];
-    const a = path[Math.floor((path.length - 1) / 2)], b = path[Math.ceil((path.length - 1) / 2)];
-    const width = Math.max(36, Math.min(240, edge.label.length * 6.2));
-    return [{ relationId: edge.id, x: (a.x + b.x) / 2 - width / 2, y: (a.y + b.y) / 2 - 12, width, height: 19 }];
+function canvasBounds(doc: DiagramDocument): { width: number; height: number } {
+  const messageBottom = doc.kind === "sequence" ? 148 + Math.max(0, doc.relations.length - 1) * 72 + 100 : 0;
+  return {
+    width: Math.max(1240, ...doc.nodes.map((node) => node.x + node.width + 100)),
+    height: Math.max(doc.kind === "sequence" ? 820 : 760, messageBottom, ...doc.nodes.map((node) => node.y + node.height + 120))
+  };
+}
+function isOffGrid(value: number, grid = 4): boolean {
+  return Math.abs(value / grid - Math.round(value / grid)) > 0.001;
+}
+function pushContrastWarning(warnings: QualityIssue[], label: string, ratio: number, minimum: number, nodeIds?: string[], relationIds?: string[]) {
+  if (ratio + 0.001 >= minimum) return 0;
+  warnings.push({
+    code: "contrast-violation",
+    severity: "warning",
+    message: label + " contrast ratio " + ratio.toFixed(2) + ":1 is below " + minimum.toFixed(1) + ":1",
+    ...(nodeIds ? { nodeIds } : {}),
+    ...(relationIds ? { relationIds } : {})
   });
+  return 1;
 }
 
 export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   const errors: QualityIssue[] = [];
   const warnings: QualityIssue[] = [];
   let nodeOverlaps = 0, edgeNodeIntersections = 0, edgeCrossings = 0, labelCollisions = 0;
+  let labelOverflowCount = 0, cjkWidthViolations = 0, connectorRoutingViolations = 0;
+  let edgeLabelOutOfBoundsCount = 0, contrastViolations = 0, offGridCoordinates = 0, gridCoordinates = 0;
+
   for (let i = 0; i < doc.nodes.length; i++) {
     for (let j = i + 1; j < doc.nodes.length; j++) {
       if (overlaps(doc.nodes[i], doc.nodes[j], 2)) {
@@ -131,14 +183,56 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       errors.push({ code: "invalid-boundary-member", severity: "error", message: "Boundary " + boundary.name + " contains missing node(s): " + missing.join(", ") });
     }
   }
+
   for (const node of doc.nodes) {
-    if (node.x < 0 || node.y < 0) errors.push({ code: "negative-position", severity: "error", message: node.name + " is positioned outside the canvas", nodeIds: [node.id] });
+    if (node.x < 0 || node.y < 0) {
+      errors.push({ code: "negative-position", severity: "error", message: node.name + " is positioned outside the canvas", nodeIds: [node.id] });
+    }
+    gridCoordinates += 2;
+    if (isOffGrid(node.x)) offGridCoordinates++;
+    if (isOffGrid(node.y)) offGridCoordinates++;
+
+    const availableWidth = Math.max(0, node.width - 34);
+    const textFields = [
+      { label: "title", value: node.name },
+      ...(node.technology ? [{ label: "technology", value: node.technology }] : []),
+      ...(node.description ? [{ label: "description", value: node.description }] : [])
+    ];
+    for (const field of textFields) {
+      if (measureTextWidth(field.value, 13) <= availableWidth) continue;
+      labelOverflowCount++;
+      const isCjk = containsWideCharacters(field.value);
+      if (isCjk) cjkWidthViolations++;
+      warnings.push({
+        code: isCjk ? "cjk-text-overflow" : "node-text-overflow",
+        severity: "warning",
+        message: node.name + " " + field.label + " needs more than " + availableWidth.toFixed(0) + "px; the canvas may truncate or wrap it",
+        nodeIds: [node.id]
+      });
+    }
+    const requiredHeight = node.description ? (node.technology ? 70 : 58) : node.technology ? 53 : 0;
+    if (requiredHeight > node.height) {
+      labelOverflowCount++;
+      warnings.push({
+        code: "node-text-height-overflow",
+        severity: "warning",
+        message: node.name + " content stack needs about " + requiredHeight + "px but the node is " + node.height + "px high",
+        nodeIds: [node.id]
+      });
+    }
   }
+
   const paths = doc.relations.map((edge) => ({ id: edge.id, points: pathFor(doc, edge.id) }));
   for (const path of paths) {
     const edge = doc.relations.find((item) => item.id === path.id);
+    const routing = edge?.routing || doc.layout.routing;
     for (let i = 0; i < path.points.length - 1; i++) {
       const a = path.points[i], b = path.points[i + 1];
+      if (doc.kind !== "sequence" && routing === "orthogonal" &&
+          Math.abs(a.x - b.x) > 0.001 && Math.abs(a.y - b.y) > 0.001) {
+        connectorRoutingViolations++;
+        errors.push({ code: "diagonal-orthogonal-route", severity: "error", message: "Orthogonal relation " + path.id + " contains a diagonal segment", relationIds: [path.id] });
+      }
       const hit = doc.nodes.some((node) => {
         if (!edge || node.id === edge.source || node.id === edge.target) return false;
         return segmentIntersectsRect(a, b, node);
@@ -154,42 +248,83 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       let crossed = false;
       for (let ai = 0; ai < paths[i].points.length - 1 && !crossed; ai++) {
         for (let bi = 0; bi < paths[j].points.length - 1; bi++) {
-          if (intersects(paths[i].points[ai], paths[i].points[ai + 1], paths[j].points[bi], paths[j].points[bi + 1])) { crossed = true; break; }
+          if (intersects(paths[i].points[ai], paths[i].points[ai + 1], paths[j].points[bi], paths[j].points[bi + 1])) {
+            crossed = true;
+            break;
+          }
         }
       }
       if (crossed) edgeCrossings++;
     }
   }
+
   const boxes = labelBoxes(doc);
+  const bounds = canvasBounds(doc);
   for (let i = 0; i < boxes.length; i++) {
     const current = boxes[i];
     const edge = doc.relations.find((item) => item.id === current.relationId);
     const collidesWithNode = doc.nodes.some((node) =>
-      node.id !== edge?.source && node.id !== edge?.target &&
-      overlaps(current, node, 0)
+      node.id !== edge?.source && node.id !== edge?.target && overlaps(current, node, 0)
     );
     const collidesWithLabel = boxes.slice(i + 1).some((other) => overlaps(current, other, 2));
     if (collidesWithNode || collidesWithLabel) labelCollisions++;
+    if (current.x < 0 || current.y < 0 || current.x + current.width > bounds.width || current.y + current.height > bounds.height) {
+      edgeLabelOutOfBoundsCount++;
+      warnings.push({
+        code: "edge-label-out-of-bounds", severity: "warning",
+        message: "Label for relation " + current.relationId + " extends outside the diagram canvas",
+        relationIds: [current.relationId]
+      });
+    }
   }
+
   const disconnectedComponents = Math.max(0, countComponents(doc) - 1);
   const alignmentScore = Math.max(0, 1 - nodeOverlaps / Math.max(1, doc.nodes.length));
-  const xs = doc.nodes.map((n) => n.x), ys = doc.nodes.map((n) => n.y);
+  const gridAlignmentScore = gridCoordinates ? Math.max(0, 1 - offGridCoordinates / gridCoordinates) : 1;
+  const xs = doc.nodes.map((node) => node.x), ys = doc.nodes.map((node) => node.y);
   const area = Math.max(1, (Math.max(...xs, 1) - Math.min(...xs, 0) + 240) * (Math.max(...ys, 1) - Math.min(...ys, 0) + 200));
-  const occupancy = doc.nodes.reduce((sum, n) => sum + n.width * n.height, 0) / area;
+  const occupancy = doc.nodes.reduce((sum, node) => sum + node.width * node.height, 0) / area;
   const whitespaceScore = Math.max(0, Math.min(1, 1 - Math.abs(occupancy - 0.18) * 2));
   const densityScore = Math.max(0, Math.min(1, 1 - doc.nodes.length / 32));
+  const portSpacingViolations = countPortSpacingViolations(doc);
+
   if (edgeNodeIntersections) errors.push({ code: "edge-through-node", severity: "error", message: edgeNodeIntersections + " routed segment(s) cross a non-endpoint node" });
   if (edgeCrossings) warnings.push({ code: "edge-crossing", severity: "warning", message: edgeCrossings + " possible edge crossing(s)" });
   if (labelCollisions) warnings.push({ code: "label-collision", severity: "warning", message: labelCollisions + " estimated edge-label collision(s)" });
   if (disconnectedComponents) warnings.push({ code: "disconnected-components", severity: "warning", message: disconnectedComponents + " disconnected component(s) beyond the first" });
-  const score = Math.max(0, Math.round(100 - nodeOverlaps * 80 - edgeNodeIntersections * 100 - edgeCrossings * 12 - labelCollisions * 20 - disconnectedComponents * 4 + alignmentScore * 8 + whitespaceScore * 6 + densityScore * 4));
+  if (offGridCoordinates) warnings.push({ code: "off-grid-node", severity: "warning", message: offGridCoordinates + " node coordinate(s) are not aligned to the 4px grid" });
+  if (portSpacingViolations) warnings.push({ code: "port-spacing", severity: "warning", message: portSpacingViolations + " connector port pair(s) are closer than their minimum spacing" });
+
+  for (const node of doc.nodes) {
+    const paint = nodePaint(node);
+    contrastViolations += pushContrastWarning(warnings, "Text on node " + node.name, contrastRatio(paint.text, paint.fill), 4.5, [node.id]);
+    contrastViolations += pushContrastWarning(warnings, "Border of node " + node.name, contrastRatio(paint.stroke, tokens.canvas), 3, [node.id]);
+  }
+  for (const relation of doc.relations) {
+    const paint = relationPaint(relation);
+    contrastViolations += pushContrastWarning(warnings, "Relation " + (relation.label || relation.id), contrastRatio(paint.stroke, tokens.canvas), 3, undefined, [relation.id]);
+    if (relation.label) contrastViolations += pushContrastWarning(warnings, "Label for relation " + relation.id, contrastRatio(tokens.ink, tokens.canvas), 4.5, undefined, [relation.id]);
+  }
+  warnings.push(...evaluateComplexityBudget(doc));
+
+  const score = Math.max(0, Math.round(
+    100 - nodeOverlaps * 80 - edgeNodeIntersections * 100 - connectorRoutingViolations * 80 -
+    edgeLabelOutOfBoundsCount * 25 - edgeCrossings * 12 - labelCollisions * 20 -
+    labelOverflowCount * 5 - portSpacingViolations * 3 - contrastViolations * 2 -
+    disconnectedComponents * 4 + alignmentScore * 8 + gridAlignmentScore * 5 +
+    whitespaceScore * 6 + densityScore * 4
+  ));
   return {
     score, errors, warnings,
     metrics: {
       nodeOverlaps, edgeNodeIntersections, edgeCrossings, labelCollisions, disconnectedComponents,
       alignmentScore: Math.round(alignmentScore * 100) / 100,
+      gridAlignmentScore: Math.round(gridAlignmentScore * 100) / 100,
       whitespaceScore: Math.round(whitespaceScore * 100) / 100,
-      densityScore: Math.round(densityScore * 100) / 100
+      densityScore: Math.round(densityScore * 100) / 100,
+      labelOverflowCount, edgeLabelOutOfBoundsCount, connectorRoutingViolations,
+      portSpacingViolations, contrastViolations, cjkWidthViolations,
+      complexityWarnings: evaluateComplexityBudget(doc).length
     }
   };
 }
