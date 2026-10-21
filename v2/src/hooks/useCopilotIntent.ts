@@ -5,7 +5,6 @@ import { recordDiagnostic } from "../diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type Workspace = { id: string } | null;
-type Diagnostic = typeof recordDiagnostic;
 type PersistDocument = (document: DiagramDocument, xml: string, label?: string) => Promise<unknown>;
 
 interface CopilotIntentOptions {
@@ -18,7 +17,7 @@ interface CopilotIntentOptions {
   aiModel: string;
   reasoningEffort: "high" | "max";
   copilotSessionId: string;
-  selectedNode: DiagramNode | undefined;
+  selectedNode: DiagramNode | null;
   persistDocumentNow: PersistDocument;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
