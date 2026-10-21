@@ -26,9 +26,15 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 
 ## Intentional boundary
 
-Layout Copilot uses a local Node.js service backed by `@github/copilot-sdk` and the signed-in GitHub Copilot CLI identity. `npm run dev` starts Vite and the Agent service together; the service listens on loopback port 4175 and Vite proxies `/api/copilot`. Set the model ID in **配置** (default `gpt-5`). The Agent uses a custom `propose_layout_plan` tool to return a structured plan, rather than making arbitrary edits. The server validates every command against an allowlist; the browser validates it again, applies deterministic layout locally, and requires explicit preview confirmation before commit. No provider API key is sent from the browser. Make sure Copilot CLI is installed and signed in before using Agent mode. Clear the model setting to use local deterministic rules.
+Layout Copilot uses a local Node.js service backed by `@github/copilot-sdk` and the signed-in GitHub Copilot CLI identity. `npm run dev` starts Vite and the Agent service together; the service listens on loopback port 4175 and Vite proxies `/api/copilot`. Set the model ID in **配置** (default `claude-sonnet-5.5`) and choose **Thinking effort** (`Max` or `High`). Each browser conversation keeps a stable session ID; the server resumes the Copilot SDK session after an app/server restart when the SDK session state is available. Consecutive turns are serialized per session so they cannot race against each other. The Agent uses a custom `propose_layout_plan` tool to return a structured plan, rather than making arbitrary edits. The server validates every command against an allowlist; the browser validates it again, applies deterministic layout locally, and requires explicit preview confirmation before commit. No provider API key is sent from the browser. Make sure Copilot CLI is installed and signed in before using Agent mode. Clear the model setting to use local deterministic rules.
 
 Draw.io web assets are generated into public/drawio at build time and are not committed as a bulky binary payload. No online fallback is configured. In offline deployments the archive must be supplied once during the build or included in the deployment artefacts.
+
+## Copilot sessions and server-side audit logs
+
+The browser persists the active Copilot session ID and the last 300 chat messages in local storage. The server maintains one live SDK session per session ID, resumes persisted SDK sessions when possible, and disconnects idle sessions after 30 minutes by default. Set `COPILOT_SESSION_IDLE_TTL_MS` to change the idle timeout and `COPILOT_LOG_DIR` to change the log directory.
+
+The server writes newline-delimited JSON records to `~/.architecture-diagram-studio/logs/copilot-sessions.jsonl` by default. Records include session lifecycle, each full user prompt and diagram context, SDK events, accepted/rejected tool calls, final plans, timings, and errors. The loopback-only API `GET /api/copilot/sessions` lists live sessions; `GET /api/copilot/sessions/:id/logs` returns persisted records for one session. These server-side records intentionally retain prompt/context content for debugging, unlike the bounded browser telemetry described below. Treat the log file as local application data and remove it when its contents are no longer needed.
 
 ## UI component system
 
