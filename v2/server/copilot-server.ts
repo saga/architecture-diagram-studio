@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath, lstat } from "node:fs/promises";
 import { isDiagramDocument } from "../src/model/types";
-import { applyIntent } from "../src/intent/applyIntent";
+import { applyIntent, interpretIntent } from "../src/intent/applyIntent";
 import { layoutDiagram, moveNode } from "../src/layout/layout";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
@@ -332,8 +332,13 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
       documentId: document.id, prompt, nodeCount: document.nodes.length, relationCount: document.relations.length
     });
     const config = await getStudioConfig();
-    if (document.kind !== "sequence" && resultProfileDisabled(document, config.layoutProfiles)) { res.status(400).json({ error: `布局算法 ${document.layout.profile} 已在配置中禁用` }); return; }
-    const result = await applyIntent(document, prompt);
+    const interpreted = interpretIntent(document, prompt);
+    if (interpreted.requiresLayout && interpreted.document.kind !== "sequence" && resultProfileDisabled(interpreted.document, config.layoutProfiles)) {
+      res.status(400).json({ error: `布局算法 ${interpreted.document.layout.profile} 已在配置中禁用` }); return;
+    }
+    const result = interpreted.requiresLayout
+      ? { ...interpreted, document: await layoutDiagram(interpreted.document) }
+      : interpreted;
     await writeLog("intent.apply.completed", {
       documentId: document.id, changed: result.changed, requiresLayout: result.requiresLayout,
       durationMs: Date.now() - startedAt, nodeCount: result.document.nodes.length,
@@ -753,10 +758,10 @@ app.post("/api/copilot/intent", async (req, res) => {
   const sessionId = typeof req.body?.sessionId === "string" && /^[a-zA-Z0-9._:-]{8,128}$/.test(req.body.sessionId)
     ? req.body.sessionId
     : randomUUID();
-  const model = typeof req.body?.model === "string" && req.body.model.trim()
-    ? req.body.model.trim().slice(0, 100)
-    : DEFAULT_MODEL;
   const config = await getStudioConfig();
+  const model = typeof req.body?.model === "string"
+    ? req.body.model.trim().slice(0, 100)
+    : (config.model || DEFAULT_MODEL);
   const requestedEffort = req.body?.reasoningEffort === "high" ? "high" : config.reasoningEffort;
   if (!prompt || prompt.length > 4000) {
     await writeLog("request.validation.failed", { sessionId, reason: "invalid_prompt", promptLength: prompt.length });
