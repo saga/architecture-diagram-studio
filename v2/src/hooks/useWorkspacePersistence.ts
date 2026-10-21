@@ -42,12 +42,10 @@ export function useWorkspacePersistence(options: Options) {
   }, [onDiagnostic, setLastAction]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
-    const serverCommitted = serverCommittedDocumentRef.current;
-    if (serverCommitted) {
-      if (serverCommitted.workspaceId === projectWorkspace.id &&
-          JSON.stringify(document) === JSON.stringify(serverCommitted.document)) return;
-      serverCommittedDocumentRef.current = null;
-    }
+    // XML is authoritative. A native Draw.io edit may change styles, labels, pages or
+    // custom cells without changing the derived DiagramDocument at all; never suppress an
+    // autosave solely because the semantic projection equals the last server-committed view.
+    serverCommittedDocumentRef.current = null;
     const timer = window.setTimeout(() => {
       void persistDocumentNow(document, drawioXml, saveLabelRef.current).catch((error: unknown) => {
         onDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
