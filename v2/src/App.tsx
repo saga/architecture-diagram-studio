@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
-import { layoutDiagram, moveNode } from "./layout/layout";
+import { layoutDiagram, LAYOUT_PROFILES, moveNode } from "./layout/layout";
 import { evaluateLayout } from "./layout/quality";
 import { applyIntent } from "./intent/applyIntent";
 import { requestAIIntentPlan } from "./intent/aiProvider";
@@ -815,18 +815,26 @@ export default function App() {
             </div>}
             {document.kind === "sequence" && <button className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</button>}
             <label className="layout-profile-control" title="选择自动布局算法">
-              <span>布局</span>
-              <select className="text-field" aria-label="自动布局算法" value={document.layout.profile.startsWith("elk-") ? document.layout.profile : "elk-layered"}
+              <span>算法</span>
+              <select className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : "elk-layered"}
                 disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
                   void runLayout(next);
                 }}>
-                <option value="elk-layered">层级 · ELK Layered</option>
-                <option value="elk-mrtree">树形 · ELK Mr. Tree</option>
-                <option value="elk-radial">放射 · ELK Radial</option>
-                <option value="elk-stress">应力 · ELK Stress</option>
-                <option value="elk-force">力导向 · ELK Force</option>
+                {LAYOUT_PROFILES.map((profile) => <option key={profile.value} value={profile.value}>{profile.label}</option>)}
+              </select>
+            </label>
+            <label className="layout-profile-control" title="设置图的主方向">
+              <span>方向</span>
+              <select className="text-field" aria-label="布局方向" value={document.layout.direction}
+                disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
+                onChange={(event) => {
+                  const next = { ...document, layout: { ...document.layout, direction: event.target.value as DiagramDocument["layout"]["direction"] } };
+                  void runLayout(next);
+                }}>
+                <option value="RIGHT">横向 · 左→右</option>
+                <option value="DOWN">纵向 · 上→下</option>
               </select>
             </label>
             <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
