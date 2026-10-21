@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import type { DiagramDocument } from "../model/types";
 type Workspace = { id: string } | null;
 type ChatMessage = { role: "assistant" | "user"; id: number; text: string };
