@@ -49,9 +49,10 @@ describe("V2 semantic fixtures and intents", () => {
 
     const mainPath = laidOut.flow!.primaryPath.map((id) => laidOut.nodes.find((node) => node.id === id)!);
     expect(new Set(mainPath.map((node) => node.y)).size).toBe(1);
+    const expectedGap = Math.max(36, Math.min(64, Math.round(laidOut.layout.layerSpacing * 0.55)));
     for (let index = 1; index < mainPath.length; index++) {
       expect(mainPath[index].x - (mainPath[index - 1].x + mainPath[index - 1].width))
-        .toBe(laidOut.layout.layerSpacing);
+        .toBe(expectedGap);
     }
   });
 
