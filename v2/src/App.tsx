@@ -943,12 +943,14 @@ export default function App() {
     try {
       const response = await fetch("/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
       const result = await response.json() as { error?: string; state?: { document?: unknown; drawioXml?: unknown }; version?: { id?: string } };
-      if (!response.ok || !isDiagramDocument(result.state?.document) || typeof result.state?.drawioXml !== "string") {
+      const restoredState = result.state;
+      if (!response.ok || !restoredState || !isDiagramDocument(restoredState.document) || typeof restoredState.drawioXml !== "string") {
         throw new Error(result.error || "服务端版本恢复失败");
       }
-      const restored = result.state.document;
+      const restored = restoredState.document;
+      const restoredXml = restoredState.drawioXml;
       setDocument(restored);
-      setNativeXmlOverride(result.state.drawioXml);
+      setNativeXmlOverride(restoredXml);
       setPreviewDocument(null);
       setPreviewSummary("");
       setSelectedNodeId(restored.nodes[0]?.id || null);
@@ -962,7 +964,7 @@ export default function App() {
       setVersionHistoryOpen(false);
       recordDiagnostic("workspace.version.restored", "已恢复完整的服务端版本快照", {
         sourceVersionId: versionId, newVersionId: result.version?.id,
-        xmlLength: result.state.drawioXml.length, nodeCount: restored.nodes.length
+        xmlLength: restoredXml.length, nodeCount: restored.nodes.length
       });
     } catch (error) {
       recordDiagnostic("workspace.version.restore.failed", "恢复服务端版本失败", {
@@ -1016,7 +1018,7 @@ export default function App() {
       <XProvider>
         <AntApp>
     <Layout className="app-shell" data-theme={uiTheme}>
-      <Modal title="服务端版本历史" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760} destroyOnClose>
+      <Modal title="服务端版本历史" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760}>
         <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
           {versionHistoryLoading ? <p>正在加载版本历史…</p> : versionEntries.length === 0 ? <p>服务端还没有保存版本。</p> : [...versionEntries].reverse().map((version) => (
             <div key={version.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 0", borderBottom: "1px solid var(--border, #e5e7eb)" }}>
