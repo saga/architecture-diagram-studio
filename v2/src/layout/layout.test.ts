@@ -83,13 +83,25 @@ describe("V2 diagram-specific layouts", () => {
     expect(verticalHeight).toBeGreaterThan(verticalWidth);
   });
 
+  it("honors left and right semantic side constraints after the layered layout", async () => {
+    const document = createC4Fixture();
+    document.layout.externalSide = "LEFT";
+    document.layout.storageSide = "RIGHT";
+    const result = await layoutDiagram(document);
+    const external = result.nodes.find((node) => node.role === "external" || node.role === "vendor");
+    const storage = result.nodes.find((node) => node.role === "storage" || node.role === "data");
+    const internal = result.nodes.filter((node) => !["external", "vendor", "storage", "data", "infra"].includes(node.role));
+    if (external && internal.length) expect(external.x + external.width).toBeLessThanOrEqual(Math.min(...internal.map((node) => node.x)));
+    if (storage && internal.length) expect(storage.x).toBeGreaterThan(Math.max(...internal.map((node) => node.x + node.width)) - 1);
+  });
+
   it("lays out sequence participants and keeps the message timeline ordered", async () => {
     const result = await layoutDiagram(createSequenceFixture());
     await expectNoNodeOverlap(createSequenceFixture);
     const orders = result.relations.map((edge) => edge.sequenceOrder ?? -1);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
     expect(result.nodes.map((node) => node.x)).toEqual([...result.nodes].map((node) => node.x).sort((a, b) => a - b));
-    expect(result.nodes.every((node) => node.y === 54)).toBe(true);
+    expect(result.nodes.every((node) => node.y === 56)).toBe(true);
     const activations = deriveSequenceActivations(result);
     expect(activations).toHaveLength(4);
     expect(activations.map((activation) => activation.participantId)).toEqual(["web", "bff", "identity", "session"]);
