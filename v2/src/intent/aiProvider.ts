@@ -35,6 +35,29 @@ const ALLOWED_COMMANDS = new Set([
   "解除手动锁定"
 ]);
 
+export function parseAIIntentPlan(raw: string): AIIntentPlan {
+  const cleaned = raw.trim().replace(/^\x60{3}(?:json)?\s*/i, "").replace(/\s*\x60{3}$/, "");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error("模型返回的不是有效 JSON；未执行任何修改");
+  }
+  if (!parsed || typeof parsed !== "object") throw new Error("模型计划格式无效");
+  const value = parsed as { commands?: unknown; reply?: unknown };
+  const rawCommands = Array.isArray(value.commands)
+    ? value.commands.filter((command): command is string => typeof command === "string" && command.trim().length > 0).map((command) => command.trim())
+    : [];
+  if (rawCommands.length > 6) throw new Error("模型计划包含超过 6 条命令；未执行任何修改");
+  if (rawCommands.some((command) => !ALLOWED_COMMANDS.has(command))) {
+    throw new Error("模型计划包含不在白名单中的操作；未执行任何修改");
+  }
+  return {
+    commands: rawCommands,
+    reply: typeof value.reply === "string" ? value.reply.trim().slice(0, 500) : ""
+  };
+}
+
 function validatePlan(value: unknown): AIIntentPlan {
   if (!value || typeof value !== "object") throw new Error("Copilot SDK 返回的计划格式无效");
   const item = value as Record<string, unknown>;
