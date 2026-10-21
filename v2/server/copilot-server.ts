@@ -47,7 +47,7 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
   return diagramVersions;
 }
 const app = express();
-app.use(express.json({ limit: "128kb" }));
+app.use(express.json({ limit: "25mb" }));
 let clientPromise: Promise<CopilotClient> | null = null;
 type RuntimeSession = {
   session: Awaited<ReturnType<CopilotClient["createSession"]>>;
