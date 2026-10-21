@@ -104,6 +104,6 @@ app.post("/api/copilot/intent", async (req, res) => {
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`[studio:copilot-sdk] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}`);
 });
