@@ -664,3 +664,39 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="youth"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #ffe1f0 !important; }
 .app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
 .app-shell[data-theme="warm"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #f8e4d3 !important; }
+
+
+/* Keep secondary labels legible across both light and dark themes. */
+.app-shell .document-breadcrumb,
+.app-shell .save-state,
+.app-shell .canvas-subtitle,
+.app-shell .section-heading span,
+.app-shell .small-icon,
+.app-shell .right-tab-label,
+.app-shell .quality-footnote,
+.app-shell .quality-ring,
+.app-shell .offline-card small,
+.app-shell .v1-note,
+.app-shell .canvas-stage-footer,
+.app-shell .bottom-status { color: var(--theme-muted); }
+.app-shell .text-field::placeholder,
+.app-shell input::placeholder,
+.app-shell textarea::placeholder,
+.app-shell .relation-label-field::placeholder { color: var(--theme-muted); opacity: .88; }
+.app-shell .right-tab:not(.active) { color: var(--theme-muted); }
+.app-shell .right-tab.active { color: var(--theme-accent); border-bottom-color: var(--theme-accent); }
+.app-shell .relation-actions button,
+.app-shell .relation-style-controls label { color: var(--theme-secondary); }
+.app-shell .connected-relation-direction,
+.app-shell .relation-arrow { color: var(--theme-secondary); }
+.app-shell .metric span { color: var(--theme-muted); }
+.app-shell .metric strong { color: var(--theme-text); }
+.app-shell .quality-ring { border-color: var(--theme-border); }
+.app-shell[data-theme="midnight"] .canvas-stage-footer,
+.app-shell[data-theme="midnight"] .zoom-indicator,
+.app-shell[data-theme="midnight"] .relation-label-field,
+.app-shell[data-theme="midnight"] .relation-editor select,
+.app-shell[data-theme="midnight"] .text-field { background-color: var(--theme-input-bg); color: var(--theme-input-text); }
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-node text { fill: #26364a; }
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-relation text { fill: #26364a; }
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-relation rect { fill: #f0f3fa; }
