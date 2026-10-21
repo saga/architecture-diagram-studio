@@ -338,7 +338,8 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
     contrastViolations += pushContrastWarning(warnings, "Relation " + (relation.label || relation.id), contrastRatio(paint.stroke, tokens.canvas), 3, undefined, [relation.id]);
     if (relation.label) contrastViolations += pushContrastWarning(warnings, "Label for relation " + relation.id, contrastRatio(tokens.ink, tokens.canvas), 4.5, undefined, [relation.id]);
   }
-  warnings.push(...evaluateComplexityBudget(doc));
+  const complexityIssues = evaluateComplexityBudget(doc);
+  warnings.push(...complexityIssues);
 
   const score = Math.max(0, Math.round(
     100 - nodeOverlaps * 80 - edgeNodeIntersections * 100 - connectorRoutingViolations * 80 -
@@ -357,7 +358,7 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       densityScore: Math.round(densityScore * 100) / 100,
       labelOverflowCount, edgeLabelOutOfBoundsCount, connectorRoutingViolations,
       portSpacingViolations, contrastViolations, cjkWidthViolations,
-      complexityWarnings: evaluateComplexityBudget(doc).length
+      complexityWarnings: complexityIssues.length
     }
   };
 }
