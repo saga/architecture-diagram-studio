@@ -30,6 +30,23 @@ describe("layout quality hard constraints", () => {
     expect(crossing?.nodeIds).toContain("blocker");
   });
 
+  it("includes relation identifiers in crossing diagnostics", () => {
+    const document = createC4Fixture();
+    document.nodes = [
+      { ...document.nodes[0], id: "a", x: 40, y: 120, width: 100, height: 60 },
+      { ...document.nodes[1], id: "b", x: 320, y: 120, width: 100, height: 60 },
+      { ...document.nodes[2], id: "c", x: 180, y: 20, width: 100, height: 60 },
+      { ...document.nodes[3], id: "d", x: 180, y: 220, width: 100, height: 60 }
+    ];
+    document.boundaries = [];
+    document.relations = [
+      { id: "top-route", source: "a", target: "b", label: "", kind: "flow", routing: "polyline", points: [{ x: 160, y: 80 }, { x: 280, y: 80 }] },
+      { id: "bottom-route", source: "c", target: "d", label: "", kind: "flow", routing: "polyline", points: [{ x: 230, y: 80 }, { x: 230, y: 220 }] }
+    ];
+    const issue = evaluateLayout(document).warnings.find((warning) => warning.code === "edge-crossing");
+    expect(issue?.relationIds).toEqual(expect.arrayContaining(["top-route", "bottom-route"]));
+  });
+
   it("rejects relations to nodes that do not exist", () => {
     const document = createC4Fixture();
     document.relations = [{
