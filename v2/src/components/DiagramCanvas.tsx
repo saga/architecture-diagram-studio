@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
-import { deriveSequenceActivations } from "../layout/sequence";
+import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 
 interface Props {
   document: DiagramDocument;
@@ -28,27 +28,11 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
   let start: Point, end: Point;
   const points = relation.points || [];
   if (document.kind === "sequence") {
-    const order = relation.sequenceOrder ?? 0;
-    const y = 148 + order * 72;
-    const sx = center(source).x, tx = center(target).x;
-    const activations = deriveSequenceActivations(document);
-    const activeActivation = (participantId: string) => activations
-      .filter((activation) => activation.participantId === participantId &&
-        activation.startOrder <= order && activation.endOrder >= order)
-      .sort((a, b) => b.startOrder - a.startOrder || a.endOrder - b.endOrder)[0];
-    const endpointX = (participant: DiagramNode, towardX: number) => {
-      const activation = activeActivation(participant.id);
-      if (!activation) return center(participant).x;
-      return center(participant).x + (towardX >= center(participant).x ? 7 : -7);
-    };
-    // Lifelines run through each participant's center. During an active call,
-    // connect to the activation bar's edge; otherwise connect to the lifeline.
-    if (source.id === target.id) {
-      const active = activeActivation(source.id);
-      const x = center(source).x + (active ? 7 : 0);
-      start = { x, y };
-      end = { x, y: y + 24 };
-    } else {
+    const geometry = sequenceMessageGeometry(document, relation);
+    if (!geometry) return null;
+    start = geometry.start;
+    end = geometry.end;
+  } else {
       start = { x: endpointX(source, tx), y };
       end = { x: endpointX(target, sx), y };
     }
@@ -66,8 +50,9 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
       end = { x: target.x + target.width, y: t.y };
     }
   }
-  const all = document.kind === "sequence" && source.id === target.id
-    ? [start, { x: center(source).x + 34, y: start.y }, { x: center(source).x + 34, y: end.y }, end]
+  const sequenceGeometry = document.kind === "sequence" ? sequenceMessageGeometry(document, relation) : null;
+  const all = sequenceGeometry
+    ? [sequenceGeometry.start, ...sequenceGeometry.points, sequenceGeometry.end]
     : [start, ...points, end];
   const routing = relation.routing || document.layout.routing;
   let d = "M " + all[0].x + " " + all[0].y;
