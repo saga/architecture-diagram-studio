@@ -71,7 +71,7 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
           c4:"C4: model people, systems and containers using explicit semantic roles and boundaries. Distinguish external systems and show only meaningful relationships.",
           flowchart:"Flowchart: preserve a primary path, keep exception branches near their origin, place decision labels near branch points, and merge paths promptly.",
           sequence:"Sequence: keep participant order stable and messages on a shared vertical timeline; preserve call/return semantics, sequenceOrder and activation bars. Do not apply C4 layout.",
-          drawio:"Draw.io XML is an editable output format; DiagramDocument is the semantic source of truth. Preserve Studio metadata. Never synthesize raw XML or invent unsupported mxGraph style IDs.",
+          drawio:"The complete Draw.io mxfile XML is the single source of truth. DiagramDocument is only a derived partial projection. Never generate whole-document XML from the projection; preserve opaque cells and use server-owned, revision-checked cell operations that patch the current XML. Never let the model author raw XML or invent unsupported mxGraph style IDs.",
           layout:"Honor node locks and preferred sides/ranks; place nodes before routing edges; evaluate quality after layout. Prefer semantic constraints to arbitrary coordinates.",
           validation:"IDs must be unique, geometry finite and bounded, relationship endpoints and boundary members must exist, and ambiguous edits must fail explicitly. Mermaid import/conversion is not implemented."
         };return {topic:args.topic,guidance:references[args.topic]||references.validation};
