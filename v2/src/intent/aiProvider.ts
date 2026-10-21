@@ -1,3 +1,5 @@
+import { recordDiagnostic } from "../diagnostics";
+
 export interface AIProviderConfig {
   baseUrl: string;
   model: string;
@@ -50,7 +52,6 @@ const ALLOWED_COMMANDS = new Set([
   "解除手动锁定"
 ]);
 
-
 function extractAssistantContent(payload: unknown): string {
   if (!payload || typeof payload !== "object") throw new Error("模型响应不是 JSON 对象");
   const choices = (payload as { choices?: unknown }).choices;
@@ -95,36 +96,121 @@ export async function requestAIIntentPlan(
   prompt: string,
   context: AIIntentContext
 ): Promise<AIIntentPlan> {
+  const startedAt = Date.now();
   const baseUrl = config.baseUrl.trim().replace(/\/+$/, "");
   const model = config.model.trim();
-  if (!baseUrl || !model) throw new Error("请先配置模型接口地址和模型名");
-  const endpoint = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : baseUrl + "/chat/completions";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (config.apiKey && config.apiKey.trim()) headers.Authorization = "Bearer " + config.apiKey.trim();
+  if (!baseUrl || !model) {
+    recordDiagnostic("copilot.http.configuration.invalid", "模型请求未发送：接口地址或模型名为空", {
+      baseUrlPresent: Boolean(baseUrl), modelPresent: Boolean(model)
+    }, "error");
+    throw new Error("请先配置模型接口地址和模型名");
+  }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: JSON.stringify({ request: prompt, diagram: context }) }
-      ]
-    })
+  const endpoint = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : baseUrl + "/chat/completions";
+  let endpointHostname = "unknown";
+  let endpointPath = "invalid-url";
+  try {
+    const parsedEndpoint = new URL(endpoint);
+    endpointHostname = parsedEndpoint.hostname || "unknown";
+    endpointPath = parsedEndpoint.pathname;
+  } catch { /* fetch will report malformed URLs */ }
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const hasApiKey = Boolean(config.apiKey && config.apiKey.trim());
+  if (hasApiKey) headers.Authorization = "Bearer " + config.apiKey!.trim();
+
+  const requestBody = JSON.stringify({
+    model,
+    temperature: 0,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify({ request: prompt, diagram: context }) }
+    ]
   });
-  const responseText = await response.text();
+  recordDiagnostic("copilot.http.request.started", "发送 OpenAI-compatible Chat Completions 请求", {
+    endpointHostname, endpointPath, model,
+    requestBytes: new TextEncoder().encode(requestBody).length,
+    promptCharacters: prompt.length, contextNodeCount: context.nodes.length,
+    selectedNodePresent: Boolean(context.selectedNode), apiKeyPresent: hasApiKey, timeoutMs: 60000
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: requestBody,
+      signal: AbortSignal.timeout(60_000)
+    });
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+    recordDiagnostic("copilot.http.request.failed", timedOut ? "模型请求超时" : "模型请求未收到 HTTP 响应", {
+      durationMs: Date.now() - startedAt,
+      endpointHostname, model, timedOut,
+      errorName: error instanceof Error ? error.name : typeof error
+    }, "error");
+    if (timedOut) throw new Error("模型接口请求超过 60 秒，已中止；请检查接口地址、模型服务及终端日志。");
+    throw error;
+  }
+
+  let responseText: string;
+  try {
+    responseText = await response.text();
+  } catch (error) {
+    recordDiagnostic("copilot.http.response.read_failed", "读取模型响应正文失败", {
+      durationMs: Date.now() - startedAt, httpStatus: response.status,
+      errorName: error instanceof Error ? error.name : typeof error
+    }, "error");
+    throw new Error("无法读取模型接口响应正文；请检查网络连接和模型服务日志。");
+  }
+  recordDiagnostic("copilot.http.response.received", response.ok ? "模型接口返回 HTTP 响应" : "模型接口返回非成功 HTTP 状态", {
+    durationMs: Date.now() - startedAt, endpointHostname, model,
+    httpStatus: response.status, ok: response.ok, responseCharacters: responseText.length,
+    contentType: response.headers.get("content-type") || "unknown",
+    requestIdPresent: Boolean(response.headers.get("x-request-id") || response.headers.get("request-id"))
+  }, response.ok ? "info" : "error");
+
   let payload: unknown;
   try {
     payload = JSON.parse(responseText);
   } catch {
+    recordDiagnostic("copilot.http.response.invalid_json", "模型接口响应不是可解析的 JSON", {
+      httpStatus: response.status, responseCharacters: responseText.length, durationMs: Date.now() - startedAt
+    }, "error");
     if (!response.ok) throw new Error("模型接口返回 HTTP " + response.status + "，且响应不是 JSON");
     throw new Error("模型接口返回了无法解析的响应");
   }
   if (!response.ok) {
+    recordDiagnostic("copilot.http.response.error", "模型接口返回错误状态；响应正文未写入轨迹", {
+      httpStatus: response.status, durationMs: Date.now() - startedAt,
+      providerErrorPresent: Boolean(payload && typeof payload === "object" && "error" in payload)
+    }, "error");
     const message = payload && typeof payload === "object" && (payload as { error?: { message?: unknown } }).error?.message;
-    throw new Error("模型接口 HTTP " + response.status + (typeof message === "string" ? "：" + message : ""));
+    throw new Error("模型接口 HTTP " + response.status + (typeof message === "string" ? "：" + message.slice(0, 300) : ""));
   }
-  return parseAIIntentPlan(extractAssistantContent(payload));
+
+  let assistantContent: string;
+  try {
+    assistantContent = extractAssistantContent(payload);
+  } catch (error) {
+    recordDiagnostic("copilot.response.content.invalid", "成功响应中没有可用的 assistant 文本内容", {
+      durationMs: Date.now() - startedAt, responseCharacters: responseText.length,
+      errorName: error instanceof Error ? error.name : typeof error
+    }, "error");
+    throw error;
+  }
+
+  try {
+    const plan = parseAIIntentPlan(assistantContent);
+    recordDiagnostic("copilot.plan.validated", "模型输出通过 JSON 解析和命令白名单校验", {
+      durationMs: Date.now() - startedAt, commandCount: plan.commands.length,
+      replyCharacters: plan.reply.length, model, commandWhitelistEnforced: true
+    }, "info");
+    return plan;
+  } catch (error) {
+    recordDiagnostic("copilot.plan.validation.failed", "模型输出未通过计划校验；未执行任何修改", {
+      durationMs: Date.now() - startedAt, assistantContentCharacters: assistantContent.length,
+      errorMessage: error instanceof Error ? error.message : "plan-validation-error"
+    }, "error");
+    throw error;
+  }
 }
