@@ -461,9 +461,9 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const xml = toDrawioXml(laidOut), now = new Date().toISOString();
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, createdAt: now, label: "应用模板：" + key, document: laidOut, drawioXml: xml };
       const versions = await getDiagramVersions(); diagramVersions = [...versions, version]; await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
-      if (workspace?.primaryDiagram && /\\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
+      if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
       workspaceState = { ...state, workspaceId: workspace?.id, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
-      await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\\n", "utf8");
+      await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
       return { status: 200 as const, version, document: laidOut, revision: documentRevision(laidOut), quality: evaluateLayout(laidOut) };
     });
     if (result.status !== 200) { res.status(result.status).json(result); return; }
@@ -524,14 +524,14 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       const versions = await getDiagramVersions();
       diagramVersions = [...versions, version];
       await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
-      if (workspace?.primaryDiagram && /\\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
+      if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
         await writeTextAtomic(absolutePath, xml);
       }
       workspaceState = { ...state, workspaceId: workspace?.id, document: proposal.document, drawioXml: xml, updatedAt: version.createdAt };
       await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
-      await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\\n", "utf8");
+      await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\n", "utf8");
       diagramEditProposals.delete(proposalId);
       return { status: 200 as const, version, document: proposal.document, revision: documentRevision(proposal.document), quality };
     });
@@ -802,7 +802,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       };
       diagramVersions = [...versions, version];
       await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
-      if (workspace?.primaryDiagram && /\\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
+      if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
         await writeTextAtomic(absolutePath, version.drawioXml);
       }
