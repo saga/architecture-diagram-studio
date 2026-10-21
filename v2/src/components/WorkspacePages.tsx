@@ -27,6 +27,8 @@ interface Props {
   setAiBaseUrl: (value: string) => void;
   aiModel: string;
   setAiModel: (value: string) => void;
+  reasoningEffort: "high" | "max";
+  setReasoningEffort: (value: "high" | "max") => void;
   aiApiKey: string;
   setAiApiKey: (value: string) => void;
   saveAISettings: () => void;
@@ -51,7 +53,7 @@ function formattedTime(timestamp: string): string {
 export default function WorkspacePages(props: Props) {
   const {
     page, document, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, acceptPreview, discardPreview, openStudio, aiModel, setAiModel,
+    sendIntent, acceptPreview, discardPreview, openStudio, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
     saveAISettings, clearAISettings, traceEntries, clearTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
@@ -236,6 +238,10 @@ export default function WorkspacePages(props: Props) {
               />
             </label>
             <p className="settings-description">{modelsMessage || "默认使用 Claude Sonnet 5.5；模型选项优先来自本机 Copilot SDK。"}</p>
+            <label className="settings-field">Thinking effort
+              <Select value={reasoningEffort} onChange={(value: "high" | "max") => setReasoningEffort(value)} options={[{ value: "max", label: "Max — 最高推理强度（默认）" }, { value: "high", label: "High — 高推理强度" }]} style={{ width: "100%" }} />
+            </label>
+            <p className="settings-description">通过 Copilot SDK 的 reasoningEffort 传递。仅当所选模型支持该档位时生效；服务端会依据 SDK 模型能力选择兼容档位。</p>
             <div className="settings-security-note"><strong>Agent 能力与安全边界</strong><span>服务端通过 @github/copilot-sdk 创建会话，并要求 Agent 调用 propose_layout_plan 工具提交结构化布局计划。模型凭据不经过浏览器；服务使用本机已登录的 Copilot CLI。Agent 只能提出白名单中的布局命令，不能执行任意代码或直接写入图形。计划通过校验后仍需在 Studio 中预览并由你确认。</span></div>
             <div className="settings-card-actions"><UiButton type="button" className="button button-quiet" onClick={clearAISettings}>清除模型配置</UiButton><UiButton type="button" className="button button-primary" onClick={saveAISettings}>保存配置</UiButton></div>
           </section>
