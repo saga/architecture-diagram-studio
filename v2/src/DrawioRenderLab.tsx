@@ -10,6 +10,7 @@ const factories: Record<Scenario, () => DiagramDocument> = {
   sequence: () => {
     const document = createSequenceFixture();
     document.relations.push({ id: "lab-self-call", source: "web", target: "web", label: "Refresh local cache", kind: "call", sequenceOrder: document.relations.length });
+    document.sequence = { ...(document.sequence || { participants: [] }), fragments: [{ id: "lab-alt", kind: "alt", label: "Token valid or expired", startOrder: 1, endOrder: Math.min(6, document.relations.length - 1) }] };
     return document;
   },
   c4: createC4Fixture,
