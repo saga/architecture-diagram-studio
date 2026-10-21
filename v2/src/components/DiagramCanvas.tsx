@@ -189,7 +189,7 @@ export default function DiagramCanvas({
       preserveAspectRatio={document.kind === "flowchart" ? "xMidYMin meet" : "xMidYMid meet"} onPointerDown={startPan}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       onContextMenu={(event) => { event.preventDefault(); onContextMenu({ kind: "canvas" }, event.clientX, event.clientY); }}
-      role="group" aria-labelledby={titleId + " " + descriptionId}>
+      role="group" aria-labelledby={titleId} aria-describedby={descriptionId}>
       <title id={titleId}>{document.title}</title>
       <desc id={descriptionId}>{document.kind.toUpperCase() + " diagram with " + document.nodes.length + " nodes and " + document.relations.length + " relationships."}</desc>
       <defs>
