@@ -1,4 +1,4 @@
-import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
+import type { DiagramDocument, DiagramNode, Point } from "../model/types";
 
 type Side = "LEFT" | "RIGHT" | "TOP" | "BOTTOM";
 type Endpoint = "source" | "target";
