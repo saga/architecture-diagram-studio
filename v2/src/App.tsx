@@ -275,7 +275,7 @@ export default function App() {
     if (!text || chatBusy) return;
     const startedAt = Date.now();
     recordDiagnostic("copilot.request.started", "开始处理布局意图", {
-      configuredModel: Boolean(aiBaseUrl.trim() && aiModel.trim()), model: aiModel.trim() || "local-rules",
+      configuredModel: Boolean(aiModel.trim()), provider: aiModel.trim() ? "github-copilot-sdk" : "local-rules", model: aiModel.trim() || "local-rules",
       diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
       inputLength: text.length
     });
@@ -348,7 +348,7 @@ export default function App() {
 
   function saveAISettings() {
     const next = { baseUrl: aiBaseUrl.trim().replace(/\/+$/, ""), model: aiModel.trim() };
-    setAiBaseUrl(next.baseUrl);
+    setAiBaseUrl("copilot-sdk");
     setAiModel(next.model);
     let saved = true;
     try {
