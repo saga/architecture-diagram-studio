@@ -67,7 +67,7 @@ let logWriteQueue: Promise<void> = Promise.resolve();
 const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
 
 async function writeLog(event: string, fields: Record<string, unknown> = {}): Promise<void> {
-  const record = { timestamp: new Date().toISOString(), event, ...fields };
+  const record = { timestamp: new Date().toISOString(), workspaceId: projectWorkspace?.id ?? null, event, ...fields };
   const line = JSON.stringify(record) + "\n";
   const persist = logWriteQueue.then(async () => {
     await mkdir(LOG_DIR, { recursive: true });
@@ -315,6 +315,7 @@ app.post("/api/workspace/logs", async (req, res) => {
   try {
     const record = {
       receivedAt: new Date().toISOString(),
+      workspaceId: projectWorkspace?.id ?? null,
       id: typeof item.id === "string" ? item.id.slice(0, 100) : randomUUID(),
       clientTimestamp: typeof item.timestamp === "string" ? item.timestamp.slice(0, 50) : null,
       level: ["debug", "info", "warn", "error"].includes(item.level) ? item.level : "info",
@@ -333,11 +334,12 @@ app.post("/api/workspace/logs", async (req, res) => {
 app.get("/api/workspace/logs", async (req, res) => {
   try {
     const raw = await readFile(APP_LOG_FILE, "utf8").catch(() => "");
+    const workspace = await getProjectWorkspace();
     const limit = Math.min(10000, Math.max(1, Number(req.query.limit) || 2000));
-    const logs = raw.split("\n").filter(Boolean).slice(-limit).flatMap((line) => {
-      try { return [JSON.parse(line)]; } catch { return []; }
-    });
-    res.json({ logs, logFile: APP_LOG_FILE });
+    const logs = raw.split("\n").filter(Boolean).flatMap((line) => {
+      try { const entry = JSON.parse(line) as Record<string, unknown>; return !workspace || entry.workspaceId === workspace.id ? [entry] : []; } catch { return []; }
+    }).slice(-limit);
+    res.json({ logs, logFile: APP_LOG_FILE, workspaceId: workspace?.id ?? null });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
