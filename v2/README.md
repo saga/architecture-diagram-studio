@@ -1,5 +1,9 @@
 # Architecture Diagram Studio V2
 
+## Startup and diagram files
+
+A workspace is a project directory, not a diagram. Use Open / New Draw.io to open an existing .drawio file from a scanned workspace directory or create a new blank .drawio file in that directory. The active diagram is tracked independently from the workspace; autosave and version history are scoped to that file. Creating a new diagram never overwrites an existing file.
+
 V2 is an independent implementation. The previous implementation is preserved under the sibling V1 directory; V2 must not import code from V1.
 
 ## Run

@@ -19,16 +19,19 @@ export function matchesWorkspaceRevision(baseRevision: string | null | undefined
 export function workspaceRevision(document: unknown, drawioXml: string | null): string {
   return createHash("sha256").update(JSON.stringify(document)).update("\0").update(drawioXml ?? "").digest("hex");
 }
-export function retainRecentVersions<T extends { id: string; workspaceId?: string }>(versions: T[], maxPerWorkspace: number, maxTotalVersions = 500): T[] {
+export function retainRecentVersions<T extends { id: string; workspaceId?: string; diagramPath?: string | null }>(versions: T[], maxPerWorkspace: number, maxTotalVersions = 500): T[] {
   const counts = new Map<string, number>();
   const retained = new Set<string>();
   const totalLimit = Math.max(1, Math.floor(maxTotalVersions));
   const workspaceLimit = Math.max(1, Math.floor(maxPerWorkspace));
   for (let i = versions.length - 1; i >= 0 && retained.size < totalLimit; i--) {
-    const version = versions[i], workspaceId = version.workspaceId ?? "__legacy__";
-    const count = counts.get(workspaceId) ?? 0;
+    const version = versions[i];
+    const workspaceId = version.workspaceId ?? "__legacy__";
+    const diagramPath = version.diagramPath ?? "__legacy_diagram__";
+    const scopeKey = workspaceId + "\0" + diagramPath;
+    const count = counts.get(scopeKey) ?? 0;
     if (count >= workspaceLimit) continue;
-    counts.set(workspaceId, count + 1);
+    counts.set(scopeKey, count + 1);
     retained.add(version.id);
   }
   return versions.filter((version) => retained.has(version.id));

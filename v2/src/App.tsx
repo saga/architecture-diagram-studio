@@ -213,9 +213,11 @@ export default function App() {
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceLaunchMode, setWorkspaceLaunchMode] = useState<"open" | "create">("open");
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [workspacePrimaryDiagram, setWorkspacePrimaryDiagram] = useState("");
+  const [workspaceNewDiagramName, setWorkspaceNewDiagramName] = useState("architecture.drawio");
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
   useEffect(() => {
     let active = true;
@@ -250,55 +252,108 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("Could not read the project workspace configuration"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null; suggestedRootPath?: string }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!result.configured || !workspace); if (!workspace && result.suggestedRootPath) { setWorkspaceRootPath(result.suggestedRootPath); setWorkspaceName(result.suggestedRootPath.split(/[\\/]/).filter(Boolean).pop() || "Project Workspace"); } if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); void fetch("/api/workspace/files").then((response) => response.ok ? response.json() as Promise<{ files?: WorkspaceFile[] }> : Promise.resolve({ files: [] })).then((result) => { if (active) setWorkspaceFiles(result.files || []); }).catch(() => undefined); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
+    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("Could not read the project workspace configuration"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null; suggestedRootPath?: string }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!workspace || !workspace.primaryDiagram); if (!workspace && result.suggestedRootPath) { setWorkspaceRootPath(result.suggestedRootPath); setWorkspaceName(result.suggestedRootPath.split(/[\\/]/).filter(Boolean).pop() || "Project Workspace"); } if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); void fetch("/api/workspace/files").then((response) => response.ok ? response.json() as Promise<{ files?: WorkspaceFile[] }> : Promise.resolve({ files: [] })).then((result) => { if (active) setWorkspaceFiles(result.files || []); }).catch(() => undefined); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
     return () => { active = false; };
   }, []);
 
   async function saveProjectWorkspace() {
+    const previousContentReady = workspaceContentReady;
+    let serverActiveContextChanged = false;
     setWorkspaceSaving(true); setWorkspaceContentReady(false); setWorkspaceError("");
     try {
-      const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram || null }) });
-      const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; counts?: { files: number; diagrams: number; code: number; documents: number } };
-      if (!response.ok || !result.workspace) throw new Error(result.error || "Configuring the workspace failed");
+      // Flush the current file before the workspace's active diagram changes; the debounced autosave
+      // is intentionally paused while the launch dialog is working.
+      if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
+        await persistDocumentNow(document, drawioXml, "Autosave before changing the active diagram");
+      }
+      if (workspaceLaunchMode === "create") {
+        const response = await fetch("/api/workspace/diagram/create", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, fileName: workspaceNewDiagramName })
+        });
+        const result = await response.json() as {
+          error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
+          document?: DiagramDocument; drawioXml?: string; workspaceRevision?: string;
+          version?: { id: string; createdAt: string; label: string };
+        };
+        serverActiveContextChanged = response.ok;
+        if (!response.ok || !result.workspace || !result.document || typeof result.drawioXml !== "string" || typeof result.workspaceRevision !== "string") {
+          throw new Error(result.error || "Creating the Draw.io file failed");
+        }
+        const nextWorkspace = result.workspace, nextDocument = result.document;
+        setDocument(nextDocument); setSelectedNodeId(null);
+        historyRef.current = [nextDocument]; historyIndexRef.current = 0;
+        setCanUndo(false); setCanRedo(false);
+        setNativeXmlOverride(result.drawioXml);
+        setProjectWorkspace(nextWorkspace); setWorkspaceFiles(result.files || []);
+        setWorkspaceName(nextWorkspace.name); setWorkspaceRootPath(nextWorkspace.rootPath);
+        setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
+        const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
+        setCopilotSessionId(newSessionId);
+        setMessages([{ role: "assistant", id: Date.now(), text: "Created a new Draw.io diagram. The project workspace remains the folder; this file is the active diagram." }]);
+        serverRevisionRef.current = result.workspaceRevision;
+        serverCommittedDocumentRef.current = { document: nextDocument, workspaceId: nextWorkspace.id };
+        workspaceInitialLoadRef.current = nextWorkspace.id;
+        setServerDocumentAvailable(true); setWorkspaceContentReady(true);
+        setWorkspaceLaunchMode("open"); setWorkspaceSetupOpen(false);
+        recordDiagnostic("workspace.diagram.created", "Created a new Draw.io file and opened it", {
+          workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram,
+          versionId: result.version?.id, nodeCount: nextDocument.nodes.length
+        });
+        return;
+      }
+
+      if (!workspacePrimaryDiagram) throw new Error("Select an existing Draw.io file to open.");
+      const response = await fetch("/api/workspace/config", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram })
+      });
+      const result = await response.json() as {
+        error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
+        counts?: { files: number; diagrams: number; code: number; documents: number };
+      };
+      if (!response.ok || !result.workspace) throw new Error(result.error || "Opening the Draw.io workspace failed");
       const nextWorkspace = result.workspace;
-      let nextDocument = document;
-      let nextXml: string | null = nativeXmlOverride;
+      let nextDocument = document, nextXml: string | null = nativeXmlOverride;
       const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
-      if (workspaceChanged) { setMessages([{ role: "assistant", id: Date.now(), text: "Switched to a new project workspace. Later analysis will be based on the Draw.io diagrams, code, and design documents in that directory." }]); const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); }
-      if (workspaceChanged) serverRevisionRef.current = null;
-      if (nextWorkspace.primaryDiagram && (workspaceChanged || projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram || !workspaceContentReady) && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
+      const diagramChanged = projectWorkspace?.id === nextWorkspace.id && projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram;
+      const diagramContextChanged = workspaceChanged || diagramChanged;
+      serverActiveContextChanged = diagramContextChanged;
+      if (diagramContextChanged) {
+        setMessages([{ role: "assistant", id: Date.now(), text: "Opened a different Draw.io diagram. The previous diagram's chat context and edit history are no longer active." }]);
+        const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
+        setCopilotSessionId(newSessionId);
+        serverRevisionRef.current = null; serverCommittedDocumentRef.current = null;
+      }
+      if (nextWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
         const fileResponse = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(nextWorkspace.primaryDiagram));
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "Could not read the selected Draw.io file");
         nextXml = fileResult.content;
-        // A workspace switch must not inherit semantic metadata from the previous project's diagram.
-        const importBaseDocument = workspaceChanged ? FIXTURES.c4() : document;
+        const importBaseDocument = diagramContextChanged ? FIXTURES.c4() : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
         if (parsedDocument === importBaseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
         nextDocument = await requestServerSequenceNormalize(parsedDocument);
       } else if (workspaceChanged) {
-        nextDocument = await layoutSample(FIXTURES.c4());
-        nextXml = null;
+        nextDocument = await layoutSample(FIXTURES.c4()); nextXml = null;
       }
       if (nextDocument !== document) {
-        setDocument(nextDocument);
-        setSelectedNodeId(nextDocument.nodes[0]?.id || null);
-        historyRef.current = [nextDocument];
-        historyIndexRef.current = 0;
-        setCanUndo(false);
-        setCanRedo(false);
+        setDocument(nextDocument); setSelectedNodeId(nextDocument.nodes[0]?.id || null);
+        historyRef.current = [nextDocument]; historyIndexRef.current = 0;
+        setCanUndo(false); setCanRedo(false);
       }
-      setNativeXmlOverride(nextXml);
-      workspaceInitialLoadRef.current = nextWorkspace.id;
-      setServerDocumentAvailable(true);
-      setProjectWorkspace(nextWorkspace);
-      setWorkspaceFiles(result.files || workspaceFiles);
+      setNativeXmlOverride(nextXml); workspaceInitialLoadRef.current = nextWorkspace.id;
+      setServerDocumentAvailable(true); setProjectWorkspace(nextWorkspace); setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
-      setWorkspaceSetupOpen(false);
-      setWorkspaceContentReady(true);
-      recordDiagnostic("workspace.project.configured", "Project workspace configured", { workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram, ...(result.counts || {}) });
-    } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
-    finally { setWorkspaceSaving(false); }
+      setWorkspaceSetupOpen(false); setWorkspaceContentReady(true); setWorkspaceLaunchMode("open");
+      recordDiagnostic("workspace.diagram.opened", "Opened an existing Draw.io file in the project workspace", {
+        workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram,
+        ...(result.counts || {})
+      });
+    } catch (error) {
+      setWorkspaceContentReady(serverActiveContextChanged ? false : previousContentReady);
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    } finally { setWorkspaceSaving(false); }
   }
 
   useEffect(() => {
@@ -872,17 +927,48 @@ export default function App() {
       <XProvider>
         <AntApp>
     <Layout className="app-shell" data-theme={uiTheme} style={{ "--left-w": panelWidths.left + "px", "--right-w": panelWidths.right + "px" } as CSSProperties}>
-      <Modal title="Set up project workspace" open={!workspaceChecking && workspaceSetupOpen} closable={Boolean(projectWorkspace)} maskClosable={false} onCancel={() => { if (projectWorkspace) setWorkspaceSetupOpen(false); }} footer={null} width={680}>
+      <Modal
+        title={workspaceLaunchMode === "open" ? "Open existing Draw.io" : "Create new Draw.io"}
+        open={!workspaceChecking && workspaceSetupOpen}
+        closable={Boolean(projectWorkspace && workspaceContentReady)}
+        maskClosable={false}
+        onCancel={() => { if (projectWorkspace && workspaceContentReady) setWorkspaceSetupOpen(false); }}
+        footer={null}
+        width={720}
+      >
         <div style={{ display: "grid", gap: 16, paddingTop: 8 }}>
-          <p>The workspace is the project boundary for every diagram edit, code analysis and agent run. The repository root is pre-filled and recommended, but any project root works; the server scans it for Draw.io diagrams, code and design docs, and stores the config as JSON.</p>
+          <p>The workspace is the project folder, like a VS Code workspace. The active diagram is a single Draw.io file inside it. Copilot can use the rest of the workspace—code, documentation and other diagrams—as project context.</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type={workspaceLaunchMode === "open" ? "primary" : "default"} onClick={() => { setWorkspaceLaunchMode("open"); setWorkspaceError(""); }}>Open existing Draw.io</Button>
+            <Button type={workspaceLaunchMode === "create" ? "primary" : "default"} onClick={() => { setWorkspaceLaunchMode("create"); setWorkspaceError(""); }}>Create new Draw.io</Button>
+          </div>
           {workspaceError && <div role="alert" style={{ color: "#b42318", background: "#fef3f2", borderRadius: 6, padding: 10 }}>{workspaceError}</div>}
           <label style={{ display: "grid", gap: 6 }}><strong>Workspace name</strong><Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="e.g. Payments Architecture" /></label>
-          <label style={{ display: "grid", gap: 6 }}><strong>Absolute path of the local project directory</strong><Input value={workspaceRootPath} onChange={(event) => setWorkspaceRootPath(event.target.value)} placeholder="Defaults to the repository root; any other project root works too" /></label>
-          <small style={{ color: "var(--muted, #667085)" }}>The local Node.js server reads this path, not a browser file picker. Point it at a project root containing source, ADRs, READMEs and .drawio files.</small>
-          {workspaceFiles.length > 0 && <div style={{ border: "1px solid var(--border, #e5e7eb)", borderRadius: 8, padding: 12 }}><strong>Files found</strong><div style={{ marginTop: 6 }}>{workspaceFiles.length} files · {workspaceFiles.filter((file) => file.kind === "diagram").length} diagrams · {workspaceFiles.filter((file) => file.kind === "code").length} code files · {workspaceFiles.filter((file) => file.kind === "document").length} documents</div></div>}
-          <label style={{ display: "grid", gap: 6 }}><strong>Primary Draw.io diagram (optional)</strong><Select value={workspacePrimaryDiagram || undefined} allowClear showSearch placeholder="Save the directory first to pick a primary diagram" options={workspaceFiles.filter((file) => file.kind === "diagram" && /\\.(drawio|dio|xml)$/i.test(file.path)).map((file) => ({ value: file.path, label: file.path }))} onChange={(value) => setWorkspacePrimaryDiagram(value || "")} /></label>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><Button onClick={() => { void (async () => { try { setWorkspaceError(""); const response = await fetch("/api/workspace/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath }) }); const result = await response.json() as { error?: string; files?: WorkspaceFile[]; workspace?: ProjectWorkspace }; if (!response.ok || !result.workspace) throw new Error(result.error || "Directory scan failed"); setWorkspaceFiles(result.files || []); if (projectWorkspace?.rootPath === result.workspace.rootPath && projectWorkspace.primaryDiagram) setWorkspacePrimaryDiagram(projectWorkspace.primaryDiagram); else setWorkspacePrimaryDiagram(""); } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); } })(); }}>Verify directory and scan</Button><Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim()} onClick={() => void saveProjectWorkspace()}>Save and open Studio</Button></div>
-          <small style={{ color: "var(--muted, #667085)" }}>Config file: ~/.architecture-diagram-studio/data/project-workspace.json. Agents and MCP reach the workspace through the server API, never through browser localStorage.</small>
+          <label style={{ display: "grid", gap: 6 }}><strong>Absolute path of the project directory</strong><Input value={workspaceRootPath} onChange={(event) => setWorkspaceRootPath(event.target.value)} placeholder="Path to a local folder or repository root" /></label>
+          <small style={{ color: "var(--muted, #667085)" }}>The local Node.js server reads this path. Verify and scan the folder to discover existing diagrams. New diagrams are created directly in the workspace root.</small>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <Button onClick={() => { void (async () => {
+              try {
+                setWorkspaceError("");
+                const response = await fetch("/api/workspace/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath }) });
+                const result = await response.json() as { error?: string; files?: WorkspaceFile[]; workspace?: ProjectWorkspace };
+                if (!response.ok || !result.workspace) throw new Error(result.error || "Directory scan failed");
+                setWorkspaceFiles(result.files || []);
+                if (projectWorkspace?.rootPath === result.workspace.rootPath && projectWorkspace.primaryDiagram) setWorkspacePrimaryDiagram(result.workspace.primaryDiagram);
+                else if (!(result.files || []).some((file) => file.path === workspacePrimaryDiagram)) setWorkspacePrimaryDiagram("");
+              } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
+            })(); }} disabled={!workspaceRootPath.trim()}>Verify directory and scan</Button>
+            {workspaceFiles.length > 0 && <span style={{ color: "var(--muted, #667085)" }}>{workspaceFiles.length} files · {workspaceFiles.filter((file) => file.kind === "diagram" && /\.(drawio|dio|xml)$/i.test(file.path)).length} Draw.io/XML files · {workspaceFiles.filter((file) => file.kind === "code").length} code files · {workspaceFiles.filter((file) => file.kind === "document").length} documents</span>}
+          </div>
+          {workspaceLaunchMode === "open" ? (
+            <label style={{ display: "grid", gap: 6 }}><strong>Draw.io file to open</strong><Select value={workspacePrimaryDiagram || undefined} allowClear showSearch optionFilterProp="label" placeholder="Scan the folder, then choose an existing file" options={workspaceFiles.filter((file) => file.kind === "diagram" && /\.(drawio|dio|xml)$/i.test(file.path)).map((file) => ({ value: file.path, label: file.path }))} onChange={(value) => setWorkspacePrimaryDiagram(value || "")} /></label>
+          ) : (
+            <label style={{ display: "grid", gap: 6 }}><strong>New file name</strong><Input value={workspaceNewDiagramName} onChange={(event) => setWorkspaceNewDiagramName(event.target.value)} placeholder="architecture.drawio" /><small style={{ color: "var(--muted, #667085)" }}>Creates a blank .drawio file and refuses to overwrite an existing file.</small></label>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button onClick={() => { if (projectWorkspace && workspaceContentReady) setWorkspaceSetupOpen(false); }} disabled={!projectWorkspace || !workspaceContentReady}>Cancel</Button>
+            <Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim() || (workspaceLaunchMode === "open" ? !workspacePrimaryDiagram : !workspaceNewDiagramName.trim())} onClick={() => void saveProjectWorkspace()}>{workspaceLaunchMode === "open" ? "Open diagram" : "Create diagram"}</Button>
+          </div>
         </div>
       </Modal>
       <Modal title="Server version history" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760}>
@@ -904,7 +990,7 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span className="crumb-sep">/</span><strong>{document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
+        <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span className="crumb-sep">/</span><strong>{projectWorkspace?.primaryDiagram || document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
           {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
@@ -919,6 +1005,22 @@ export default function App() {
             <option value="midnight">Midnight</option>
           </UiSelect>
         </label>
+        <UiButton type="button" className="button button-secondary" onClick={() => {
+          setWorkspaceLaunchMode("open"); setWorkspaceError("");
+          if (projectWorkspace) {
+            setWorkspaceName(projectWorkspace.name); setWorkspaceRootPath(projectWorkspace.rootPath);
+            setWorkspacePrimaryDiagram(projectWorkspace.primaryDiagram || "");
+          }
+          setWorkspaceSetupOpen(true);
+        }}>Open Draw.io</UiButton>
+        <UiButton type="button" className="button button-secondary" onClick={() => {
+          setWorkspaceLaunchMode("create"); setWorkspaceError("");
+          if (projectWorkspace) {
+            setWorkspaceName(projectWorkspace.name); setWorkspaceRootPath(projectWorkspace.rootPath);
+          }
+          setWorkspaceNewDiagramName("architecture.drawio");
+          setWorkspaceSetupOpen(true);
+        }}>New Draw.io</UiButton>
         <UiInput ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
           <UiButton className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>

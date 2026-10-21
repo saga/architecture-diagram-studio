@@ -12,6 +12,17 @@ describe("server persistence primitives", () => {
     expect(retained).toHaveLength(7);
     expect(retained.map((version) => version.id)).toEqual(["v17", "v18", "v19", "v20", "v21", "v22", "v23"]);
   });
+  it("retains version history independently for each diagram in the same workspace", () => {
+    const versions = [
+      { id: "a0", workspaceId: "w", diagramPath: "a.drawio" },
+      { id: "a1", workspaceId: "w", diagramPath: "a.drawio" },
+      { id: "b0", workspaceId: "w", diagramPath: "b.drawio" },
+      { id: "b1", workspaceId: "w", diagramPath: "b.drawio" },
+      { id: "a2", workspaceId: "w", diagramPath: "a.drawio" },
+      { id: "b2", workspaceId: "w", diagramPath: "b.drawio" }
+    ];
+    expect(retainRecentVersions(versions, 2, 10).map((version) => version.id)).toEqual(["a1", "b1", "a2", "b2"]);
+  });
   it("accepts only a supplied revision equal to the current server revision", () => {
     expect(matchesWorkspaceRevision(undefined, null)).toBe(false);
     expect(matchesWorkspaceRevision("stale", "current")).toBe(false);

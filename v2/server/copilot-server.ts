@@ -1,7 +1,7 @@
 import express from "express";
 import os from "node:os";
 import path from "node:path";
-import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { isDiagramDocument, type DiagramDocument, type DiagramNode, type DiagramRelation, type DiagramBoundary, type SequenceFragment, type NodeRole, type VisualRole, type EdgeKind } from "../src/model/types";
 import { interpretIntent } from "../src/intent/applyIntent";
 import { layoutDiagram, moveNode } from "../src/layout/layout";
@@ -10,6 +10,7 @@ import { LAYOUT_PROFILES, resolveLayoutProfile } from "../src/layout/profiles";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
+import { createEmptyDrawioDocument, normalizeNewDrawioFileName } from "./diagram-file";
 import { createHash, randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
@@ -95,8 +96,8 @@ async function getStudioConfig(): Promise<StudioConfig> {
 }
 async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> { await mkdir(DATA_DIR, { recursive: true }); await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", "utf8"); studioConfig = config; }
 let projectWorkspace: ProjectWorkspace | null | undefined;
-type DiagramVersion = { id: string; workspaceId?: string; createdAt: string; label: string; document: unknown; drawioXml: string };
-type WorkspaceState = { workspaceId?: string; document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
+type DiagramVersion = { id: string; workspaceId?: string; diagramPath?: string | null; createdAt: string; label: string; document: unknown; drawioXml: string };
+type WorkspaceState = { workspaceId?: string; diagramPath?: string | null; document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
 const withDataWrite = createSerializedWriteQueue();
 let workspaceState: WorkspaceState | null = null;
 let diagramVersions: DiagramVersion[] | null = null;
@@ -113,6 +114,20 @@ const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env
 const MAX_TOTAL_DIAGRAM_VERSIONS = Math.min(5000, Math.max(100, Number(process.env.STUDIO_MAX_TOTAL_DIAGRAM_VERSIONS) || 500));
 function retainRecentVersions(versions: DiagramVersion[]): DiagramVersion[] {
   return retainVersionsWithinLimit(versions, MAX_VERSIONS_PER_WORKSPACE, MAX_TOTAL_DIAGRAM_VERSIONS);
+}
+function versionMatchesActiveDiagram(version: DiagramVersion, workspace: ProjectWorkspace | null): boolean {
+  const activePath = workspace?.primaryDiagram ?? null;
+  // Older versions have no diagramPath. Treat them as belonging to the previously configured diagram;
+  // /api/workspace/config and /api/workspace/diagram/create pin them before the active path changes.
+  return (!workspace || version.workspaceId === workspace.id) &&
+    (version.diagramPath === undefined || version.diagramPath === activePath);
+}
+function workspaceStateMatchesActiveDiagram(state: WorkspaceState, workspace: ProjectWorkspace | null): boolean {
+  if (state.workspaceId && workspace && state.workspaceId !== workspace.id) return false;
+  // An unscoped legacy document must not masquerade as the current primary diagram.
+  if (workspace?.primaryDiagram && !state.workspaceId) return false;
+  if (state.diagramPath !== undefined && workspace && state.diagramPath !== (workspace.primaryDiagram ?? null)) return false;
+  return true;
 }
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
@@ -412,7 +427,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document)) return { status: 404 as const, error: "There is no saved primary diagram to replace" };
-      if (state.workspaceId && workspace && state.workspaceId !== workspace.id) return { status: 409 as const, error: "The current diagram belongs to another workspace; reload the primary diagram first" };
+      if (!workspaceStateMatchesActiveDiagram(state, workspace)) return { status: 409 as const, error: "The current diagram belongs to another workspace; reload the primary diagram first" };
       if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== documentRevision(state.document)) return { status: 409 as const, error: "The diagram changed; read it again before applying the template" };
       const config = await getStudioConfig();
       const document = createDiagramTemplate(key);
@@ -429,10 +444,10 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const errors = validateDiagramSemantics(laidOut);
       if (errors.length) return { status: 422 as const, error: "The template failed semantic validation", validationErrors: errors };
       const xml = toDrawioXml(laidOut), now = new Date().toISOString();
-      const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
+      const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
       const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
-      workspaceState = { ...state, workspaceId: workspace?.id, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
       return { status: 200 as const, version, document: laidOut, revision: documentRevision(laidOut), quality: evaluateLayout(laidOut) };
     });
@@ -449,7 +464,7 @@ app.get("/api/workspace/diagram/active", async (req, res) => {
   try {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
-    if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) {
+    if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
       res.status(404).json({ error: "This workspace has no saved primary diagram" }); return;
     }
     res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: workspaceRevision(state.document, state.drawioXml), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
@@ -461,7 +476,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     if (!prompt || prompt.length > 4000) { res.status(400).json({ error: "The edit intent must be 1–4000 characters" }); return; }
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
-    if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) { res.status(404).json({ error: "This workspace has no saved primary diagram" }); return; }
+    if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) { res.status(404).json({ error: "This workspace has no saved primary diagram" }); return; }
     const baseRevision = workspaceRevision(state.document, state.drawioXml);
     if (typeof req.body?.baseRevision === "string" && req.body.baseRevision !== baseRevision) { res.status(409).json({ error: "The diagram changed; read it again before generating a proposal", revision: baseRevision }); return; }
     const interpreted = interpretIntent(state.document, prompt);
@@ -498,7 +513,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
         return { status: 422 as const, error: "The proposal degrades layout quality significantly and was not saved; adjust the request and generate a new proposal", quality, baseQuality };
       }
       const xml = proposal.nativeXml ?? toDrawioXml(proposal.document);
-      const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, createdAt: new Date().toISOString(), label: "Agent edit: " + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
+      const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: new Date().toISOString(), label: "Agent edit: " + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
       const versions = await getDiagramVersions();
       diagramVersions = retainRecentVersions([...versions, version]);
       await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
@@ -506,7 +521,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
         await writeTextAtomic(absolutePath, xml);
       }
-      workspaceState = { ...state, workspaceId: workspace?.id, document: proposal.document, drawioXml: xml, updatedAt: version.createdAt };
+      workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: proposal.document, drawioXml: xml, updatedAt: version.createdAt };
       await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\n", "utf8");
@@ -528,7 +543,7 @@ app.post("/api/workspace/diagram/restore-version", async (req, res) => {
   try {
     const versions = await getDiagramVersions();
     const workspace = await getProjectWorkspace();
-    const version = versions.find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
+    const version = versions.find((item) => item.id === versionId && versionMatchesActiveDiagram(item, workspace));
     if (!version) { res.status(404).json({ error: "Version not found" }); return; }
     const restored = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore?includeXml=false", { method: "POST" });
     const payload = await restored.json();
@@ -573,10 +588,116 @@ app.put("/api/workspace/config", async (req, res) => {
     const workspace: ProjectWorkspace = { schemaVersion: 1, id: sameRoot && previous ? previous.id : randomUUID(), name: resolved.repositoryRoot ? path.basename(rootPath) : name, rootPath, primaryDiagram: req.body?.primaryDiagram === null ? null : typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram : sameRoot && previous ? previous.primaryDiagram : null, includePatterns: Array.isArray(req.body?.includePatterns) ? req.body.includePatterns.filter((v: unknown) => typeof v === "string").slice(0, 100) : sameRoot && previous ? previous.includePatterns : [], excludePatterns: Array.isArray(req.body?.excludePatterns) ? req.body.excludePatterns.filter((v: unknown) => typeof v === "string").slice(0, 200) : sameRoot && previous ? previous.excludePatterns : [], createdAt: sameRoot && previous ? previous.createdAt : now, updatedAt: now };
     const files = await scanWorkspaceFiles(workspace);
     if (workspace.primaryDiagram && !files.some((item) => item.path === workspace.primaryDiagram && item.kind === "diagram")) workspace.primaryDiagram = null;
-    await withDataWrite(async () => { projectWorkspace = workspace; await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace); });
+    await withDataWrite(async () => {
+      const activeDiagramChanged = Boolean(previous && previous.id === workspace.id && previous.primaryDiagram !== workspace.primaryDiagram);
+      projectWorkspace = workspace;
+      await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace);
+      if (activeDiagramChanged) {
+        const versions = await getDiagramVersions();
+        let migratedLegacyVersions = false;
+        diagramVersions = versions.map((version) => {
+          if (version.workspaceId === workspace.id && version.diagramPath === undefined) {
+            migratedLegacyVersions = true;
+            return { ...version, diagramPath: previous?.primaryDiagram ?? null };
+          }
+          return version;
+        });
+        if (migratedLegacyVersions) await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+        const state = await getWorkspaceState();
+        workspaceState = {
+          ...state, workspaceId: workspace.id, diagramPath: workspace.primaryDiagram,
+          document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null
+        };
+        await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+        await writeLog("workspace.diagram.context-reset", {
+          workspaceId: workspace.id, previousDiagram: previous?.primaryDiagram ?? null, activeDiagram: workspace.primaryDiagram
+        });
+      }
+    });
     await writeLog("workspace.project.configured", { workspaceId: workspace.id, name: workspace.name, rootPath, fileCount: files.length, diagramCount: files.filter((f) => f.kind === "diagram").length });
     res.json({ workspace, files, repositoryRoot: resolved.repositoryRoot, rootAdjusted: resolved.requestedPath !== rootPath, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } });
   } catch (error) { await writeLog("workspace.project.configure.failed", { rootPath: req.body?.rootPath, error: error instanceof Error ? error.message : String(error) }); res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+app.post("/api/workspace/diagram/create", async (req, res) => {
+  const requestedRoot = typeof req.body?.rootPath === "string" ? req.body.rootPath.trim() : "";
+  const requestedName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : "";
+  let fileName: string;
+  try { fileName = normalizeNewDrawioFileName(typeof req.body?.fileName === "string" ? req.body.fileName : ""); }
+  catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); return; }
+  if (!requestedRoot || requestedRoot.length > 2048) { res.status(400).json({ error: "The local workspace directory path cannot be empty" }); return; }
+  if (!requestedName) { res.status(400).json({ error: "Workspace name cannot be empty" }); return; }
+  let createdPath: string | null = null, createdFileReady = false;
+  let activeHandle: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    const resolved = await resolveWorkspaceRoot(requestedRoot), rootPath = resolved.rootPath;
+    const document = createEmptyDrawioDocument(fileName);
+    const semanticErrors = validateDiagramSemantics(document);
+    if (semanticErrors.length) { res.status(422).json({ error: "The new diagram failed server-side validation", validationErrors: semanticErrors }); return; }
+    const xml = toDrawioXml(document);
+    const result = await withDataWrite(async () => {
+      const previous = await getProjectWorkspace(), sameRoot = previous?.rootPath === rootPath;
+      const now = new Date().toISOString();
+      const workspace: ProjectWorkspace = {
+        schemaVersion: 1, id: sameRoot && previous ? previous.id : randomUUID(),
+        name: resolved.repositoryRoot ? path.basename(rootPath) : requestedName, rootPath, primaryDiagram: fileName,
+        includePatterns: sameRoot && previous ? previous.includePatterns : [],
+        excludePatterns: sameRoot && previous ? previous.excludePatterns : [],
+        createdAt: sameRoot && previous ? previous.createdAt : now, updatedAt: now
+      };
+      const targetPath = path.join(rootPath, fileName);
+      activeHandle = await open(targetPath, "wx", 0o644);
+      createdPath = targetPath;
+      await activeHandle.writeFile(xml, "utf8");
+      await activeHandle.close(); activeHandle = null;
+      createdFileReady = true;
+      const files = await scanWorkspaceFiles(workspace);
+      let versions = await getDiagramVersions();
+      if (sameRoot && previous && previous.primaryDiagram !== workspace.primaryDiagram) {
+        let migratedLegacyVersions = false;
+        versions = versions.map((version) => {
+          if (version.workspaceId === workspace.id && version.diagramPath === undefined) {
+            migratedLegacyVersions = true;
+            return { ...version, diagramPath: previous.primaryDiagram ?? null };
+          }
+          return version;
+        });
+        if (migratedLegacyVersions) await writeJsonAtomic(VERSIONS_FILE, versions);
+      }
+      const version: DiagramVersion = {
+        id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
+        workspaceId: workspace.id, diagramPath: workspace.primaryDiagram,
+        createdAt: now, label: "Created diagram: " + fileName, document, drawioXml: xml
+      };
+      diagramVersions = retainRecentVersions([...versions, version]);
+      await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      projectWorkspace = workspace;
+      await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace);
+      workspaceState = {
+        workspaceId: workspace.id, diagramPath: workspace.primaryDiagram, document, drawioXml: xml,
+        copilotSessionId: null, chatMessages: [], updatedAt: now
+      };
+      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await mkdir(DATA_DIR, { recursive: true });
+      await appendFile(APP_LOG_FILE, JSON.stringify({
+        timestamp: now, event: "diagram.file.created", workspaceId: workspace.id, diagramPath: fileName,
+        versionId: version.id, documentId: document.id, xmlLength: xml.length
+      }) + "\n", "utf8");
+      return {
+        workspace, files, document, drawioXml: xml,
+        version: { id: version.id, createdAt: version.createdAt, label: version.label },
+        workspaceRevision: workspaceRevision(document, xml),
+        counts: { files: files.length, diagrams: files.filter((file) => file.kind === "diagram").length, code: files.filter((file) => file.kind === "code").length, documents: files.filter((file) => file.kind === "document").length }
+      };
+    });
+    await writeLog("diagram.file.created", { workspaceId: result.workspace.id, diagramPath: fileName, versionId: result.version.id });
+    res.status(201).json({ ok: true, ...result, rootAdjusted: resolved.requestedPath !== rootPath, repositoryRoot: resolved.repositoryRoot });
+  } catch (error) {
+    if (activeHandle) await activeHandle.close().catch(() => undefined);
+    if (createdPath && !createdFileReady) await unlink(createdPath).catch(() => undefined);
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "EEXIST") { res.status(409).json({ error: "That Draw.io file already exists; choose a different file name." }); return; }
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+  }
 });
 app.get("/api/workspace/files", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "Configure a project workspace first" }); return; } const files = await scanWorkspaceFiles(workspace); res.json({ workspaceId: workspace.id, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
 app.get("/api/workspace/files/content", async (req, res) => { try { const relativePath = typeof req.query.path === "string" ? req.query.path : ""; const { workspace, absolutePath } = await resolveWorkspaceFile(relativePath); const info = await stat(absolutePath); const maxBytes = /\.(drawio|dio|xml)$/i.test(relativePath) ? 20 * 1024 * 1024 : 1024 * 1024; if (info.size > maxBytes) { res.status(413).json({ error: "File exceeds the readable limit (" + Math.round(maxBytes / 1024 / 1024) + " MiB)" }); return; } const content = await readFile(absolutePath, "utf8"); await writeLog("workspace.file.read", { workspaceId: workspace.id, path: relativePath, bytes: info.size }); res.json({ workspaceId: workspace.id, path: relativePath, content, size: info.size }); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
@@ -586,9 +707,9 @@ app.get("/api/workspace/state", async (_req, res) => {
   try {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
-    const belongsToWorkspace = !state.workspaceId || !workspace || state.workspaceId === workspace.id;
+    const belongsToWorkspace = workspaceStateMatchesActiveDiagram(state, workspace);
     const visibleState = belongsToWorkspace ? state : { ...state, document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null };
-    const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id);
+    const versions = (await getDiagramVersions()).filter((version) => versionMatchesActiveDiagram(version, workspace));
     const latest = versions[versions.length - 1];
     res.json({ ...visibleState, workspaceMismatch: !belongsToWorkspace, workspaceRevision: visibleState.document && isDiagramDocument(visibleState.document) ? workspaceRevision(visibleState.document, visibleState.drawioXml) : null, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
   } catch (error) {
@@ -613,14 +734,16 @@ app.put("/api/workspace/document", async (req, res) => {
       const state = await getWorkspaceState();
       const workspace = await getProjectWorkspace();
       const allVersions = await getDiagramVersions();
-      const workspaceVersions = allVersions.filter((version) => version.workspaceId === workspace?.id);
-      const currentRevision = state.workspaceId === workspace?.id && isDiagramDocument(state.document) ? workspaceRevision(state.document, state.drawioXml) : null;
+      const activeStateMatches = state.workspaceId === workspace?.id && (state.diagramPath === undefined || state.diagramPath === (workspace?.primaryDiagram ?? null));
+      const workspaceVersions = allVersions.filter((version) => versionMatchesActiveDiagram(version, workspace));
+      const currentRevision = activeStateMatches && isDiagramDocument(state.document) ? workspaceRevision(state.document, state.drawioXml) : null;
       if (!matchesWorkspaceRevision(baseRevision, currentRevision)) return { status: 409 as const, error: "The document changed or the save is missing its base revision. Reload the latest version before saving.", workspaceRevision: currentRevision };
-      const unchanged = state.workspaceId === workspace?.id && JSON.stringify(state.document) === JSON.stringify(document) && state.drawioXml === drawioXml;
+      const unchanged = activeStateMatches && JSON.stringify(state.document) === JSON.stringify(document) && state.drawioXml === drawioXml;
       if (!unchanged) {
         const version: DiagramVersion = {
           id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
           workspaceId: workspace?.id,
+          diagramPath: workspace?.primaryDiagram ?? null,
           createdAt: new Date().toISOString(),
           label,
           document,
@@ -633,7 +756,7 @@ app.put("/api/workspace/document", async (req, res) => {
           await writeTextAtomic(absolutePath, drawioXml);
           await writeLog("workspace.primary-diagram.saved", { workspaceId: workspace.id, path: workspace.primaryDiagram, xmlLength: drawioXml.length, versionId: version.id });
         }
-        workspaceState = { ...state, workspaceId: workspace?.id, document, drawioXml, updatedAt: version.createdAt };
+        workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document, drawioXml, updatedAt: version.createdAt };
         await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
         await appendFile(APP_LOG_FILE, JSON.stringify({
           timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
@@ -721,7 +844,7 @@ app.get("/api/workspace/logs", async (req, res) => {
 app.get("/api/workspace/versions", async (_req, res) => {
   try {
     const workspace = await getProjectWorkspace();
-    const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id);
+    const versions = (await getDiagramVersions()).filter((version) => versionMatchesActiveDiagram(version, workspace));
     res.json({ versions: versions.map(({ id, createdAt, label, document }) => ({
       id, createdAt, label,
       documentId: (document as { id?: string } | null)?.id ?? null,
@@ -733,7 +856,7 @@ app.get("/api/workspace/versions", async (_req, res) => {
 app.get("/api/workspace/versions/:id", async (req, res) => {
   try {
     const workspace = await getProjectWorkspace();
-    const version = (await getDiagramVersions()).find((item) => item.id === req.params.id && (!workspace || item.workspaceId === workspace.id));
+    const version = (await getDiagramVersions()).find((item) => item.id === req.params.id && versionMatchesActiveDiagram(item, workspace));
     if (!version) { res.status(404).json({ error: "Version not found" }); return; }
     res.json({ version: req.query.includeXml === "false" ? { id: version.id, workspaceId: version.workspaceId, createdAt: version.createdAt, label: version.label, document: version.document } : version });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -744,12 +867,13 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
     const result = await withDataWrite(async () => {
       const versions = await getDiagramVersions();
       const workspace = await getProjectWorkspace();
-      const source = versions.find((item) => item.id === req.params.id && (!workspace || item.workspaceId === workspace.id));
+      const source = versions.find((item) => item.id === req.params.id && versionMatchesActiveDiagram(item, workspace));
       if (!source || !isDiagramDocument(source.document)) return null;
       const state = await getWorkspaceState();
       const version: DiagramVersion = {
         id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
         workspaceId: workspace?.id,
+        diagramPath: workspace?.primaryDiagram ?? null,
         createdAt: new Date().toISOString(),
         label: "Restored version: " + source.label,
         document: source.document,
@@ -761,7 +885,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
         await writeTextAtomic(absolutePath, version.drawioXml);
       }
-      workspaceState = { ...state, workspaceId: workspace?.id, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
+      workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
       await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({
@@ -822,12 +946,12 @@ registerCopilotIntentRoute(app, {
   createDiagramTools: (_sessionId, onProposal, onApplied, onToolUse) => createDiagramAgentTools({
     getActiveDocument: async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) return null;
       return state.document;
     },
     getActiveRevision: async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) return null;
       return workspaceRevision(state.document, state.drawioXml);
     },
     applyProposal: async (proposalId: string, expectedRevision: string, summary: string): Promise<AgentAppliedEditView> => {
@@ -849,11 +973,11 @@ registerCopilotIntentRoute(app, {
     getWorkspaceContext: collectAgentWorkspaceContext,
     getVersions: async () => {
       const workspace = await getProjectWorkspace();
-      return (await getDiagramVersions()).filter((item) => !workspace || item.workspaceId === workspace.id);
+      return (await getDiagramVersions()).filter((item) => versionMatchesActiveDiagram(item, workspace));
     },
     proposeOperation: async (input: DiagramOperationInput) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) {
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
         throw new Error("No valid active diagram is available.");
       }
       const base = state.document;
@@ -1119,7 +1243,7 @@ registerCopilotIntentRoute(app, {
     },
     proposeEdit: async (intent) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
       const interpreted = interpretIntent(state.document, intent.trim());
       if (!interpreted.changed) throw new Error("This edit intent is unsupported or ambiguous; no proposal was generated.");
       const config = await getStudioConfig();
@@ -1130,7 +1254,7 @@ registerCopilotIntentRoute(app, {
     proposeTemplate: async (templateKey, title) => {
       if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
       const config = await getStudioConfig(), next = createDiagramTemplate(templateKey as DiagramTemplateKey);
       next.id = randomUUID();
       if (title?.trim()) next.title = title.trim().slice(0, 200);
@@ -1140,8 +1264,8 @@ registerCopilotIntentRoute(app, {
     },
     proposeRestore: async (versionId) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
-      const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
+      const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && versionMatchesActiveDiagram(item, workspace));
       if (!sourceVersion || !isDiagramDocument(sourceVersion.document)) throw new Error("The requested version is not available in the active workspace.");
       const restored = { ...sourceVersion.document, id: state.document.id };
       return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
