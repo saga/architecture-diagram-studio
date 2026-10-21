@@ -654,20 +654,47 @@ export default function App() {
     })();
   }
 
-  const applyCopilotEdit = useCallback((application: AppliedDiagramEdit) => {
+  const applyCopilotEdit = useCallback(async (application: AppliedDiagramEdit) => {
     serverRevisionRef.current = application.workspaceRevision;
-    serverCommittedDocumentRef.current = { document: application.document, workspaceId: projectWorkspace?.id ?? null };
     setPendingAgentProposalId(null);
     setPreviewDocument(null);
     setPreviewSummary("");
     setSelectedRelationId(null);
-    setSelectedNodeId((current) => application.document.nodes.some((node) => node.id === current)
-      ? current : application.document.nodes[0]?.id || null);
-    commitDocument(application.document, "Copilot: " + application.summary);
-    setLastAction("Copilot edit applied · version " + application.versionId);
-    recordDiagnostic("copilot.edit.synced", "Applied server-versioned Copilot edit to the active canvas", {
-      versionId: application.versionId, nodeCount: application.document.nodes.length, relationCount: application.document.relations.length
-    });
+    try {
+      // The server has already applied and versioned this operation. Re-read its XML
+      // source instead of rebuilding from the returned semantic projection, especially
+      // for native version restores and XML-only edits.
+      const response = await fetch("/api/workspace/state");
+      const payload = await response.json() as {
+        document?: unknown; drawioXml?: unknown; workspaceRevision?: unknown;
+      };
+      if (response.ok && typeof payload.drawioXml === "string" && isDrawioXmlDocument(payload.drawioXml)) {
+        const base = isDiagramDocument(payload.document) ? payload.document : application.document;
+        const parsed = fromDrawioXml(payload.drawioXml, base);
+        const next = parsed === base ? application.document : parsed;
+        setSelectedNodeId((current) => next.nodes.some((node) => node.id === current)
+          ? current : next.nodes[0]?.id || null);
+        serverRevisionRef.current = typeof payload.workspaceRevision === "string"
+          ? payload.workspaceRevision : application.workspaceRevision;
+        serverCommittedDocumentRef.current = { document: next, workspaceId: projectWorkspace?.id ?? null };
+        commitDocument(next, "Copilot: " + application.summary, payload.drawioXml);
+      } else {
+        // A fallback semantic patch is safe only if the current source passes the normal
+        // XML completeness gate; commitDocument will refuse rather than rebuild otherwise.
+        setSelectedNodeId((current) => application.document.nodes.some((node) => node.id === current)
+          ? current : application.document.nodes[0]?.id || null);
+        commitDocument(application.document, "Copilot: " + application.summary);
+      }
+      setLastAction("Copilot edit applied · version " + application.versionId);
+      recordDiagnostic("copilot.edit.synced", "Applied server-versioned Copilot edit and synchronized the authoritative XML", {
+        versionId: application.versionId, nodeCount: application.document.nodes.length, relationCount: application.document.relations.length
+      });
+    } catch (error) {
+      setLastAction("Copilot edit was saved on the server but the current XML could not be refreshed: " + (error instanceof Error ? error.message : String(error)));
+      recordDiagnostic("copilot.edit.sync-failed", "The server-applied edit could not be rehydrated into the browser; the authoritative source remains on the server", {
+        versionId: application.versionId, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+    }
   }, [commitDocument, projectWorkspace?.id]);
 
   const sendIntent = useCopilotIntent({
