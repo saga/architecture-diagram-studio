@@ -589,7 +589,7 @@ export default function App() {
 
   const {
     addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, renameNode, addNode, createRelation, updateRelationLabel,
+    changeNode, updateNodeById, renameNode, addNode, createRelation, updateRelationLabel,
     removeRelation, reverseRelation, updateRelationKind, updateRelationStyle, updateBoundary, createBoundaryForNode, removeBoundary, removeNodeById, duplicateNodeById
   } = useDiagramEditing({
     document, selectedNode, selectedRelationId,
@@ -1149,11 +1149,11 @@ export default function App() {
             <div className="canvas-menu-title">{menuNode.name}</div>
             <button type="button" role="menuitem" onClick={() => { setConnectionSourceId(menuNode.id); setLastAction("Connecting from " + menuNode.name + " · click a target node or press Esc"); close(); }}>Connect from this node…</button>
             <button type="button" role="menuitem" onClick={() => { duplicateNodeById(menuNode.id); close(); }}>Duplicate node</button>
-            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); changeNode({ layoutHints: { ...(menuNode.layoutHints || {}), locked: !menuNode.layoutHints?.locked } }); close(); }}>{menuNode.layoutHints?.locked ? "Unlock position" : "Lock position"}</button>
+            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); updateNodeById(menuNode.id, { layoutHints: { ...(menuNode.layoutHints || {}), locked: !menuNode.layoutHints?.locked } }); close(); }}>{menuNode.layoutHints?.locked ? "Unlock position" : "Lock position"}</button>
             <div className="canvas-menu-divider" />
             <div className="canvas-menu-caption">Change role</div>
             {Object.entries(roleLabels).filter(([role]) => role !== menuNode.role).map(([role, label]) =>
-              <button type="button" role="menuitem" key={role} onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); changeNode({ role: role as DiagramNode["role"] }); close(); }}>Make {label.toLowerCase()}</button>
+              <button type="button" role="menuitem" key={role} onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); updateNodeById(menuNode.id, { role: role as DiagramNode["role"] }); close(); }}>Make {label.toLowerCase()}</button>
             )}
             <div className="canvas-menu-divider" />
             <div className="canvas-menu-caption">System boundary</div>
