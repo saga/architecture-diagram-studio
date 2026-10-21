@@ -227,11 +227,11 @@ export default function WorkspacePages(props: Props) {
               <Select
                 showSearch
                 optionFilterProp="label"
-                value={aiModel || "claude-sonnet-5.5"}
+                value={aiModel || undefined}
                 options={modelOptions}
                 loading={modelsLoading}
                 onChange={(value) => setAiModel(value)}
-                placeholder="选择 Copilot SDK 模型"
+                placeholder="选择模型（留空使用本地规则）"
                 style={{ width: "100%" }}
               />
             </label>
