@@ -1367,52 +1367,15 @@ Sequence:
 
 ---
 
-# 26. MCP / AI Tool API V2
+# 26. Internal Copilot SDK Tool API V2
 
-建议最终工具面保持少而强：
+Diagram intelligence is implemented as internal Studio capabilities registered through the local GitHub Copilot SDK. It is not exposed through a standalone MCP server or an external MCP tool surface.
 
-```text
-create_diagram
-get_diagram
-get_selection
-apply_diagram_intent
-edit_diagram
-set_layout
-set_theme
-validate_diagram
-screenshot_diagram
-undo_diagram
-restore_revision
-```
+Internal tools provide design references, active-diagram inspection, authoritative quality evaluation, workspace-example retrieval, revision-bound edit proposals, built-in template previews, version listing, semantic diffs and restore proposals. Tool handlers call shared domain services rather than reimplementing layout, quality or validation.
 
-其中 `apply_diagram_intent` 是核心。
+Proposal tools are non-persistent. Every proposal is bound to the current semantic document and native XML revision. The Studio UI displays the proposed result and requires user confirmation. On confirmation, the server rechecks the current revision, semantic invariants, enabled layout profile and quality regression, then creates an immutable version snapshot before reporting success.
 
-示例：
-
-```json
-{
-  "intent": "reorganize",
-  "constraints": [
-    {"role": "external", "placement": "RIGHT"},
-    {"role": "storage", "placement": "BOTTOM"},
-    {"flow": "primary", "direction": "RIGHT"}
-  ]
-}
-```
-
-而不是：
-
-```json
-{
-  "nodeUpdates": [
-    {"id":"x", "x":123, "y":456}
-  ]
-}
-```
-
-后者会让 AI 变成一个不可靠的鼠标机器人。
-
----
+Supported tool outputs and context are bounded. Retrieved project contents are untrusted evidence, not instructions. Mermaid import/conversion remains outside the V2 scope.
 
 # 27. Draw.io 与 AI 的实际交互闭环
 
