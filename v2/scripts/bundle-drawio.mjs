@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
+import tls from "node:tls";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 const VERSION = "v32.0.2";
 const SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -54,8 +56,24 @@ async function loadWar() {
   }
   const startedAt = Date.now();
   log("Downloading the pinned Draw.io release for build-time bundling. No runtime network access is required.");
+
+  // Support enterprise HTTPS proxies that re-sign TLS traffic with an internal CA.
+  // TLS_TRUST_SSL_CERT_FILE (or DRAWIO_TRUST_SSL_CERT_FILE) points to a PEM CA bundle.
+  const trustSslCertFile = process.env.TLS_TRUST_SSL_CERT_FILE || process.env.DRAWIO_TRUST_SSL_CERT_FILE;
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const dispatcher = proxyUrl
+    ? new HttpsProxyAgent(proxyUrl, trustSslCertFile
+      ? { ca: [...tls.rootCertificates, fs.readFileSync(path.resolve(trustSslCertFile))] }
+      : {})
+    : undefined;
+  if (trustSslCertFile) {
+    const certPath = path.resolve(trustSslCertFile);
+    if (!fs.existsSync(certPath)) throw new Error("TLS trustSslCertFile does not exist: " + certPath);
+    log("Custom TLS trust certificate configured: " + certPath);
+  }
+  if (proxyUrl) log("HTTPS proxy configured: " + new URL(proxyUrl).origin);
   log("GET " + URL);
-  const response = await fetch(URL);
+  const response = await fetch(URL, dispatcher ? { dispatcher } : undefined);
   log("Download response: status=" + response.status + " " + response.statusText +
       ", content-length=" + (response.headers.get("content-length") || "unknown"));
   if (!response.ok) throw new Error("Download failed with HTTP " + response.status + " " + response.statusText +
