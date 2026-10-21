@@ -21,9 +21,9 @@ export const tokens = {
   externalBorder: "#B08A52",
   danger: "#A63B3B",
   success: "#25624C",
-  radius: 10,
-  nodeRadius: 9,
-  grid: 8,
+  radius: 8,
+  nodeRadius: 8,
+  grid: 4,
   nodeSpacing: 52,
   layerSpacing: 104,
   font: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
