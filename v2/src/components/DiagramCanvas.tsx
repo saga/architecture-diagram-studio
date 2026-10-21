@@ -191,7 +191,7 @@ export default function DiagramCanvas({
       viewBox={(frame.width * (1 - 1 / zoom) / 2 + pan.x) + " " + (frame.height * (1 - 1 / zoom) / 2 + pan.y) + " " + (frame.width / zoom) + " " + (frame.height / zoom)}
       preserveAspectRatio="xMidYMid meet" onPointerDown={startPan}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
-      role="img" aria-label={document.title}>
+      role="group" aria-label={document.title}>
       <defs>
         <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B" /></marker>
