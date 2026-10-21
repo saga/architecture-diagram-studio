@@ -331,7 +331,7 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   for (const node of doc.nodes) {
     const paint = nodePaint(node);
     contrastViolations += pushContrastWarning(warnings, "Text on node " + node.name, contrastRatio(paint.text, paint.fill), 4.5, [node.id]);
-    contrastViolations += pushContrastWarning(warnings, "Border of node " + node.name, contrastRatio(paint.stroke, tokens.canvas), 3, [node.id]);
+    contrastViolations += pushContrastWarning(warnings, "Border of node " + node.name, contrastRatio(paint.stroke, paint.fill), 3, [node.id]);
   }
   for (const relation of doc.relations) {
     const paint = relationPaint(relation);
