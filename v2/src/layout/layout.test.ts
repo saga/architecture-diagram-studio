@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "../model/fixtures";
 import { layoutDiagram, moveNode } from "./layout";
+import { LAYOUT_PROFILES } from "./profiles";
 import { evaluateLayout } from "./quality";
 import { applyIntent } from "../intent/applyIntent";
 import { normalizeSequenceDocument } from "./sequence";
