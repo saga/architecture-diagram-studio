@@ -217,6 +217,7 @@ export default function App() {
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "无法读取所选 Draw.io 文件");
         nextXml = fileResult.content;
         nextDocument = fromDrawioXml(fileResult.content, document);
+        if (nextDocument === document) throw new Error("所选文件不是可识别的 Draw.io XML");
       } else if (workspaceChanged) {
         nextDocument = FIXTURES.c4();
         nextXml = null;
@@ -247,7 +248,7 @@ export default function App() {
     fetch("/api/workspace/state")
       .then(async (response) => {
         if (!response.ok) throw new Error("服务端工作区加载失败（HTTP " + response.status + "）");
-        return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[] }>;
+        return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[]; workspaceMismatch?: boolean }>;
       })
       .then((state) => {
         if (!active) return;
@@ -267,6 +268,7 @@ export default function App() {
             durationMs: Date.now() - startedAt
           });
         }
+        if (state.workspaceMismatch) { const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); setMessages([{ role: "assistant", id: Date.now(), text: "当前项目工作区已变化，已清除上一个工作区的对话上下文。" }]); }
         if (typeof state.copilotSessionId === "string" && state.copilotSessionId.length >= 8) {
           setCopilotSessionId(state.copilotSessionId);
           try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", state.copilotSessionId); } catch { /* Server state remains authoritative. */ }
@@ -304,7 +306,9 @@ export default function App() {
           const response = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(projectWorkspace.primaryDiagram));
           const result = await response.json() as { error?: string; content?: string };
           if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "无法加载主要 Draw.io 图");
-          const imported = fromDrawioXml(result.content, FIXTURES.c4());
+          const baseDocument = FIXTURES.c4();
+          const imported = fromDrawioXml(result.content, baseDocument);
+          if (imported === baseDocument) throw new Error("所选文件不是可识别的 Draw.io XML");
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
