@@ -457,7 +457,9 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const laidOut = document.kind === "sequence" ? normalizeSequenceDocument(document) : await layoutDiagram(document);
       const errors = validateDiagramSemantics(laidOut);
       if (errors.length) return { status: 422 as const, error: "The template failed semantic validation", validationErrors: errors };
-      const xml = toDrawioXml(laidOut), now = new Date().toISOString();
+      const patchedXml = typeof state.drawioXml === "string" ? patchStudioDocumentXml(state.drawioXml, state.document, laidOut) : toDrawioXml(laidOut);
+      if (!patchedXml) return { status: 409 as const, error: "The template could not be applied without damaging the authoritative Draw.io XML; no changes were saved." };
+      const xml = patchedXml, now = new Date().toISOString();
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
       const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
