@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Button, Input, Select } from "antd";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
 import { toDrawioXml } from "./export/drawio";
@@ -47,14 +48,10 @@ export default function DrawioRenderLab() {
         </div>
         <div className="drawio-render-lab-controls">
           <label>测试场景
-            <select value={scenario} onChange={(event) => chooseScenario(event.target.value as Scenario)}>
-              <option value="sequence">时序图（含调用与返回）</option>
-              <option value="c4">C4 架构图</option>
-              <option value="flowchart">流程图</option>
-            </select>
+            <Select value={scenario} onChange={(value) => chooseScenario(value as Scenario)} options={[{ value: "sequence", label: "时序图（含调用与返回）" }, { value: "c4", label: "C4 架构图" }, { value: "flowchart", label: "流程图" }]} />
           </label>
-          <button type="button" onClick={() => setShowXml((value) => !value)}>{showXml ? "隐藏 XML" : "查看 XML"}</button>
-          <button type="button" onClick={() => chooseScenario(scenario)}>重置场景</button>
+          <Button onClick={() => setShowXml((value) => !value)}>{showXml ? "隐藏 XML" : "查看 XML"}</Button>
+          <Button onClick={() => chooseScenario(scenario)}>重置场景</Button>
           <a href="/" target="_blank" rel="noreferrer">打开 Studio 主应用 ↗</a>
         </div>
       </header>
@@ -81,7 +78,7 @@ export default function DrawioRenderLab() {
       </section>
       {showXml && <section className="drawio-render-lab-xml">
         <div><strong>当前发送给 Draw.io 的 XML</strong><span>{xml.length.toLocaleString()} chars · {document.nodes.length} nodes · {document.relations.length} relations</span></div>
-        <textarea readOnly spellCheck={false} value={xml} aria-label="Draw.io XML source" />
+        <Input.TextArea readOnly spellCheck={false} value={xml} aria-label="Draw.io XML source" />
       </section>}
     </main>
   );
