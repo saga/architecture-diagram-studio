@@ -38,7 +38,7 @@ flowchart TD
   SNAP --> STATE[Current server workspace state]
 ```
 
-The HTTP service and stdio MCP server share the same JSON workspace definition. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
+The HTTP service and stdio MCP server share the same JSON workspace definition. A selected path inside a Git repository resolves to that repository's root; a non-Git directory remains the workspace root. Project-level Agent Skills use `.github/skills/<skill-name>/SKILL.md`, and VS Code MCP configuration uses `.vscode/mcp.json`. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
 
 ## Agent and MCP implications
 
