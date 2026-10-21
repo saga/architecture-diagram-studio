@@ -29,6 +29,7 @@ async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(file, "utf8")) as T; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback; throw error; }
 }
+async function writeTextAtomic(file: string, content: string): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); const temp = file + "." + randomUUID() + ".tmp"; await writeFile(temp, content, "utf8"); await rename(temp, file); }
 async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
   const temp = file + "." + randomUUID() + ".tmp";
@@ -252,6 +253,11 @@ app.put("/api/workspace/document", async (req, res) => {
         };
         diagramVersions = [...versions, version];
         await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+        if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
+          const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
+          await writeTextAtomic(absolutePath, drawioXml);
+          await writeLog("workspace.primary-diagram.saved", { workspaceId: workspace.id, path: workspace.primaryDiagram, xmlLength: drawioXml.length, versionId: version.id });
+        }
         workspaceState = { ...state, workspaceId: workspace?.id, document, drawioXml, updatedAt: version.createdAt };
         await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
         await appendFile(APP_LOG_FILE, JSON.stringify({
