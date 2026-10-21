@@ -450,7 +450,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       for (const node of document.nodes) node.id = key + "-" + node.id + "-" + randomUUID().slice(0, 5);
       
       const originalKeys = key === "c4-context" ? ["person","system","external-system"] : key === "sequence-request" ? ["client","api","service","store"] : ["client","api","worker","queue","database"];
-      const remap = new Map(originalKeys.map((id,index)=>[id,document.nodes[index].id]));
+      const remap = new Map<string, string>(originalKeys.map((id, index) => [id, document.nodes[index].id] as const));
       for (const edge of document.relations) { edge.id = key + "-" + edge.id + "-" + randomUUID().slice(0,5); edge.source = remap.get(edge.source) || edge.source; edge.target = remap.get(edge.target) || edge.target; }
       for (const boundary of document.boundaries) { boundary.id = key + "-" + boundary.id + "-" + randomUUID().slice(0,5); boundary.members = boundary.members.map((id)=>remap.get(id)||id); }
       if (document.sequence) document.sequence.participants = document.sequence.participants.map((id)=>remap.get(id)||id);
