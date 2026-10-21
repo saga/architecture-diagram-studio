@@ -6,7 +6,7 @@
 
 ## Context
 
-Studio currently persists the active semantic diagram and its native Draw.io XML, but it does not define a durable project boundary. A diagram-only session cannot reliably ground analysis in the surrounding source code, architecture documents, existing diagrams, or repository conventions. Browser local storage is not suitable as the authoritative source because it is origin-specific and is not available to server-side Agents or MCP clients.
+Studio currently persists the active semantic diagram and its native Draw.io XML, but it does not define a durable project boundary. A diagram-only session cannot reliably ground analysis in the surrounding source code, architecture documents, existing diagrams, or repository conventions. Browser local storage is not suitable as the authoritative source because it is origin-specific and is not available to server-side Agents.
 
 ## Decision
 
@@ -38,7 +38,7 @@ flowchart TD
   SNAP --> STATE[Current server workspace state]
 ```
 
-The HTTP service and its internal Copilot SDK tools share the same JSON workspace definition. A selected path inside a Git repository resolves to that repository's root; a non-Git directory remains the workspace root. Project-level Agent Skills use `.github/skills/<skill-name>/SKILL.md`, and VS Code MCP configuration uses `.vscode/mcp.json`. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
+The HTTP service and its internal Copilot SDK tools share the same JSON workspace definition. A selected path inside a Git repository resolves to that repository's root; a non-Git directory remains the workspace root. Project-level Agent Skills use `.github/skills/<skill-name>/SKILL.md`; no standalone MCP configuration is required. The file index is rebuilt from the configured directory, while current document state, exact XML snapshots, sessions, and audit logs remain server-managed.
 
 ## Agent implications
 
@@ -46,7 +46,7 @@ Every Copilot turn receives the active workspace metadata and a bounded, priorit
 
 ## Alternatives considered
 
-- **Browser localStorage only:** rejected because server-side Agents, MCP clients, and other browsers cannot share it reliably.
+- **Browser localStorage only:** rejected because server-side Agents and other browsers cannot share it reliably.
 - **Let each Agent choose arbitrary paths:** rejected because it weakens reproducibility and expands filesystem access beyond an explicit project boundary.
 - **Copy every project file into Studio's data directory:** rejected because the project directory remains the source of truth and duplicate copies become stale.
 - **Database as the initial configuration store:** deferred. A small versioned JSON document is sufficient for one local workspace; high-volume indexes and concurrent multi-user work may justify SQLite or another transactional store later.
