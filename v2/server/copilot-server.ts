@@ -10,10 +10,10 @@ import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
-import { defineTool } from "@github/copilot-sdk";
-import { CopilotRuntime, describeCopilotFailure } from "./copilot/runtime";
+import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
-import { createDiagramAgentTools, type AgentProposalView } from "./copilot/diagram-tools";
+import { createDiagramAgentTools } from "./copilot/diagram-tools";
+import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
@@ -379,7 +379,6 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 
 type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null; nativeXml?: string };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
-const pendingAgentProposals = new Map<string, DiagramEditProposal>();
 function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
 function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null, proposedXml?: string | null): DiagramEditProposal {
   const errors = validateDiagramSemantics(proposedDocument);
@@ -845,227 +844,57 @@ app.get("/api/copilot/models", async (req, res) => {
   }
 });
 
-async function buildSystemMessage(config: StudioConfig): Promise<string> {
-  const workspace = await getProjectWorkspace();
-  const workspaceContext = config.prompts.workspace
-    .replaceAll("{{workspaceName}}", workspace?.name || "not configured")
-    .replaceAll("{{rootPath}}", workspace?.rootPath || "not configured")
-    .replaceAll("{{primaryDiagram}}", workspace?.primaryDiagram || "not selected");
-  const supportedCommands = config.prompts.supportedCommands.replaceAll("{{commands}}", [...ALLOWED_COMMANDS].join("; "));
-  const internalToolGuidance = "IMPORTANT: Use the registered internal Studio tools for references, inspection, quality evaluation, workspace-example search, semantic edit proposals, templates, version listing/diff and restore proposals. If any legacy configured prompt above says to use only propose_layout_plan or return empty commands for semantic edits, that instruction is superseded here. Use propose_layout_plan only for exact supported global layout commands. Proposal tools create previews only; the user must review and confirm changes in the Studio UI. Mermaid import/conversion is not implemented.";
-  return [config.prompts.system, config.prompts.task, config.prompts.planTool, config.prompts.behavior, workspaceContext, supportedCommands, internalToolGuidance].filter(Boolean).join("\n\n");
-}
-
-const pendingPlans = new Map<string, { commands: string[]; reply: string }>();
-function createProposeLayoutPlanTool(sessionId: string, config: StudioConfig = DEFAULT_STUDIO_CONFIG) {
-  return defineTool("propose_layout_plan", {
-    description: config.prompts.toolDescription,
-    parameters: {
-      type: "object",
-      properties: {
-        commands: { type: "array", items: { type: "string", enum: [...ALLOWED_COMMANDS] }, maxItems: 6 },
-        reply: { type: "string" }
-      },
-      required: ["commands", "reply"]
+registerCopilotIntentRoute(app, {
+  copilot, defaultModel: DEFAULT_MODEL, allowedCommands: ALLOWED_COMMANDS, writeLog,
+  getStudioConfig, getProjectWorkspace, collectAgentWorkspaceContext,
+  persistSessionId: async (sessionId) => withDataWrite(async () => {
+    const state = await getWorkspaceState();
+    workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
+    await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+  }),
+  createDiagramTools: (sessionId, onProposal) => createDiagramAgentTools({
+    getActiveDocument: async () => {
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
+      return state.document;
     },
-    handler: async (args: { commands: string[]; reply: string }) => {
-      const commands = Array.isArray(args.commands) ? args.commands : [];
-      if (commands.length > 6 || commands.some((command) => !ALLOWED_COMMANDS.has(command))) {
-        await writeLog("tool.propose_layout_plan.rejected", { sessionId, commands });
-        throw new Error("The plan contains an unsupported layout command");
-      }
-      pendingPlans.set(sessionId, { commands, reply: String(args.reply || "").slice(0, 500) });
-      await writeLog("tool.propose_layout_plan.accepted", { sessionId, commands, reply: String(args.reply || "").slice(0, 500) });
+    getWorkspaceContext: collectAgentWorkspaceContext,
+    getVersions: async () => {
+      const workspace = await getProjectWorkspace();
+      return (await getDiagramVersions()).filter((item) => !workspace || item.workspaceId === workspace.id);
+    },
+    proposeEdit: async (intent) => {
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+      const interpreted = interpretIntent(state.document, intent.trim());
+      if (!interpreted.changed) throw new Error("This edit intent is unsupported or ambiguous; no proposal was generated.");
       const config = await getStudioConfig();
-      return { accepted: true, commandCount: commands.length, note: config.prompts.toolResult };
-    }
-  });
-}
-
-app.post("/api/copilot/intent", async (req, res) => {
-  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
-  const context = req.body?.context;
-  const sessionId = typeof req.body?.sessionId === "string" && /^[a-zA-Z0-9._:-]{8,128}$/.test(req.body.sessionId)
-    ? req.body.sessionId
-    : randomUUID();
-  const config = await getStudioConfig();
-  const model = typeof req.body?.model === "string" && req.body.model.trim()
-    ? req.body.model.trim().slice(0, 100)
-    : (config.model || DEFAULT_MODEL);
-  const requestedEffort = req.body?.reasoningEffort === "high" || req.body?.reasoningEffort === "max"
-    ? req.body.reasoningEffort
-    : config.reasoningEffort;
-  if (!prompt || prompt.length > 4000) {
-    await writeLog("request.validation.failed", { sessionId, reason: "invalid_prompt", promptLength: prompt.length });
-    res.status(400).json({ error: "prompt must be 1–4000 characters", sessionId });
-    return;
-  }
-  if (!context || typeof context !== "object" || !Array.isArray(context.nodes) || context.nodes.length > 200) {
-    await writeLog("request.validation.failed", { sessionId, reason: "invalid_context" });
-    res.status(400).json({ error: "Invalid diagram context or more than 200 nodes", sessionId });
-    return;
-  }
-
-  const startedAt = Date.now();
-  await writeLog("request.received", { sessionId, model, reasoningEffort: requestedEffort, prompt, context });
-  await withDataWrite(async () => { const state = await getWorkspaceState(); workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState); });
-  try {
-    const runtime = await copilot.acquireSession({
-      conversationId: sessionId,
-      model,
-      requestedEffort,
-      prepare: async () => {
-        const config = await getStudioConfig();
-        return {
-          configRevisionId: config.revisionId,
-          systemMessage: await buildSystemMessage(config),
-          tools: [
-            createProposeLayoutPlanTool(sessionId, config),
-            ...createDiagramAgentTools({
-              getActiveDocument: async () => {
-                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
-                return state.document;
-              },
-              getWorkspaceContext: collectAgentWorkspaceContext,
-              getVersions: async () => {
-                const workspace = await getProjectWorkspace();
-                return (await getDiagramVersions()).filter((item) => !workspace || item.workspaceId === workspace.id);
-              },
-              proposeEdit: async (intent) => {
-                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
-                const interpreted = interpretIntent(state.document, intent.trim());
-                if (!interpreted.changed) throw new Error("This edit intent is unsupported or ambiguous; no proposal was generated.");
-                const config = await getStudioConfig();
-                if (interpreted.requiresLayout && !layoutProfileEnabled(interpreted.document, config)) throw new Error("The current layout algorithm is disabled.");
-                const next = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
-                return agentProposalView(storeAgentProposal(state.document, next, interpreted.summary, workspace?.id ?? null, state.drawioXml));
-              },
-              proposeTemplate: async (templateKey, title) => {
-                if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
-                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
-                const config = await getStudioConfig(), next = createDiagramTemplate(templateKey as DiagramTemplateKey);
-                next.id = randomUUID();
-                if (title?.trim()) next.title = title.trim().slice(0, 200);
-                if (!layoutProfileEnabled(next, config)) throw new Error("The layout algorithm used by the template is disabled.");
-                const laidOut = next.kind === "sequence" ? normalizeSequenceDocument(next) : await layoutDiagram(next);
-                return agentProposalView(storeAgentProposal(state.document, laidOut, "Apply template: " + next.title, workspace?.id ?? null, state.drawioXml));
-              },
-              proposeRestore: async (versionId) => {
-                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
-                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
-                const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
-                if (!sourceVersion || !isDiagramDocument(sourceVersion.document)) throw new Error("The requested version is not available in the active workspace.");
-                const restored = { ...sourceVersion.document, id: state.document.id };
-                return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
-              },
-              onProposal: (proposal) => {
-                const stored = diagramEditProposals.get(proposal.proposalId);
-                if (stored) pendingAgentProposals.set(sessionId, stored);
-              }
-            })
-          ],
-          workspaceId: (await getProjectWorkspace())?.id
-        };
-      }
-    });
-    const plan = await copilot.withTurn(sessionId, async (turn) => {
-      pendingPlans.delete(sessionId);
-      pendingAgentProposals.delete(sessionId);
-      await writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
-      const projectContext = await collectAgentWorkspaceContext();
-      await writeLog("turn.workspace-context.loaded", { sessionId, workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null, snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0 });
-      const firstTurn = await turn.send(
-        { prompt: JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext }) },
-        50000
-      );
-      let captured = pendingPlans.get(sessionId) || null;
-      pendingPlans.delete(sessionId);
-      let capturedProposal = pendingAgentProposals.get(sessionId) || null;
-      pendingAgentProposals.delete(sessionId);
-      let modelText = assistantText(firstTurn);
-      if (!captured && !capturedProposal) {
-        // Models answer greetings and small talk in prose; one explicit nudge makes them answer through the tool,
-        // which is the only channel this server can validate and apply.
-        await writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
-        const nudged = await turn.send(
-          { prompt: JSON.stringify({ request: "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For semantic changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context }) },
-          25000
-        );
-        captured = pendingPlans.get(sessionId) || null;
-        pendingPlans.delete(sessionId);
-        capturedProposal = pendingAgentProposals.get(sessionId) || null;
-        pendingAgentProposals.delete(sessionId);
-        modelText = assistantText(nudged) || modelText;
-      }
-      return { captured, capturedProposal, modelText, session: turn.session };
-    });
-    if (plan.capturedProposal) {
-      const proposal = plan.capturedProposal;
-      const response = {
-        commands: [], reply: proposal.summary,
-        proposal: { proposalId: proposal.id, baseRevision: proposal.baseRevision, document: proposal.document, summary: proposal.summary, baseQuality: proposal.baseQuality, quality: proposal.quality },
-        sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
-      };
-      await writeLog("turn.completed.with-proposal", { sessionId, proposalId: proposal.id, summary: proposal.summary, qualityScore: proposal.quality.score });
-      res.json(response);
-      return;
-    }
-    let resolved = plan.captured;
-    let modelText = plan.modelText;
-    if (!resolved) {
-      // Some models answer with a JSON block instead of calling the tool; accept it after the same whitelist check.
-      resolved = planFromText(modelText);
-      if (resolved) await writeLog("turn.plan.parsed-from-text", { sessionId, commandCount: resolved.commands.length });
-    }
-    if (!resolved) {
-      // Nothing to apply: answer with the model's own words instead of an error the user cannot act on.
-      await writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000) });
-      res.json({
-        commands: [], reply: modelText.slice(0, 500) || "No layout plan was produced and the diagram is unchanged. Try being more specific, e.g. \"move the databases to the very bottom\".",
-        sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
-      });
-      return;
-    }
-    const response = {
-      ...resolved, sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-      provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
-    };
-    await writeLog("turn.completed", { sessionId, model: plan.session.model, durationMs: response.durationMs, response });
-    res.json(response);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await writeLog("turn.failed", {
-      sessionId, model, durationMs: Date.now() - startedAt,
-      errorName: error instanceof Error ? error.name : typeof error, errorMessage: message
-    });
-    res.status(502).json({ error: describeCopilotFailure(message), sessionId });
-  }
+      if (interpreted.requiresLayout && !layoutProfileEnabled(interpreted.document, config)) throw new Error("The current layout algorithm is disabled.");
+      const next = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
+      return agentProposalView(storeAgentProposal(state.document, next, interpreted.summary, workspace?.id ?? null, state.drawioXml));
+    },
+    proposeTemplate: async (templateKey, title) => {
+      if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+      const config = await getStudioConfig(), next = createDiagramTemplate(templateKey as DiagramTemplateKey);
+      next.id = randomUUID();
+      if (title?.trim()) next.title = title.trim().slice(0, 200);
+      if (!layoutProfileEnabled(next, config)) throw new Error("The layout algorithm used by the template is disabled.");
+      const laidOut = next.kind === "sequence" ? normalizeSequenceDocument(next) : await layoutDiagram(next);
+      return agentProposalView(storeAgentProposal(state.document, laidOut, "Apply template: " + next.title, workspace?.id ?? null, state.drawioXml));
+    },
+    proposeRestore: async (versionId) => {
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+      const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
+      if (!sourceVersion || !isDiagramDocument(sourceVersion.document)) throw new Error("The requested version is not available in the active workspace.");
+      const restored = { ...sourceVersion.document, id: state.document.id };
+      return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
+    },
+    onProposal
+  })
 });
-
-/** Assistant prose from a finished turn; empty string when the turn produced no text. */
-function assistantText(message: unknown): string {
-  const content = (message as { data?: { content?: unknown } } | undefined)?.data?.content;
-  return typeof content === "string" ? content.trim() : "";
-}
-
-/** Last resort when the agent writes a plan as JSON text instead of calling the tool. */
-function planFromText(text: string): { commands: string[]; reply: string } | null {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  let parsed: unknown;
-  try { parsed = JSON.parse(match[0]); } catch { return null; }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const value = parsed as { commands?: unknown; reply?: unknown };
-  if (!Array.isArray(value.commands)) return null;
-  const commands = value.commands.filter((item): item is string => typeof item === "string" && ALLOWED_COMMANDS.has(item)).slice(0, 6);
-  if (commands.length !== value.commands.length) return null;
-  return { commands, reply: typeof value.reply === "string" ? value.reply.trim().slice(0, 500) : "" };
-}
 
 app.get("/api/copilot/sessions", async (_req, res) => {
   const workspace = await getProjectWorkspace();
