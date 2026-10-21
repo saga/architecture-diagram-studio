@@ -12,7 +12,7 @@ export const tokens = {
   inkMuted: "#53637A",
   accent: "#2A42B4",
   accentSoft: "#E1E7FF",
-  accentBorder: "#8497EC",
+  accentBorder: "#4B60C4",
   teal: "#1D6667",
   tealSoft: "#DCF0EE",
   amber: "#8A5610",
