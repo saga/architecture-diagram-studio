@@ -88,7 +88,7 @@ export function useDiagramEditing(options: Options) {
     const next = await requestServerSequenceNormalize({
       ...document,
       relations: document.relations.map((relation) => relation.id === relationId
-        ? { ...relation, source, target, points: [] }
+        ? { ...relation, source, target, points: [], sourcePort: undefined, targetPort: undefined }
         : relation)
     });
     commitDocument(next, "Relation endpoints updated");
@@ -256,7 +256,7 @@ export function useDiagramEditing(options: Options) {
     const next = {
       ...document,
       relations: document.relations.map((relation) => relation.id === relationId
-        ? { ...relation, source: relation.target, target: relation.source, points: [] }
+        ? { ...relation, source: relation.target, target: relation.source, points: [], sourcePort: undefined, targetPort: undefined }
         : relation)
     };
     commitDocument(next, "Relation direction reversed");
@@ -271,7 +271,9 @@ export function useDiagramEditing(options: Options) {
     const next: DiagramDocument = {
       ...document,
       relations: document.relations.map((relation) => relation.id === relationId
-        ? { ...relation, ...patch, points: routingChanged ? [] : relation.points }
+        ? { ...relation, ...patch, points: routingChanged ? [] : relation.points,
+          sourcePort: routingChanged ? undefined : relation.sourcePort,
+          targetPort: routingChanged ? undefined : relation.targetPort }
         : relation)
     };
     if (routingChanged && document.kind !== "sequence") {
