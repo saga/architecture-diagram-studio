@@ -61,7 +61,7 @@ function layoutSequence(doc: DiagramDocument): DiagramDocument {
   };
 }
 
-function repairOverlaps(doc: DiagramDocument, routeVariant = 0): DiagramDocument {
+function repairOverlaps(doc: DiagramDocument, routeVariant?: number): DiagramDocument {
   const nodes = doc.nodes.map((node) => ({ ...node }));
   for (let pass = 0; pass < 3; pass++) {
     let changed = false;
@@ -89,11 +89,13 @@ export async function layoutDiagram(document: DiagramDocument): Promise<DiagramD
       ? routeRelations(layoutWithDagre(document))
       : await layoutWithElk(document, profile);
   const alignedInitial = snapLayoutGeometry(initial);
-  let best = repairOverlaps(alignedInitial, 0);
-  let bestReport = evaluateLayout(best);
   const maxVariants = document.relations.length <= 40 ? 7
     : document.relations.length <= 150 ? 3
       : document.relations.length <= 400 ? 1 : 0;
+  // Large graphs skip exhaustive candidates, but must keep the best route chosen
+  // by routeRelations instead of resetting it to variant zero.
+  let best = repairOverlaps(alignedInitial, maxVariants === 0 ? undefined : 0);
+  let bestReport = evaluateLayout(best);
   for (let variant = 1; variant <= maxVariants; variant++) {
     // Evaluate independent route variants from the same aligned node geometry rather than
     // mutating the current winner cumulatively between candidates.
