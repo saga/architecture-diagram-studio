@@ -190,7 +190,10 @@ function routeCost(document: DiagramDocument): number {
       }
     }
   }
-  for (let i = 0; i < routes.length; i++) {
+  // Pairwise connector intersections dominate for very dense graphs. Keep the
+  // exhaustive crossing search for ordinary architecture diagrams; large graphs
+  // still get node-obstruction avoidance without an O(E²) cost per route candidate.
+  if (routes.length <= 300) for (let i = 0; i < routes.length; i++) {
     for (let j = i + 1; j < routes.length; j++) {
       const left = routes[i], right = routes[j];
       if ([left.relation.source, left.relation.target].some((id) =>
