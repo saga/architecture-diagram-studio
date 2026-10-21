@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
 import { nodePaint, relationPaint } from "../design/styles";
 import { tokens } from "../design/tokens";
+import { measureTextWidth, truncateTextToWidth } from "../design/text-metrics";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 
 interface Props {
@@ -46,6 +47,10 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
       start = { x: source.x, y: s.y };
       end = { x: target.x + target.width, y: t.y };
     }
+  }
+  if (document.kind !== "sequence") {
+    start = relation.sourcePort || start;
+    end = relation.targetPort || end;
   }
   const sequenceGeometry = document.kind === "sequence" ? sequenceMessageGeometry(document, relation) : null;
   const all = sequenceGeometry
@@ -101,8 +106,13 @@ export default function DiagramCanvas({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const frame = useMemo(() => ({
     width: Math.max(1240, ...document.nodes.map((node) => node.x + node.width + 100)),
-    height: Math.max(document.kind === "sequence" ? 820 : 760, ...document.nodes.map((node) => node.y + node.height + 120))
-  }), [document.nodes, document.kind]);
+    height: Math.max(document.kind === "sequence" ? 820 : 760,
+      document.kind === "sequence" ? 148 + Math.max(0, document.relations.length - 1) * 72 + 100 : 0,
+      ...document.nodes.map((node) => node.y + node.height + 120))
+  }), [document.nodes, document.kind, document.relations.length]);
+  const safeSvgId = document.id.replace(/[^A-Za-z0-9_-]/g, "-") || "diagram";
+  const titleId = "studio-diagram-title-" + safeSvgId;
+  const descriptionId = "studio-diagram-description-" + safeSvgId;
 
   useEffect(() => {
     setPan({ x: 0, y: 0 });
@@ -175,7 +185,9 @@ export default function DiagramCanvas({
       preserveAspectRatio={document.kind === "flowchart" ? "xMidYMin meet" : "xMidYMid meet"} onPointerDown={startPan}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       onContextMenu={(event) => { event.preventDefault(); onContextMenu({ kind: "canvas" }, event.clientX, event.clientY); }}
-      role="group" aria-label={document.title}>
+      role="group" aria-labelledby={titleId + " " + descriptionId}>
+      <title id={titleId}>{document.title}</title>
+      <desc id={descriptionId}>{document.kind.toUpperCase() + " diagram with " + document.nodes.length + " nodes and " + document.relations.length + " relationships."}</desc>
       <defs>
         <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33475F" /></marker>
@@ -226,8 +238,12 @@ export default function DiagramCanvas({
         if (!path) return null;
         const paint = relationPaint(relation);
         const selected = selectedRelationId === relation.id;
+        const sourceNode = displayNodes.find((node) => node.id === relation.source);
+        const targetNode = displayNodes.find((node) => node.id === relation.target);
+        const accessibleRelation = "Relation from " + (sourceNode?.name || relation.source) + " to " + (targetNode?.name || relation.target) + (relation.label ? ": " + relation.label : "");
+        const labelWidth = Math.max(48, measureTextWidth(relation.label, 13) + 20);
         return <g key={relation.id} className={"diagram-relation" + (selected ? " selected" : "")}
-          role="button" tabIndex={0} aria-label={"Select relation: " + (relation.label || relation.id)}
+          role="button" tabIndex={0} aria-label={accessibleRelation}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => selectRelation(event, relation.id)}
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "relation", id: relation.id }, event.clientX, event.clientY); }}
@@ -239,7 +255,7 @@ export default function DiagramCanvas({
             strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
             markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
           {relation.label && <g className="relation-label" pointerEvents="none">
-            <rect className="relation-label-bg" x={path.label.x - Math.max(24, relation.label.length * 3.9)} y={path.label.y - 14} width={Math.max(48, relation.label.length * 7.8)} height="22" rx="4" fill={tokens.canvas} fillOpacity="0.98" />
+            <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - 14} width={labelWidth} height="22" rx="4" fill={tokens.canvas} fillOpacity="0.98" />
             <text className="relation-label-text" x={path.label.x} y={path.label.y + 2} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">{relation.label}</text>
           </g>}
         </g>;
@@ -250,18 +266,24 @@ export default function DiagramCanvas({
         const titleY = node.y + (node.description || node.technology ? 28 : node.height / 2 + 4);
         const centeredFlowNode = document.kind === "flowchart" && ["decision", "start", "end"].includes(node.role);
         // One type size everywhere: 13px averages ~6.8px per glyph, so the label budget comes from node width.
-        const titleBudget = Math.max(10, Math.floor((node.width - 34) / 6.8));
-        const compactTitle = node.name.length > titleBudget ? node.name.slice(0, titleBudget - 1) + "…" : node.name;
+        const availableTextWidth = Math.max(0, node.width - 34);
+        const compactTitle = truncateTextToWidth(node.name, availableTextWidth, 13);
+        const technologyLabel = node.technology ? truncateTextToWidth(node.technology, availableTextWidth, 13) : "";
+        const descriptionLabel = node.description ? truncateTextToWidth(node.description, availableTextWidth, 13) : "";
+        const accessibleNode = "Node: " + node.name + (node.technology ? ". Technology: " + node.technology : "") + (node.description ? ". Description: " + node.description : "");
         return <g key={node.id} data-role={node.role} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
+          role="button" tabIndex={0} aria-label={accessibleNode}
           onPointerDown={(event) => startDrag(event, node)} onClick={(event) => { event.stopPropagation(); onSelectNode(node.id); }}
+          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectNode(node.id); } }}
           onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu({ kind: "node", id: node.id }, event.clientX, event.clientY); }}
           style={{ cursor: "grab" }}>
+          <title>{accessibleNode}</title>
           <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2.4 : 1.4} />
           {!["decision", "start", "end"].includes(node.role) && <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3.4" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.6 : 1} />}
           <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
             textAnchor={centeredFlowNode ? "middle" : "start"} fontSize="13" fontWeight="500" fill="#0C1626">{compactTitle}</text>
-          {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill="#0C1626">{node.technology.length > titleBudget ? node.technology.slice(0, titleBudget - 1) + "…" : node.technology}</text>}
-          {node.description && <text x={node.x + 17} y={node.y + (node.technology ? 64 : 52)} fontSize="13" fontWeight="500" fill="#0C1626">{node.description.length > titleBudget ? node.description.slice(0, titleBudget - 1) + "…" : node.description}</text>}
+          {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="13" fontWeight="500" fill="#0C1626">{technologyLabel}</text>}
+          {node.description && <text x={node.x + 17} y={node.y + (node.technology ? 64 : 52)} fontSize="13" fontWeight="500" fill="#0C1626">{descriptionLabel}</text>}
           {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 17} textAnchor="middle" fontSize="13" fontWeight="500" fill="#0C1626">●</text>}
         </g>;
       })}
