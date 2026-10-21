@@ -83,13 +83,13 @@ export function recordDiagnostic(
   consoleMethod("[studio:v2]", entry);
 
   try {
-    void fetch("/__studio/log", {
+    void fetch("/api/workspace/logs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(entry),
       keepalive: true
     }).catch(() => {
-      // The dev-only terminal log endpoint is absent in static production builds.
+      // Server logging is best-effort; the operation itself must remain usable.
     });
   } catch {
     // Do not affect the operation being diagnosed.
