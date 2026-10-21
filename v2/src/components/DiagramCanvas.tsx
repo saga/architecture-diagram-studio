@@ -9,10 +9,13 @@ interface Props {
   document: DiagramDocument;
   zoom: number;
   selectedNodeId: string | null;
+  selectedRelationId: string | null;
   onSelectNode: (id: string) => void;
+  onSelectRelation: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
 }
 interface DragState { id: string; offsetX: number; offsetY: number; x: number; y: number; originX: number; originY: number; }
+interface PanState { startClientX: number; startClientY: number; originX: number; originY: number; }
 
 function center(node: DiagramNode): Point {
   return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
@@ -24,11 +27,23 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
   let start: Point, end: Point;
   const points = relation.points || [];
   if (document.kind === "sequence") {
-    const order = relation.sequenceOrder || 0;
+    const order = relation.sequenceOrder ?? 0;
     const y = 148 + order * 72;
     const sx = center(source).x, tx = center(target).x;
-    start = { x: sx + (tx >= sx ? 1 : -1) * source.width * 0.42, y };
-    end = { x: tx + (tx >= sx ? -1 : 1) * target.width * 0.42, y };
+    const activations = deriveSequenceActivations(document);
+    const activeActivation = (participantId: string) => activations
+      .filter((activation) => activation.participantId === participantId &&
+        activation.startOrder <= order && activation.endOrder >= order)
+      .sort((a, b) => b.startOrder - a.startOrder || a.endOrder - b.endOrder)[0];
+    const endpointX = (participant: DiagramNode, towardX: number) => {
+      const activation = activeActivation(participant.id);
+      if (!activation) return center(participant).x;
+      return center(participant).x + (towardX >= center(participant).x ? -7 : 7);
+    };
+    // Lifelines run through each participant's center. During an active call,
+    // connect to the activation bar's edge; otherwise connect to the lifeline.
+    start = { x: endpointX(source, tx), y };
+    end = { x: endpointX(target, sx), y };
   } else {
     const s = center(source), t = center(target);
     const dx = t.x - s.x, dy = t.y - s.y;
@@ -85,9 +100,13 @@ function nodePath(node: DiagramNode, shape: string): string {
   if (shape === "diamond") return "M " + (node.x + node.width / 2) + " " + node.y + " L " + (node.x + node.width) + " " + (node.y + node.height / 2) + " L " + (node.x + node.width / 2) + " " + (node.y + node.height) + " L " + node.x + " " + (node.y + node.height / 2) + " Z";
   return "M " + (node.x + 8) + " " + node.y + " H " + (node.x + node.width - 8) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + 8) + " V " + (node.y + node.height - 8) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - 8) + " " + (node.y + node.height) + " H " + (node.x + 8) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - 8) + " V " + (node.y + 8) + " Q " + node.x + " " + node.y + " " + (node.x + 8) + " " + node.y + " Z";
 }
-export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelectNode, onMoveNode }: Props) {
+export default function DiagramCanvas({
+  document, zoom, selectedNodeId, selectedRelationId, onSelectNode, onSelectRelation, onMoveNode
+}: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [panGesture, setPanGesture] = useState<PanState | null>(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const frame = useMemo(() => ({
     width: Math.max(1240, ...document.nodes.map((node) => node.x + node.width + 100)),
     height: Math.max(document.kind === "sequence" ? 820 : 760, ...document.nodes.map((node) => node.y + node.height + 120))
@@ -105,37 +124,67 @@ export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelect
   }
   function startDrag(event: ReactPointerEvent<SVGGElement>, node: DiagramNode) {
     if (event.button !== 0) return;
+    event.stopPropagation();
     const point = pointerToDiagram(event.clientX, event.clientY);
     setDrag({ id: node.id, offsetX: point.x - node.x, offsetY: point.y - node.y, x: node.x, y: node.y, originX: node.x, originY: node.y });
     onSelectNode(node.id);
     svgRef.current?.setPointerCapture(event.pointerId);
     event.preventDefault();
   }
+  function startPan(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.button !== 0 || drag) return;
+    setPanGesture({
+      startClientX: event.clientX, startClientY: event.clientY, originX: pan.x, originY: pan.y
+    });
+    svgRef.current?.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
   function moveDrag(event: ReactPointerEvent<SVGSVGElement>) {
-    if (!drag) return;
-    const point = pointerToDiagram(event.clientX, event.clientY);
-    setDrag({ ...drag, x: Math.max(12, point.x - drag.offsetX), y: Math.max(12, point.y - drag.offsetY) });
+    if (drag) {
+      const point = pointerToDiagram(event.clientX, event.clientY);
+      setDrag({ ...drag, x: Math.max(12, point.x - drag.offsetX), y: Math.max(12, point.y - drag.offsetY) });
+      return;
+    }
+    if (panGesture) {
+      const matrix = svgRef.current?.getScreenCTM();
+      if (!matrix) return;
+      const scaleX = Math.abs(matrix.a) || 1;
+      const scaleY = Math.abs(matrix.d) || 1;
+      setPan({
+        x: panGesture.originX - (event.clientX - panGesture.startClientX) / scaleX,
+        y: panGesture.originY - (event.clientY - panGesture.startClientY) / scaleY
+      });
+    }
   }
   function endDrag() {
-    if (!drag) return;
-    if (Math.abs(drag.x - drag.originX) > 2 || Math.abs(drag.y - drag.originY) > 2) {
-      onMoveNode(drag.id, drag.x, drag.y);
+    if (drag) {
+      if (Math.abs(drag.x - drag.originX) > 2 || Math.abs(drag.y - drag.originY) > 2) {
+        onMoveNode(drag.id, drag.x, drag.y);
+      }
+      setDrag(null);
     }
-    setDrag(null);
+    setPanGesture(null);
+  }
+  function selectRelation(event: React.MouseEvent<SVGGElement>, relationId: string) {
+    event.stopPropagation();
+    onSelectRelation(relationId);
   }
   const displayNodes = document.nodes.map((node) => drag && drag.id === node.id ? { ...node, x: drag.x, y: drag.y } : node);
   const displayDoc = { ...document, nodes: displayNodes };
 
   return (
-    <svg ref={svgRef} className="diagram-svg" viewBox={(frame.width * (1 - 1 / zoom) / 2) + " " + (frame.height * (1 - 1 / zoom) / 2) + " " + (frame.width / zoom) + " " + (frame.height / zoom)} preserveAspectRatio="xMidYMid meet"
-      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} role="img" aria-label={document.title}>
+    <svg ref={svgRef} className={"diagram-svg" + (panGesture ? " is-panning" : "")}
+      viewBox={(frame.width * (1 - 1 / zoom) / 2 + pan.x) + " " + (frame.height * (1 - 1 / zoom) / 2 + pan.y) + " " + (frame.width / zoom) + " " + (frame.height / zoom)}
+      preserveAspectRatio="xMidYMid meet" onPointerDown={startPan}
+      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+      role="img" aria-label={document.title}>
       <defs>
         <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill={tokens.canvasGrid} /></pattern>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B" /></marker>
         <marker id="arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#778496" strokeWidth="1.2" /></marker>
       </defs>
-      <rect width={frame.width} height={frame.height} fill="#FBFCFD" />
-      <rect width={frame.width} height={frame.height} fill="url(#studio-grid)" />
+      <rect width={frame.width} height={frame.height} fill="#FBFCFD" onPointerDown={startPan} />
+      <rect width={frame.width} height={frame.height} fill="url(#studio-grid)" onPointerDown={startPan} />
       {displayDoc.boundaries.map((boundary) => {
         const members = displayNodes.filter((node) => boundary.members.includes(node.id));
         if (!members.length) return null;
@@ -176,12 +225,21 @@ export default function DiagramCanvas({ document, zoom, selectedNodeId, onSelect
         const path = relationPath(displayDoc, relation);
         if (!path) return null;
         const paint = relationPaint(relation);
-        return <g key={relation.id}>
-          <path d={path.d} fill="none" stroke={paint.stroke} strokeWidth={paint.width} strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
-            markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" />
-          {relation.label && <g>
-            <rect x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12} width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.94" />
-            <text x={path.label.x} y={path.label.y + 1} textAnchor="middle" fontSize="10" fill="#58677A">{relation.label}</text>
+        const selected = selectedRelationId === relation.id;
+        return <g key={relation.id} className={"diagram-relation" + (selected ? " selected" : "")}
+          role="button" tabIndex={0} aria-label={"选择关系：" + (relation.label || relation.id)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => selectRelation(event, relation.id)}
+          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectRelation(relation.id); } }}
+          style={{ cursor: "pointer" }}>
+          <path className="relation-hit-area" d={path.d} fill="none" stroke="transparent" strokeWidth="18" pointerEvents="stroke" />
+          <path className="relation-visible-path" d={path.d} fill="none" stroke={selected ? "#425BC7" : paint.stroke}
+            strokeWidth={selected ? Math.max(2.8, paint.width + 1.1) : paint.width}
+            strokeDasharray={relation.dashed === undefined ? paint.dash || undefined : relation.dashed ? "5 5" : undefined}
+            markerEnd={"url(#" + paint.marker + ")"} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
+          {relation.label && <g pointerEvents="none">
+            <rect x={path.label.x - Math.max(18, relation.label.length * 3.1)} y={path.label.y - 12} width={Math.max(36, relation.label.length * 6.2)} height="19" rx="4" fill="#FBFCFD" fillOpacity="0.96" />
+            <text x={path.label.x} y={path.label.y + 1} textAnchor="middle" fontSize="10" fill="#38485E">{relation.label}</text>
           </g>}
         </g>;
       })}
