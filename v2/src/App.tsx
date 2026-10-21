@@ -44,7 +44,7 @@ function loadSavedTheme(): UiTheme {
   return "warm";
 }
 type PanelWidths = { left: number; right: number };
-type CanvasMenu = { x: number; y: number; kind: "node" | "relation" | "canvas"; id?: string };
+type CanvasMenu = { x: number; y: number; kind: "node" | "relation" | "fragment" | "canvas"; id?: string };
 const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { left: [190, 420], right: [300, 620] };
 const PANEL_STORAGE_KEY = "architecture-diagram-studio:v2:panel-widths";
 function loadPanelWidths(): PanelWidths {
@@ -995,7 +995,7 @@ export default function App() {
                   endpoint === "source" ? nodeId : relation.source,
                   endpoint === "target" ? nodeId : relation.target);
               }}
-              onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel}
+              onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel} onUpdateSequenceFragment={updateSequenceFragment}
               onContextMenu={(target, x, y) => {
                 if (target.kind === "node") { setSelectedNodeId(target.id || null); setSelectedRelationId(null); }
                 if (target.kind === "relation") setSelectedRelationId(target.id || null);
