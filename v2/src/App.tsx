@@ -155,12 +155,13 @@ export default function App() {
       if (!saved) return initial;
       const parsed: unknown = JSON.parse(saved);
       if (!Array.isArray(parsed)) return initial;
-      return parsed.filter((item): item is ChatMessage =>
+      const restored = parsed.filter((item): item is ChatMessage =>
         !!item && typeof item === "object" &&
         ((item as ChatMessage).role === "assistant" || (item as ChatMessage).role === "user") &&
         typeof (item as ChatMessage).text === "string" &&
         typeof (item as ChatMessage).id === "number"
-      ).slice(-300);
+      ).filter((item) => !(item.role === "assistant" && item.id === 1 && item.text.startsWith("描述想要的布局变化即可")));
+      return restored.slice(-300);
     } catch {
       return initial;
     }
