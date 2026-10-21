@@ -93,6 +93,7 @@ export function wrapTextToWidth(value: string, maxWidth: number, fontSize = 13, 
   if (line) lines.push(line);
   if (maxLines === undefined || lines.length <= maxLines) return lines;
   const visible = lines.slice(0, Math.max(1, maxLines));
-  visible[visible.length - 1] = truncateTextToWidth(visible[visible.length - 1], maxWidth, fontSize);
+  // Force an ellipsis when vertical capacity hides the remaining lines.
+  visible[visible.length - 1] = truncateTextToWidth(visible[visible.length - 1] + "…", maxWidth, fontSize);
   return visible;
 }
