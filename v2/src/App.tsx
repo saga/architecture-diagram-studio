@@ -17,6 +17,7 @@ import DrawioFrame from "./components/DrawioFrame";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
+import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
@@ -248,6 +249,7 @@ export default function App() {
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const [serverHydrated, setServerHydrated] = useState(false);
   const [serverDocumentAvailable, setServerDocumentAvailable] = useState(false);
+  const [workspaceContentReady, setWorkspaceContentReady] = useState(false);
   const workspaceInitialLoadRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
@@ -281,6 +283,7 @@ export default function App() {
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
+  const { serverRevisionRef, persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, onDiagnostic: recordDiagnostic });
 
   useEffect(() => {
     let active = true;
@@ -289,7 +292,7 @@ export default function App() {
   }, []);
 
   async function saveProjectWorkspace() {
-    setWorkspaceSaving(true); setWorkspaceError("");
+    setWorkspaceSaving(true); setWorkspaceContentReady(false); setWorkspaceError("");
     try {
       const response = await fetch("/api/workspace/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram || null }) });
       const result = await response.json() as { error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; counts?: { files: number; diagrams: number; code: number; documents: number } };
@@ -299,7 +302,8 @@ export default function App() {
       let nextXml: string | null = nativeXmlOverride;
       const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
       if (workspaceChanged) { setMessages([{ role: "assistant", id: Date.now(), text: "Switched to a new project workspace. Later analysis will be based on the Draw.io diagrams, code, and design documents in that directory." }]); const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session"); setCopilotSessionId(newSessionId); }
-      if (nextWorkspace.primaryDiagram && (workspaceChanged || projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram) && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
+      if (workspaceChanged) serverRevisionRef.current = null;
+      if (nextWorkspace.primaryDiagram && (workspaceChanged || projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram || !workspaceContentReady) && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
         const fileResponse = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(nextWorkspace.primaryDiagram));
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "Could not read the selected Draw.io file");
@@ -326,6 +330,7 @@ export default function App() {
       setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
       setWorkspaceSetupOpen(false);
+      setWorkspaceContentReady(true);
       recordDiagnostic("workspace.project.configured", "Project workspace configured", { workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram, ...(result.counts || {}) });
     } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
     finally { setWorkspaceSaving(false); }
@@ -337,12 +342,14 @@ export default function App() {
     fetch("/api/workspace/state")
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load the server-side workspace (HTTP " + response.status + ")");
-        return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[]; workspaceMismatch?: boolean }>;
+        return response.json() as Promise<{ document?: unknown; drawioXml?: unknown; copilotSessionId?: unknown; chatMessages?: unknown[]; workspaceMismatch?: boolean; workspaceRevision?: string | null }>;
       })
       .then((state) => {
         if (!active) return;
         const savedDocument = isDiagramDocument(state.document) ? state.document : null;
         setServerDocumentAvailable(Boolean(savedDocument));
+        serverRevisionRef.current = typeof state.workspaceRevision === "string" ? state.workspaceRevision : null;
+        setWorkspaceContentReady(Boolean(savedDocument && !state.workspaceMismatch));
         if (savedDocument) {
           setDocument(savedDocument);
           setSelectedNodeId(savedDocument.nodes[0]?.id || null);
@@ -403,12 +410,14 @@ export default function App() {
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
           setServerDocumentAvailable(true);
+          setWorkspaceContentReady(true);
           recordDiagnostic("workspace.primary-diagram.loaded", "Loaded the primary Draw.io diagram from the project workspace", { workspaceId: projectWorkspace.id, path: projectWorkspace.primaryDiagram, xmlLength: result.content.length });
         } else {
           const laidOut = await requestServerLayout(FIXTURES.c4());
           if (!active) return;
           setDocument(laidOut); setNativeXmlOverride(null); setSelectedNodeId(laidOut.nodes[0]?.id || null);
           historyRef.current = [laidOut]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
+          setWorkspaceContentReady(true);
         }
       } catch (error) {
         if (active) recordDiagnostic("workspace.primary-diagram.load.failed", "Could not load the workspace primary diagram", { workspaceId: projectWorkspace.id, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
@@ -417,45 +426,6 @@ export default function App() {
     void load();
     return () => { active = false; };
   }, [serverHydrated, projectWorkspace, serverDocumentAvailable]);
-
-  useEffect(() => {
-    if (!serverHydrated || !projectWorkspace) return;
-    const timer = window.setTimeout(() => {
-      fetch("/api/workspace/document", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ document, drawioXml, label: nextSaveLabelRef.current })
-      }).then(async (response) => {
-        if (!response.ok) throw new Error("HTTP " + response.status + ": " + (await response.text()).slice(0, 300));
-        const result = await response.json() as { saved?: boolean; version?: { id?: string } | null };
-        if (result.saved) recordDiagnostic("workspace.version.persisted", "Document and Draw.io XML revision persisted to the server", {
-          versionId: result.version?.id, xmlLength: drawioXml.length, nodeCount: document.nodes.length
-        });
-      }).catch((error: unknown) => {
-        recordDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
-          errorMessage: error instanceof Error ? error.message : String(error),
-          xmlLength: drawioXml.length, nodeCount: document.nodes.length
-        }, "error");
-      });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [document, drawioXml, serverHydrated, projectWorkspace]);
-
-  useEffect(() => {
-    if (!serverHydrated || !projectWorkspace) return;
-    fetch("/api/workspace/chat", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ copilotSessionId, chatMessages: messages.slice(-2000) })
-    }).then((response) => {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-    }).catch((error: unknown) => {
-      recordDiagnostic("copilot.chat.persist.failed", "Could not save the Copilot conversation to the server", {
-        sessionId: copilotSessionId, messageCount: messages.length,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      }, "error");
-    });
-  }, [copilotSessionId, messages, serverHydrated, projectWorkspace]);
 
   useEffect(() => {
     const refreshTraces = () => {
@@ -705,6 +675,8 @@ export default function App() {
     setChatInput("");
     setChatBusy(true);
     try {
+      if (!workspaceContentReady) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
+      await persistDocumentNow(document, drawioXml, "Before Copilot request");
       let effectiveText = text;
       let modelReply = "";
       if (aiModel.trim()) {
@@ -1208,13 +1180,14 @@ export default function App() {
   async function restoreVersion(versionId: string) {
     try {
       const response = await fetch("/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
-      const result = await response.json() as { error?: string; state?: { document?: unknown; drawioXml?: unknown }; version?: { id?: string } };
+      const result = await response.json() as { error?: string; workspaceRevision?: string; state?: { document?: unknown; drawioXml?: unknown }; version?: { id?: string } };
       const restoredState = result.state;
       if (!response.ok || !restoredState || !isDiagramDocument(restoredState.document) || typeof restoredState.drawioXml !== "string") {
         throw new Error(result.error || "Server-side version restore failed");
       }
       const restored = restoredState.document as DiagramDocument;
       const restoredXml = restoredState.drawioXml as string;
+      serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
       setDocument(restored);
       setNativeXmlOverride(restoredXml);
       setPreviewDocument(null);

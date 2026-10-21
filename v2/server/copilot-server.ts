@@ -1,7 +1,7 @@
 import express from "express";
 import os from "node:os";
 import path from "node:path";
-import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath, lstat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, realpath, lstat } from "node:fs/promises";
 import { isDiagramDocument, type DiagramDocument } from "../src/model/types";
 import { interpretIntent } from "../src/intent/applyIntent";
 import { layoutDiagram, moveNode } from "../src/layout/layout";
@@ -12,6 +12,7 @@ import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./copilot/runtime";
+import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, workspaceRevision, retainRecentVersions } from "./storage";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
@@ -94,36 +95,22 @@ type WorkspaceFileEntry = { path: string; name: string; kind: "diagram" | "code"
 let projectWorkspace: ProjectWorkspace | null | undefined;
 type DiagramVersion = { id: string; workspaceId?: string; createdAt: string; label: string; document: unknown; drawioXml: string };
 type WorkspaceState = { workspaceId?: string; document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
-let dataWriteQueue: Promise<void> = Promise.resolve();
+const withDataWrite = createSerializedWriteQueue();
 let workspaceState: WorkspaceState | null = null;
 let diagramVersions: DiagramVersion[] | null = null;
 async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(file, "utf8")) as T; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback; throw error; }
 }
-async function writeTextAtomic(file: string, content: string): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); const temp = file + "." + randomUUID() + ".tmp"; await writeFile(temp, content, "utf8"); await rename(temp, file); }
-async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  const temp = file + "." + randomUUID() + ".tmp";
-  await writeFile(temp, JSON.stringify(value), "utf8");
-  await rename(temp, file);
-}
-async function withDataWrite<T>(operation: () => Promise<T>): Promise<T> {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const result = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
-  dataWriteQueue = dataWriteQueue.then(async () => { try { resolve(await operation()); } catch (error) { reject(error); } });
-  await dataWriteQueue;
-  return result;
-}
 async function getWorkspaceState(): Promise<WorkspaceState> {
   if (!workspaceState) workspaceState = await readJsonFile<WorkspaceState>(WORKSPACE_FILE, { document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null });
   return workspaceState;
 }
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
-  if (!diagramVersions) diagramVersions = await readJsonFile<DiagramVersion[]>(VERSIONS_FILE, []);
+  if (!diagramVersions) diagramVersions = retainRecentVersions(await readJsonFile<DiagramVersion[]>(VERSIONS_FILE, []), MAX_VERSIONS_PER_WORKSPACE);
   return diagramVersions;
 }
+const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 app.use((req, res, next) => {
@@ -402,7 +389,7 @@ function validateDiagramSemantics(document: DiagramDocument): string[] {
     if (boundary.name.length > 500 || (boundary.description || "").length > 4000 || boundary.members.some((id) => !nodeIds.has(id))) errors.push("Boundary text is too long or references a missing node: " + boundary.id);
   }
   if (![document.layout.nodeSpacing, document.layout.layerSpacing, document.layout.boundaryPadding].every((value) => Number.isFinite(value) && value >= 0 && value <= 5000)) errors.push("Invalid layout spacing");
-  if (document.kind !== "sequence" && !LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile)) errors.push("Unsupported layout algorithm: " + document.layout.profile);
+  if (document.kind !== "sequence" && !LAYOUT_PROFILES.some((profile) => profile.value === resolveLayoutProfile(document.layout.profile))) errors.push("Unsupported layout algorithm: " + document.layout.profile);
   if (document.flow && document.flow.primaryPath.some((id) => !nodeIds.has(id))) errors.push("The primary path references a missing node");
   if (document.sequence && document.sequence.participants.some((id) => !nodeIds.has(id))) errors.push("A sequence participant references a missing node");
   return [...new Set(errors)].slice(0, 100);
@@ -467,7 +454,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       if (errors.length) return { status: 422 as const, error: "The template failed semantic validation", validationErrors: errors };
       const xml = toDrawioXml(laidOut), now = new Date().toISOString();
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
-      const versions = await getDiagramVersions(); diagramVersions = [...versions, version]; await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
       workspaceState = { ...state, workspaceId: workspace?.id, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
@@ -537,7 +524,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       const xml = toDrawioXml(proposal.document);
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, createdAt: new Date().toISOString(), label: "Agent edit: " + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
       const versions = await getDiagramVersions();
-      diagramVersions = [...versions, version];
+      diagramVersions = retainRecentVersions([...versions, version]);
       await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
@@ -661,7 +648,7 @@ app.get("/api/workspace/state", async (_req, res) => {
     const visibleState = belongsToWorkspace ? state : { ...state, document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null };
     const versions = (await getDiagramVersions()).filter((version) => !workspace || version.workspaceId === workspace.id);
     const latest = versions[versions.length - 1];
-    res.json({ ...visibleState, workspaceMismatch: !belongsToWorkspace, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
+    res.json({ ...visibleState, workspaceMismatch: !belongsToWorkspace, workspaceRevision: visibleState.document && isDiagramDocument(visibleState.document) ? workspaceRevision(visibleState.document, visibleState.drawioXml) : null, projectWorkspace: workspace, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
   } catch (error) {
     await writeLog("workspace.state.read.failed", { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "Could not read the server workspace data" });
@@ -672,16 +659,21 @@ app.put("/api/workspace/document", async (req, res) => {
   const document = req.body?.document;
   const drawioXml = req.body?.drawioXml;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
+  const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : req.body?.baseRevision === null ? null : undefined;
   if (!isDiagramDocument(document) || typeof drawioXml !== "string" || drawioXml.length > 20_000_000) {
     res.status(400).json({ error: "Invalid document or Draw.io XML, or the XML exceeds 20 MB" });
     return;
   }
+  const semanticErrors = validateDiagramSemantics(document);
+  if (semanticErrors.length) { res.status(422).json({ error: "Invalid diagram document", validationErrors: semanticErrors }); return; }
   try {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState();
       const workspace = await getProjectWorkspace();
       const allVersions = await getDiagramVersions();
       const workspaceVersions = allVersions.filter((version) => version.workspaceId === workspace?.id);
+      const currentRevision = state.workspaceId === workspace?.id && isDiagramDocument(state.document) ? workspaceRevision(state.document, state.drawioXml) : null;
+      if (baseRevision === undefined || baseRevision !== currentRevision) return { status: 409 as const, error: "The document changed or the save is missing its base revision. Reload the latest version before saving.", workspaceRevision: currentRevision };
       const unchanged = state.workspaceId === workspace?.id && JSON.stringify(state.document) === JSON.stringify(document) && state.drawioXml === drawioXml;
       if (!unchanged) {
         const version: DiagramVersion = {
@@ -692,7 +684,7 @@ app.put("/api/workspace/document", async (req, res) => {
           document,
           drawioXml
         };
-        diagramVersions = [...allVersions, version];
+        diagramVersions = retainRecentVersions([...allVersions, version]);
         await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
         if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
           const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
@@ -706,10 +698,11 @@ app.put("/api/workspace/document", async (req, res) => {
           versionId: version.id, label, documentId: document.id, xmlLength: drawioXml.length,
           nodeCount: document.nodes.length, relationCount: document.relations.length
         }) + "\n", "utf8");
-        return { saved: true, version };
+        return { status: 200 as const, saved: true, version, workspaceRevision: workspaceRevision(document, drawioXml) };
       }
-      return { saved: false, version: workspaceVersions[workspaceVersions.length - 1] ?? null };
+      return { status: 200 as const, saved: false, version: workspaceVersions[workspaceVersions.length - 1] ?? null, workspaceRevision: currentRevision };
     });
+    if (result.status === 409) { res.status(409).json(result); return; }
     res.json({ ok: true, ...result });
   } catch (error) {
     await writeLog("workspace.document.save.failed", { error: error instanceof Error ? error.message : String(error) });
@@ -820,7 +813,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
         document: source.document,
         drawioXml: source.drawioXml
       };
-      diagramVersions = [...versions, version];
+      diagramVersions = retainRecentVersions([...versions, version]);
       await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
@@ -842,8 +835,8 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       const state = { ...result.state };
       delete (version as Partial<DiagramVersion>).drawioXml;
       delete (state as Partial<WorkspaceState>).drawioXml;
-      res.json({ ok: true, version, state });
-    } else res.json({ ok: true, ...result });
+      res.json({ ok: true, version, state, workspaceRevision: workspaceRevision(result.version.document, result.version.drawioXml) });
+    } else res.json({ ok: true, ...result, workspaceRevision: workspaceRevision(result.version.document, result.version.drawioXml) });
   } catch (error) {
     await writeLog("workspace.version.restore.failed", { versionId: req.params.id, error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "Restoring the server version failed" });
