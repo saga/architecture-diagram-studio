@@ -189,7 +189,7 @@ export default function WorkspacePages(props: Props) {
 
           <section className="gemini-chat">
             <div className="gemini-chat-scroll">
-              <div className="gemini-welcome">
+              {messages.length === 0 && <div className="gemini-welcome">
                 <div className="gemini-spark">✳</div>
                 <h2>这张图，想怎么调整？</h2>
                 <p>例如：把所有 external 移到右侧；数据库放到底部；所有连线改成直角折线。</p>
@@ -199,13 +199,14 @@ export default function WorkspacePages(props: Props) {
                   )}
                 </div>
               </div>
-              <div className="gemini-messages" aria-live="polite">
+              </div>}
+              {messages.length > 0 && <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
                   <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Layout Copilot" : "你"}</div><Bubble content={message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" /></div>
                 </article>)}
                 <div ref={chatEndRef} />
-              </div>
+              </div>}
             </div>
 
             {previewDocument && <div className="preview-actions copilot-preview-actions">
