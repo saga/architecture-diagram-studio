@@ -92,23 +92,26 @@ export function applySemanticSideConstraints(doc: DiagramDocument, automaticRole
   const topY = 24;
   const bottomY = maxY + gap;
   const sortStable = (items: DiagramNode[]) => items.sort((a, b) => a.y - b.y || a.name.localeCompare(b.name));
-
-  sortStable(left).forEach((node, index) => {
-    node.x = Math.max(24, minX - leftWidth - gap);
-    node.y = 56 + index * (node.height + doc.layout.nodeSpacing);
-  });
-  sortStable(right).forEach((node, index) => {
-    node.x = rightX;
-    node.y = 56 + index * (node.height + doc.layout.nodeSpacing);
-  });
-  sortStable(top).forEach((node, index) => {
-    node.x = 48 + index * (node.width + doc.layout.nodeSpacing);
-    node.y = topY;
-  });
-  sortStable(bottom).forEach((node, index) => {
-    node.x = 48 + index * (node.width + doc.layout.nodeSpacing);
-    node.y = bottomY;
-  });
+  const placeVerticalLane = (items: DiagramNode[], x: number) => {
+    let y = 56;
+    for (const node of sortStable(items)) {
+      node.x = x;
+      node.y = y;
+      y += node.height + doc.layout.nodeSpacing;
+    }
+  };
+  const placeHorizontalLane = (items: DiagramNode[], y: number) => {
+    let x = 48;
+    for (const node of sortStable(items)) {
+      node.x = x;
+      node.y = y;
+      x += node.width + doc.layout.nodeSpacing;
+    }
+  };
+  placeVerticalLane(left, Math.max(24, minX - leftWidth - gap));
+  placeVerticalLane(right, rightX);
+  placeHorizontalLane(top, topY);
+  placeHorizontalLane(bottom, bottomY);
   return { ...doc, nodes };
 }
 
