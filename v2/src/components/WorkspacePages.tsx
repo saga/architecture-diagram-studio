@@ -34,7 +34,7 @@ interface Props {
   saveAISettings: () => void;
   clearAISettings: () => void;
   traceEntries: DiagnosticEntry[];
-  clearTraces: () => void;
+  refreshTraces: () => void;
   drawioStatus: DrawioStatus;
   drawioStatusMessage: string;
   checkDrawioStatus: () => void;
@@ -54,7 +54,7 @@ export default function WorkspacePages(props: Props) {
   const {
     page, document, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
     sendIntent, acceptPreview, discardPreview, openStudio, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
-    saveAISettings, clearAISettings, traceEntries, clearTraces,
+    saveAISettings, clearAISettings, traceEntries, refreshTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -172,7 +172,7 @@ export default function WorkspacePages(props: Props) {
             <div><div className="page-eyebrow">OBSERVABILITY / LOCAL SESSION</div><h1>Agent 轨迹</h1>
               <p>记录布局意图请求、模型返回、预览/应用、布局器、Draw.io 初始化、导入导出和运行时异常。事件保存在当前浏览器中，并在开发模式下同步输出到终端。</p>
             </div>
-            <div className="page-hero-actions"><UiButton type="button" className="button button-secondary" onClick={() => window.location.reload()}>刷新页面</UiButton><UiButton type="button" className="button button-quiet" onClick={clearTraces}>清空轨迹</UiButton></div>
+            <div className="page-hero-actions"><UiButton type="button" className="button button-secondary" onClick={() => window.location.reload()}>刷新页面</UiButton><UiButton type="button" className="button button-quiet" onClick={refreshTraces}>刷新轨迹</UiButton></div>
           </div>
 
           <div className="trace-metrics">
