@@ -21,8 +21,13 @@ export function matchesWorkspacePattern(relativePath: string, pattern: string): 
   const source = pattern.trim();
   for (let i = 0; i < source.length; i++) {
     const ch = source[i];
-    if (ch === "*") { if (source[i + 1] === "*") { escaped += ".*"; i++; } else escaped += "[^/]*"; }
-    else if (ch === "?") escaped += "[^/]";
+    if (ch === "*") {
+      if (source[i + 1] === "*") {
+        i++;
+        if (source[i + 1] === "/") { escaped += "(?:.*/)?"; i++; }
+        else escaped += ".*";
+      } else escaped += "[^/]*";
+    } else if (ch === "?") escaped += "[^/]";
     else if (".+^$()|{}[]".includes(ch) || ch === "\\") escaped += "\\" + ch;
     else escaped += ch;
   }
