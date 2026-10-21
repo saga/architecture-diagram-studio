@@ -1192,7 +1192,7 @@ export default function App() {
         <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="工作区页面">
           {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent 轨迹"], ["settings", "配置"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
-            <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
+            <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
         <label className="theme-selector" title="切换整个工作界面的配色">
