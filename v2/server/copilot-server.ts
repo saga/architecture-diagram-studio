@@ -168,8 +168,8 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 });
 
 const DEFAULT_WORKSPACE_EXCLUDES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".venv", "venv", ".idea", ".vscode", "vendor"]);
-const DIAGRAM_EXTENSIONS = new Set([".drawio", ".dio", ".mmd", ".mermaid", ".puml", ".plantuml"]);
-const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go", ".rs", ".cs", ".cpp", ".h", ".sql", ".sh", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css"]);
+const DIAGRAM_EXTENSIONS = new Set([".drawio", ".dio", ".xml", ".mmd", ".mermaid", ".puml", ".plantuml"]);
+const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go", ".rs", ".cs", ".cpp", ".h", ".sql", ".sh", ".yaml", ".yml", ".json", ".toml", ".html", ".css"]);
 const DOCUMENT_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".rst", ".adoc"]);
 async function getProjectWorkspace(): Promise<ProjectWorkspace | null> { if (projectWorkspace !== undefined) return projectWorkspace; projectWorkspace = await readJsonFile<ProjectWorkspace | null>(PROJECT_WORKSPACE_FILE, null); return projectWorkspace; }
 function classifyWorkspaceFile(filePath: string): WorkspaceFileEntry["kind"] { const ext = path.extname(filePath).toLowerCase(); if (DIAGRAM_EXTENSIONS.has(ext)) return "diagram"; if (CODE_EXTENSIONS.has(ext)) return "code"; if (DOCUMENT_EXTENSIONS.has(ext)) return "document"; return "other"; }
