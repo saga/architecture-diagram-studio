@@ -82,6 +82,7 @@ type RuntimeSession = {
   session: Awaited<ReturnType<CopilotClient["createSession"]>>;
   model: string;
   workspaceId?: string;
+  configUpdatedAt: string;
   reasoningEffort?: string;
   lastUsedAt: number;
   tail: Promise<unknown>;
@@ -582,18 +583,24 @@ function attachSessionEvents(sessionId: string, session: RuntimeSession["session
 }
 
 async function getOrResumeSession(sessionId: string, model: string, reasoningEffort?: "high" | "max"): Promise<RuntimeSession> {
+  const activeConfig = await getStudioConfig();
   const current = sessions.get(sessionId);
-  if (current) {
+  if (current && current.configUpdatedAt === activeConfig.updatedAt) {
     current.lastUsedAt = Date.now();
     return current;
   }
+  if (current) {
+    sessions.delete(sessionId);
+    await writeLog("session.configuration.changed", { sessionId, previousConfigUpdatedAt: current.configUpdatedAt, configUpdatedAt: activeConfig.updatedAt });
+  }
   const client = await getCopilotClient();
-  const activeConfig = await getStudioConfig();
   const systemMessage = await buildSystemMessage(activeConfig);
+  // Keep the UI conversation ID stable while isolating SDK history by configuration revision.
+  const sdkSessionId = sessionId + ".cfg" + activeConfig.updatedAt.replace(/\\D/g, "");
   let session: RuntimeSession["session"];
   let resumed = false;
   try {
-    session = await client.resumeSession(sessionId, {
+    session = await client.resumeSession(sdkSessionId, {
       streaming: true,
       tools: [createProposeLayoutPlanTool(sessionId, activeConfig)],
       systemMessage: { content: systemMessage }
@@ -613,20 +620,20 @@ async function getOrResumeSession(sessionId: string, model: string, reasoningEff
       : supportedEfforts.includes("high") ? "high"
       : undefined;
     session = await client.createSession({
-      sessionId,
+      sessionId: sdkSessionId,
       model,
       ...(actualEffort ? { reasoningEffort: actualEffort as "low" | "medium" | "high" | "xhigh" | "max" } : {}),
       streaming: true,
       tools: [createProposeLayoutPlanTool(sessionId, activeConfig)],
       systemMessage: { content: systemMessage }
     });
-    const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, reasoningEffort: actualEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
+    const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, configUpdatedAt: activeConfig.updatedAt, reasoningEffort: actualEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
     sessions.set(sessionId, runtime);
     attachSessionEvents(sessionId, session);
     await writeLog("session.created", { sessionId, model, reasoningEffort: actualEffort || "model-default" });
     return runtime;
   }
-  const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, reasoningEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
+  const runtime: RuntimeSession = { session, model, workspaceId: (await getProjectWorkspace())?.id, configUpdatedAt: activeConfig.updatedAt, reasoningEffort, lastUsedAt: Date.now(), tail: Promise.resolve() };
   sessions.set(sessionId, runtime);
   attachSessionEvents(sessionId, session);
   await writeLog("session.resumed", { sessionId, requestedModel: model, resumed });
