@@ -103,6 +103,14 @@ describe("V2 semantic fixtures and intents", () => {
     expect(result.requiresLayout).toBe(false);
   });
 
+  it("adds a relation by stable node IDs without relayout", () => {
+    const document = createC4Fixture();
+    const result = interpretIntent(document, "新增关系 portal -> domain，标签为 Calls");
+    expect(result.changed).toBe(true);
+    expect(result.requiresLayout).toBe(false);
+    expect(result.document.relations.some((edge) => edge.source === "portal" && edge.target === "domain" && edge.label === "Calls")).toBe(true);
+  });
+
   it("lets an explicit solid-line command override sequence return defaults", () => {
     const edge = createSequenceFixture().relations.find((relation) => relation.kind === "return")!;
     expect(relationPaint({ ...edge, dashed: false }).dash).toBe("");
