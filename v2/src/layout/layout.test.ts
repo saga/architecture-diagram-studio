@@ -5,7 +5,7 @@ import { LAYOUT_PROFILES } from "./profiles";
 import { evaluateLayout } from "./quality";
 import { applyIntent } from "../intent/applyIntent";
 import { normalizeSequenceDocument } from "./sequence";
-import { deriveSequenceActivations } from "./sequence";
+import { deriveSequenceActivations, sequenceMessageGeometry } from "./sequence";
 import { toDrawioXml } from "../export/drawio";
 
 async function expectNoNodeOverlap(factory: () => ReturnType<typeof createC4Fixture>) {
@@ -68,6 +68,28 @@ describe("V2 diagram-specific layouts", () => {
     expect(activations).toHaveLength(4);
     expect(activations.map((activation) => activation.participantId)).toEqual(["web", "bff", "identity", "session"]);
     expect(toDrawioXml(result)).toContain("__sequenceActivation");
+  });
+
+  it("uses identical sequence geometry for Studio paths and Draw.io XML, including self-calls", () => {
+    const document = createSequenceFixture();
+    document.relations.push({
+      id: "self-call", source: "web", target: "web", label: "Refresh local cache",
+      kind: "call", sequenceOrder: document.relations.length
+    });
+    const selfCall = document.relations[document.relations.length - 1];
+    const geometry = sequenceMessageGeometry(document, selfCall);
+    expect(geometry).not.toBeNull();
+    expect(geometry?.points).toHaveLength(2);
+    expect(geometry?.points[0].x).toBeGreaterThan(geometry?.start.x ?? 0);
+    expect(geometry?.start.y).toBeLessThan(geometry?.end.y ?? 0);
+
+    const xml = toDrawioXml(document);
+    const selfCallCell = xml.slice(xml.indexOf('<mxCell id="self-call"'), xml.indexOf("</mxCell>", xml.indexOf('<mxCell id="self-call"')) + 9);
+    expect(selfCallCell).toContain('as="sourcePoint"');
+    expect(selfCallCell).toContain('Array as="points"');
+    expect(selfCallCell).toContain('as="targetPoint"');
+    expect(selfCallCell).toContain('studioSource=web');
+    expect(selfCallCell).toContain('studioTarget=web');
   });
 
   it("exports every regular relation as a draw.io edge with resolvable source and target", () => {
