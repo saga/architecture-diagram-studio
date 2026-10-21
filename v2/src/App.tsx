@@ -6,9 +6,7 @@ import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttribu
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
-import { moveNode } from "./layout/layout";
 import { LAYOUT_PROFILES } from "./layout/profiles";
-import { evaluateLayout } from "./layout/quality";
 import { requestAIIntentPlan } from "./intent/aiProvider";
 import { normalizeSequenceDocument } from "./layout/sequence";
 import { downloadText, toDrawioXml } from "./export/drawio";
@@ -176,7 +174,15 @@ export default function App() {
   const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
   const selectedRelation = document.relations.find((relation) => relation.id === selectedRelationId) || null;
-  const quality = useMemo(() => evaluateLayout(visibleDocument), [visibleDocument]);
+  const [quality, setQuality] = useState<import("./model/types").LayoutQualityReport | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/workspace/diagram/quality", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: visibleDocument }) })
+      .then(async (response) => { if (!response.ok) throw new Error("布局质量评估失败"); return response.json() as Promise<{ report: import("./model/types").LayoutQualityReport }>; })
+      .then(({ report }) => { if (!cancelled) setQuality(report); })
+      .catch(() => { if (!cancelled) setQuality(null); });
+    return () => { cancelled = true; };
+  }, [visibleDocument]);
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const [serverHydrated, setServerHydrated] = useState(false);
@@ -1235,13 +1241,19 @@ export default function App() {
             <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
               selectedRelationId={selectedRelationId} onSelectNode={selectNode} onSelectRelation={selectRelation}
               onMoveNode={(id, x, y) => {
-                const moved = moveNode(visibleDocument, id, x, y);
-                if (previewDocument) {
-                  setPreviewDocument(moved);
-                  setPreviewSummary((summary) => summary ? summary + "；预览中手动调整了节点位置" : "预览中手动调整了节点位置");
-                } else {
-                  commitDocument(moved, "已手动移动节点；该位置已锁定");
-                }
+                void fetch("/api/workspace/diagram/move-node", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ document: visibleDocument, id, x, y })
+                }).then(async (response) => {
+                  const payload = await response.json() as { document?: DiagramDocument; error?: string };
+                  if (!response.ok || !payload.document) throw new Error(payload.error || "节点移动失败");
+                  if (previewDocument) {
+                    setPreviewDocument(payload.document);
+                    setPreviewSummary((summary) => summary ? summary + "；预览中手动调整了节点位置" : "预览中手动调整了节点位置");
+                  } else {
+                    commitDocument(payload.document, "已手动移动节点；该位置已锁定");
+                  }
+                }).catch((error) => setLastAction(error instanceof Error ? error.message : String(error)));
               }} />
           ) : (
             <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "已从原生 Draw.io 同步修改", nativeXml)} />
@@ -1386,6 +1398,7 @@ export default function App() {
           ) : !selectedRelation ? <div className="empty-inspector">选择画布中的节点或关系线以查看属性。</div> : null}
         </section>}
         {rightPanelTab === "quality" && <section className="quality-section">
+          {!quality ? <div className="quality-footnote">正在由服务端评估布局质量…</div> : <>
           <div className="panel-section-heading"><span>LAYOUT QUALITY</span><span className="quality-score">{quality.score}</span></div>
           <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "布局状态良好" : quality.metrics.nodeOverlaps ? "需要修复重叠" : "建议检查连线"}</strong><small>确定性质量检查 · 非主观模型评分</small></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
           <div className="metric-grid">
@@ -1395,6 +1408,7 @@ export default function App() {
             <div className="metric"><strong>{Math.round(quality.metrics.whitespaceScore * 100)}%</strong><span>留白分数</span></div>
           </div>
           <div className="quality-footnote">{quality.errors.length ? quality.errors[0].message : quality.warnings.length ? quality.warnings[0].message : "无节点重叠。质量检查持续评估线条交叉和留白。"}</div>
+          </>}
         </section>}
         {rightPanelTab === "design" && <section className="design-section">
           <div className="panel-section-heading"><span>STYLE RULES</span><span className="small-icon">◌</span></div>
