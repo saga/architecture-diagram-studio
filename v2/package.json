@@ -6,12 +6,15 @@
   "scripts": {
     "drawio:fetch": "node scripts/bundle-drawio.mjs",
     "predev": "node scripts/bundle-drawio.mjs",
-    "dev": "vite --host 0.0.0.0",
+    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:copilot\"",
     "prebuild": "node scripts/bundle-drawio.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:web": "vite --host 0.0.0.0",
+    "dev:copilot": "tsx server/copilot-server.ts",
+    "start:copilot": "tsx server/copilot-server.ts"
   },
   "dependencies": {
     "@ant-design/x": "^2.9.0",
@@ -21,7 +24,9 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "fflate": "^0.8.2",
-    "undici": "^6.21.0"
+    "undici": "^6.21.0",
+    "@github/copilot-sdk": "^1.0.17",
+    "express": "^5.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
@@ -30,6 +35,9 @@
     "@vitejs/plugin-react": "^4.7.0",
     "typescript": "^5.9.2",
     "vite": "^6.3.5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "concurrently": "^9.2.1",
+    "@types/express": "^5.0.6",
+    "tsx": "^4.23.15"
   }
 }
