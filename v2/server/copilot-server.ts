@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath, lstat } from "node:fs/promises";
 import { isDiagramDocument } from "../src/model/types";
-import { applyIntent, interpretIntent } from "../src/intent/applyIntent";
+import { interpretIntent } from "../src/intent/applyIntent";
 import { layoutDiagram, moveNode } from "../src/layout/layout";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
@@ -759,10 +759,12 @@ app.post("/api/copilot/intent", async (req, res) => {
     ? req.body.sessionId
     : randomUUID();
   const config = await getStudioConfig();
-  const model = typeof req.body?.model === "string"
+  const model = typeof req.body?.model === "string" && req.body.model.trim()
     ? req.body.model.trim().slice(0, 100)
     : (config.model || DEFAULT_MODEL);
-  const requestedEffort = req.body?.reasoningEffort === "high" ? "high" : config.reasoningEffort;
+  const requestedEffort = req.body?.reasoningEffort === "high" || req.body?.reasoningEffort === "max"
+    ? req.body.reasoningEffort
+    : config.reasoningEffort;
   if (!prompt || prompt.length > 4000) {
     await writeLog("request.validation.failed", { sessionId, reason: "invalid_prompt", promptLength: prompt.length });
     res.status(400).json({ error: "prompt 必须为 1–4000 个字符", sessionId });
