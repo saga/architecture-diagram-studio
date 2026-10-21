@@ -33,6 +33,9 @@ export function validateDiagramSemantics(document: DiagramDocument): string[] {
   if (document.kind !== "sequence" && !LAYOUT_PROFILES.some((profile) => profile.value === resolveLayoutProfile(document.layout.profile))) errors.push("Unsupported layout algorithm: " + document.layout.profile);
   if (document.flow && document.flow.primaryPath.some((id) => !nodeIds.has(id))) errors.push("The primary path references a missing node");
   if (document.sequence && document.sequence.participants.some((id) => !nodeIds.has(id))) errors.push("A sequence participant references a missing node");
+  if (document.sequence && (document.sequence.fragments || []).some((fragment) =>
+    (fragment.participants || []).some((id) => !nodeIds.has(id))
+  )) errors.push("A sequence fragment references a missing participant");
   return [...new Set(errors)].slice(0, 100);
 }
 
@@ -44,7 +47,7 @@ export function createDiagramTemplate(key: DiagramTemplateKey): DiagramDocument 
     schemaVersion: 2, id: "template-" + key, title: c4 ? "System Context" : sequence ? "Request Sequence" : "Service with Queue and Database",
     kind: sequence ? "sequence" : c4 ? "c4" : "flowchart", ...(c4 ? { variant: "context" as const } : {}),
     theme: "studio-editorial", nodes: [], relations: [], boundaries: [],
-    layout: { profile: sequence ? "sequence-standard" : "elk-layered", direction: "RIGHT", routing: sequence ? "polyline" : "orthogonal", nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 34, externalSide: "RIGHT", storageSide: "BOTTOM" }
+    layout: { profile: sequence ? "sequence-standard" : "elk-layered", direction: "RIGHT", routing: sequence ? "polyline" : "orthogonal", nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 32, externalSide: "RIGHT", storageSide: "BOTTOM" }
   };
   const node = (id: string, name: string, role: DiagramDocument["nodes"][number]["role"], visualRole: DiagramDocument["nodes"][number]["visualRole"]) => ({ id, name, role, visualRole, x: 0, y: 0, width: 190, height: 82, layoutHints: {} });
   const relation = (id: string, source: string, target: string, label: string, kind: DiagramDocument["relations"][number]["kind"], sequenceOrder?: number) => ({ id, source, target, label, kind, sequenceOrder, points: [] });
