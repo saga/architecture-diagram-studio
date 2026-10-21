@@ -76,7 +76,7 @@ Deterministic diagram operations run through the HTTP server so the UI, Copilot,
 - `POST /api/workspace/diagram/export-drawio`: Draw.io XML generation.
 - `POST /api/workspace/intent/apply`: deterministic intent-to-document mutation.
 
-The React UI requests server-side layout scoring, node movement, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. A few sequence-editing handlers still call the shared normalization function in the browser; migrate those call sites before describing the migration as complete. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
+The React UI requests server-side layout scoring, node movement, sequence normalization, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. Draw.io XML import parsing remains browser-side because the current parser depends on DOM APIs; moving it requires a portable parser implementation. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
 
 ADR: [0003 — Server-authoritative diagram operations](../docs/adr/0003-server-authoritative-diagram-operations.md).
 
