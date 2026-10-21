@@ -30,10 +30,17 @@ button:disabled { opacity: .58; cursor: wait; }
 .button-primary { background: #425bc7; color: #fff; box-shadow: 0 2px 5px #425bc719; } .button-primary:hover { background: #354caf; }
 .button-icon { font-size: 15px; margin-right: 5px; line-height: 0; }
 
-.left-panel { min-height: 0; display: flex; flex-direction: column; background: #fff; border-right: 1px solid #e7eaf0; padding: 22px 12px 14px; }
+/* The sidebar is a fixed track: scroll it instead of clipping the last card on short or narrow viewports. */
+.left-panel { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; background: #fff; border-right: 1px solid #e7eaf0; padding: 22px 12px 14px; }
 .workspace-label, .section-heading, .panel-section-heading, .canvas-kicker { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; letter-spacing: 1px; color: #8995a6; }
-.workspace-label { padding: 0 9px 22px; }
+.workspace-label { padding: 0 9px 10px; }
 .side-section { padding: 0 0 17px; margin-bottom: 15px; border-bottom: 1px solid #eef0f4; }
+/* Workspace identity: the name and path clamp to two lines so a long slug cannot push the sidebar sections down. */
+.workspace-card { margin: 0 0 15px; padding: 9px 9px 8px; display: flex; flex-direction: column; gap: 3px; min-width: 0; border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-nav-bg); }
+.workspace-card b { font-size: 11px; font-weight: 650; color: var(--theme-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.workspace-card small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font: 9px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--theme-muted); }
+.workspace-card .workspace-switch { margin-top: 4px; align-self: flex-start; height: 24px; padding: 0 8px; border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-panel); color: var(--theme-secondary); font-size: 10px; font-weight: 500; }
+.workspace-card .workspace-switch:hover { background: var(--theme-soft); border-color: var(--theme-accent); color: var(--theme-accent); }
 .section-heading { padding: 0 9px 10px; display: flex; align-items: center; justify-content: space-between; } .section-heading span { color: #afb7c3; }
 .diagram-kind { border: 1px solid transparent; width: 100%; border-radius: 8px; display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px 8px; margin: 3px 0; background: transparent; color: #536276; height: auto; white-space: normal; }
 .diagram-kind:hover { background: #f8f9fc; } .diagram-kind.active { background: #f0f3ff; border-color: #e0e6ff; color: #263d97; }
@@ -53,8 +60,9 @@ button:disabled { opacity: .58; cursor: wait; }
 .kind-sequence i { position: absolute; height: 18px; width: 1px; top: 5px; border-left: 1px dashed #8090ad; }
 .kind-sequence i:nth-child(1) { left: 9px; } .kind-sequence i:nth-child(2) { right: 9px; }
 .add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 5px; }
-.add-grid button { border: 1px solid #e7eaf0; background: #fff; border-radius: 6px; padding: 8px 5px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; color: #5d6a7c; font-size: 9px; min-width: 0; overflow-wrap: anywhere; }
-.add-grid button:hover { border-color: #bec9ef; color: #334ab4; background: #fafbff; } .add-glyph { font-size: 16px; color: #687cab; height: 18px; }
+/* Plain buttons, not Ant Design ones: the icon sits above the label and the cell owns its own height. */
+.add-grid button { border: 1px solid #e7eaf0; background: #fff; border-radius: 6px; padding: 7px 6px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; color: #5d6a7c; font-size: 9px; min-width: 0; height: auto; min-height: 54px; line-height: 1.4; text-align: left; overflow-wrap: break-word; white-space: normal; }
+.add-grid button:hover { border-color: #bec9ef; color: #334ab4; background: #fafbff; } .add-glyph { font-size: 15px; color: #687cab; flex: 0 0 auto; line-height: 1; }
 .side-bottom { margin-top: auto; }
 .offline-card { background: #f8fafb; border: 1px solid #edf0f3; border-radius: 8px; padding: 10px; display: flex; gap: 8px; align-items: flex-start; }
 .offline-card .local-indicator { margin-top: 4px; flex-shrink: 0; } .offline-card b { display: block; font-size: 9px; font-weight: 600; color: #4b5b6e; }
@@ -78,9 +86,12 @@ button:disabled { opacity: .58; cursor: wait; }
 .diagram-svg { width: 100%; height: 100%; display: block; touch-action: none; }
 .diagram-node { outline: none; user-select: none; } .diagram-node path { transition: stroke .12s; } .diagram-node.selected path:first-child { filter: drop-shadow(0 2px 2px #425bc714); } .diagram-node.dragging { opacity: .88; }
 .canvas-stage-footer { position: absolute; left: 0; bottom: 0; height: 29px; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 12px; border-top: 1px solid #e8ecf1; background: #fff; color: #8a96a6; font-size: 9px; pointer-events: none; }
-.canvas-stage-footer > span:first-child { display: flex; align-items: center; gap: 7px; } .canvas-dot { width: 5px; height: 5px; border-radius: 50%; background: #94a3b8; display: inline-block; }
+/* One fixed-height bar: both labels stay single-line and truncate instead of wrapping over the canvas. */
+.canvas-stage-footer > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.canvas-stage-footer > span:first-child { flex: 0 1 auto; }
+.canvas-stage-footer .canvas-dot { display: inline-block; vertical-align: middle; margin-right: 7px; }
+.canvas-stage-footer > span:last-child { flex: 1 1 auto; text-align: right; } .canvas-dot { width: 5px; height: 5px; border-radius: 50%; background: #94a3b8; display: inline-block; }
 .zoom-indicator { position: absolute; bottom: 39px; right: 12px; display: flex; gap: 12px; align-items: center; padding: 7px 10px; background: #fff; border: 1px solid #e2e7ee; border-radius: 6px; color: #7f8b9b; font-size: 11px; box-shadow: 0 2px 7px #26374a08; }
-.zoom-indicator strong { font-size: 9px; color: #5d6b7d; font-weight: 600; } .zoom-indicator i { width: 1px; height: 12px; background: #e4e8ef; }
 .bottom-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 25px 12px; font-size: 9px; color: #8a96a6; white-space: nowrap; }
 .status-left { display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; } .status-pulse { width: 5px; height: 5px; flex-shrink: 0; }
 .status-right { display: flex; gap: 13px; font-family: ui-monospace, monospace; font-size: 8px; color: #9aa4b2; }
@@ -153,9 +164,10 @@ button:disabled { opacity: .58; cursor: wait; }
 
 .relation-editor { border-top: 1px solid #edf0f4; margin-top: 14px; padding-top: 5px; }
 .relation-label-field { margin-top: 6px; }
-.relation-add-button { width: 100%; margin-top: 6px; border: 1px solid #e0e6ff; background: #f4f6ff; color: #354daf; border-radius: 6px; padding: 7px; font-size: 9px; font-weight: 600; }
-.relation-add-button:hover { background: #eaf0ff; border-color: #cbd5ff; }
-.relation-add-button:disabled { opacity: .5; cursor: not-allowed; }
+.relation-add-button { width: 100%; margin-top: 6px; border: 1px solid var(--theme-border, #e0e6ff); background: var(--theme-soft, #f4f6ff); color: var(--theme-accent, #354daf); border-radius: 6px; padding: 7px; font-size: 9px; font-weight: 600; }
+.relation-add-button:hover { filter: brightness(.97); }
+/* Without an explicit disabled state Ant Design repaints the button with its own grey palette. */
+.relation-add-button:disabled, .relation-add-button:disabled:hover { background: var(--theme-soft, #f4f6ff); border-color: var(--theme-border, #e0e6ff); color: var(--theme-accent, #354daf); filter: none; opacity: .6; cursor: not-allowed; }
 .file-input-hidden { display: none; }
 
 
@@ -198,11 +210,12 @@ button:disabled { opacity: .58; cursor: wait; }
 
 
 .zoom-indicator { gap: 4px; padding: 4px; }
-.zoom-indicator button { border: 0; border-radius: 4px; background: transparent; color: #718094; cursor: pointer; display: grid; place-items: center; }
+/* Ant Design buttons carry 15px horizontal padding, which widened the 23px controls; the chip owns the padding here. */
+.zoom-indicator button { border: 0; padding: 0; border-radius: 4px; background: transparent; color: #718094; cursor: pointer; display: grid; place-items: center; }
 .zoom-indicator .zoom-control { width: 23px; height: 22px; font-size: 15px; }
 .zoom-indicator .zoom-percent { min-width: 43px; height: 22px; padding: 0 4px; font-size: 9px; font-weight: 600; }
 .zoom-indicator button:hover:not(:disabled) { background: #f1f4fa; color: #354daf; }
-.zoom-indicator button:disabled { opacity: .35; cursor: not-allowed; }
+.zoom-indicator button:disabled { background: transparent; color: #718094; opacity: .35; cursor: not-allowed; }
 
 
 .relation-style-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
@@ -490,20 +503,23 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .workspace-nav { background: var(--theme-nav-bg); border-color: var(--theme-border); }
 .app-shell .workspace-nav button { color: var(--theme-secondary); }
 .app-shell .workspace-nav button.active { background: var(--theme-panel); color: var(--theme-accent); border-color: var(--theme-border); }
-.app-shell .theme-selector { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 8px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-panel); color: var(--theme-secondary); font-size: 10px; }
-.app-shell .theme-selector > span { font-size: 14px; color: var(--theme-accent); }
-.app-shell .theme-selector select { max-width: 104px; border: 0; outline: 0; background: transparent; color: var(--theme-text); font-size: 10px; cursor: pointer; }
+.app-shell .theme-selector { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 0 4px 0 7px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-panel); color: var(--theme-secondary); font-size: 10px; }
+.app-shell .theme-selector > span { font-size: 13px; color: var(--theme-accent); }
+/* The picker is an Ant Design Select: the pill supplies the only border, so the control itself stays flat. */
+.app-shell .theme-selector .ant-select { height: 30px; width: 104px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.app-shell .theme-selector .ant-select-content { font-size: 11px; color: var(--theme-text); }
+.app-shell .theme-selector .ant-select-suffix { color: var(--theme-muted); font-size: 10px; }
 .app-shell .button-secondary,
 .app-shell .toolbar-button,
 .app-shell .segmented,
 .app-shell .text-field,
-.app-shell .relation-editor select,
+.app-shell .relation-editor .ant-select,
 .app-shell .sequence-fragment-card,
 .app-shell .connected-relation { border-color: var(--theme-border); }
 .app-shell .button-secondary,
 .app-shell .toolbar-button,
 .app-shell .text-field,
-.app-shell .relation-editor select,
+.app-shell .relation-editor .ant-select,
 .app-shell .sequence-fragment-card,
 .app-shell .connected-relation { background-color: var(--theme-panel); color: var(--theme-text); }
 .app-shell .button-quiet { color: var(--theme-secondary); }
@@ -572,7 +588,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .text-field::placeholder,
 .app-shell[data-theme="midnight"] input::placeholder,
 .app-shell[data-theme="midnight"] textarea::placeholder { color: #9aa9c0; }
-.app-shell[data-theme="midnight"] .theme-selector select option { background: #202d42; color: #f0f4fc; }
 .app-shell[data-theme="midnight"] .workspace-nav button.active { background: #2c3c58; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-field input:not(.ant-select-input),
 .app-shell[data-theme="midnight"] .workspace-page .gemini-composer { background: #202d42; color: #f0f4fc; }
@@ -592,8 +607,7 @@ button:disabled { opacity: .58; cursor: wait; }
   .brand-lockup { min-width: 145px; }
   .topbar-divider { display: none; }
   .workspace-nav button { padding: 7px 6px; font-size: 9px; }
-  .theme-selector { padding: 5px 6px; }
-  .theme-selector select { max-width: 88px; }
+  .theme-selector { padding: 0 3px 0 6px; }
 }
 
 .app-shell .diagram-svg .diagram-node.selected path:first-child { stroke: var(--theme-accent) !important; }
@@ -620,10 +634,10 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .bottom-status { font-size: 10px; }
 .app-shell .status-right { font-size: 9px; }
 .app-shell .field-label { font-size: 10px; color: var(--theme-secondary); font-weight: 600; }
-.app-shell .relation-editor select,
+.app-shell .relation-editor .ant-select,
 .app-shell .relation-label-field,
 .app-shell .inspector-form .text-field { font-size: 11px; }
-.app-shell .theme-selector select { font-size: 11px; }
+
 
 
 /* Keep role colours meaningful while adapting the diagram palette to the selected theme. */
@@ -709,7 +723,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .canvas-stage-footer,
 .app-shell[data-theme="midnight"] .zoom-indicator,
 .app-shell[data-theme="midnight"] .relation-label-field,
-.app-shell[data-theme="midnight"] .relation-editor select,
+.app-shell[data-theme="midnight"] .relation-editor .ant-select,
 .app-shell[data-theme="midnight"] .text-field { background-color: var(--theme-input-bg); color: var(--theme-input-text); }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node text { fill: #26364a; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-relation text { fill: #26364a; }
@@ -810,10 +824,18 @@ button:disabled { opacity: .58; cursor: wait; }
 
 /* Shared typography; leave Ant Design control dimensions at their library defaults. */
 :root { font-family: Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, "Noto Sans SC", sans-serif; --studio-control-radius: 7px; }
-body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-select-selector, .ant-sender { font-family: inherit; }
+body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-sender { font-family: inherit; }
 .ant-btn { border-radius: var(--studio-control-radius); }
 .button, .toolbar-button { padding: 7px 12px; font-size: 13px; border-radius: var(--studio-control-radius); }
-.text-field, .ant-input, .ant-select-selector { font-size: 13px !important; }
+/* Disabled Ant Design buttons fall back to the library grey palette; keep the studio surface and dim it instead. */
+.app-shell .button-secondary:disabled, .app-shell .button-secondary:disabled:hover { background: var(--theme-panel); border-color: var(--theme-border); color: var(--theme-text); }
+.app-shell .button-primary:disabled, .app-shell .button-primary:disabled:hover { background: var(--theme-accent); border-color: var(--theme-accent); color: #fff; }
+.app-shell .button-quiet:disabled, .app-shell .button-quiet:disabled:hover { background: transparent; color: var(--theme-secondary); }
+.app-shell .toolbar-button:disabled, .app-shell .toolbar-button:disabled:hover { background: var(--theme-panel); border-color: var(--theme-border); color: var(--theme-text); }
+.app-shell .segmented button:disabled { background: transparent; color: var(--theme-muted); box-shadow: none; }
+.app-shell .segmented button.selected:disabled { background: var(--theme-panel); color: var(--theme-text); }
+.app-shell .diagram-kind:disabled { background: transparent; color: var(--theme-secondary); }
+.text-field, .ant-input { font-size: 13px !important; }
 .app-shell { grid-template-columns: 218px minmax(480px, 1fr) minmax(340px, 390px); }
 .settings-workspace { overflow: auto; min-height: 0; }
 .settings-workspace .page-content { width: min(1180px, 100%); max-width: none; margin: 0 auto; padding: 24px 28px 40px; }
@@ -823,9 +845,12 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .settings-card-heading h2 { font-size: 17px; line-height: 1.4; }
 .settings-card-heading p, .settings-description { font-size: 13px; line-height: 1.65; }
 .settings-field { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; font-size: 13px; }
-.settings-field .ant-select { width: 100%; }
-.settings-field .ant-select-selector { min-height: 38px !important; align-items: center; }
+/* Ant Design Selects are not native inputs, so they need their own border and theme surface. */
+.settings-field .ant-select { width: 100%; min-height: 38px; border-color: var(--theme-border, #dfe5ed); border-radius: 7px; background: var(--theme-input-bg, #fff); color: var(--theme-input-text, #405066); }
 .settings-prompt-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.settings-prompt-list .text-field { min-height: 130px; line-height: 1.6; }
+.settings-checkbox { margin: 0; }
+.settings-checkbox + .settings-checkbox { margin-top: 2px; }
 .settings-prompt-list textarea { width: 100%; min-width: 0; min-height: 130px; resize: vertical; font: inherit; line-height: 1.6; }
 .settings-card-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .workspace-nav .ant-btn, .workspace-nav button { font-size: 13px; }

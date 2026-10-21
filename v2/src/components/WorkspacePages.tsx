@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
-import { Button, Select, Tag } from "antd";
+import { Button, Checkbox, Input, Select, Tag } from "antd";
 import type { DiagramDocument } from "../model/types";
 import { LAYOUT_PROFILES } from "../layout/profiles";
 import type { DiagnosticEntry } from "../diagnostics";
@@ -51,14 +51,14 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
     <div className="settings-card-heading"><div className="settings-card-icon">⚙</div><div><h2>Layout engines and Copilot prompts</h2><p>Served from one server-side configuration; every save appends an immutable JSONL revision.</p></div></div>
     <strong>Allowed layout engines</strong>
     <div className="settings-field">
-      {PROFILE_OPTIONS.map((option) => <label key={option.value} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0"}}><input type="checkbox" checked={config.layoutProfiles.includes(option.value)} onChange={(event) => setConfig({...config,layoutProfiles:event.target.checked?[...config.layoutProfiles,option.value]:config.layoutProfiles.filter((p)=>p!==option.value)})}/>{option.label}</label>)}
+      {PROFILE_OPTIONS.map((option) => <Checkbox key={option.value} className="settings-checkbox" checked={config.layoutProfiles.includes(option.value)} onChange={(event) => setConfig({...config,layoutProfiles:event.target.checked?[...config.layoutProfiles,option.value]:config.layoutProfiles.filter((p)=>p!==option.value)})}>{option.label}</Checkbox>)}
     </div>
     <p className="settings-description">This list controls which layout engines the server may run. Layout settings already stored in a document are never rewritten silently.</p>
     <div className="settings-prompt-list">
       {PROMPT_OPTIONS.map(({ key, label, description }) => <label className="settings-field" key={key}>
         <strong>{label}</strong>
         <span className="settings-description">{description}</span>
-        <textarea rows={5} value={config.prompts[key]} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,[key]:event.target.value}})} />
+        <Input.TextArea className="text-field" rows={5} value={config.prompts[key]} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,[key]:event.target.value}})} />
       </label>)}
     </div>
     <div className="settings-card-actions"><span className="settings-trace-count">{revisions} revisions</span><UiButton type="button" className="button button-primary" disabled={busy || !config.layoutProfiles.length} onClick={()=>void save()}>{busy ? "Saving…" : "Save and create revision"}</UiButton></div>

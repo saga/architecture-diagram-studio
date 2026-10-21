@@ -24,6 +24,8 @@ type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: 
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 type SavedAISettings = { baseUrl: string; model: string; reasoningEffort: "high" | "max" };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
+/** Ant Design primary colour per theme, so library-rendered controls match the studio palette. */
+const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
 function loadSavedTheme(): UiTheme {
   try {
     const storageKey = "architecture-diagram-studio:v2:ui-theme";
@@ -64,7 +66,7 @@ function UiTextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <Input.TextArea {...(props as any)} />;
 }
 
-function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { popupMatchSelectWidth?: boolean }) {
   const options = Children.toArray(children).filter(isValidElement).map((child) => {
     const option = child as ReactElement<{ value?: string; disabled?: boolean; children?: ReactNode }>;
     return { value: option.props.value ?? "", label: option.props.children, disabled: option.props.disabled };
@@ -1208,8 +1210,8 @@ export default function App() {
       theme={{
         algorithm: uiTheme === "midnight" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: "#425bc7",
-          colorInfo: "#425bc7",
+          colorPrimary: THEME_ACCENTS[uiTheme],
+          colorInfo: THEME_ACCENTS[uiTheme],
           borderRadius: 8,
           fontFamily: '"SF Pro Display", "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
           fontSize: 13,
@@ -1260,7 +1262,7 @@ export default function App() {
         </nav>
         <label className="theme-selector" title="Switch the color theme of the whole workspace">
           <span aria-hidden="true">◐</span>
-          <UiSelect value={uiTheme} aria-label="Interface color theme" onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
+          <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
             <option value="warm">Warm paper</option>
@@ -1283,7 +1285,11 @@ export default function App() {
         <>
       <aside className="left-panel">
         <div className="workspace-label">DIAGRAM WORKSPACE</div>
-        {projectWorkspace && <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--muted, #667085)", overflowWrap: "anywhere" }} title={projectWorkspace.rootPath}><strong>{projectWorkspace.name}</strong><br />{projectWorkspace.rootPath}<br /><button type="button" style={{ marginTop: 6, cursor: "pointer" }} onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</button></div>}
+        {projectWorkspace && <div className="workspace-card" title={projectWorkspace.rootPath}>
+          <b>{projectWorkspace.name}</b>
+          <small>{projectWorkspace.rootPath}</small>
+          <UiButton type="button" className="workspace-switch" onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</UiButton>
+        </div>}
         <div className="side-section">
           <div className="section-heading">Diagram kind <span>03</span></div>
           <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
@@ -1300,12 +1306,12 @@ export default function App() {
         <div className="side-section components-section">
           <div className="section-heading">Add element <span>+</span></div>
           <div className="add-grid">
-            <UiButton onClick={() => addNode("ui")}><span className="add-glyph">▱</span>UI</UiButton>
-            <UiButton onClick={() => addNode("domain")}><span className="add-glyph">▰</span>Business service</UiButton>
-            <UiButton onClick={() => addNode("storage")}><span className="add-glyph">▤</span>Database</UiButton>
-            <UiButton onClick={() => addNode("external")}><span className="add-glyph">↗</span>External system</UiButton>
-            <UiButton onClick={() => addNode("infra")}><span className="add-glyph">⌘</span>Infrastructure</UiButton>
-            <UiButton onClick={() => addNode("decision")}><span className="add-glyph">◇</span>Decision / branch</UiButton>
+            <button type="button" onClick={() => addNode("ui")}><span className="add-glyph">▱</span>UI</button>
+            <button type="button" onClick={() => addNode("domain")}><span className="add-glyph">▰</span>Business service</button>
+            <button type="button" onClick={() => addNode("storage")}><span className="add-glyph">▤</span>Database</button>
+            <button type="button" onClick={() => addNode("external")}><span className="add-glyph">↗</span>External system</button>
+            <button type="button" onClick={() => addNode("infra")}><span className="add-glyph">⌘</span>Infrastructure</button>
+            <button type="button" onClick={() => addNode("decision")}><span className="add-glyph">◇</span>Decision / branch</button>
           </div>
         </div>
 
