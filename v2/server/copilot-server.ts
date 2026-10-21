@@ -54,13 +54,25 @@ function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
   }
   return records;
 }
+function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
+  const allowedProfiles = new Set(LAYOUT_PROFILES.map((profile) => profile.value));
+  if (record.schemaVersion !== undefined && record.schemaVersion !== 1) return false;
+  if (!Array.isArray(record.layoutProfiles) || record.layoutProfiles.length === 0 || record.layoutProfiles.some((item) => typeof item !== "string" || !allowedProfiles.has(item as never))) return false;
+  if (!record.prompts || typeof record.prompts !== "object" || Array.isArray(record.prompts)) return false;
+  const promptValues = record.prompts as Record<string, unknown>;
+  const knownPromptKeys = new Set<keyof StudioPrompts>(["system", "task", "planTool", "behavior", "workspace", "supportedCommands", "toolDescription", "toolResult"]);
+  if (Object.entries(promptValues).some(([key, value]) => knownPromptKeys.has(key as keyof StudioPrompts) && (typeof value !== "string" || value.length > 12000))) return false;
+  if (record.model !== undefined && (typeof record.model !== "string" || record.model.length > 100)) return false;
+  if (record.reasoningEffort !== undefined && record.reasoningEffort !== "high" && record.reasoningEffort !== "max") return false;
+  return true;
+}
 async function getStudioConfig(): Promise<StudioConfig> {
   if (studioConfig) return studioConfig;
   const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
   const records = parseConfigHistory(contents);
   for (let i = records.length - 1; i >= 0; i--) {
     const parsed = records[i] as Partial<StudioConfig>;
-    if (!Array.isArray(parsed.layoutProfiles) || !parsed.prompts || typeof parsed.prompts !== "object") continue;
+    if (!isValidConfigHistoryRecord(parsed as Record<string, unknown>)) continue;
     studioConfig = {
       ...DEFAULT_STUDIO_CONFIG, ...parsed,
       prompts: { ...DEFAULT_STUDIO_CONFIG.prompts, ...parsed.prompts } as StudioPrompts,
@@ -189,8 +201,9 @@ app.get("/api/workspace/configuration", async (_req, res) => {
     const config = await getStudioConfig();
     const historyText = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
     const records = parseConfigHistory(historyText);
-    const revisions = records.length;
-    const latestConfigRecord = [...records].reverse().find((item) => Array.isArray(item.layoutProfiles) && item.prompts && typeof item.prompts === "object");
+    const validRecords = records.filter(isValidConfigHistoryRecord);
+    const revisions = validRecords.length;
+    const latestConfigRecord = [...validRecords].reverse()[0];
     const hasRuntimeSettings = Boolean(latestConfigRecord && typeof latestConfigRecord.model === "string" && (latestConfigRecord.reasoningEffort === "high" || latestConfigRecord.reasoningEffort === "max"));
     res.json({ config, revisions, hasRuntimeSettings, historyFile: CONFIG_HISTORY_FILE });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -198,7 +211,7 @@ app.get("/api/workspace/configuration", async (_req, res) => {
 app.get("/api/workspace/configuration/history", async (_req, res) => {
   try {
     const text = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
-    res.json({ revisions: parseConfigHistory(text).map((item) => ({ revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy, changeSummary: item.changeSummary, layoutProfiles: item.layoutProfiles, prompts: item.prompts, model: item.model, reasoningEffort: item.reasoningEffort })) });
+    res.json({ revisions: parseConfigHistory(text).filter(isValidConfigHistoryRecord).map((item) => ({ revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy, changeSummary: item.changeSummary, layoutProfiles: item.layoutProfiles, prompts: item.prompts, model: item.model, reasoningEffort: item.reasoningEffort })) });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.put("/api/workspace/configuration", async (req, res) => {
