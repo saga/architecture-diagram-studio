@@ -262,11 +262,15 @@ export default function DiagramCanvas({
         const paint = nodePaint(node);
         const selected = selectedNodeId === node.id;
         const titleY = node.y + (node.description || node.technology ? 28 : node.height / 2 + 4);
+        const centeredFlowNode = document.kind === "flowchart" && ["decision", "start", "end"].includes(node.role);
+        const compactTitle = node.name.length > 25 ? node.name.slice(0, 24) + "…" : node.name;
         return <g key={node.id} data-role={node.role} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
           onPointerDown={(event) => startDrag(event, node)} onClick={(event) => { event.stopPropagation(); onSelectNode(node.id); }} style={{ cursor: "grab" }}>
           <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2 : 1.2} />
-          <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.45 : 0.9} />
-          <text x={node.x + 17} y={titleY + 1} fontSize="13" fontWeight="600" fill={paint.text}>{node.name.length > 25 ? node.name.slice(0, 24) + "…" : node.name}</text>
+          {!["decision", "start", "end"].includes(node.role) && <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.45 : 0.9} />}
+          <text x={centeredFlowNode ? node.x + node.width / 2 : node.x + 17} y={titleY + 1}
+            textAnchor={centeredFlowNode ? "middle" : "start"} fontSize={node.role === "decision" ? "11" : "13"}
+            fontWeight="600" fill={paint.text}>{compactTitle}</text>
           {node.technology && <text x={node.x + 17} y={node.y + 47} fontSize="10" fill="#7B8798">{node.technology}</text>}
           {node.description && <text x={node.x + 17} y={node.y + (node.technology ? 64 : 52)} fontSize="10" fill={paint.muted}>{node.description.length > 27 ? node.description.slice(0, 26) + "…" : node.description}</text>}
           {node.layoutHints?.locked && <text x={node.x + node.width - 16} y={node.y + 15} textAnchor="middle" fontSize="10" fill="#718096">●</text>}
