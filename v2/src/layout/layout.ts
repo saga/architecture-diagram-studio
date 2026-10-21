@@ -8,13 +8,37 @@ import { normalizeSequenceDocument } from "./sequence";
 
 
 
+function snapToGrid(value: number): number {
+  return Math.round(value / 4) * 4;
+}
+
+function snapLayoutGeometry(doc: DiagramDocument): DiagramDocument {
+  const nodes = doc.nodes.map((node) => node.layoutHints?.locked
+    ? node
+    : { ...node, x: snapToGrid(node.x), y: snapToGrid(node.y) });
+  return routeRelations({ ...doc, nodes });
+}
+
+function isBetterLayout(candidate: ReturnType<typeof evaluateLayout>, current: ReturnType<typeof evaluateLayout>): boolean {
+  // Hard geometry violations are constraints, not tradeable style metrics.
+  if (candidate.errors.length !== current.errors.length) return candidate.errors.length < current.errors.length;
+  const candidateWarnings = candidate.metrics.edgeCrossings + candidate.metrics.labelCollisions +
+    candidate.metrics.labelOverflowCount + candidate.metrics.edgeLabelOutOfBoundsCount +
+    candidate.metrics.connectorRoutingViolations + candidate.metrics.portSpacingViolations;
+  const currentWarnings = current.metrics.edgeCrossings + current.metrics.labelCollisions +
+    current.metrics.labelOverflowCount + current.metrics.edgeLabelOutOfBoundsCount +
+    current.metrics.connectorRoutingViolations + current.metrics.portSpacingViolations;
+  if (candidateWarnings !== currentWarnings) return candidateWarnings < currentWarnings;
+  return candidate.score > current.score;
+}
+
 function layoutSequence(doc: DiagramDocument): DiagramDocument {
   const normalized = normalizeSequenceDocument(doc);
   const order = normalized.sequence?.participants || normalized.nodes.map((node) => node.id);
   const nodes = normalized.nodes.map((node) => {
     if (node.layoutHints?.locked) return node;
     const index = Math.max(0, order.indexOf(node.id));
-    return { ...node, x: 58 + index * 228, y: 54, width: Math.max(150, node.width), height: 58 };
+    return { ...node, x: 56 + index * 228, y: 56, width: Math.max(150, node.width), height: 58 };
   });
   const relations = [...normalized.relations]
     .map((relation, index) => ({ ...relation, sequenceOrder: index, points: [] }));
@@ -37,8 +61,8 @@ function repairOverlaps(doc: DiagramDocument, routeVariant = 0): DiagramDocument
         const overlap = a.x < b.x + b.width + 12 && a.x + a.width + 12 > b.x &&
           a.y < b.y + b.height + 12 && a.y + a.height + 12 > b.y;
         if (!overlap) continue;
-        if (b.layoutHints?.locked && !a.layoutHints?.locked) a.y = b.y + b.height + 36;
-        else if (!b.layoutHints?.locked) b.y = a.y + a.height + 36;
+        if (b.layoutHints?.locked && !a.layoutHints?.locked) a.y = snapToGrid(b.y + b.height + 36);
+        else if (!b.layoutHints?.locked) b.y = snapToGrid(a.y + a.height + 36);
         changed = true;
       }
     }
@@ -54,18 +78,22 @@ export async function layoutDiagram(document: DiagramDocument): Promise<DiagramD
     : profile === "dagre-layered"
       ? routeRelations(layoutWithDagre(document))
       : await layoutWithElk(document, profile);
-  let best = repairOverlaps(initial, 0);
+  const alignedInitial = snapLayoutGeometry(initial);
+  let best = repairOverlaps(alignedInitial, 0);
   let bestReport = evaluateLayout(best);
   for (let variant = 1; variant <= 3; variant++) {
-    const candidate = repairOverlaps({ ...initial, nodes: best.nodes.map((node) => ({ ...node })) }, variant);
+    // Evaluate independent route variants from the same aligned node geometry rather than
+    // mutating the current winner cumulatively between candidates.
+    const candidate = repairOverlaps({ ...alignedInitial, nodes: alignedInitial.nodes.map((node) => ({ ...node })) }, variant);
     const report = evaluateLayout(candidate);
-    if (report.score > bestReport.score) {
+    if (isBetterLayout(report, bestReport)) {
       best = candidate;
       bestReport = report;
     }
     if (
       bestReport.metrics.nodeOverlaps === 0 &&
       bestReport.metrics.edgeNodeIntersections === 0 &&
+      bestReport.metrics.connectorRoutingViolations === 0 &&
       bestReport.metrics.edgeCrossings === 0 &&
       bestReport.metrics.labelCollisions === 0
     ) break;
