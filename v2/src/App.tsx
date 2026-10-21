@@ -291,8 +291,9 @@ export default function App() {
       }
     } catch (error) {
       recordDiagnostic("copilot.request.failed", "处理布局意图失败，没有提交修改", {
-        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
-        errorMessage: error instanceof Error ? error.message : String(error)
+        durationMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : typeof error,
+        detailRecordedByProvider: Boolean(aiBaseUrl.trim() && aiModel.trim())
       }, "error");
       setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "没有提交修改：" + (error instanceof Error ? error.message : String(error)) }]);
     } finally {
