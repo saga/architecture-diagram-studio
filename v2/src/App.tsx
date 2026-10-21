@@ -613,7 +613,9 @@ export default function App() {
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
         setViewMode("studio");
-        const previewQuality = evaluateLayout(result.document);
+        const previewQualityResponse = await fetch("/api/workspace/diagram/quality", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: result.document }) });
+        if (!previewQualityResponse.ok) throw new Error("服务端布局质量评估失败");
+        const previewQuality = (await previewQualityResponse.json() as { report: import("./model/types").LayoutQualityReport }).report;
         const prefix = modelReply ? modelReply + " " : "";
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: prefix + result.summary + "。已生成临时预览，布局分数 " + previewQuality.score + "；正式文档尚未改变。请检查后应用或丢弃。" }]);
         recordDiagnostic("copilot.preview.created", "已生成待确认的布局预览", {
