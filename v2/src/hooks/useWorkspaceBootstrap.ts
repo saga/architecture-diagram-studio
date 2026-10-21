@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 import { FIXTURES } from "../model/fixtures";
 import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
-import { requestServerLayout, requestServerSequenceNormalize } from "../api/diagram-operations";
+import { requestServerLayout } from "../api/diagram-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { selectCompatibleWorkspaceDocument } from "./workspaceHydration";
 
@@ -103,7 +103,8 @@ export function useWorkspaceBootstrap(options: Options) {
           const baseDocument = FIXTURES.c4();
           const parsedDocument = fromDrawioXml(result.content, baseDocument);
           if (parsedDocument === baseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
-          const imported = await requestServerSequenceNormalize(parsedDocument);
+          // The XML file is authoritative: opening it must never normalize or relayout its projection.
+          const imported = parsedDocument;
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
