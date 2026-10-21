@@ -76,7 +76,7 @@ function applySemanticLanes(doc: DiagramDocument): DiagramDocument {
   };
 }
 
-async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProfile = "elk-layered"): Promise<DiagramDocument> {
+export async function layoutWithElk(doc: DiagramDocument, profile: ElkLayoutProfile = "elk-layered"): Promise<DiagramDocument> {
   const children = doc.nodes.map((node) => {
     const constraint = node.layoutHints?.preferredSide === "LEFT" ? "FIRST" :
       node.layoutHints?.preferredSide === "RIGHT" || node.role === "external" || node.role === "vendor" ? "LAST_SEPARATE" : undefined;
