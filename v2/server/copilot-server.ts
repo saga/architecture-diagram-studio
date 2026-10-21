@@ -587,7 +587,10 @@ app.put("/api/workspace/config", async (req, res) => {
     const sameRoot = previous?.rootPath === rootPath;
     const workspace: ProjectWorkspace = { schemaVersion: 1, id: sameRoot && previous ? previous.id : randomUUID(), name: resolved.repositoryRoot ? path.basename(rootPath) : name, rootPath, primaryDiagram: req.body?.primaryDiagram === null ? null : typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram : sameRoot && previous ? previous.primaryDiagram : null, includePatterns: Array.isArray(req.body?.includePatterns) ? req.body.includePatterns.filter((v: unknown) => typeof v === "string").slice(0, 100) : sameRoot && previous ? previous.includePatterns : [], excludePatterns: Array.isArray(req.body?.excludePatterns) ? req.body.excludePatterns.filter((v: unknown) => typeof v === "string").slice(0, 200) : sameRoot && previous ? previous.excludePatterns : [], createdAt: sameRoot && previous ? previous.createdAt : now, updatedAt: now };
     const files = await scanWorkspaceFiles(workspace);
-    if (workspace.primaryDiagram && !files.some((item) => item.path === workspace.primaryDiagram && item.kind === "diagram")) workspace.primaryDiagram = null;
+    if (workspace.primaryDiagram && !files.some((item) => item.path === workspace.primaryDiagram && item.kind === "diagram")) {
+      res.status(400).json({ error: "The selected Draw.io file is missing from this workspace. Scan the directory again and select an existing file." });
+      return;
+    }
     await withDataWrite(async () => {
       const activeDiagramChanged = Boolean(previous && previous.id === workspace.id && previous.primaryDiagram !== workspace.primaryDiagram);
       projectWorkspace = workspace;

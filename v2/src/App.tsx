@@ -342,7 +342,11 @@ export default function App() {
         historyRef.current = [nextDocument]; historyIndexRef.current = 0;
         setCanUndo(false); setCanRedo(false);
       }
-      setNativeXmlOverride(nextXml); workspaceInitialLoadRef.current = nextWorkspace.id;
+      setNativeXmlOverride(nextXml);
+      // Opening a file is an explicit refresh, so don't let a prior Copilot receipt suppress
+      // persistence if the native XML changed while the app was open.
+      serverCommittedDocumentRef.current = null;
+      workspaceInitialLoadRef.current = nextWorkspace.id;
       setServerDocumentAvailable(true); setProjectWorkspace(nextWorkspace); setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
       setWorkspaceSetupOpen(false); setWorkspaceContentReady(true); setWorkspaceLaunchMode("open");
