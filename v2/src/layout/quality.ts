@@ -399,7 +399,7 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
       densityScore: Math.round(densityScore * 100) / 100,
       labelOverflowCount, edgeLabelOutOfBoundsCount, connectorRoutingViolations,
       portSpacingViolations, contrastViolations, cjkWidthViolations,
-      complexityWarnings: complexityIssues.length
+      complexityWarnings: warnings.filter((issue) => issue.code.startsWith("complexity-")).length
     }
   };
 }
