@@ -126,6 +126,41 @@ describe("V2 semantic fixtures and intents", () => {
     expect(plan.reply).toBe("按布局指令执行");
   });
 
+  it("parses a server-validated direct operation receipt separately from a preview", () => {
+    const document = createC4Fixture();
+    const plan = parseAIIntentPlan(JSON.stringify({
+      commands: [],
+      reply: "Added the requested relationship",
+      application: {
+        applied: true,
+        versionId: "v-direct-1",
+        baseRevision: "a".repeat(64),
+        workspaceRevision: "b".repeat(64),
+        document,
+        summary: "Added relation Portal → API",
+        quality: { score: 92, errors: [], warnings: [], metrics: {} }
+      }
+    }));
+    expect(plan.application?.applied).toBe(true);
+    expect(plan.application?.versionId).toBe("v-direct-1");
+    expect(plan.application?.workspaceRevision).toBe("b".repeat(64));
+    expect(plan.application?.document).toEqual(document);
+    expect(plan.proposal).toBeUndefined();
+  });
+
+  it("rejects an incomplete direct operation receipt", () => {
+    const document = createC4Fixture();
+    const plan = parseAIIntentPlan(JSON.stringify({
+      commands: [],
+      reply: "Done",
+      application: {
+        applied: true, versionId: "v-direct-2", baseRevision: "a".repeat(64),
+        document, summary: "Updated node", quality: { score: 90, errors: [], warnings: [], metrics: {} }
+      }
+    }));
+    expect(plan.application).toBeUndefined();
+  });
+
   it("rejects unstructured model output instead of applying guesses", () => {
     expect(() => parseAIIntentPlan("Change all lines and put vendor on right")).toThrow("valid JSON");
   });
