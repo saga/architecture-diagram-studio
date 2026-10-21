@@ -4,7 +4,7 @@
   --ink: #1a2738; --secondary: #536276; --muted: #8995a6; --border: #e2e6ed; --accent: #425bc7; --surface: #fff;
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 1120px; min-height: 100vh; }
+body { margin: 0; min-width: 0; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .58; cursor: wait; }
@@ -17,7 +17,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .brand-name { font-size: 13px; font-weight: 700; letter-spacing: 1.1px; line-height: 1.15; } .brand-name span { color: #536276; font-weight: 500; }
 .brand-caption { margin-top: 4px; color: #8995a6; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1.2px; }
 .topbar-divider { height: 32px; width: 1px; background: #e7eaf0; }
-.document-breadcrumb { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: #8a95a4; }
+.document-breadcrumb { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; overflow: hidden; font-size: 12px; color: #8a95a4; }
 .document-breadcrumb strong { color: #344256; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; }
 .crumb-muted { font: 9px ui-monospace, monospace; letter-spacing: 1px; color: #9ba4b1; }
 .save-state { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; margin-left: 5px; white-space: nowrap; color: #7b8797; }
@@ -34,11 +34,15 @@ button:disabled { opacity: .58; cursor: wait; }
 .workspace-label { padding: 0 9px 22px; }
 .side-section { padding: 0 0 17px; margin-bottom: 15px; border-bottom: 1px solid #eef0f4; }
 .section-heading { padding: 0 9px 10px; display: flex; align-items: center; justify-content: space-between; } .section-heading span { color: #afb7c3; }
-.diagram-kind { border: 1px solid transparent; width: 100%; border-radius: 8px; display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px 8px; margin: 3px 0; background: transparent; color: #536276; }
+.diagram-kind { border: 1px solid transparent; width: 100%; border-radius: 8px; display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px 8px; margin: 3px 0; background: transparent; color: #536276; height: auto; white-space: normal; }
 .diagram-kind:hover { background: #f8f9fc; } .diagram-kind.active { background: #f0f3ff; border-color: #e0e6ff; color: #263d97; }
 .diagram-kind b { display: block; font-size: 11px; color: #344256; font-weight: 600; } .diagram-kind.active b { color: #263d97; }
 .diagram-kind small { display: block; margin-top: 4px; color: #96a0af; font-size: 9px; line-height: 1.3; }
-.diagram-kind .kind-arrow { color: #a2adbb; margin-left: auto; align-self: flex-start; font-size: 11px; opacity: 0; } .diagram-kind.active .kind-arrow { opacity: 1; color: #425bc7; }
+/* The row is an Ant Design button, which forces nowrap text and a fixed control height; the caption column shrinks and wraps instead of bleeding past the panel edge. */
+.diagram-kind .kind-text { display: block; flex: 1 1 auto; min-width: 0; }
+.diagram-kind .kind-text b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diagram-kind .kind-text small { overflow-wrap: anywhere; }
+.diagram-kind .kind-arrow { color: #a2adbb; margin-left: auto; align-self: flex-start; flex: 0 0 auto; font-size: 11px; opacity: 0; } .diagram-kind.active .kind-arrow { opacity: 1; color: #425bc7; }
 .kind-icon { width: 29px; height: 29px; flex: 0 0 29px; display: flex; align-items: center; justify-content: center; position: relative; border: 1px solid #dce2eb; border-radius: 7px; background: white; }
 .active .kind-icon { border-color: #c7d1ff; }
 .kind-c4 i { position: absolute; width: 6px; height: 6px; border: 1px solid #7589b5; border-radius: 2px; }
@@ -81,8 +85,9 @@ button:disabled { opacity: .58; cursor: wait; }
 .status-right { display: flex; gap: 13px; font-family: ui-monospace, monospace; font-size: 8px; color: #9aa4b2; }
 
 .right-panel { min-height: 0; overflow-y: auto; background: #fff; border-left: 1px solid #e7eaf0; display: flex; flex-direction: column; }
-.right-tabs { height: 51px; border-bottom: 1px solid #e9edf2; display: flex; align-items: center; gap: 18px; padding: 0 17px; flex-shrink: 0; }
-.right-tab { color: #9aa4b2; font-size: 10px; height: 51px; display: flex; align-items: center; position: relative; }
+.right-tabs { height: 51px; border-bottom: 1px solid #e9edf2; display: flex; align-items: center; gap: 18px; padding: 0 17px; flex-shrink: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.right-tabs::-webkit-scrollbar { display: none; }
+.right-tab { color: #9aa4b2; font-size: 10px; height: 51px; display: flex; align-items: center; position: relative; flex: 0 0 auto; white-space: nowrap; }
 .right-tab.active { color: #36465a; font-weight: 600; } .right-tab.active:after { content: ""; height: 2px; position: absolute; bottom: -1px; left: 0; right: 0; background: #425bc7; }
 .right-tab-label { margin-left: auto; font: 8px ui-monospace, monospace; letter-spacing: 1px; color: #a7b0bc; }
 .inspector-section, .quality-section, .design-section { padding: 15px 16px; border-bottom: 1px solid #edf0f4; }
@@ -818,7 +823,7 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .settings-card-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .workspace-nav .ant-btn, .workspace-nav button { font-size: 13px; }
 .right-copilot-panel { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.right-copilot-panel .copilot-workspace { min-height: 0; height: 100%; overflow: hidden; display: flex; }
+.right-copilot-panel .copilot-workspace { min-height: 0; height: 100%; overflow: hidden; display: flex; padding: 0; }
 .right-copilot-panel .copilot-page-content { width: 100%; max-width: none; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 .right-copilot-panel .copilot-page-hero { margin: 0; padding: 0 0 10px; display: block; flex: 0 0 auto; }
 .right-copilot-panel .copilot-page-hero h1 { font-size: 16px; margin: 4px 0; }
@@ -840,9 +845,24 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .right-copilot-panel .gemini-privacy-note { flex: 0 0 auto; padding: 8px 4px 0; font-size: 11px; line-height: 1.5; }
 .right-copilot-panel .copilot-preview-actions { flex: 0 0 auto; margin: 0; padding: 10px; }
 .right-copilot-panel .preview-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Keep the chrome inside the viewport: clusters wrap or scroll instead of being clipped by the shell. */
+.topbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.topbar::-webkit-scrollbar { display: none; }
+.topbar > * { flex-shrink: 0; }
+.topbar > .document-breadcrumb { flex-shrink: 1; }
+.canvas-toolbar { flex-wrap: wrap; row-gap: 10px; }
+.canvas-tools { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
+
 @media (max-width: 1200px) {
   .app-shell { grid-template-columns: 190px minmax(400px, 1fr) 340px; }
   .settings-workspace .page-content { padding: 18px; }
+  .right-tabs { gap: 8px; padding: 0 10px; }
+  .topbar { gap: 7px; padding: 0 10px; }
+  .topbar .brand-caption { display: none; }
+  .topbar .document-breadcrumb { display: none; }
+  .topbar-actions { gap: 4px; }
+  .topbar-actions .button { padding: 7px 7px; }
 }
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 180px minmax(360px, 1fr); }

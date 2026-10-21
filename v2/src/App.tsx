@@ -1223,13 +1223,13 @@ export default function App() {
         <div className="side-section">
           <div className="section-heading">图形类型 <span>03</span></div>
           <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
-            <span className="kind-icon kind-c4"><i /><i /><i /></span><span><b>C4 架构图</b><small>Context · Container · Component</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 架构图</b><small>Context · Container · Component</small></span><span className="kind-arrow">↗</span>
           </UiButton>
           <UiButton className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
-            <span className="kind-icon kind-flow"><i /><i /><i /></span><span><b>业务流程图</b><small>主路径 · 分支 · 合并</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>业务流程图</b><small>主路径 · 分支 · 合并</small></span><span className="kind-arrow">↗</span>
           </UiButton>
           <UiButton className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
-            <span className="kind-icon kind-sequence"><i /><i /></span><span><b>时序图</b><small>Participant · Message · Return</small></span><span className="kind-arrow">↗</span>
+            <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>时序图</b><small>Participant · Message · Return</small></span><span className="kind-arrow">↗</span>
           </UiButton>
         </div>
 
