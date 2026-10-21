@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, theme as antdTheme } from "antd";
+import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { App as AntApp, Button, ConfigProvider, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
-import type { ButtonHTMLAttributes, CSSProperties } from "react";
+import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
@@ -52,6 +52,15 @@ function loadSavedAISettings(): SavedAISettings {
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...props} htmlType={type === "submit" ? "submit" : "button"} />;
+}
+
+function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const options = Children.toArray(children).filter(isValidElement).map((child) => {
+    const option = child as ReactElement<{ value?: string; disabled?: boolean; children?: ReactNode }>;
+    return { value: option.props.value ?? "", label: option.props.children, disabled: option.props.disabled };
+  });
+  return <Select {...props} value={value as string | undefined} defaultValue={defaultValue as string | undefined}
+    options={options} onChange={(nextValue) => onChange?.({ target: { value: nextValue } } as unknown as ChangeEvent<HTMLSelectElement>)} />;
 }
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
@@ -776,12 +785,12 @@ export default function App() {
         </nav>
         <label className="theme-selector" title="切换整个工作界面的配色">
           <span aria-hidden="true">◐</span>
-          <select value={uiTheme} aria-label="界面配色主题" onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
+          <UiSelect value={uiTheme} aria-label="界面配色主题" onChange={(event) => setUiTheme(event.target.value as UiTheme)}>
             <option value="editorial">经典编辑室</option>
             <option value="youth">青春鲜艳</option>
             <option value="warm">暖色纸感</option>
             <option value="midnight">午夜深色</option>
-          </select>
+          </UiSelect>
         </label>
         <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
@@ -843,18 +852,18 @@ export default function App() {
             {document.kind === "sequence" && <UiButton className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</UiButton>}
             <label className="layout-profile-control" title="选择自动布局算法">
               <span>算法</span>
-              <select className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : "elk-layered"}
+              <UiSelect className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : "elk-layered"}
                 disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
                   void runLayout(next);
                 }}>
                 {LAYOUT_PROFILES.map((profile) => <option key={profile.value} value={profile.value}>{profile.label}</option>)}
-              </select>
+              </UiSelect>
             </label>
             <label className="layout-profile-control" title="设置图的主方向">
               <span>方向</span>
-              <select className="text-field" aria-label="布局方向" value={document.layout.direction}
+              <UiSelect className="text-field" aria-label="布局方向" value={document.layout.direction}
                 disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, direction: event.target.value as DiagramDocument["layout"]["direction"] } };
@@ -862,7 +871,7 @@ export default function App() {
                 }}>
                 <option value="RIGHT">横向 · 左→右</option>
                 <option value="DOWN">纵向 · 上→下</option>
-              </select>
+              </UiSelect>
             </label>
             <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</UiButton>
             <div className="segmented"><UiButton disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</UiButton></div>
@@ -909,15 +918,15 @@ export default function App() {
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
               <div className="field-label">已选中关系线 · 源节点</div>
-              <select className="text-field" aria-label="关系线源节点" value={selectedRelation.source}
+              <UiSelect className="text-field" aria-label="关系线源节点" value={selectedRelation.source}
                 onChange={(event) => changeRelationEndpoints(selectedRelation.id, event.target.value, selectedRelation.target)}>
                 {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-              </select>
+              </UiSelect>
               <div className="field-label">目标节点</div>
-              <select className="text-field" aria-label="关系线目标节点" value={selectedRelation.target}
+              <UiSelect className="text-field" aria-label="关系线目标节点" value={selectedRelation.target}
                 onChange={(event) => changeRelationEndpoints(selectedRelation.id, selectedRelation.source, event.target.value)}>
                 {document.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-              </select>
+              </UiSelect>
               <div className="field-label">关系标签</div>
               <input className="text-field" aria-label="关系线标签" value={relationLabelDrafts[selectedRelation.id] ?? selectedRelation.label}
                 onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [selectedRelation.id]: event.target.value }))}
@@ -932,18 +941,18 @@ export default function App() {
             <div className="inspector-form">
               <div className="field-label">名称</div><input key={selectedNode.id + ":" + selectedNode.name} className="text-field" defaultValue={selectedNode.name} onBlur={(event) => { if (event.currentTarget.value !== selectedNode.name) changeNode({ name: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">语义角色</div>
-              <select className="text-field" value={selectedNode.role} onChange={(event) => changeNode({ role: event.target.value as DiagramNode["role"] })}>
+              <UiSelect className="text-field" value={selectedNode.role} onChange={(event) => changeNode({ role: event.target.value as DiagramNode["role"] })}>
                 {Object.entries(roleLabels).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
-              </select>
+              </UiSelect>
               <div className="field-label">技术 / 平台</div><input key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="例如：Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               <div className="field-label">描述</div><textarea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="此组件的职责…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
               <label className="lock-row"><input type="checkbox" checked={Boolean(selectedNode.layoutHints?.locked)} onChange={(event) => changeNode({ layoutHints: { ...(selectedNode.layoutHints || {}), locked: event.target.checked } })} /><span><b>锁定当前位置</b><small>重排时保留此节点位置</small></span></label>
               <div className="relation-editor">
                 <div className="field-label">建立关系（当前节点 → 目标）</div>
-                <select className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
+                <UiSelect className="text-field" value={relationTargetId} onChange={(event) => setRelationTargetId(event.target.value)}>
                   <option value="">选择目标节点…</option>
                   {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-                </select>
+                </UiSelect>
                 <input className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
                 <UiButton className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</UiButton>
               </div>
@@ -966,7 +975,7 @@ export default function App() {
                     />
                     <div className="relation-style-controls">
                       <label>路由
-                        <select disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
+                        <UiSelect disabled={document.kind === "sequence"} value={relation.routing || "inherit"} onChange={(event) => {
                           const value = event.target.value;
                           updateRelationStyle(relation.id, { routing: value === "inherit" ? undefined : value as "orthogonal" | "polyline" | "curved" });
                         }}>
@@ -974,17 +983,17 @@ export default function App() {
                           <option value="orthogonal">直角折线</option>
                           <option value="polyline">折线</option>
                           <option value="curved">曲线</option>
-                        </select>
+                        </UiSelect>
                       </label>
                       <label>线型
-                        <select value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
+                        <UiSelect value={relation.dashed === undefined ? "inherit" : relation.dashed ? "dashed" : "solid"} onChange={(event) => {
                           const value = event.target.value;
                           updateRelationStyle(relation.id, { dashed: value === "inherit" ? undefined : value === "dashed" });
                         }}>
                           <option value="inherit">默认</option>
                           <option value="solid">实线</option>
                           <option value="dashed">虚线</option>
-                        </select>
+                        </UiSelect>
                       </label>
                     </div>
                     <div className="relation-actions">
@@ -999,11 +1008,11 @@ export default function App() {
                 <div className="field-label">时序片段（alt / opt / loop）</div>
                 {(document.sequence?.fragments || []).map((fragment) => (
                   <div className="sequence-fragment-card" key={fragment.id}>
-                    <select value={fragment.kind} onChange={(event) => updateSequenceFragment(fragment.id, { kind: event.target.value as SequenceFragment["kind"] })}>
+                    <UiSelect value={fragment.kind} onChange={(event) => updateSequenceFragment(fragment.id, { kind: event.target.value as SequenceFragment["kind"] })}>
                       <option value="alt">alt · 条件分支</option>
                       <option value="opt">opt · 可选</option>
                       <option value="loop">loop · 循环</option>
-                    </select>
+                    </UiSelect>
                     <input key={fragment.id + ":" + fragment.label} className="text-field" defaultValue={fragment.label} placeholder="片段说明" onBlur={(event) => {
                       if (event.currentTarget.value !== fragment.label) updateSequenceFragment(fragment.id, { label: event.currentTarget.value });
                     }} />
