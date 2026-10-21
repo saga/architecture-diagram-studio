@@ -65,7 +65,7 @@ describe("V2 semantic fixtures and intents", () => {
   it("renames a single matching node without changing its geometry", () => {
     const document = createC4Fixture();
     const before = document.nodes.find((node) => node.id === "portal")!;
-    const result = interpretIntent(document, "将 Portal 节点重命名为 Web Portal");
+    const result = interpretIntent(document, "将 portal 节点重命名为 Web Portal");
     const after = result.document.nodes.find((node) => node.id === "portal")!;
     expect(result.changed).toBe(true);
     expect(after.name).toBe("Web Portal");
