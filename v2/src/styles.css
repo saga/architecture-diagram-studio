@@ -647,3 +647,15 @@ button:disabled { opacity: .58; cursor: wait; }
 
 .app-shell[data-theme="youth"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b5476; }
 .app-shell[data-theme="warm"] .diagram-svg .diagram-relation .relation-visible-path { stroke: #8b6c57; }
+
+
+.app-shell[data-theme="midnight"] .workspace-page .trace-entry-details { color: #d4deee; background: #111c2d; }
+.app-shell[data-theme="midnight"] .workspace-page .settings-description code { background: #2a3950; color: #e2eafa; }
+.app-shell[data-theme="midnight"] .workspace-page .gemini-welcome p,
+.app-shell[data-theme="midnight"] .workspace-page .gemini-message-role,
+.app-shell[data-theme="midnight"] .workspace-page .settings-card-heading p,
+.app-shell[data-theme="midnight"] .workspace-page .trace-entry-head time { color: #b1bfd4; }
+.app-shell[data-theme="midnight"] .workspace-page .settings-security-note strong,
+.app-shell[data-theme="midnight"] .workspace-page .settings-terminal-note strong { color: #d2dced; }
+.app-shell[data-theme="midnight"] .workspace-page .trace-empty h2 { color: #edf3ff; }
+.app-shell[data-theme="midnight"] .workspace-page .trace-empty p { color: #b1bfd4; }
