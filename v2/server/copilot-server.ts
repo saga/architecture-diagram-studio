@@ -14,7 +14,6 @@ const DATA_DIR = process.env.STUDIO_DATA_DIR || path.join(os.homedir(), ".archit
 const WORKSPACE_FILE = path.join(DATA_DIR, "workspace.json");
 const VERSIONS_FILE = path.join(DATA_DIR, "diagram-versions.json");
 const APP_LOG_FILE = path.join(DATA_DIR, "application-events.jsonl");
-const MAX_VERSIONS = 5000;
 type DiagramVersion = { id: string; createdAt: string; label: string; document: unknown; drawioXml: string };
 type WorkspaceState = { document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
 let dataWriteQueue: Promise<void> = Promise.resolve();
@@ -105,7 +104,9 @@ const ALLOWED_COMMANDS = new Set([
 app.get("/api/workspace/state", async (_req, res) => {
   try {
     const state = await getWorkspaceState();
-    res.json({ ...state, versions: await getDiagramVersions() });
+    const versions = await getDiagramVersions();
+    const latest = versions[versions.length - 1];
+    res.json({ ...state, versionCount: versions.length, latestVersion: latest ? { id: latest.id, createdAt: latest.createdAt, label: latest.label } : null });
   } catch (error) {
     await writeLog("workspace.state.read.failed", { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "无法读取服务端工作区数据" });
@@ -133,7 +134,7 @@ app.put("/api/workspace/document", async (req, res) => {
           document,
           drawioXml
         };
-        diagramVersions = [...versions, version].slice(-MAX_VERSIONS);
+        diagramVersions = [...versions, version];
         await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
         workspaceState = { ...state, document, drawioXml, updatedAt: version.createdAt };
         await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
