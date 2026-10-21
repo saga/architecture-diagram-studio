@@ -1,5 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import type { DiagramDocument } from "../model/types";
+import { applySemanticSideConstraints } from "./elk";
 
 /**
  * Dagre adapter. Dagre computes center-based node coordinates; the Studio IR
@@ -33,7 +34,7 @@ export function layoutWithDagre(document: DiagramDocument): DiagramDocument {
   }
 
   dagre.layout(graph);
-  return {
+  return applySemanticSideConstraints({
     ...document,
     nodes: document.nodes.map((node) => {
       if (node.layoutHints?.locked) return node;
@@ -45,5 +46,5 @@ export function layoutWithDagre(document: DiagramDocument): DiagramDocument {
         y: Math.round((position.y ?? 0) - node.height / 2),
       };
     }),
-  };
+  });
 }
