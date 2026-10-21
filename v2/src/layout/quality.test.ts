@@ -40,8 +40,8 @@ describe("layout quality hard constraints", () => {
     ];
     document.boundaries = [];
     document.relations = [
-      { id: "top-route", source: "a", target: "b", label: "", kind: "flow", routing: "polyline", points: [{ x: 160, y: 80 }, { x: 280, y: 80 }] },
-      { id: "bottom-route", source: "c", target: "d", label: "", kind: "flow", routing: "polyline", points: [{ x: 230, y: 80 }, { x: 230, y: 220 }] }
+      { id: "top-route", source: "a", target: "b", label: "", kind: "flow", routing: "polyline", points: [] },
+      { id: "bottom-route", source: "c", target: "d", label: "", kind: "flow", routing: "polyline", points: [] }
     ];
     const issue = evaluateLayout(document).warnings.find((warning) => warning.code === "edge-crossing");
     expect(issue?.relationIds).toEqual(expect.arrayContaining(["top-route", "bottom-route"]));
