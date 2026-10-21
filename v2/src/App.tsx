@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App as AntApp, ConfigProvider, theme as antdTheme } from "antd";
+import { App as AntApp, Button, ConfigProvider, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
-import type { CSSProperties } from "react";
+import type { ButtonHTMLAttributes, CSSProperties } from "react";
 import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
@@ -42,13 +42,18 @@ function loadSavedAISettings(): SavedAISettings {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
-      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" ? parsed.model : "gpt-5" };
+      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" ? parsed.model : "claude-sonnet-5.5" };
     }
   } catch {
     // The page can still use deterministic local rules when browser storage is unavailable.
   }
-  return { baseUrl: "copilot-sdk", model: "gpt-5" };
+  return { baseUrl: "copilot-sdk", model: "claude-sonnet-5.5" };
 }
+/** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
+function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <Button {...props} htmlType={type === "submit" ? "submit" : "button"} />;
+}
+
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
 
 export default function App() {
@@ -766,7 +771,7 @@ export default function App() {
         <div className="document-breadcrumb"><span className="crumb-muted">WORKSPACE</span><span>/</span><strong>{document.title}</strong><span className="save-state"><i />已保存 · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="工作区页面">
           {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent 轨迹"], ["settings", "配置"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
-            <button key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</button>
+            <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
         <label className="theme-selector" title="切换整个工作界面的配色">
@@ -780,13 +785,13 @@ export default function App() {
         </label>
         <input ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
-          <button className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</button>
-          <button className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</button>
-          <button className="button button-quiet" onClick={resetDiagram}>重置示例</button>
-          <button className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</button>
-          <button className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</button>
-          <button className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</button>
-        </div> : <div className="topbar-actions"><button className="button button-secondary" type="button" onClick={() => openPage("studio")}>返回画布</button></div>}
+          <UiButton className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>撤销</UiButton>
+          <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>重做</UiButton>
+          <UiButton className="button button-quiet" onClick={resetDiagram}>重置示例</UiButton>
+          <UiButton className="button button-secondary" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>导入 .drawio</UiButton>
+          <UiButton className="button button-secondary" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>导出 .drawio</UiButton>
+          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "原生 Draw.io" : "Studio 画布"}</UiButton>
+        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>返回画布</UiButton></div>}
       </header>
 
       {activePage === "studio" ? (
@@ -795,26 +800,26 @@ export default function App() {
         <div className="workspace-label">DIAGRAM WORKSPACE</div>
         <div className="side-section">
           <div className="section-heading">图形类型 <span>03</span></div>
-          <button className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
+          <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
             <span className="kind-icon kind-c4"><i /><i /><i /></span><span><b>C4 架构图</b><small>Context · Container · Component</small></span><span className="kind-arrow">↗</span>
-          </button>
-          <button className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
+          </UiButton>
+          <UiButton className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
             <span className="kind-icon kind-flow"><i /><i /><i /></span><span><b>业务流程图</b><small>主路径 · 分支 · 合并</small></span><span className="kind-arrow">↗</span>
-          </button>
-          <button className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
+          </UiButton>
+          <UiButton className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
             <span className="kind-icon kind-sequence"><i /><i /></span><span><b>时序图</b><small>Participant · Message · Return</small></span><span className="kind-arrow">↗</span>
-          </button>
+          </UiButton>
         </div>
 
         <div className="side-section components-section">
           <div className="section-heading">添加元素 <span>+</span></div>
           <div className="add-grid">
-            <button onClick={() => addNode("ui")}><span className="add-glyph">▱</span>界面 / UI</button>
-            <button onClick={() => addNode("domain")}><span className="add-glyph">▰</span>业务服务</button>
-            <button onClick={() => addNode("storage")}><span className="add-glyph">▤</span>数据库</button>
-            <button onClick={() => addNode("external")}><span className="add-glyph">↗</span>外部系统</button>
-            <button onClick={() => addNode("infra")}><span className="add-glyph">⌘</span>基础设施</button>
-            <button onClick={() => addNode("decision")}><span className="add-glyph">◇</span>判断 / 分支</button>
+            <UiButton onClick={() => addNode("ui")}><span className="add-glyph">▱</span>界面 / UI</UiButton>
+            <UiButton onClick={() => addNode("domain")}><span className="add-glyph">▰</span>业务服务</UiButton>
+            <UiButton onClick={() => addNode("storage")}><span className="add-glyph">▤</span>数据库</UiButton>
+            <UiButton onClick={() => addNode("external")}><span className="add-glyph">↗</span>外部系统</UiButton>
+            <UiButton onClick={() => addNode("infra")}><span className="add-glyph">⌘</span>基础设施</UiButton>
+            <UiButton onClick={() => addNode("decision")}><span className="add-glyph">◇</span>判断 / 分支</UiButton>
           </div>
         </div>
 
@@ -832,10 +837,10 @@ export default function App() {
           </div>
           <div className="canvas-tools">
             {previewDocument && <div className="preview-toolbar-actions">
-              <button type="button" className="preview-discard" onClick={discardPreview}>丢弃预览</button>
-              <button type="button" className="preview-accept" onClick={acceptPreview}>应用修改</button>
+              <UiButton type="button" className="preview-discard" onClick={discardPreview}>丢弃预览</UiButton>
+              <UiButton type="button" className="preview-accept" onClick={acceptPreview}>应用修改</UiButton>
             </div>}
-            {document.kind === "sequence" && <button className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</button>}
+            {document.kind === "sequence" && <UiButton className="toolbar-button" onClick={addSequenceFragment} disabled={Boolean(previewDocument)}>＋ 时序片段</UiButton>}
             <label className="layout-profile-control" title="选择自动布局算法">
               <span>算法</span>
               <select className="text-field" aria-label="自动布局算法" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : "elk-layered"}
@@ -859,9 +864,9 @@ export default function App() {
                 <option value="DOWN">纵向 · 上→下</option>
               </select>
             </label>
-            <button className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</button>
-            <div className="segmented"><button disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</button><button disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</button></div>
-            <button className="toolbar-button" type="button" title="在独立页面并排比较 Studio 与真实 Draw.io embed 渲染" onClick={() => window.open("/drawio-lab", "_blank", "noopener,noreferrer")}>渲染实验 ↗</button>
+            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "计算中…" : "自动排版"}</UiButton>
+            <div className="segmented"><UiButton disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")}>Draw.io</UiButton></div>
+            <UiButton className="toolbar-button" type="button" title="在独立页面并排比较 Studio 与真实 Draw.io embed 渲染" onClick={() => window.open("/drawio-lab", "_blank", "noopener,noreferrer")}>渲染实验 ↗</UiButton>
           </div>
         </div>
 
@@ -883,9 +888,9 @@ export default function App() {
           )}
           <div className="canvas-stage-footer"><span><i className="canvas-dot" />{viewMode === "studio" ? "Studio semantic preview" : "Local Draw.io editor"}</span><span>拖动画布空白处可平移 · 拖动节点可调整位置 · 自动排版会尊重锁定节点</span></div>
           {viewMode === "studio" && <div className="zoom-indicator">
-            <button type="button" className="zoom-control" aria-label="缩小" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</button>
-            <button type="button" className="zoom-percent" aria-label="重置画布视图" title="重置平移与缩放" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</button>
-            <button type="button" className="zoom-control" aria-label="放大" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</button>
+            <UiButton type="button" className="zoom-control" aria-label="缩小" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</UiButton>
+            <UiButton type="button" className="zoom-percent" aria-label="重置画布视图" title="重置平移与缩放" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</UiButton>
+            <UiButton type="button" className="zoom-control" aria-label="放大" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</UiButton>
           </div>}
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span><span>Profile: {visibleDocument.layout.profile}</span><span>Layout: {document.layout.profile || "elk-layered"}</span></div></div>
@@ -894,9 +899,9 @@ export default function App() {
       <aside className="right-panel">
         <div className="right-tabs" role="tablist" aria-label="右侧检查面板">
           {([["properties", "属性"], ["quality", "设计质量"], ["design", "样式规则"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
-            <button key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
+            <UiButton key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
               className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
-              onClick={() => setRightPanelTab(tab)}>{label}</button>
+              onClick={() => setRightPanelTab(tab)}>{label}</UiButton>
           )}
         </div>
         {rightPanelTab === "properties" && <section className="inspector-section">
@@ -918,8 +923,8 @@ export default function App() {
                 onChange={(event) => setRelationLabelDrafts((drafts) => ({ ...drafts, [selectedRelation.id]: event.target.value }))}
                 onBlur={() => commitRelationLabel(selectedRelation.id)} />
               <div className="relation-actions">
-                <button type="button" onClick={() => reverseRelation(selectedRelation.id)}>↔ 反转方向</button>
-                <button type="button" onClick={() => removeRelation(selectedRelation.id)}>删除关系</button>
+                <UiButton type="button" onClick={() => reverseRelation(selectedRelation.id)}>↔ 反转方向</UiButton>
+                <UiButton type="button" onClick={() => removeRelation(selectedRelation.id)}>删除关系</UiButton>
               </div>
             </div>
           )}
@@ -940,7 +945,7 @@ export default function App() {
                   {document.nodes.filter((node) => node.id !== selectedNode.id).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
                 </select>
                 <input className="text-field relation-label-field" value={relationLabel} onChange={(event) => setRelationLabel(event.target.value)} placeholder="关系说明（可选）" />
-                <button className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</button>
+                <UiButton className="relation-add-button" onClick={addRelation} disabled={!relationTargetId || relationTargetId === selectedNode.id}>＋ 添加关系</UiButton>
               </div>
               <div className="connected-relations">
                 <div className="field-label">关联关系（{document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length}）</div>
@@ -983,8 +988,8 @@ export default function App() {
                       </label>
                     </div>
                     <div className="relation-actions">
-                      <button type="button" title="反转方向" onClick={() => reverseRelation(relation.id)}>↔ 方向</button>
-                      <button type="button" title="删除关系" onClick={() => removeRelation(relation.id)}>删除</button>
+                      <UiButton type="button" title="反转方向" onClick={() => reverseRelation(relation.id)}>↔ 方向</UiButton>
+                      <UiButton type="button" title="删除关系" onClick={() => removeRelation(relation.id)}>删除</UiButton>
                     </div>
                   </div>
                 ))}
@@ -1012,11 +1017,11 @@ export default function App() {
                         if (Number.isFinite(value) && value !== fragment.endOrder) updateSequenceFragment(fragment.id, { endOrder: value });
                       }} /></label>
                     </div>
-                    <button type="button" className="sequence-fragment-remove" onClick={() => removeSequenceFragment(fragment.id)}>删除片段</button>
+                    <UiButton type="button" className="sequence-fragment-remove" onClick={() => removeSequenceFragment(fragment.id)}>删除片段</UiButton>
                   </div>
                 ))}
               </div>}
-              <button className="delete-node-button" onClick={removeSelectedNode}>删除此元素</button>
+              <UiButton className="delete-node-button" onClick={removeSelectedNode}>删除此元素</UiButton>
             </div>
           ) : !selectedRelation ? <div className="empty-inspector">选择画布中的节点或关系线以查看属性。</div> : null}
         </section>}
