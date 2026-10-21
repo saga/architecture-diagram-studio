@@ -64,8 +64,12 @@ describe("V2 diagram-specific layouts", () => {
     expect(xml).toContain("studioKind=call");
     expect(xml).toContain("studioSequenceOrder=0");
     for (const relation of document.relations) {
-      expect(xml).toContain('edge="1" parent="1" source="' + relation.id + '__messageSourceAnchor" target="' + relation.id + '__messageTargetAnchor"');
+      expect(xml).toContain('id="' + relation.id + '"');
+      expect(xml).toContain('studioSource=' + relation.source);
+      expect(xml).toContain('studioTarget=' + relation.target);
     }
+    expect(xml).toContain('as="sourcePoint"');
+    expect(xml).toContain('as="targetPoint"');
   });
 
   it("keeps polyline waypoints after a curve-to-polyline layout intent", async () => {
