@@ -182,7 +182,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   }
   if (name === "apply_diagram_edit") {
     if (args.confirmed !== true) throw new Error("confirmed=true is required");
-    return studioApi("/api/workspace/diagram/apply-proposal", { method: "POST", body: JSON.stringify({ proposalId: args.proposalId, confirmed: true }) });
+    return studioApi("/api/workspace/diagram/apply-proposal?includeXml=false", { method: "POST", body: JSON.stringify({ proposalId: args.proposalId, confirmed: true }) });
   }
   if (name === "search_workspace_examples") {
     const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
@@ -206,7 +206,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   if (name === "list_diagram_templates") return studioApi("/api/workspace/diagram/templates");
   if (name === "apply_diagram_template") {
     if (args.confirmed !== true) throw new Error("confirmed=true is required");
-    return studioApi("/api/workspace/diagram/apply-template", { method: "POST", body: JSON.stringify({ templateKey: args.templateKey, baseRevision: args.baseRevision, confirmed: true, title: args.title }) });
+    return studioApi("/api/workspace/diagram/apply-template?includeXml=false", { method: "POST", body: JSON.stringify({ templateKey: args.templateKey, baseRevision: args.baseRevision, confirmed: true, title: args.title }) });
   }
   if (name === "list_diagram_versions") {
     const payload = await studioApi("/api/workspace/versions");
