@@ -10,8 +10,9 @@ import { moveNode } from "./layout/move";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import type { AppliedDiagramEdit } from "./intent/aiProvider";
-import { downloadText } from "./export/drawio";
+import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
+import { canEditInStudio, isDrawioXmlDocument, patchDrawioXml } from "./model/drawio-xml-source";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
@@ -197,15 +198,8 @@ export default function App() {
       .catch(() => { if (!cancelled) setQuality(null); });
     return () => { cancelled = true; };
   }, [visibleDocument]);
-  const [generatedDrawioXml, setGeneratedDrawioXml] = useState("");
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/workspace/diagram/export-drawio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document }) })
-      .then(async (response) => { const payload = await response.json() as { xml?: string; error?: string }; if (!response.ok || typeof payload.xml !== "string") throw new Error(payload.error || "Generating the Draw.io XML failed"); return payload.xml; })
-      .then((xml) => { if (!cancelled) setGeneratedDrawioXml(xml); })
-      .catch((error) => { if (!cancelled) setLastAction(error instanceof Error ? error.message : String(error)); });
-    return () => { cancelled = true; };
-  }, [document]);
+  // The native XML is authoritative. The semantic XML is only a disposable projection.
+  const generatedDrawioXml = toDrawioXml(document);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
   const serverCommittedDocumentRef = useRef<{ document: DiagramDocument; workspaceId: string | null } | null>(null);
@@ -243,12 +237,17 @@ export default function App() {
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
+  const studioEditingSafe = canEditInStudio(drawioXml, generatedDrawioXml, document);
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic: recordDiagnostic });
+
+  useEffect(() => {
+    if (serverHydrated && !studioEditingSafe && viewMode !== "drawio") setViewMode("drawio");
+  }, [serverHydrated, studioEditingSafe, viewMode]);
 
   useEffect(() => {
     let active = true;
@@ -478,10 +477,26 @@ export default function App() {
   }, [uiTheme]);
 
   const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
+    let nextXml = preservedNativeXml;
+    if (nextXml === undefined) {
+      if (!studioEditingSafe) {
+        const message = "Studio semantic editing is disabled because this Draw.io XML contains cells or structure that the current projection cannot safely round-trip. Edit the native document in Freeform.";
+        setLastAction(message);
+        recordDiagnostic("drawio.semantic-edit.blocked", message, { documentId: document.id, action }, "warn");
+        return;
+      }
+      nextXml = patchDrawioXml(drawioXml, toDrawioXml(next), document) ?? undefined;
+      if (nextXml === undefined) {
+        const message = "The semantic edit was not applied because the native XML could not be patched safely.";
+        setLastAction(message);
+        recordDiagnostic("drawio.semantic-patch.failed", message, { documentId: document.id, action }, "error");
+        return;
+      }
+    }
     nextSaveLabelRef.current = action;
     setPreviewDocument(null);
     setPreviewSummary("");
-    setNativeXmlOverride(preservedNativeXml ?? null);
+    setNativeXmlOverride(nextXml);
     const nextHistory = [...historyRef.current.slice(0, historyIndexRef.current + 1), next].slice(-50);
     historyRef.current = nextHistory;
     historyIndexRef.current = nextHistory.length - 1;
@@ -490,19 +505,28 @@ export default function App() {
     setDocument(next);
     setRevision((value) => value + 1);
     setLastAction(action);
-    recordDiagnostic("diagram.change.committed", "The diagram document was updated", {
+    recordDiagnostic("diagram.change.committed", "The diagram projection was updated and patched into the authoritative Draw.io XML", {
       diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
-      hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml)
+      hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml), xmlLength: nextXml.length
     });
-  }, []);
+  }, [document, drawioXml, studioEditingSafe]);
 
   /** Updates the document in place: the current history entry is replaced instead of pushing a new step. */
   const replaceDocument = useCallback((next: DiagramDocument) => {
+    if (studioEditingSafe) {
+      const patchedXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
+      if (!patchedXml) {
+        setLastAction("The update was not applied because the authoritative Draw.io XML could not be patched safely.");
+        recordDiagnostic("drawio.semantic-patch.failed", "A replacement update was refused because XML cell patching was unsafe", { documentId: document.id }, "error");
+        return;
+      }
+      setNativeXmlOverride(patchedXml);
+    }
     const index = historyIndexRef.current;
     if (index >= 0) historyRef.current = [...historyRef.current.slice(0, index), next];
     setDocument(next);
     setRevision((value) => value + 1);
-  }, []);
+  }, [document, drawioXml, studioEditingSafe]);
 
   // Hydrate first so a legacy document's native XML is available before its appearance is migrated.
   // Read the existing XML into visualStyle before regenerating it; do not discard unmodelled XML merely
@@ -516,7 +540,7 @@ export default function App() {
     } else if (document.renderTheme !== uiTheme) {
       setUiTheme(document.renderTheme);
     }
-  }, [serverHydrated, document, nativeXmlOverride, uiTheme, replaceDocument]);
+  }, [serverHydrated, document, nativeXmlOverride, uiTheme, replaceDocument, studioEditingSafe]);
 
   /**
    * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
@@ -526,7 +550,7 @@ export default function App() {
    * are already computed by the paths that create them.
    */
   useEffect(() => {
-    if (!serverHydrated || geometryHealRef.current) return;
+    if (!serverHydrated || geometryHealRef.current || !studioEditingSafe) return;
     geometryHealRef.current = true;
     const current = documentRef.current;
     if (!hasStackedGeometry(current)) return;
@@ -576,7 +600,10 @@ export default function App() {
     const previous = historyRef.current[historyIndexRef.current];
     setPreviewDocument(null);
     setPreviewSummary("");
-    setNativeXmlOverride(null);
+    if (!studioEditingSafe) { setLastAction("Undo is available in the native Draw.io editor for this document."); return; }
+    const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(previous), document);
+    if (!restoredXml) { setLastAction("Undo was refused because the native XML could not be patched safely."); return; }
+    setNativeXmlOverride(restoredXml);
     setDocument(previous);
     setSelectedNodeId((current) => previous.nodes.some((node) => node.id === current) ? current : previous.nodes[0]?.id || null);
     setCanUndo(historyIndexRef.current > 0);
@@ -595,7 +622,10 @@ export default function App() {
     const next = historyRef.current[historyIndexRef.current];
     setPreviewDocument(null);
     setPreviewSummary("");
-    setNativeXmlOverride(null);
+    if (!studioEditingSafe) { setLastAction("Redo is available in the native Draw.io editor for this document."); return; }
+    const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
+    if (!restoredXml) { setLastAction("Redo was refused because the native XML could not be patched safely."); return; }
+    setNativeXmlOverride(restoredXml);
     setDocument(next);
     setSelectedNodeId((current) => next.nodes.some((node) => node.id === current) ? current : next.nodes[0]?.id || null);
     setCanUndo(historyIndexRef.current > 0);
@@ -608,6 +638,7 @@ export default function App() {
   }
 
   function changeKind(kind: DiagramKind) {
+    if (!studioEditingSafe) { setLastAction("Open a new Studio diagram before switching semantic diagram types; this native XML is preserved unchanged."); return; }
     setPreviewDocument(null);
     setPreviewSummary("");
     setSelectedRelationId(null);
@@ -710,6 +741,7 @@ export default function App() {
   }
 
   function resetDiagram() {
+    if (!studioEditingSafe) { setLastAction("Reset is disabled for native Draw.io documents to prevent replacing their XML."); return; }
     setSelectedRelationId(null);
     void (async () => {
       const next = await layoutSample(FIXTURES[document.kind]());
@@ -773,16 +805,17 @@ export default function App() {
     recordDiagnostic("drawio.import.started", "Draw.io import started", { fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown" });
     try {
       const xml = await file.text();
-      const empty: DiagramDocument = { ...document, id: newId("imported"), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
-      const parsed = fromDrawioXml(xml, empty);
-      if (!parsed.nodes.length) {
-        setLastAction("No importable nodes found; check that the file is valid .drawio XML");
+      if (!isDrawioXmlDocument(xml)) {
+        setLastAction("The selected file is not valid Draw.io XML; the active document was not changed.");
         return;
       }
-      const next = await requestServerLayout(parsed);
+      const empty: DiagramDocument = { ...document, id: newId("imported"), title: file.name.replace(/\\.(drawio|dio|xml)$/i, ""), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
+      const parsed = fromDrawioXml(xml, empty);
+      const next = parsed === empty ? empty : { ...parsed, title: empty.title };
       setSelectedRelationId(null);
       setSelectedNodeId(next.nodes[0]?.id || null);
-      commitDocument(next, "Imported " + file.name + " with " + next.nodes.length + " nodes and " + next.relations.length + " relations");
+      setViewMode("drawio");
+      commitDocument(next, "Imported native Draw.io XML from " + file.name, xml);
       recordDiagnostic("drawio.import.completed", "Draw.io file parsed and imported", {
         durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length
       });
@@ -1019,7 +1052,6 @@ export default function App() {
           <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as UiTheme;
             setUiTheme(nextTheme);
-            setNativeXmlOverride(null);
             replaceDocument({ ...document, renderTheme: nextTheme });
           }}>
             <option value="editorial">Editorial</option>
@@ -1046,13 +1078,13 @@ export default function App() {
         }}>New Draw.io</UiButton>
         <UiInput ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
         {activePage === "studio" ? <div className="topbar-actions">
-          <UiButton className="button button-quiet" disabled={!canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
-          <UiButton className="button button-quiet" disabled={!canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
-          <UiButton className="button button-quiet" title="Reload the built-in sample" onClick={resetDiagram}>Reset</UiButton>
+          <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
+          <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
+          <UiButton className="button button-quiet" title="Reload the built-in sample" disabled={!studioEditingSafe} onClick={resetDiagram}>Reset</UiButton>
           <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
-          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Freeform editor" : "Studio canvas"}</UiButton>
+          <UiButton className="button button-primary" disabled={!studioEditingSafe || Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Freeform editor" : "Studio canvas"}</UiButton>
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to canvas</UiButton></div>}
       </header>
 
@@ -1064,13 +1096,13 @@ export default function App() {
           <UiButton type="button" className="workspace-switch" onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</UiButton>
         </div>}
         <div className="side-section">
-          <UiButton className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
+          <UiButton disabled={!studioEditingSafe} className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
             <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 architecture</b></span>
           </UiButton>
-          <UiButton className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
+          <UiButton disabled={!studioEditingSafe} className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
             <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>Process flow</b></span>
           </UiButton>
-          <UiButton className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
+          <UiButton disabled={!studioEditingSafe} className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
             <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>Sequence diagram</b></span>
           </UiButton>
         </div>
@@ -1090,7 +1122,7 @@ export default function App() {
             <label className="layout-profile-control" title="Choose the auto-layout algorithm">
               <span>Algorithm</span>
               <UiSelect className="text-field" aria-label="Auto-layout algorithm" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
-                disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
+                disabled={!studioEditingSafe || isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
                   void runLayout(next);
@@ -1110,12 +1142,13 @@ export default function App() {
                 <option value="DOWN">Top → bottom</option>
               </UiSelect>
             </label>
-            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
-            <div className="segmented"><UiButton disabled={Boolean(previewDocument)} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")} title="Freeform editing in the embedded Draw.io canvas">Freeform</UiButton></div>
+            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={!studioEditingSafe || isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
+            <div className="segmented"><UiButton disabled={!studioEditingSafe || Boolean(previewDocument)} title={!studioEditingSafe ? "This XML contains content that the Studio projection cannot safely round-trip. Use native Draw.io." : ""} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")} title="Freeform editing in the embedded Draw.io canvas">Freeform</UiButton></div>
           </div>
         </div>
 
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
+          {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram is preserved as native Draw.io XML. Its cells, styles, labels, pages or hierarchy cannot all be represented safely by the Studio projection, so semantic editing and automatic layout are disabled to prevent data loss. Use the native Draw.io editor; the full XML remains the saved source of truth.</div>}
           {viewMode === "studio" ? (
             <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
               selectedRelationId={selectedRelationId} connectionSourceId={connectionSourceId} onConnectionSourceChange={setConnectionSourceId}
