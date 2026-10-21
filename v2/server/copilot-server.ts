@@ -75,10 +75,10 @@ app.post("/api/copilot/intent", async (req, res) => {
         ].join("\n")
       }
     });
-    const result = await session.sendAndWait({
-      prompt: JSON.stringify({ request: prompt, diagram: context }),
-      timeout: 60000
-    });
+    const result = await session.sendAndWait(
+      { prompt: JSON.stringify({ request: prompt, diagram: context }) },
+      60000
+    );
     const plan = proposed as { commands: string[]; reply: string } | null;
     if (!plan) {
       const content = (result as { data?: { content?: string } } | undefined)?.data?.content || "";
