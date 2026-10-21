@@ -201,6 +201,9 @@ export default function App() {
     setCanRedo(true);
     setRevision((value) => value + 1);
     setLastAction("已撤销到上一版本");
+    recordDiagnostic("diagram.history.undo", "已撤销到上一版本", {
+      diagramKind: previous.kind, nodeCount: previous.nodes.length, relationCount: previous.relations.length
+    });
   }
 
   function redoDocument() {
@@ -216,6 +219,9 @@ export default function App() {
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
     setRevision((value) => value + 1);
     setLastAction("已重做到下一版本");
+    recordDiagnostic("diagram.history.redo", "已重做到下一版本", {
+      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
+    });
   }
 
   function changeKind(kind: DiagramKind) {
@@ -540,6 +546,9 @@ export default function App() {
     const next = FIXTURES[document.kind]();
     setSelectedNodeId(next.nodes[0]?.id || null);
     commitDocument(next, "已恢复示例图");
+    recordDiagnostic("diagram.reset", "用户恢复了当前图形类型的内置示例", {
+      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
+    }, "warn");
     void runLayout(next);
   }
 
