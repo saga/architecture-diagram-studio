@@ -19,6 +19,7 @@ interface Props {
   sendIntent: () => void;
   acceptPreview: () => void;
   discardPreview: () => void;
+  openStudio: () => void;
   aiBaseUrl: string;
   setAiBaseUrl: (value: string) => void;
   aiModel: string;
@@ -42,7 +43,7 @@ function formattedTime(timestamp: string): string {
 export default function WorkspacePages(props: Props) {
   const {
     page, document, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, acceptPreview, discardPreview, aiBaseUrl, setAiBaseUrl, aiModel, setAiModel,
+    sendIntent, acceptPreview, discardPreview, openStudio, aiBaseUrl, setAiBaseUrl, aiModel, setAiModel,
     aiApiKey, setAiApiKey, saveAISettings, clearAISettings, traceEntries, clearTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
@@ -101,6 +102,7 @@ export default function WorkspacePages(props: Props) {
               <div className="preview-summary">{previewSummary || "布局预览已生成"}</div>
               <div className="preview-buttons">
                 <button type="button" className="preview-discard" onClick={discardPreview}>丢弃预览</button>
+                <button type="button" className="preview-discard" onClick={openStudio}>到 Studio 画布检查</button>
                 <button type="button" className="preview-accept" onClick={acceptPreview}>应用到正式图</button>
               </div>
             </div>}
