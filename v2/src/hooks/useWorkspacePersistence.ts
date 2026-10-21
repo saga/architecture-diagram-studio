@@ -6,11 +6,11 @@ type Diagnostic = (event: string, message: string, details?: Record<string, unkn
 interface Options {
   document: DiagramDocument; drawioXml: string; serverHydrated: boolean; workspaceContentReady: boolean;
   projectWorkspace: Workspace; copilotSessionId: string; messages: ChatMessage[];
-  saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>; onDiagnostic: Diagnostic;
+  saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>; setLastAction: (message: string) => void; onDiagnostic: Diagnostic;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
 export function useWorkspacePersistence(options: Options) {
-  const { document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, onDiagnostic } = options;
+  const { document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const persistDocumentNow = useCallback((snapshot: DiagramDocument, xml: string, label = "Autosave"): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
@@ -21,6 +21,7 @@ export function useWorkspacePersistence(options: Options) {
       });
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
+        setLastAction("Save conflict: the server has a newer diagram revision. The local changes were not written; reload the latest version before continuing.");
         onDiagnostic("workspace.persist.conflict", "The server rejected a stale diagram save; the newer revision was preserved", {
           baseRevision, currentRevision: payload.workspaceRevision ?? payload.currentRevision ?? null,
           documentId: snapshot.id, nodeCount: snapshot.nodes.length
@@ -36,7 +37,7 @@ export function useWorkspacePersistence(options: Options) {
     });
     saveQueueRef.current = operation.catch(() => undefined);
     return operation;
-  }, [onDiagnostic]);
+  }, [onDiagnostic, setLastAction]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     const timer = window.setTimeout(() => {

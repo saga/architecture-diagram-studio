@@ -245,7 +245,7 @@ export default function App() {
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, onDiagnostic: recordDiagnostic });
+  const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
 
   useEffect(() => {
     let active = true;
