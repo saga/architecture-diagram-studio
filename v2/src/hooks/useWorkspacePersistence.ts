@@ -6,11 +6,13 @@ type Diagnostic = (event: string, message: string, details?: Record<string, unkn
 interface Options {
   document: DiagramDocument; drawioXml: string; serverHydrated: boolean; workspaceContentReady: boolean;
   projectWorkspace: Workspace; copilotSessionId: string; messages: ChatMessage[];
-  saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>; setLastAction: (message: string) => void; onDiagnostic: Diagnostic;
+  saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>;
+  serverCommittedDocumentRef: MutableRefObject<{ document: DiagramDocument; workspaceId: string | null } | null>;
+  setLastAction: (message: string) => void; onDiagnostic: Diagnostic;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
 export function useWorkspacePersistence(options: Options) {
-  const { document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
+  const { document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const persistDocumentNow = useCallback((snapshot: DiagramDocument, xml: string, label = "Autosave"): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
@@ -40,6 +42,12 @@ export function useWorkspacePersistence(options: Options) {
   }, [onDiagnostic, setLastAction]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
+    const serverCommitted = serverCommittedDocumentRef.current;
+    if (serverCommitted) {
+      if (serverCommitted.workspaceId === projectWorkspace.id &&
+          JSON.stringify(document) === JSON.stringify(serverCommitted.document)) return;
+      serverCommittedDocumentRef.current = null;
+    }
     const timer = window.setTimeout(() => {
       void persistDocumentNow(document, drawioXml, saveLabelRef.current).catch((error: unknown) => {
         onDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
@@ -48,7 +56,7 @@ export function useWorkspacePersistence(options: Options) {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, onDiagnostic]);
+  }, [document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, serverCommittedDocumentRef, onDiagnostic]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     fetch("/api/workspace/chat", {

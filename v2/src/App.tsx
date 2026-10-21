@@ -9,6 +9,7 @@ import { FIXTURES } from "./model/fixtures";
 import { moveNode } from "./layout/move";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
+import type { AppliedDiagramEdit } from "./intent/aiProvider";
 import { downloadText } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
@@ -207,6 +208,7 @@ export default function App() {
   }, [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
+  const serverCommittedDocumentRef = useRef<{ document: DiagramDocument; workspaceId: string | null } | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
@@ -244,7 +246,7 @@ export default function App() {
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
+  const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic: recordDiagnostic });
 
   useEffect(() => {
     let active = true;
@@ -547,10 +549,27 @@ export default function App() {
     })();
   }
 
+  const applyCopilotEdit = useCallback((application: AppliedDiagramEdit) => {
+    serverRevisionRef.current = application.workspaceRevision;
+    serverCommittedDocumentRef.current = { document: application.document, workspaceId: projectWorkspace?.id ?? null };
+    setPendingAgentProposalId(null);
+    setPreviewDocument(null);
+    setPreviewSummary("");
+    setSelectedRelationId(null);
+    setSelectedNodeId((current) => application.document.nodes.some((node) => node.id === current)
+      ? current : application.document.nodes[0]?.id || null);
+    commitDocument(application.document, "Copilot: " + application.summary);
+    setLastAction("Copilot edit applied · version " + application.versionId);
+    recordDiagnostic("copilot.edit.synced", "Applied server-versioned Copilot edit to the active canvas", {
+      versionId: application.versionId, nodeCount: application.document.nodes.length, relationCount: application.document.relations.length
+    });
+  }, [commitDocument, projectWorkspace?.id]);
+
   const sendIntent = useCopilotIntent({
     projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode,
+    onAppliedEdit: applyCopilotEdit
   });
 
   async function saveAISettings() {
@@ -640,6 +659,7 @@ export default function App() {
         if (!response.ok || !isDiagramDocument(payload.document)) throw new Error(payload.error || "The Agent proposal could not be applied");
         const preservedXml = typeof payload.version?.drawioXml === "string" ? payload.version.drawioXml : undefined;
         serverRevisionRef.current = typeof payload.workspaceRevision === "string" ? payload.workspaceRevision : null;
+        serverCommittedDocumentRef.current = { document: payload.document, workspaceId: projectWorkspace?.id ?? null };
         setPendingAgentProposalId(null);
         commitDocument(payload.document, summary + " (confirmed)", preservedXml);
         setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "The reviewed proposal was applied and versioned by the Studio server." }]);

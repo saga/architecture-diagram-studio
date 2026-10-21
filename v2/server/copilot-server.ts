@@ -13,7 +13,7 @@ import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
-import { createDiagramAgentTools, type AgentProposalView, type DiagramOperationInput } from "./copilot/diagram-tools";
+import { createDiagramAgentTools, type AgentAppliedEditView, type AgentProposalView, type DiagramOperationInput } from "./copilot/diagram-tools";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
@@ -819,11 +819,32 @@ registerCopilotIntentRoute(app, {
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
     await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
   }),
-  createDiagramTools: (_sessionId, onProposal, onToolUse) => createDiagramAgentTools({
+  createDiagramTools: (_sessionId, onProposal, onApplied, onToolUse) => createDiagramAgentTools({
     getActiveDocument: async () => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
       return state.document;
+    },
+    getActiveRevision: async () => {
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
+      return workspaceRevision(state.document, state.drawioXml);
+    },
+    applyProposal: async (proposalId: string, expectedRevision: string, summary: string): Promise<AgentAppliedEditView> => {
+      const response = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/diagram/apply-proposal?includeXml=false", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ proposalId, confirmed: true })
+      });
+      const payload = await response.json().catch(() => ({})) as {
+        error?: string; document?: unknown; workspaceRevision?: string;
+        version?: { id?: string }; quality?: import("../src/model/types").LayoutQualityReport
+      };
+      if (!response.ok || !isDiagramDocument(payload.document) || typeof payload.workspaceRevision !== "string" ||
+          typeof payload.version?.id !== "string" || !payload.quality || typeof payload.quality !== "object") {
+        throw new Error(payload.error || "The server did not apply the diagram operation");
+      }
+      return { versionId: payload.version.id, baseRevision: expectedRevision, workspaceRevision: payload.workspaceRevision,
+        document: payload.document, summary, quality: payload.quality };
     },
     getWorkspaceContext: collectAgentWorkspaceContext,
     getVersions: async () => {
@@ -1125,7 +1146,7 @@ registerCopilotIntentRoute(app, {
       const restored = { ...sourceVersion.document, id: state.document.id };
       return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
     },
-    onProposal, onToolUse
+    onProposal, onApplied, onToolUse
   })
 });
 

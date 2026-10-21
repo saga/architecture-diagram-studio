@@ -1,5 +1,5 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import { requestAIIntentPlan } from "../intent/aiProvider";
+import { requestAIIntentPlan, type AppliedDiagramEdit } from "../intent/aiProvider";
 import type { DiagramDocument, DiagramNode } from "../model/types";
 import { recordDiagnostic } from "../diagnostics";
 
@@ -28,13 +28,14 @@ interface CopilotIntentOptions {
   setPreviewDocument: (document: DiagramDocument | null) => void;
   setPreviewSummary: (summary: string) => void;
   setViewMode: (mode: "studio") => void;
+  onAppliedEdit: (application: AppliedDiagramEdit) => void;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
-    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode
+    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode, onAppliedEdit
   } = options;
 
   return useCallback(async (promptOverride?: string) => {
@@ -75,9 +76,25 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         modelReply = plan.reply;
         recordDiagnostic("copilot.agent.response", "Received a structured result from the Copilot SDK agent", {
           sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
-          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: plan.proposal ? "propose_diagram_edit" : "propose_layout_plan",
-          commandCount: plan.commands.length, hasProposal: Boolean(plan.proposal), replyLength: plan.reply.length
+          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: plan.application ? "apply_diagram_operation" : plan.proposal ? "propose_diagram_operation" : "propose_layout_plan",
+          commandCount: plan.commands.length, hasProposal: Boolean(plan.proposal), hasAppliedEdit: Boolean(plan.application), replyLength: plan.reply.length
         });
+        if (plan.application) {
+          const application = plan.application;
+          setPendingAgentProposalId(null);
+          setPreviewDocument(null);
+          setPreviewSummary("");
+          setViewMode("studio");
+          onAppliedEdit(application);
+          const prefix = modelReply && modelReply !== application.summary ? modelReply + " " : "";
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
+            text: prefix + "Applied directly and created version " + application.versionId + ". " + application.summary }]);
+          recordDiagnostic("copilot.edit.applied", "Copilot applied a focused revision-bound diagram operation and created a server version", {
+            versionId: application.versionId, baseRevision: application.baseRevision, workspaceRevision: application.workspaceRevision,
+            nodeCount: application.document.nodes.length, relationCount: application.document.relations.length, qualityScore: application.quality.score
+          });
+          return;
+        }
         if (plan.proposal) {
           setPendingAgentProposalId(plan.proposal.proposalId);
           setPreviewDocument(plan.proposal.document);
@@ -141,6 +158,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   }, [
     projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode, onAppliedEdit
   ]);
 }

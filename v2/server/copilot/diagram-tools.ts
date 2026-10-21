@@ -10,6 +10,14 @@ export interface AgentProposalView {
   baseQuality: LayoutQualityReport;
   quality: LayoutQualityReport;
 }
+export interface AgentAppliedEditView {
+  versionId: string;
+  baseRevision: string;
+  workspaceRevision: string;
+  document: DiagramDocument;
+  summary: string;
+  quality: LayoutQualityReport;
+}
 export interface AgentVersionRecord { id: string; createdAt: string; label: string; document: unknown; }
 export interface DiagramOperationInput {
   operation: "add_node" | "update_node" | "delete_node" | "create_relation" | "update_relation" | "reverse_relation" | "delete_relation" |
@@ -25,10 +33,13 @@ export interface DiagramOperationInput {
 
 interface Dependencies {
   getActiveDocument(): Promise<DiagramDocument | null>;
+  getActiveRevision(): Promise<string | null>;
   getWorkspaceContext(): Promise<unknown>;
   getVersions(): Promise<AgentVersionRecord[]>;
   proposeEdit(intent: string): Promise<AgentProposalView>;
   proposeOperation(input: DiagramOperationInput): Promise<AgentProposalView>;
+  applyProposal(proposalId: string, expectedRevision: string, summary: string): Promise<AgentAppliedEditView>;
+  onApplied(applied: AgentAppliedEditView): void;
   proposeTemplate(key: string, title?: string): Promise<AgentProposalView>;
   proposeRestore(versionId: string): Promise<AgentProposalView>;
   onProposal(proposal: AgentProposalView): void;
@@ -71,7 +82,7 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
       parameters:{type:"object",properties:{},additionalProperties:false},
       handler:async()=>{
         const d=await active();
-        return {id:d.id,title:d.title,kind:d.kind,variant:d.variant??null,layout:d.layout,
+        return {id:d.id,title:d.title,kind:d.kind,variant:d.variant??null,revision:await deps.getActiveRevision(),layout:d.layout,
           nodes:d.nodes.slice(0,300).map(n=>({id:n.id,name:n.name,role:n.role,visualRole:n.visualRole,description:n.description??"",technology:n.technology??"",x:n.x,y:n.y,width:n.width,height:n.height,layoutHints:n.layoutHints??{}})),
           relations:d.relations.slice(0,500).map(e=>({id:e.id,source:e.source,target:e.target,label:e.label,kind:e.kind,dashed:Boolean(e.dashed),routing:e.routing??d.layout.routing,sequenceOrder:e.sequenceOrder})),
           boundaries:d.boundaries.slice(0,100),flow:d.flow??null,sequence:d.sequence??null,
@@ -95,11 +106,12 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
         return {query:args.query,matches,scannedSnippetCount:all.length,limited:matches.length===Math.min(10,Math.max(1,args.limit||5))};
       }
     }),
-    createTrackedTool("propose_diagram_operation",{
-      description:"Create an exact, typed operation preview for nodes, relations, layout constraints, boundaries or sequence fragments. Use this for direct graph edits; it never persists changes without Studio confirmation.",
+    createTrackedTool("apply_diagram_operation",{
+      description:"Apply one focused, explicit user-requested node, relation, layout, boundary or sequence-fragment operation directly. First inspect_active_diagram and supply its exact revision. The server rejects stale revisions, validates semantics and layout quality, and creates an immutable version before success. Do not use for analysis-only requests, hypotheticals, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use the proposal tools for those.",
       parameters:{
         type:"object",
         properties:{
+          expectedRevision:{type:"string",minLength:32,maxLength:128},
           operation:{type:"string",enum:["add_node","update_node","delete_node","create_relation","update_relation","reverse_relation","delete_relation","move_node","set_layout","add_boundary","update_boundary","delete_boundary","add_sequence_fragment","update_sequence_fragment","delete_sequence_fragment"]},
           nodeId:{type:"string"},relationId:{type:"string"},sourceId:{type:"string"},targetId:{type:"string"},
           name:{type:"string",maxLength:200},role:{type:"string",enum:["actor","source","entry","ui","domain","business","api","worker","data","storage","external","vendor","infra","decision","start","end","service"]},
@@ -112,12 +124,18 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
           fragmentId:{type:"string"},fragmentKind:{type:"string",enum:["alt","opt","loop"]},startOrder:{type:"integer",minimum:0},endOrder:{type:"integer",minimum:0},
           participants:{type:"array",items:{type:"string"},maxItems:200}
         },
-        required:["operation"],additionalProperties:false
+        required:["operation","expectedRevision"],additionalProperties:false
       },
-      handler:async(args:DiagramOperationInput)=>{
-        const p=await deps.proposeOperation(args);
-        deps.onProposal(p);
-        return {proposalId:p.proposalId,baseRevision:p.baseRevision,summary:p.summary,qualityScore:p.quality.score,requiresUserConfirmation:true};
+      handler:async(args:DiagramOperationInput & {expectedRevision:string})=>{
+        const {expectedRevision,...operation}=args;
+        const currentRevision=await deps.getActiveRevision();
+        if(!currentRevision || currentRevision!==expectedRevision) throw new Error("The diagram changed after Copilot inspected it. Inspect the active diagram again; no change was applied.");
+        const proposal=await deps.proposeOperation(operation);
+        if(proposal.baseRevision!==expectedRevision) throw new Error("The diagram changed while the operation was being prepared. Inspect the active diagram again; no change was applied.");
+        const applied=await deps.applyProposal(proposal.proposalId,expectedRevision,proposal.summary);
+        deps.onApplied(applied);
+        return {applied:true,versionId:applied.versionId,baseRevision:applied.baseRevision,workspaceRevision:applied.workspaceRevision,
+          document:applied.document,summary:applied.summary,quality:applied.quality};
       }
     }),
     createTrackedTool("propose_diagram_edit",{

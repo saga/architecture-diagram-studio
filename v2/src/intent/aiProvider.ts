@@ -17,10 +17,21 @@ export interface AIIntentContext {
   nodes: Array<{ id: string; name: string; role: string }>;
 }
 
+export interface AppliedDiagramEdit {
+  applied: true;
+  versionId: string;
+  baseRevision: string;
+  workspaceRevision: string;
+  document: DiagramDocument;
+  summary: string;
+  quality: LayoutQualityReport;
+}
+
 export interface AIIntentPlan {
   commands: string[];
   reply: string;
   proposal?: { proposalId: string; baseRevision: string; document: DiagramDocument; summary: string; baseQuality: LayoutQualityReport; quality: LayoutQualityReport };
+  application?: AppliedDiagramEdit;
   model?: string;
   provider?: string;
   durationMs?: number;
@@ -89,9 +100,19 @@ function validatePlan(value: unknown): AIIntentPlan {
   const proposal = rawProposal && typeof rawProposal.proposalId === "string" && typeof rawProposal.baseRevision === "string" && isDiagramDocument(rawProposal.document) && typeof rawProposal.summary === "string" && rawProposal.baseQuality && typeof rawProposal.baseQuality === "object" && rawProposal.quality && typeof rawProposal.quality === "object"
     ? { proposalId: rawProposal.proposalId, baseRevision: rawProposal.baseRevision, document: rawProposal.document, summary: rawProposal.summary.slice(0, 500), baseQuality: rawProposal.baseQuality as LayoutQualityReport, quality: rawProposal.quality as LayoutQualityReport }
     : undefined;
+  const rawApplication = item.application && typeof item.application === "object" ? item.application as Record<string, unknown> : null;
+  const application = rawApplication?.applied === true && typeof rawApplication.versionId === "string" &&
+    typeof rawApplication.baseRevision === "string" && typeof rawApplication.workspaceRevision === "string" &&
+    isDiagramDocument(rawApplication.document) && typeof rawApplication.summary === "string" &&
+    rawApplication.quality && typeof rawApplication.quality === "object"
+    ? { applied: true as const, versionId: rawApplication.versionId, baseRevision: rawApplication.baseRevision,
+        workspaceRevision: rawApplication.workspaceRevision, document: rawApplication.document,
+        summary: rawApplication.summary.slice(0, 500), quality: rawApplication.quality as LayoutQualityReport }
+    : undefined;
   return {
     commands: rawCommands,
     ...(proposal ? { proposal } : {}),
+    ...(application ? { application } : {}),
     reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
     ...(typeof item.model === "string" ? { model: item.model } : {}),
     ...(typeof item.provider === "string" ? { provider: item.provider } : {}),

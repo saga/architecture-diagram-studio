@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
-import type { AgentProposalView } from "./diagram-tools";
+import type { AgentAppliedEditView, AgentProposalView } from "./diagram-tools";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -23,12 +23,13 @@ interface IntentDependencies {
   getProjectWorkspace(): Promise<ProjectWorkspace | null>;
   collectAgentWorkspaceContext(): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
-  createDiagramTools(sessionId: string, onProposal: (proposal: AgentProposalView) => void, onToolUse: (toolName: string) => void): any[];
+  createDiagramTools(sessionId: string, onProposal: (proposal: AgentProposalView) => void, onApplied: (applied: AgentAppliedEditView) => void, onToolUse: (toolName: string) => void): any[];
 }
 
 interface PendingPlan { commands: string[]; reply: string; }
 const pendingPlans = new Map<string, PendingPlan>();
 const pendingAgentProposals = new Map<string, AgentProposalView>();
+const pendingAgentApplications = new Map<string, AgentAppliedEditView>();
 const usedToolsBySession = new Map<string, Set<string>>();
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
@@ -39,7 +40,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       .replaceAll("{{rootPath}}", workspace?.rootPath || "not configured")
       .replaceAll("{{primaryDiagram}}", workspace?.primaryDiagram || "not selected");
     const supportedCommands = config.prompts.supportedCommands.replaceAll("{{commands}}", [...deps.allowedCommands].join("; "));
-    const internalToolGuidance = "IMPORTANT: Use the registered internal Studio tools for references, inspection, quality evaluation, workspace-example search, typed graph operations (propose_diagram_operation), semantic edit proposals, templates, version listing/diff and restore proposals. For explicit node, relation, boundary, sequence-fragment or layout operations, prefer propose_diagram_operation with the exact inspected IDs rather than asking the model to paraphrase a command. If any legacy configured prompt above says to use only propose_layout_plan or return empty commands for semantic edits, that instruction is superseded here. Use propose_layout_plan only for exact supported global layout commands. Proposal tools create previews only; the user must review and confirm changes in the Studio UI. Mermaid import/conversion is not implemented.";
+    const internalToolGuidance = "IMPORTANT: Use the registered internal Studio tools for inspection, quality evaluation, workspace-example search, semantic edits, templates and version history. For one focused node, relation, layout, boundary or sequence-fragment change explicitly requested by the user, inspect_active_diagram first and use apply_diagram_operation with its exact revision and stable IDs; this tool directly applies the change after server-side revision, semantic and quality validation and creates an immutable version. Do not use direct apply for analysis, hypothetical edits, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use a proposal tool and require explicit confirmation. Use propose_diagram_operation when the change needs preview/review and propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files. Mermaid import/conversion is not implemented.";
     return [config.prompts.system, config.prompts.task, config.prompts.planTool, config.prompts.behavior, workspaceContext, supportedCommands, internalToolGuidance].filter(Boolean).join("\n\n");
   }
 
@@ -110,6 +111,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               ...deps.createDiagramTools(
                 sessionId,
                 (proposal) => pendingAgentProposals.set(sessionId, proposal),
+                (application) => pendingAgentApplications.set(sessionId, application),
                 (toolName) => {
                   let used = usedToolsBySession.get(sessionId);
                   if (!used) { used = new Set<string>(); usedToolsBySession.set(sessionId, used); }
@@ -124,6 +126,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const plan = await deps.copilot.withTurn(sessionId, async (turn) => {
         pendingPlans.delete(sessionId);
         pendingAgentProposals.delete(sessionId);
+        pendingAgentApplications.delete(sessionId);
         usedToolsBySession.set(sessionId, new Set<string>());
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = await deps.collectAgentWorkspaceContext();
@@ -137,23 +140,44 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingPlans.delete(sessionId);
         let capturedProposal = pendingAgentProposals.get(sessionId) || null;
         pendingAgentProposals.delete(sessionId);
+        let capturedApplication = pendingAgentApplications.get(sessionId) || null;
+        pendingAgentApplications.delete(sessionId);
         let modelText = assistantText(firstTurn);
         let usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
-        if (!captured && !capturedProposal && usedToolNames.size === 0) {
+        if (!captured && !capturedProposal && !capturedApplication && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const nudged = await turn.send({
-            prompt: JSON.stringify({ request: "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For semantic changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
+            prompt: JSON.stringify({ request: "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
           }, 25000);
           captured = pendingPlans.get(sessionId) || null;
           pendingPlans.delete(sessionId);
           capturedProposal = pendingAgentProposals.get(sessionId) || null;
           pendingAgentProposals.delete(sessionId);
+          capturedApplication = pendingAgentApplications.get(sessionId) || null;
+          pendingAgentApplications.delete(sessionId);
           usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
           modelText = assistantText(nudged) || modelText;
         }
-        return { captured, capturedProposal, modelText, usedToolNames: [...usedToolNames], session: turn.session };
+        return { captured, capturedProposal, capturedApplication, modelText, usedToolNames: [...usedToolNames], session: turn.session };
       });
 
+      if (plan.capturedApplication) {
+        const application = plan.capturedApplication;
+        const response = {
+          commands: [], reply: application.summary,
+          application: { applied: true, versionId: application.versionId, baseRevision: application.baseRevision,
+            workspaceRevision: application.workspaceRevision, document: application.document,
+            summary: application.summary, quality: application.quality },
+          sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+          provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames
+        };
+        await deps.writeLog("turn.completed.with-applied-edit", {
+          sessionId, versionId: application.versionId, baseRevision: application.baseRevision,
+          workspaceRevision: application.workspaceRevision, summary: application.summary, qualityScore: application.quality.score
+        });
+        res.json(response);
+        return;
+      }
       if (plan.capturedProposal) {
         const proposal = plan.capturedProposal;
         const response = {
