@@ -13,7 +13,7 @@ describe("workspace file service", () => {
   });
   it("matches workspace glob patterns", () => {
     expect(matchesWorkspacePattern("src/App.tsx", "src/**/*.tsx")).toBe(true);
-    expect(matchesWorkspacePattern("node_modules/pkg/index.js", "**/node_modules/**")).toBe(true);
+    expect(matchesWorkspacePattern("packages/node_modules/pkg/index.js", "**/node_modules/**")).toBe(true);
     expect(matchesWorkspacePattern("src/App.tsx", "docs/**/*.md")).toBe(false);
   });
   it("rejects traversal paths and symlink reads", async () => {

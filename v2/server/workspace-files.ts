@@ -114,5 +114,5 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
       snippets
     };
   }
-  return { scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext };
+  return { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext };
 }
