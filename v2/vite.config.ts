@@ -100,7 +100,7 @@ function redactTerminalData(value: unknown, depth = 0): unknown {
 
 export default defineConfig({
   plugins: [react(), terminalDiagnostics()],
-  server: { host: "0.0.0.0", port: 5174 },
+  server: { host: "0.0.0.0", port: 5174, proxy: { "/api/copilot": "http://127.0.0.1:4175" } },
   preview: { host: "0.0.0.0", port: 4174 },
   build: { target: "es2022", sourcemap: true }
 });
