@@ -34,6 +34,5 @@ The Copilot server also includes workspace metadata and bounded relevant file ex
 ## Consequences
 
 - VS Code discovers the project MCP server from `.vscode/mcp.json`; the MCP process and HTTP service share the same home directory or `STUDIO_DATA_DIR`.
-- The MCP process and HTTP server share the same home directory or `STUDIO_DATA_DIR`.
 - Workspace file changes are read from disk on each tool request rather than relying on a stale cached index.
 - Future MCP mutation tools must use server APIs or a shared persistence service instead of writing around Studio's version history.
