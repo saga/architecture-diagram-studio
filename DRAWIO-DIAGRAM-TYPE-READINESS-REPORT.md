@@ -13,14 +13,19 @@
 
 `DiagramDocument` 是唯一真相源，draw.io XML 只是它的一次投影。因此"支持 draw.io 的所有图形"不是给 `DiagramKind` 再加几个值就能完成的增量改动，它要求推翻"语义模型是唯一真相源"这条前提。
 
-建议的目标形态是**双轨**：
+**目标架构是单一真源：Draw.io 原生 `mxfile` XML。**
 
-| 轨道 | 真相源 | 适用 | Studio 提供什么 |
-|---|---|---|---|
-| 语义轨（现有） | `DiagramDocument` | C4 / 流程图 / 时序图，以及未来可控的 UML 类图、ER 图 | 自动布局、质量评分、AI 语义编辑、设计语言 |
-| 原生轨（新增） | `.drawio` 的 mxfile 原文 | draw.io 其余全部图形、手绘、stencil、自定义形状 | 设计语言叠加、质量提示、原生编辑器、版本与工作区集成 |
+`DiagramDocument` 仅用于 Studio 的 C4 / 流程图 / 时序图语义操作，是从 XML 派生的局部投影，不是可持久化的第二真源。任意 Draw.io 文档都应由原生编辑器打开、编辑、保存；当 Studio 无法证明投影完整、无损时，不允许语义画布或自动布局改写该文档。
 
-**语义轨不做通用化，原生轨不做语义化。** 试图让 `DiagramDocument` 描述 draw.io 的全部形状，等于重写一遍 mxGraph 的图形模型——那是 draw.io 团队做了十几年的东西，不是这个项目该做的事。
+| 关注点 | 决策 |
+|---|---|
+| 真源 | 完整的 `.drawio` `mxfile` XML |
+| Studio 模型 | 派生投影，仅服务于受支持的语义功能 |
+| 修改 | 以 cell id 为边界，将受控变化 patch 回原 XML；保留所有未修改内容 |
+| 未知形状/属性/页面 | 不要求理解，不得丢弃；仍可在原生 Draw.io 中编辑 |
+| 语义布局/评分 | 仅在投影完整且安全时启用；导入不自动重排 |
+| AI | 不让模型写任意 XML；使用服务器实现的受约束 cell 操作 |
+
 
 ---
 
@@ -324,198 +329,80 @@ draw.io 的实体表是"父 cell + 每行一个子 cell（`parent=<表 id>`）"�
 
 ---
 
-## 5. 目标架构：双轨
+## 5. 目标架构：Draw.io XML 单一真源
 
-### 5.1 文档类型判别
+### 5.1 唯一权威模型
 
-```ts
-export type DiagramRepresentation = "semantic" | "native";
+完整 `mxfile` 是所有文档的持久化真源。它保留 `diagram` 页面、`mxGraphModel`、`root` cell、父子关系、geometry、style、HTML label、自定义 shape/stencil、UserObject、图层和自定义属性。
 
-export interface SemanticDocument {
-  schemaVersion: 3;
-  representation: "semantic";
-  profile: string;                  // "c4" | "flowchart" | "sequence" | "uml-class" | "er" …
-  id: string; title: string;
-  nodes: DiagramNode[]; relations: DiagramRelation[]; boundaries: DiagramBoundary[];
-  layout: LayoutSettings;
-  passthrough?: PassthroughPayload; // ← 关键：无损往返
-}
+`DiagramDocument` 只作为可丢弃的语义投影存在。它可从当前页面的部分 cell 派生，供现有 C4 / Flowchart / Sequence 功能使用；它不能代表完整原生文档，也不能在保存时反向覆盖整个 XML。
 
-export interface NativeDocument {
-  schemaVersion: 3;
-  representation: "native";
-  profile: string;                  // "drawio"
-  id: string; title: string;
-  mxfile: string;                   // ← 唯一真相源，Studio 永不重建
-  pageId: string;
-  designOverlay?: { tokenVersion: string; appliedAt: string };
-}
+### 5.2 修改路径
 
-export type StudioDocument = SemanticDocument | NativeDocument;
-```
+- **原生编辑**：Draw.io iframe 返回完整 XML，Studio 直接把该 XML 作为当前权威版本存储、版本化并写回工作区文件。
+- **Studio 语义编辑**：先验证当前 XML 与语义投影逐 cell 对应，且没有未知 cell、未知结构、未表达的 style key 或 HTML label 信息；确认安全后，依据 cell id 将新投影产生的受支持 cell patch 回当前 XML。保留原 `mxfile`、页面/model 元数据以及其他未改变的 cell。
+- **安全检查失败**：不允许语义编辑提交，也不自动重建 XML；界面切换/保留在原生 Draw.io 编辑模式，并解释原因。
+- **布局**：打开/import/bootstrap 时不运行布局。只有用户显式选择 Studio 自动布局，且文档通过完整性门禁后才允许执行。
+- **服务端**：XML 持久化校验与语义布局校验分开。文档保存要验证 XML 体积、基本 envelope、工作区路径和 revision；只有 semantic operations 才使用现有角色/关系/布局规则。
 
-### 5.2 语义轨的无损往返
+### 5.3 多页和未知结构
 
-这是**不改架构也能立刻止血**的部分：
+多页 `mxfile` 的语义投影可以临时只读第一页，但原始 XML 始终保留所有页。重复 cell id 在不同页面是允许的，不得把多页 root cells 合并到一张语义图里。任何未知 cell、形状、wrapper、stencil 或自定义属性一律保留在 XML；“不理解”不等于“删除”。
 
-```ts
-interface PassthroughPayload {
-  pageId: string;
-  pageName: string;
-  pageAttributes: Record<string, string>;   // gridSize / pageWidth / background …
-  unknownCells: string;                      // 未被映射的 <mxCell> 原始 XML 片段
-}
-```
+### 5.4 AI 与安全
 
-- **导入**：映射已知 cell，其余原样塞进 `unknownCells`；`parent` 链如果指向未映射的 cell，也一并保留。
-- **导出**：`toDrawioXml()` 先输出生成 cell，再原样拼回 `unknownCells`。
-- **效果**：UML 类图里 Studio 不认识的那部分**不会被销毁**，只是 Studio 不能编辑它。
+AI 不生成原始 XML，也不能执行未经校验的 style id。未来原生图的 AI 能力通过受约束的 cell 操作实现，例如改文本、移动/调整尺寸、修改允许的 style key、创建或删除连线、添加页面。服务器校验操作输入、当前 source revision 和变更范围，并在应用前创建不可变版本。Studio 语义布局的质量门不应用于普通原生 cell 编辑。
 
-### 5.3 形状注册表（语义轨）
+### 5.5 设计语言和渲染
 
-把"语义"和"画法"解耦：
-
-```ts
-// 语义：role 保持不变（C4 词汇）
-// 画法：可替换、可扩展
-export interface ShapeDefinition {
-  id: string;                       // "rect" | "pill" | "diamond" | "parallelogram" | "hexagon" | …
-  mxStyle: string;                  // mxGraph style 前缀
-  svgPath: (node: DiagramNode) => string;   // Studio SVG 渲染
-  labelInset: { top: number; right: number; bottom: number; left: number };
-}
-
-export interface DiagramProfile {
-  id: string;
-  representation: DiagramRepresentation;
-  layout: "auto" | "manual";
-  editableInStudio: boolean;
-  shapeFor: (node: DiagramNode) => string;  // 默认 "rect"
-  qualityMetrics: Array<keyof LayoutQualityReport["metrics"]>;
-  aiGuidance: string;
-}
-```
-
-`nodePaint()` 拆成 `paintFor(profile, node)` + `shapeFor(profile, node)`，两者互不依赖。加一种图 = 注册一个 profile + 若干 shape，**不再修改 40 个 `if`**。
-
-### 5.4 原生轨的设计语言叠加
-
-一个纯函数，幂等、可重入、带版本戳：
-
-```ts
-export function applyDesignLanguage(mxfile: string, tokens: DesignTokens): string;
-```
-
-只重写这些 style key：`fillColor` `strokeColor` `fontColor` `fontSize` `fontFamily` `strokeWidth` `rounded` `arcSize` `dashPattern`。
-
-**其余一律不动**：shape id、stencil 名、`parent`、`geometry`、`page`、`layer`、`UserObject` 属性、自定义 key。
-
-实现路径有两条，建议都留：
-
-1. **离线重写**：保存/导出时改写 XML（可控、可测试、不依赖 iframe 时序）；
-2. **运行时注入**：复用 `DrawioFrame.hideSaveAndExitControls()` 已有的 `<style>` 注入机制（`DrawioFrame.tsx:172-194`），用于即时预览。
-
-版本戳的意义：用户手动改过的颜色不会被下次打开时再刷回去。
-
-### 5.5 布局与质量按 profile 分派
-
-```ts
-// 现在
-const laidOut = document.kind === "sequence" ? normalize(doc) : await layoutDiagram(doc);
-
-// 目标
-const profile = resolveProfile(document.profile);
-const laidOut = profile.layout === "manual" ? document : await layoutDiagram(document);
-```
-
-同理 `evaluateLayout(doc)` 改成 `evaluateLayout(doc, profile.qualityMetrics)`；`apply-proposal` 的质量门禁只对 `representation === "semantic"` 生效。
-
-### 5.6 AI 能力声明
-
-```ts
-// 现在：15 个固定 operation，枚举里写死 17 个 role
-// 目标：工具描述由 profile 生成
-{
-  operation: profile.editableInStudio
-    ? "add_node" | "update_node" | …      // 语义轨
-    : "set_cell_text" | "set_cell_style" | "move_cell" | "add_edge" | "add_page"  // 原生轨（cell 级）
-}
-```
-
-原生轨的 AI 不做语义理解，只做**受约束的 cell 操作**，仍然走"提案 → 用户确认 → 版本快照"这条既有链路（`diagram-tools.ts:141-145`），安全模型不变。
-
----
+Draw.io 继续作为唯一最终图形渲染器。共享 render spec 只指导 Studio 生成/修改的语义 cell；它不能强制覆盖原生 XML 中用户明确设置的样式。原生图形的设计语言叠加应作为显式的、可撤销操作，不能默认为保存时重写所有样式。
 
 ## 6. 改造路线图
 
-工作量按"熟悉代码库的一名工程师"估算，仅作量级参考。
+### 阶段 0：止血与单源决策
 
-### 阶段 0：止血（3–5 人日）— 不改模型
+1. 接受 ADR-0006，更新架构文档和 Agent 规则，明确 XML 是唯一真源。
+2. 导入和 workspace bootstrap 保留完整源 XML，取消自动布局；多页仅生成第一页投影，绝不合并页面 cell。
+3. 原生 XML 在保存、版本历史、导出和工作区写入中优先且完整；持久化 endpoint 不再用语义角色/关系/复杂度限制拒绝合法 Draw.io 文件。
+4. 为 Studio 语义画布建立完整性门禁：未知 cell / 标签 / style / page / nesting 不能被表达时，禁用语义写操作与自动布局。
+5. 为安全可编辑的 Studio 文档增加 XML cell patch，按 id 合并新旧 cell，禁止 whole-document regeneration 覆盖源文件。
 
-| # | 动作 | 文件 |
-|---|---|---|
-| 0.1 | 导入时把源 XML 存进 `passthrough.unknownCells`，导出时拼回 | `import/drawio.ts`、`export/drawio.ts` |
-| 0.2 | 导入**不再**无条件 `requestServerLayout`；改成"保留原坐标 + 提供一键自动排版" | `App.tsx:768` |
-| 0.3 | Studio 编辑若检测到 `passthrough` 非空，先用源 XML 做一次三向合并，冲突时**拒绝保存并提示**，而不是静默覆盖 | `App.tsx:480` |
-| 0.4 | `changeKind` 改为"新建文档"，不再原地替换 | `App.tsx:596` |
-| 0.5 | 多页导入显式报错（"仅支持单页文件"），而不是静默合并/丢弃 | `import/drawio.ts:79` |
+**验收**：任意合法 Draw.io 文件打开后不自动布局；保存未修改文档不降级；多页、未知 cell 和自定义 shape 在 round-trip 后仍保留；安全门禁失败时 Studio 语义修改不会提交。
 
-**验收**：导入一张 UML 类图 → 拖动一个节点 → 保存 → 用 draw.io 打开，属性区、继承箭头、原始坐标全部还在。
+### 阶段 1：XML patch 与回归测试
 
-### 阶段 1：双轨骨架（2–3 周）
+- 覆盖 XML envelope、multi-page preservation、opaque cells、unknown styles/custom attributes、geometry and labels、cell add/update/delete 的测试。
+- 对任意不能验证无损的 XML 明确返回“不支持 Studio 语义编辑”而不是静默 fallback。
+- 测试版本恢复和并发保存时，revision 对应的是完整 XML，而非只对应语义投影。
 
-| # | 动作 | 影响面 |
-|---|---|---|
-| 1.1 | `schemaVersion: 3` + `representation` 判别 + `StudioDocument` 联合类型 | `model/types.ts`、全部持久化路径 |
-| 1.2 | `DiagramProfile` 注册表，`kind: DiagramKind` → `profile: string` | 40+ 处 `kind` 分支收敛到 1 个 `resolveProfile()` |
-| 1.3 | `NativeDocument` 的存储、版本、打开、导出（不经过语义模型） | `copilot-server.ts`、`useWorkspacePersistence` |
-| 1.4 | `applyDesignLanguage()` + 版本戳 | 新增 `src/design/overlay.ts` |
-| 1.5 | 服务端校验按 representation 分派（原生轨只校验 XML 可解析 + 体积） | `server/diagram-domain.ts` |
-| 1.6 | 前端模式切换改为"文档类型"而非"渲染器" | `App.tsx` |
+### 阶段 2：原生 cell 操作与 AI
 
-**验收**：新建一张"原生 draw.io 文档"→ 画任意图形 → 保存 → 重新打开 → 内容与样式零差异；同时界面配色仍是 Studio Editorial。
+- 服务端提供 typed cell operations；操作输入为 ID + 允许的字段，不接受模型直接提供 arbitrary XML。
+- 操作须检查 cell 存在、类型、字段白名单、坐标/尺寸范围和 source revision；通过后写入完整 XML并创建版本快照。
+- 首批支持改文本、移动/改尺寸、编辑允许的视觉属性、连接关系、创建/删除 cell；保留 Draw.io 未知属性并拒绝存在歧义的修改。
+- 语义 C4 / Flowchart / Sequence 工具是其上的专项能力，不作为所有图形都必须具备的前置条件。
 
-### 阶段 2：形状与容器（3–4 周）
+### 阶段 3：可选语义扩展
 
-| # | 动作 |
-|---|---|
-| 2.1 | `ShapeDefinition` 注册表，语义轨支持 12–15 种常用形状 |
-| 2.2 | `DiagramNode.parentId?` + `DiagramDocument.groups[]`，导出 `parent` 不再硬编码 |
-| 2.3 | `DiagramBoundary` 升级为真容器（移动边界带动成员） |
-| 2.4 | 多页 / 图层：`pages: Page[]`，`toDrawioXml` 产出多个 `<diagram>` |
-| 2.5 | 质量指标按 profile 分派；原生轨只保留"标签溢出 / 越界"两项提示性检查 |
-
-### 阶段 3：AI 与体验（2–3 周）
-
-| # | 动作 |
-|---|---|
-| 3.1 | 工具契约由 profile 生成，原生轨提供 cell 级操作 |
-| 3.2 | Copilot 提示词按 profile 注入 guidance（替换 `diagram-tools.ts:70-77` 的 5 条硬编码） |
-| 3.3 | 模板库从 3 个扩到"每种 profile 至少 1 个" |
-| 3.4 | 质量面板对原生轨降级为"提示"，不参与保存门禁 |
-
-**总计约 8–11 周。** 其中阶段 0 是**无论走不走双轨都必须做的**——它修的是正在发生的数据丢失。
-
----
+只有当 UML / ER / BPMN 等需要比原生 cell 操作更高层的语义工作流时，才新增对应的局部投影、布局和质量规则。它们仍然读取并写回唯一 XML 真源，不能创建第二份持久化真源。
 
 ## 7. 迁移与兼容
 
-- **读写兼容**：`schemaVersion: 2` 的文档在加载时按 `kind` 推断 `profile`，`representation` 默认 `"semantic"`，`passthrough` 为空。读取路径加分支即可，无需批量迁移脚本。
-- **磁盘格式**：`.drawio` 文件始终是合法 mxfile，draw.io 本体永远能打开。这是现有设计的最大优势，必须保住。
-- **版本历史**：`DiagramVersion` 已同时存 `document` 和 `drawioXml`（`copilot-server.ts:746-755`），天然兼容双轨——原生轨只写 `drawioXml`，`document` 为 `null` 或轻量元数据。
-- **回滚**：`restore-version` 只需按 `representation` 选择恢复哪一份，逻辑不变。
-
----
+- **老工作区**：现有 `document` 字段作为迁移期派生缓存读取；`drawioXml` 是唯一保存与版本化真源。若 XML 缺失，只允许对确认为旧版 Studio 自建的文档执行一次性生成迁移，并创建显式版本；不得对外部 Draw.io 文档静默生成替代 XML。
+- **版本历史**：每个版本保存完整 XML 和可选的语义缓存。回滚时恢复 XML 原文；缓存可从 XML 重新派生。
+- **页面**：完整多页文件在版本中整体保存。Studio 的局部投影与当前页面绑定，不能把其他页中的 cell 混入当前页面。
+- **Revision**：并发冲突和版本哈希以 XML 为核心，语义缓存不独立产生 revision。
+- **错误处理**：无法解析或 patch XML 时拒绝这次修改并保持此前 source 不变；不能悄悄切换到 `toDrawioXml(document)` 作为 fallback。
 
 ## 8. 明确不建议做的事
 
-1. **不要试图让 `DiagramDocument` 描述 draw.io 的全部形状。** 这是无界建模问题（stencil 数千个，且用户可自定义）。语义模型的价值恰恰在于它"少"。
-2. **不要为原生轨实现 SVG 渲染器。** `DiagramCanvas` 已经证明自绘的成本（503 行只换来 3 种形状）。原生轨就该用 draw.io 渲染。
-3. **不要让质量评分成为原生轨的保存门禁。** `apply-proposal` 现在的 `score < base - 10` 拒绝逻辑（`copilot-server.ts:512`）在 ER / 思维导图上会误杀大量合法改动。
-4. **不要保留"切换图形类型 = 换示例"这个交互。** 它在多类型世界里没有语义。
-5. **不要让 AI 直接写 XML。** 现有约束（`diagram-tools.ts:74`、`AGENTS.md`）是对的，原生轨也应该走"cell 级受控操作 + 提案确认"。
-
----
+1. **不要再以 `DiagramDocument` 为 golden source。** 完整 Draw.io XML 是所有文档的唯一真源。
+2. **不要引入 semantic/native 双真源。** 语义模型只是派生投影与一组可选的编辑能力。
+3. **不要把整个 XML 从语义模型重新生成并覆盖原文件。** 所有局部编辑必须以 cell identity 为边界 patch 回源 XML。
+4. **不要导入即自动布局。** 原生文件打开应保持几何和连线不变，布局是用户显式选择的能力。
+5. **不要为支持所有 shape 复制一份 mxGraph 模型或 SVG renderer。** 非法/未知内容应保存在 XML 中，由 Draw.io 原生引擎渲染。
+6. **不要把语义质量分用于拒绝所有原生 XML 编辑。** 对不经过语义布局的操作只执行 XML 结构、字段白名单、revision 和版本护栏。
+7. **不要让 AI 直接生成原始 XML。** 通过 server-owned typed cell operations 操作 XML。
 
 ## 9. 证据索引
 
