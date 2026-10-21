@@ -377,28 +377,37 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
 function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
-function validateDiagramSemantics(document: import("../src/model/types").DiagramDocument): string[] {
+function validateDiagramSemantics(document: DiagramDocument): string[] {
   const errors: string[] = [];
+  if (document.id.length > 128 || document.title.length > 300) errors.push("图形 ID 或标题过长");
   if (document.nodes.length > 500 || document.relations.length > 2000 || document.boundaries.length > 300) errors.push("图形规模超过服务端限制");
   const nodeIds = new Set<string>(), relationIds = new Set<string>(), boundaryIds = new Set<string>();
+  const nodeRoles = new Set(["actor","source","entry","ui","domain","business","api","worker","data","storage","external","vendor","infra","decision","start","end","service"]);
+  const visualRoles = new Set(["primary","secondary","muted","external","highlight"]);
+  const relationKinds = new Set(["flow","call","return","async","event","dependency"]);
   for (const node of document.nodes) {
-    if (!node.id || nodeIds.has(node.id)) errors.push("节点 ID 为空或重复：" + node.id);
+    if (!node.id || node.id.length > 128 || nodeIds.has(node.id)) errors.push("节点 ID 为空、过长或重复：" + node.id);
     nodeIds.add(node.id);
-    if (![node.x,node.y,node.width,node.height].every(Number.isFinite) || node.width <= 0 || node.height <= 0) errors.push("节点几何属性无效：" + node.id);
-    if (node.name.length > 500 || (node.description || "").length > 4000) errors.push("节点文本过长：" + node.id);
+    if (!nodeRoles.has(node.role) || !visualRoles.has(node.visualRole)) errors.push("节点角色无效：" + node.id);
+    if (![node.x,node.y,node.width,node.height].every(Number.isFinite) || Math.abs(node.x) > 100000 || Math.abs(node.y) > 100000 || node.width <= 0 || node.width > 5000 || node.height <= 0 || node.height > 5000) errors.push("节点几何属性无效：" + node.id);
+    if (node.name.length > 500 || (node.description || "").length > 4000 || (node.technology || "").length > 500) errors.push("节点文本过长：" + node.id);
   }
   for (const relation of document.relations) {
-    if (!relation.id || relationIds.has(relation.id)) errors.push("关系 ID 为空或重复：" + relation.id);
+    if (!relation.id || relation.id.length > 128 || relationIds.has(relation.id)) errors.push("关系 ID 为空、过长或重复：" + relation.id);
     relationIds.add(relation.id);
     if (!nodeIds.has(relation.source) || !nodeIds.has(relation.target)) errors.push("关系端点不存在：" + relation.id);
-    if (relation.label.length > 1000) errors.push("关系标签过长：" + relation.id);
+    if (!relationKinds.has(relation.kind) || relation.label.length > 1000) errors.push("关系类型或标签无效：" + relation.id);
+    if ((relation.points || []).some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.abs(point.x) > 100000 || Math.abs(point.y) > 100000)) errors.push("关系路径坐标无效：" + relation.id);
   }
   for (const boundary of document.boundaries) {
-    if (!boundary.id || boundaryIds.has(boundary.id)) errors.push("边界 ID 为空或重复：" + boundary.id);
+    if (!boundary.id || boundary.id.length > 128 || boundaryIds.has(boundary.id)) errors.push("边界 ID 为空、过长或重复：" + boundary.id);
     boundaryIds.add(boundary.id);
-    if (boundary.members.some((id) => !nodeIds.has(id))) errors.push("边界引用了不存在的节点：" + boundary.id);
+    if (boundary.name.length > 500 || (boundary.description || "").length > 4000 || boundary.members.some((id) => !nodeIds.has(id))) errors.push("边界文本过长或引用了不存在的节点：" + boundary.id);
   }
+  if (![document.layout.nodeSpacing, document.layout.layerSpacing, document.layout.boundaryPadding].every((value) => Number.isFinite(value) && value >= 0 && value <= 5000)) errors.push("布局间距无效");
   if (document.kind !== "sequence" && !LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile)) errors.push("不支持的布局算法：" + document.layout.profile);
+  if (document.flow && document.flow.primaryPath.some((id) => !nodeIds.has(id))) errors.push("主路径引用了不存在的节点");
+  if (document.sequence && document.sequence.participants.some((id) => !nodeIds.has(id))) errors.push("时序图参与者引用了不存在的节点");
   return [...new Set(errors)].slice(0, 100);
 }
 
