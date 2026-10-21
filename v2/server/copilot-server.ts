@@ -348,6 +348,7 @@ app.post("/api/workspace/diagram/normalize-sequence", async (req, res) => {
   if (!isDiagramDocument(document)) { res.status(400).json({ error: "Invalid diagram document format" }); return; }
   try {
     const currentState = await getWorkspaceState();
+    if (hasUnloadedPrimaryDiagramXml(currentState, await getProjectWorkspace())) { res.status(409).json({ error: "Load the primary Draw.io XML before normalizing sequence geometry." }); return; }
     if (currentState.drawioXml && currentState.document && isDiagramDocument(currentState.document) && !isStudioProjectionCurrent(currentState.drawioXml, currentState.document)) {
       res.status(409).json({ error: "Sequence normalization is disabled because the authoritative Draw.io XML is not fully represented by the Studio projection." }); return;
     }
@@ -1025,6 +1026,7 @@ registerCopilotIntentRoute(app, {
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
         throw new Error("No valid active diagram is available.");
       }
+      if (hasUnloadedPrimaryDiagramXml(state, workspace)) throw new Error("Load the primary Draw.io XML before using semantic operations.");
       if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) throw new Error("The authoritative Draw.io XML contains cells or properties outside the Studio projection. Use native Draw.io editing; no semantic operation was applied.");
       const base = state.document;
       let next: DiagramDocument = structuredClone(base);
@@ -1290,6 +1292,7 @@ registerCopilotIntentRoute(app, {
     proposeEdit: async (intent) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
+      if (hasUnloadedPrimaryDiagramXml(state, workspace)) throw new Error("Load the primary Draw.io XML before creating a semantic proposal.");
       if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) throw new Error("The authoritative Draw.io XML contains content outside the lossless Studio projection. Use native Draw.io editing; no semantic proposal was generated.");
       const interpreted = interpretIntent(state.document, intent.trim());
       if (!interpreted.changed) throw new Error("This edit intent is unsupported or ambiguous; no proposal was generated.");
@@ -1302,6 +1305,7 @@ registerCopilotIntentRoute(app, {
       if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) throw new Error("No valid active diagram is available.");
+      if (hasUnloadedPrimaryDiagramXml(state, workspace)) throw new Error("Load the primary Draw.io XML before applying a Studio template.");
       if (state.drawioXml && !isStudioProjectionCurrent(state.drawioXml, state.document)) throw new Error("A Studio template cannot replace a native Draw.io document that the semantic projection cannot represent losslessly. Create a new Studio diagram instead.");
       const config = await getStudioConfig(), next = createDiagramTemplate(templateKey as DiagramTemplateKey);
       next.id = randomUUID();
