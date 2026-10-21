@@ -1,7 +1,7 @@
 import express from "express";
 import os from "node:os";
 import path from "node:path";
-import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath, lstat } from "node:fs/promises";
 import { isDiagramDocument } from "../src/model/types";
 import { applyIntent } from "../src/intent/applyIntent";
 import { layoutDiagram } from "../src/layout/layout";
@@ -174,7 +174,7 @@ async function getProjectWorkspace(): Promise<ProjectWorkspace | null> { if (pro
 function classifyWorkspaceFile(filePath: string): WorkspaceFileEntry["kind"] { const ext = path.extname(filePath).toLowerCase(); if (DIAGRAM_EXTENSIONS.has(ext)) return "diagram"; if (CODE_EXTENSIONS.has(ext)) return "code"; if (DOCUMENT_EXTENSIONS.has(ext)) return "document"; return "other"; }
 function matchesWorkspacePattern(relativePath: string, pattern: string): boolean { const normalized = relativePath.replace(/\\/g, "/"); let escaped = ""; const source = pattern.trim(); for (let i = 0; i < source.length; i++) { const ch = source[i]; if (ch === "*") { if (source[i + 1] === "*") { escaped += ".*"; i++; } else escaped += "[^/]*"; } else if (ch === "?") escaped += "[^/]"; else if (".+^$()|{}[]".includes(ch) || ch === "\\") escaped += "\\" + ch; else escaped += ch; } try { return new RegExp("^" + escaped + "$").test(normalized); } catch { return false; } }
 async function scanWorkspaceFiles(workspace: ProjectWorkspace): Promise<WorkspaceFileEntry[]> { const root = await realpath(workspace.rootPath); const result: WorkspaceFileEntry[] = []; const visit = async (dir: string, depth: number): Promise<void> => { if (depth > 8 || result.length >= 10000) return; let entries; try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; } for (const entry of entries) { if (result.length >= 10000) break; if (DEFAULT_WORKSPACE_EXCLUDES.has(entry.name)) continue; const absolute = path.join(dir, entry.name); const relativePath = path.relative(root, absolute).split(path.sep).join("/"); if (workspace.excludePatterns.some((pattern) => matchesWorkspacePattern(relativePath, pattern))) continue; if (entry.isSymbolicLink()) continue; if (entry.isDirectory()) { await visit(absolute, depth + 1); continue; } if (!entry.isFile()) continue; const info = await stat(absolute).catch(() => null); if (!info) continue; if (workspace.includePatterns.length && !workspace.includePatterns.some((pattern) => matchesWorkspacePattern(relativePath, pattern))) continue; result.push({ path: relativePath, name: entry.name, kind: classifyWorkspaceFile(relativePath), size: info.size, modifiedAt: info.mtime.toISOString() }); } }; await visit(root, 0); return result.sort((a, b) => (a.kind === "diagram" ? 0 : 1) - (b.kind === "diagram" ? 0 : 1) || a.path.localeCompare(b.path)); }
-async function resolveWorkspaceFile(relativePath: string): Promise<{ workspace: ProjectWorkspace; absolutePath: string }> { const workspace = await getProjectWorkspace(); if (!workspace) throw new Error("请先配置项目工作区"); if (!relativePath || path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).some((part) => part === "..")) throw new Error("文件路径无效"); const root = await realpath(workspace.rootPath); const absolutePath = await realpath(path.resolve(root, relativePath)); if (absolutePath !== root && !absolutePath.startsWith(root + path.sep)) throw new Error("文件路径超出工作区范围"); const info = await stat(absolutePath); if (!info.isFile()) throw new Error("目标不是文件"); return { workspace, absolutePath }; }
+async function resolveWorkspaceFile(relativePath: string): Promise<{ workspace: ProjectWorkspace; absolutePath: string }> { const workspace = await getProjectWorkspace(); if (!workspace) throw new Error("请先配置项目工作区"); if (!relativePath || path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).some((part) => part === "..")) throw new Error("文件路径无效"); const root = await realpath(workspace.rootPath); const unresolved = path.resolve(root, relativePath); const lexical = path.relative(root, unresolved); if (lexical.startsWith("..") || path.isAbsolute(lexical)) throw new Error("文件路径超出工作区范围"); let cursor = root; for (const part of lexical.split(path.sep).filter(Boolean)) { cursor = path.join(cursor, part); if ((await lstat(cursor)).isSymbolicLink()) throw new Error("不允许通过符号链接读取工作区文件"); } const absolutePath = await realpath(unresolved); if (absolutePath !== root && !absolutePath.startsWith(root + path.sep)) throw new Error("文件路径超出工作区范围"); const info = await stat(absolutePath); if (!info.isFile()) throw new Error("目标不是文件"); return { workspace, absolutePath }; }
 async function collectAgentWorkspaceContext(): Promise<unknown> {
   const workspace = await getProjectWorkspace();
   if (!workspace) return { configured: false, instruction: "No project workspace is configured. Do not claim project-specific findings." };
@@ -350,7 +350,8 @@ app.get("/api/workspace/versions", async (_req, res) => {
 
 app.get("/api/workspace/versions/:id", async (req, res) => {
   try {
-    const version = (await getDiagramVersions()).find((item) => item.id === req.params.id);
+    const workspace = await getProjectWorkspace();
+    const version = (await getDiagramVersions()).find((item) => item.id === req.params.id && (!workspace || item.workspaceId === workspace.id));
     if (!version) { res.status(404).json({ error: "版本不存在" }); return; }
     res.json({ version });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
