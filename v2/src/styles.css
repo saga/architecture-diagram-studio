@@ -700,3 +700,12 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-node text { fill: #26364a; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-relation text { fill: #26364a; }
 .app-shell[data-theme="midnight"] .diagram-svg .diagram-relation rect { fill: #f0f3fa; }
+
+
+.app-shell[data-theme="midnight"] .button-primary,
+.app-shell[data-theme="midnight"] .preview-accept { background: #4b61ce; border-color: #4b61ce; color: #ffffff; }
+.app-shell[data-theme="midnight"] .workspace-nav button.active,
+.app-shell[data-theme="midnight"] .right-tab.active { color: #a9b9ff; }
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="decision"] path:first-child { fill: #26334a !important; stroke: #8293b1; }
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="start"] path:first-child,
+.app-shell[data-theme="midnight"] .diagram-svg .diagram-node[data-role="end"] path:first-child { fill: #2b3d5b !important; stroke: #8198d2; }
