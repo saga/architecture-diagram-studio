@@ -2,7 +2,7 @@ import express from "express";
 import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, readFile, rename, writeFile, readdir, stat, realpath, lstat } from "node:fs/promises";
-import { isDiagramDocument } from "../src/model/types";
+import { isDiagramDocument, type DiagramDocument } from "../src/model/types";
 import { interpretIntent } from "../src/intent/applyIntent";
 import { layoutDiagram, moveNode } from "../src/layout/layout";
 import { LAYOUT_PROFILES } from "../src/layout/profiles";
@@ -401,6 +401,76 @@ function validateDiagramSemantics(document: import("../src/model/types").Diagram
   if (document.kind !== "sequence" && !LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile)) errors.push("不支持的布局算法：" + document.layout.profile);
   return [...new Set(errors)].slice(0, 100);
 }
+
+type DiagramTemplateKey = "c4-context" | "service-queue-database" | "sequence-request";
+function createDiagramTemplate(key: DiagramTemplateKey): DiagramDocument {
+  const sequence = key === "sequence-request";
+  const c4 = key === "c4-context";
+  const doc: DiagramDocument = {
+    schemaVersion: 2, id: "template-" + key, title: c4 ? "System Context" : sequence ? "Request Sequence" : "Service with Queue and Database",
+    kind: sequence ? "sequence" : c4 ? "c4" : "flowchart", ...(c4 ? { variant: "context" as const } : {}),
+    theme: "studio-editorial", nodes: [], relations: [], boundaries: [],
+    layout: { profile: sequence ? "sequence-standard" : c4 ? "architecture-flow" : "process-main-path", direction: "RIGHT", routing: sequence ? "polyline" : "orthogonal", nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 34, externalSide: "RIGHT", storageSide: "BOTTOM" }
+  };
+  const node = (id: string, name: string, role: DiagramDocument["nodes"][number]["role"], visualRole: DiagramDocument["nodes"][number]["visualRole"]) => ({ id, name, role, visualRole, x: 0, y: 0, width: 190, height: 82, layoutHints: {} });
+  const relation = (id: string, source: string, target: string, label: string, kind: DiagramDocument["relations"][number]["kind"], sequenceOrder?: number) => ({ id, source, target, label, kind, sequenceOrder, points: [] });
+  if (c4) {
+    doc.nodes = [node("person", "Person", "actor", "secondary"), node("system", "Software System", "service", "primary"), node("external-system", "External System", "external", "external")];
+    doc.relations = [relation("person-system", "person", "system", "Uses", "call"), relation("system-external", "system", "external-system", "Integrates with", "dependency")];
+  } else if (sequence) {
+    doc.nodes = [node("client", "Client", "actor", "secondary"), node("api", "API", "api", "primary"), node("service", "Service", "service", "primary"), node("store", "Data Store", "storage", "secondary")];
+    doc.sequence = { participants: ["client", "api", "service", "store"] };
+    doc.relations = [relation("request", "client", "api", "Request", "call", 1), relation("invoke", "api", "service", "Invoke", "call", 2), relation("read", "service", "store", "Read / Write", "call", 3), relation("response", "api", "client", "Response", "return", 4)];
+  } else {
+    doc.nodes = [node("client", "Client", "actor", "secondary"), node("api", "API Service", "api", "primary"), node("worker", "Background Worker", "worker", "secondary"), node("queue", "Message Queue", "infra", "muted"), node("database", "Database", "storage", "secondary")];
+    doc.relations = [relation("request", "client", "api", "Request", "call"), relation("enqueue", "api", "queue", "Publish event", "async"), relation("consume", "queue", "worker", "Consume event", "event"), relation("persist", "worker", "database", "Persist result", "dependency")];
+    doc.boundaries = [{ id: "application-boundary", name: "Application", members: ["api", "worker"], description: "Application services" }];
+  }
+  return doc;
+}
+app.get("/api/workspace/diagram/templates", (_req, res) => {
+  res.json({ templates: [
+    { key: "c4-context", name: "C4 System Context", description: "Person, software system, and external system" },
+    { key: "service-queue-database", name: "Service, Queue, and Database", description: "API service, asynchronous worker, queue, and persistent store" },
+    { key: "sequence-request", name: "Request Sequence", description: "Client, API, service, and data store interactions" }
+  ] });
+});
+app.post("/api/workspace/diagram/apply-template", async (req, res) => {
+  if (req.body?.confirmed !== true) { res.status(403).json({ error: "必须显式确认应用模板" }); return; }
+  const key = req.body?.templateKey as DiagramTemplateKey;
+  if (!["c4-context", "service-queue-database", "sequence-request"].includes(key)) { res.status(400).json({ error: "未知模板" }); return; }
+  try {
+    const result = await withDataWrite(async () => {
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document)) return { status: 404 as const, error: "当前没有可替换的已保存主图" };
+      if (typeof req.body?.baseRevision !== "string" || req.body.baseRevision !== documentRevision(state.document)) return { status: 409 as const, error: "图形已变化，请重新读取后应用模板" };
+      const config = await getStudioConfig();
+      const document = createDiagramTemplate(key);
+      document.id = randomUUID(); document.title = typeof req.body?.title === "string" ? req.body.title.slice(0, 200) : document.title;
+      for (const node of document.nodes) node.id = key + "-" + node.id + "-" + randomUUID().slice(0, 5);
+      const nodeMap = new Map(document.nodes.map((node, index) => [[...(key === "c4-context" ? ["person","system","external-system"] : key === "sequence-request" ? ["client","api","service","store"] : ["client","api","worker","queue","database"])[index], node.id] as const]));
+      const originalKeys = key === "c4-context" ? ["person","system","external-system"] : key === "sequence-request" ? ["client","api","service","store"] : ["client","api","worker","queue","database"];
+      const remap = new Map(originalKeys.map((id,index)=>[id,document.nodes[index].id]));
+      for (const edge of document.relations) { edge.id = key + "-" + edge.id + "-" + randomUUID().slice(0,5); edge.source = remap.get(edge.source) || edge.source; edge.target = remap.get(edge.target) || edge.target; }
+      for (const boundary of document.boundaries) { boundary.id = key + "-" + boundary.id + "-" + randomUUID().slice(0,5); boundary.members = boundary.members.map((id)=>remap.get(id)||id); }
+      if (document.sequence) document.sequence.participants = document.sequence.participants.map((id)=>remap.get(id)||id);
+      if (document.kind !== "sequence" && !config.layoutProfiles.includes(document.layout.profile)) return { status: 422 as const, error: "模板使用的布局算法已禁用" };
+      const laidOut = document.kind === "sequence" ? normalizeSequenceDocument(document) : await layoutDiagram(document);
+      const errors = validateDiagramSemantics(laidOut);
+      if (errors.length) return { status: 422 as const, error: "模板未通过语义校验", validationErrors: errors };
+      const xml = toDrawioXml(laidOut), now = new Date().toISOString();
+      const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, createdAt: now, label: "应用模板：" + key, document: laidOut, drawioXml: xml };
+      const versions = await getDiagramVersions(); diagramVersions = [...versions, version]; await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      if (workspace?.primaryDiagram && /\\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
+      workspaceState = { ...state, workspaceId: workspace?.id, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\\n", "utf8");
+      return { status: 200 as const, version, document: laidOut, revision: documentRevision(laidOut), quality: evaluateLayout(laidOut) };
+    });
+    if (result.status !== 200) { res.status(result.status).json(result); return; }
+    res.json({ ok: true, ...result });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+
 app.get("/api/workspace/diagram/active", async (_req, res) => {
   try {
     const state = await getWorkspaceState();
