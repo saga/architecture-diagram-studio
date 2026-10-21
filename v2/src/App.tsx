@@ -7,10 +7,9 @@ import { isDiagramDocument } from "./model/types";
 import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment, VisualRole } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { LAYOUT_PROFILES } from "./layout/profiles";
-import { evaluateLayout } from "./layout/quality";
 import { requestAIIntentPlan } from "./intent/aiProvider";
 import { normalizeSequenceDocument } from "./layout/sequence";
-import { downloadText, toDrawioXml } from "./export/drawio";
+import { downloadText } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
@@ -184,7 +183,15 @@ export default function App() {
       .catch(() => { if (!cancelled) setQuality(null); });
     return () => { cancelled = true; };
   }, [visibleDocument]);
-  const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
+  const [generatedDrawioXml, setGeneratedDrawioXml] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/workspace/diagram/export-drawio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document }) })
+      .then(async (response) => { const payload = await response.json() as { xml?: string; error?: string }; if (!response.ok || typeof payload.xml !== "string") throw new Error(payload.error || "Draw.io XML 生成失败"); return payload.xml; })
+      .then((xml) => { if (!cancelled) setGeneratedDrawioXml(xml); })
+      .catch((error) => { if (!cancelled) setLastAction(error instanceof Error ? error.message : String(error)); });
+    return () => { cancelled = true; };
+  }, [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const [serverHydrated, setServerHydrated] = useState(false);
   const [serverDocumentAvailable, setServerDocumentAvailable] = useState(false);
