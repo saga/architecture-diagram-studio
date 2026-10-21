@@ -595,15 +595,15 @@ export default function App() {
   }, [commitDocument, document]);
 
   function undoDocument() {
-    if (historyIndexRef.current <= 0) return;
-    setSelectedRelationId(null);
-    historyIndexRef.current -= 1;
-    const previous = historyRef.current[historyIndexRef.current];
-    setPreviewDocument(null);
-    setPreviewSummary("");
     if (!studioEditingSafe) { setLastAction("Undo is available in the native Draw.io editor for this document."); return; }
+    if (historyIndexRef.current <= 0) return;
+    const previous = historyRef.current[historyIndexRef.current - 1];
     const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(previous), document);
     if (!restoredXml) { setLastAction("Undo was refused because the native XML could not be patched safely."); return; }
+    setSelectedRelationId(null);
+    historyIndexRef.current -= 1;
+    setPreviewDocument(null);
+    setPreviewSummary("");
     setNativeXmlOverride(restoredXml);
     setDocument(previous);
     setSelectedNodeId((current) => previous.nodes.some((node) => node.id === current) ? current : previous.nodes[0]?.id || null);
@@ -617,15 +617,15 @@ export default function App() {
   }
 
   function redoDocument() {
-    if (historyIndexRef.current >= historyRef.current.length - 1) return;
-    setSelectedRelationId(null);
-    historyIndexRef.current += 1;
-    const next = historyRef.current[historyIndexRef.current];
-    setPreviewDocument(null);
-    setPreviewSummary("");
     if (!studioEditingSafe) { setLastAction("Redo is available in the native Draw.io editor for this document."); return; }
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    const next = historyRef.current[historyIndexRef.current + 1];
     const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
     if (!restoredXml) { setLastAction("Redo was refused because the native XML could not be patched safely."); return; }
+    setSelectedRelationId(null);
+    historyIndexRef.current += 1;
+    setPreviewDocument(null);
+    setPreviewSummary("");
     setNativeXmlOverride(restoredXml);
     setDocument(next);
     setSelectedNodeId((current) => next.nodes.some((node) => node.id === current) ? current : next.nodes[0]?.id || null);
