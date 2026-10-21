@@ -182,7 +182,10 @@ describe("V2 diagram-specific layouts", () => {
     const cellStart = xml.indexOf('<mxCell id="subset-fragment__sequenceFragment"');
     const cellEnd = xml.indexOf("</mxCell>", cellStart);
     const cell = xml.slice(cellStart, cellEnd);
-    expect(cell).toContain('width="630"');
+    const participants = document.nodes.filter((node) => ["web", "identity"].includes(node.id));
+    const expectedWidth = Math.round(Math.max(...participants.map((node) => node.x + node.width)) + 12 -
+      (Math.min(...participants.map((node) => node.x)) - 12));
+    expect(cell).toContain('width="' + expectedWidth + '"');
   });
 
   it("keeps polyline waypoints after a curve-to-polyline layout intent", async () => {
