@@ -10,6 +10,7 @@ import { LAYOUT_PROFILES } from "./layout/profiles";
 import { requestAIIntentPlan } from "./intent/aiProvider";
 import { normalizeSequenceDocument } from "./layout/sequence";
 import { downloadText } from "./export/drawio";
+import { fromDrawioXml } from "./import/drawio";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
@@ -88,18 +89,6 @@ async function requestServerLayout(document: DiagramDocument): Promise<DiagramDo
   const result = await response.json() as { document: DiagramDocument };
   if (!isDiagramDocument(result.document)) throw new Error("服务端返回了无效的图形文档");
   return result.document;
-}
-
-async function requestServerDrawioImport(xml: string, baseDocument: DiagramDocument): Promise<DiagramDocument> {
-  const response = await fetch("/api/workspace/diagram/import-drawio", {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ xml, baseDocument }), signal: AbortSignal.timeout(30_000)
-  });
-  const payload = await response.json() as { document?: DiagramDocument; error?: string };
-  if (!response.ok || !payload.document || !isDiagramDocument(payload.document)) {
-    throw new Error(payload.error || "服务端解析 Draw.io XML 失败");
-  }
-  return payload.document;
 }
 
 export default function App() {
@@ -241,7 +230,7 @@ export default function App() {
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "无法读取所选 Draw.io 文件");
         nextXml = fileResult.content;
-        nextDocument = await requestServerDrawioImport(fileResult.content, document);
+        nextDocument = fromDrawioXml(fileResult.content, document);
         if (nextDocument === document) throw new Error("所选文件不是可识别的 Draw.io XML");
       } else if (workspaceChanged) {
         nextDocument = FIXTURES.c4();
@@ -332,7 +321,7 @@ export default function App() {
           const result = await response.json() as { error?: string; content?: string };
           if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "无法加载主要 Draw.io 图");
           const baseDocument = FIXTURES.c4();
-          const imported = await requestServerDrawioImport(result.content, baseDocument);
+          const imported = fromDrawioXml(result.content, baseDocument);
           if (imported === baseDocument) throw new Error("所选文件不是可识别的 Draw.io XML");
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
@@ -956,7 +945,7 @@ export default function App() {
     try {
       const xml = await file.text();
       const empty: DiagramDocument = { ...document, id: newId("imported"), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
-      const parsed = await requestServerDrawioImport(xml, empty);
+      const parsed = fromDrawioXml(xml, empty);
       if (!parsed.nodes.length) {
         setLastAction("没有找到可导入的节点；请检查文件是否为有效的 .drawio XML");
         return;
