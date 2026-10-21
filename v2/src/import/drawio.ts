@@ -1,4 +1,4 @@
-import { inflateSync } from "fflate";
+import { inflateSync, unzlibSync } from "fflate";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, Point, SequenceFragment } from "../model/types";
 
 function plainLabel(value: string): string {
@@ -26,24 +26,51 @@ function visualRoleFromStyle(style: string): DiagramNode["visualRole"] {
 }
 function parseDrawioXml(xml: string): XMLDocument | null {
   const parser = new DOMParser();
-  let parsed = parser.parseFromString(xml, "application/xml");
-  if (parsed.querySelector("parsererror")) return null;
+  const parse = (source: string): XMLDocument | null => {
+    const result = parser.parseFromString(source, "application/xml");
+    return result.querySelector("parsererror") ? null : result;
+  };
+
+  const parsed = parse(xml);
+  if (!parsed) return null;
   if (parsed.querySelector("mxGraphModel")) return parsed;
 
-  const diagram = parsed.querySelector("mxfile > diagram");
-  const compressed = diagram?.textContent?.trim();
-  if (!compressed) return null;
+  // Draw.io files may contain either an embedded mxGraphModel or a compressed,
+  // base64-encoded diagram payload. Do not assume every <diagram> uses compression.
+  const diagram = parsed.querySelector("mxfile diagram");
+  const payload = diagram?.textContent?.trim();
+  if (!payload) return null;
+  if (payload.startsWith("<")) {
+    const nested = parse(payload);
+    if (nested?.querySelector("mxGraphModel")) return nested;
+  }
+
   try {
-    const binary = atob(compressed);
+    const binary = atob(payload.replace(/\\s+/g, ""));
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const inflated = inflateSync(bytes);
-    const decoded = new TextDecoder().decode(inflated);
-    const decodedXml = decodeURIComponent(decoded);
-    parsed = parser.parseFromString(decodedXml, "application/xml");
-    return parsed.querySelector("parsererror") ? null : parsed;
+    let inflated: Uint8Array | null = null;
+    try { inflated = inflateSync(bytes); } catch { /* Try zlib-wrapped data below. */ }
+    if (!inflated) {
+      try { inflated = unzlibSync(bytes); } catch { /* Unsupported compression or malformed payload. */ }
+    }
+    if (!inflated) return null;
+
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
+    // The official Draw.io encoding compresses encodeURIComponent(xml). Be tolerant
+    // of payloads containing plain UTF-8 XML as well.
+    const candidates = [decoded];
+    try {
+      const uriDecoded = decodeURIComponent(decoded);
+      if (uriDecoded !== decoded) candidates.push(uriDecoded);
+    } catch { /* The decoded content may already be plain XML. */ }
+    for (const candidate of candidates) {
+      const nested = parse(candidate);
+      if (nested?.querySelector("mxGraphModel")) return nested;
+    }
   } catch {
     return null;
   }
+  return null;
 }
 
 export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDocument {
