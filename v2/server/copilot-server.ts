@@ -374,7 +374,7 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 });
 
 
-type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null };
+type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
 function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
 function validateDiagramSemantics(document: DiagramDocument): string[] {
@@ -485,7 +485,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
-app.get("/api/workspace/diagram/active", async (_req, res) => {
+app.get("/api/workspace/diagram/active", async (req, res) => {
   try {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
