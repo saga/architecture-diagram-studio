@@ -172,14 +172,18 @@ function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
   const rank = new Map(primaryPath.map((id, index) => [id, index] as const));
   const nodes = doc.nodes.map((node) => ({ ...node, layoutHints: { ...(node.layoutHints || {}) } }));
   const main = nodes.filter((node) => primary.has(node.id));
-  const pathNodes = primaryPath.map((id) => nodes.find((node) => node.id === id)).filter((node): node is DiagramNode => Boolean(node));
+  const pathNodes: DiagramNode[] = primaryPath.flatMap((id) => {
+    const pathNode = nodes.find((candidate) => candidate.id === id);
+    return pathNode ? [pathNode] : [];
+  });
 
   // ELK may reserve empty layers for off-path branches. Once those branches move
   // into a separate lane, compact the main path in its declared order to remove
   // the dead space while leaving manually locked main-path nodes untouched.
-  if (pathNodes.length && doc.layout.direction === "RIGHT") {
-    const baselineY = pathNodes[0].y;
-    let cursor = pathNodes[0].x;
+  const firstPathNode = pathNodes[0];
+  if (firstPathNode && doc.layout.direction === "RIGHT") {
+    const baselineY = firstPathNode.y;
+    let cursor = firstPathNode.x;
     for (const node of pathNodes) {
       if (node.layoutHints?.locked) {
         cursor = Math.max(cursor, node.x + node.width + doc.layout.layerSpacing);
@@ -189,9 +193,9 @@ function applyFlowLanes(doc: DiagramDocument): DiagramDocument {
         cursor += node.width + doc.layout.layerSpacing;
       }
     }
-  } else if (pathNodes.length && doc.layout.direction === "DOWN") {
-    const baselineX = pathNodes[0].x;
-    let cursor = pathNodes[0].y;
+  } else if (firstPathNode && doc.layout.direction === "DOWN") {
+    const baselineX = firstPathNode.x;
+    let cursor = firstPathNode.y;
     for (const node of pathNodes) {
       if (node.layoutHints?.locked) {
         cursor = Math.max(cursor, node.y + node.height + doc.layout.layerSpacing);
