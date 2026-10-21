@@ -19,16 +19,16 @@ export function nodePaint(node: DiagramNode): NodePaint {
     return { ...base, fill: "#E7EDF7", stroke: "#6E819C", accent: "#3F5570", shape: "pill" };
   }
   if (node.role === "external" || node.role === "vendor" || node.visualRole === "external") {
-    return { ...base, fill: tokens.external, stroke: tokens.externalBorder, accent: tokens.amber };
+    return { ...base, fill: tokens.external, stroke: tokens.amber, accent: tokens.amber };
   }
   if (node.role === "storage" || node.role === "data") {
-    return { ...base, fill: tokens.tealSoft, stroke: "#6E9C99", accent: tokens.teal };
+    return { ...base, fill: tokens.tealSoft, stroke: tokens.teal, accent: tokens.teal };
   }
-  if (node.role === "infra") return { ...base, fill: "#E9EDF4", stroke: "#7E8CA1", accent: "#45566D" };
-  if (node.role === "decision") return { ...base, fill: tokens.amberSoft, stroke: "#A97E3C", accent: tokens.amber, shape: "diamond" };
+  if (node.role === "infra") return { ...base, fill: "#E9EDF4", stroke: tokens.borderStrong, accent: "#45566D" };
+  if (node.role === "decision") return { ...base, fill: tokens.amberSoft, stroke: tokens.amber, accent: tokens.amber, shape: "diamond" };
   if (node.role === "start" || node.role === "end") return { ...base, fill: tokens.accentSoft, stroke: tokens.accentBorder, accent: tokens.accent, shape: "pill" };
   if (node.visualRole === "highlight") return { ...base, fill: tokens.accentSoft, stroke: tokens.accentBorder };
-  if (node.role === "domain" || node.role === "ui") return { ...base, fill: "#EDF1F9", stroke: "#7C8DA6", accent: tokens.accent };
+  if (node.role === "domain" || node.role === "ui") return { ...base, fill: "#EDF1F9", stroke: tokens.borderStrong, accent: tokens.accent };
   return base;
 }
 
