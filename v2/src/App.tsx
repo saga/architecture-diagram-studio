@@ -241,10 +241,10 @@ export default function App() {
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
   const bootstrap = useWorkspaceBootstrap({
-    projectWorkspace, document, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
+    projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic: recordDiagnostic
   });
-  const { serverHydrated, serverDocumentAvailable, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
+  const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, onDiagnostic: recordDiagnostic });
 
   useEffect(() => {
