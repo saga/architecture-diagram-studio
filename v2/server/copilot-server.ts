@@ -12,6 +12,7 @@ import { toDrawioXml } from "../src/export/drawio";
 import { createHash, randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./copilot/runtime";
+import { createDiagramAgentTools, type AgentProposalView } from "./copilot/diagram-tools";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
@@ -363,6 +364,7 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 
 type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
+const pendingAgentProposals = new Map<string, DiagramEditProposal>();
 function documentRevision(document: unknown): string { return createHash("sha256").update(JSON.stringify(document)).digest("hex"); }
 function validateDiagramSemantics(document: DiagramDocument): string[] {
   const errors: string[] = [];
@@ -396,6 +398,23 @@ function validateDiagramSemantics(document: DiagramDocument): string[] {
   if (document.flow && document.flow.primaryPath.some((id) => !nodeIds.has(id))) errors.push("The primary path references a missing node");
   if (document.sequence && document.sequence.participants.some((id) => !nodeIds.has(id))) errors.push("A sequence participant references a missing node");
   return [...new Set(errors)].slice(0, 100);
+}
+
+function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null): DiagramEditProposal {
+  const errors = validateDiagramSemantics(proposedDocument);
+  if (errors.length) throw new Error("The proposal failed semantic validation: " + errors.join("; "));
+  const proposal: DiagramEditProposal = {
+    id: randomUUID(), baseRevision: workspaceRevision(baseDocument, baseXml), document: proposedDocument,
+    summary: summary.slice(0, 500), baseQuality: evaluateLayout(baseDocument), quality: evaluateLayout(proposedDocument),
+    createdAt: Date.now(), workspaceId
+  };
+  diagramEditProposals.set(proposal.id, proposal);
+  for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
+  while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
+  return proposal;
+}
+function agentProposalView(proposal: DiagramEditProposal): AgentProposalView {
+  return { proposalId: proposal.id, baseRevision: proposal.baseRevision, document: proposal.document, summary: proposal.summary, baseQuality: proposal.baseQuality, quality: proposal.quality };
 }
 
 type DiagramTemplateKey = "c4-context" | "service-queue-database" | "sequence-request";
@@ -479,7 +498,7 @@ app.get("/api/workspace/diagram/active", async (req, res) => {
     if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) {
       res.status(404).json({ error: "This workspace has no saved primary diagram" }); return;
     }
-    res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: documentRevision(state.document), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
+    res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: workspaceRevision(state.document, state.drawioXml), updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/proposals", async (req, res) => {
@@ -489,7 +508,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
     if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) { res.status(404).json({ error: "This workspace has no saved primary diagram" }); return; }
-    const baseRevision = documentRevision(state.document);
+    const baseRevision = workspaceRevision(state.document, state.drawioXml);
     if (typeof req.body?.baseRevision === "string" && req.body.baseRevision !== baseRevision) { res.status(409).json({ error: "The diagram changed; read it again before generating a proposal", revision: baseRevision }); return; }
     const interpreted = interpretIntent(state.document, prompt);
     if (!interpreted.changed) { res.status(422).json({ error: "This edit intent is not supported; no change was generated or saved", supportedOperations: ["Rename or delete a node by id or unique name", "Add a node", "Move a node to explicit coordinates by id or unique name", "Relabel or delete a relation by id or unique label", "Add a relation", "Switch relations between dashed and solid", "Switch curved or polyline routing", "Move External/Vendor nodes to the right", "Move database/storage nodes to the bottom", "Switch the layout direction", "Re-run layout", "Clear node locks"] }); return; }
@@ -514,7 +533,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       if (!proposal || Date.now() - proposal.createdAt > 15 * 60 * 1000) return { status: 404 as const, error: "The proposal does not exist or has expired" };
       const state = await getWorkspaceState();
       const workspace = await getProjectWorkspace();
-      if ((workspace?.id ?? null) !== proposal.workspaceId || !state.document || !isDiagramDocument(state.document) || documentRevision(state.document) !== proposal.baseRevision) return { status: 409 as const, error: "The diagram changed or the workspace switched; generate a new proposal" };
+      if ((workspace?.id ?? null) !== proposal.workspaceId || !state.document || !isDiagramDocument(state.document) || workspaceRevision(state.document, state.drawioXml) !== proposal.baseRevision) return { status: 409 as const, error: "The diagram or native XML changed, or the workspace switched; generate a new proposal" };
       const validationErrors = validateDiagramSemantics(proposal.document);
       if (validationErrors.length) return { status: 422 as const, error: "The proposal failed server-side semantic validation", validationErrors };
       const config = await getStudioConfig();
@@ -538,15 +557,15 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\n", "utf8");
       diagramEditProposals.delete(proposalId);
-      return { status: 200 as const, version, document: proposal.document, revision: documentRevision(proposal.document), quality };
+      return { status: 200 as const, version, document: proposal.document, revision: documentRevision(proposal.document), workspaceRevision: workspaceRevision(proposal.document, xml), quality };
     });
     if (result.status !== 200) { res.status(result.status).json(result); return; }
     await writeLog("diagram.agent-edit.applied", { proposalId, versionId: result.version.id, qualityScore: result.quality.score });
     if (req.query.includeXml === "false") {
       const version = { ...result.version };
       delete (version as Partial<DiagramVersion>).drawioXml;
-      res.json({ ok: true, ...result, version });
-    } else res.json({ ok: true, ...result });
+      res.json({ ok: true, ...result, version, workspaceRevision: result.workspaceRevision });
+    } else res.json({ ok: true, ...result, workspaceRevision: result.workspaceRevision });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/restore-version", async (req, res) => {
@@ -879,7 +898,8 @@ async function buildSystemMessage(config: StudioConfig): Promise<string> {
     .replaceAll("{{rootPath}}", workspace?.rootPath || "not configured")
     .replaceAll("{{primaryDiagram}}", workspace?.primaryDiagram || "not selected");
   const supportedCommands = config.prompts.supportedCommands.replaceAll("{{commands}}", [...ALLOWED_COMMANDS].join("; "));
-  return [config.prompts.system, config.prompts.task, config.prompts.planTool, config.prompts.behavior, workspaceContext, supportedCommands].filter(Boolean).join("\n\n");
+  const internalToolGuidance = "Use internal Studio tools for diagram references, inspection, quality evaluation, workspace-example search, semantic edit proposals, templates, version listing/diff and restore proposals. Use propose_layout_plan only for its exact supported global layout commands. Proposal tools create previews only; the user must review and confirm changes in the Studio UI.";
+  return [config.prompts.system, config.prompts.task, config.prompts.planTool, config.prompts.behavior, workspaceContext, supportedCommands, internalToolGuidance].filter(Boolean).join("\n\n");
 }
 
 const pendingPlans = new Map<string, { commands: string[]; reply: string }>();
@@ -945,13 +965,61 @@ app.post("/api/copilot/intent", async (req, res) => {
         return {
           configRevisionId: config.revisionId,
           systemMessage: await buildSystemMessage(config),
-          tools: [createProposeLayoutPlanTool(sessionId, config)],
+          tools: [
+            createProposeLayoutPlanTool(sessionId, config),
+            ...createDiagramAgentTools({
+              getActiveDocument: async () => {
+                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) return null;
+                return state.document;
+              },
+              getWorkspaceContext: collectAgentWorkspaceContext,
+              getVersions: async () => {
+                const workspace = await getProjectWorkspace();
+                return (await getDiagramVersions()).filter((item) => !workspace || item.workspaceId === workspace.id);
+              },
+              proposeEdit: async (intent) => {
+                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+                const interpreted = interpretIntent(state.document, intent.trim());
+                if (!interpreted.changed) throw new Error("This edit intent is unsupported or ambiguous; no proposal was generated.");
+                const config = await getStudioConfig();
+                if (interpreted.requiresLayout && !layoutProfileEnabled(interpreted.document, config)) throw new Error("The current layout algorithm is disabled.");
+                const next = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
+                return agentProposalView(storeAgentProposal(state.document, next, interpreted.summary, workspace?.id ?? null, state.drawioXml));
+              },
+              proposeTemplate: async (templateKey, title) => {
+                if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
+                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+                const config = await getStudioConfig(), next = createDiagramTemplate(templateKey as DiagramTemplateKey);
+                next.id = randomUUID();
+                if (title?.trim()) next.title = title.trim().slice(0, 200);
+                if (!layoutProfileEnabled(next, config)) throw new Error("The layout algorithm used by the template is disabled.");
+                const laidOut = next.kind === "sequence" ? normalizeSequenceDocument(next) : await layoutDiagram(next);
+                return agentProposalView(storeAgentProposal(state.document, laidOut, "Apply template: " + next.title, workspace?.id ?? null, state.drawioXml));
+              },
+              proposeRestore: async (versionId) => {
+                const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+                if (!state.document || !isDiagramDocument(state.document) || (state.workspaceId && workspace && state.workspaceId !== workspace.id)) throw new Error("No valid active diagram is available.");
+                const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && (!workspace || item.workspaceId === workspace.id));
+                if (!sourceVersion || !isDiagramDocument(sourceVersion.document)) throw new Error("The requested version is not available in the active workspace.");
+                const restored = { ...sourceVersion.document, id: state.document.id };
+                return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml));
+              },
+              onProposal: (proposal) => {
+                const stored = diagramEditProposals.get(proposal.proposalId);
+                if (stored) pendingAgentProposals.set(sessionId, stored);
+              }
+            })
+          ],
           workspaceId: (await getProjectWorkspace())?.id
         };
       }
     });
     const plan = await copilot.withTurn(sessionId, async (turn) => {
       pendingPlans.delete(sessionId);
+      pendingAgentProposals.delete(sessionId);
       await writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
       const projectContext = await collectAgentWorkspaceContext();
       await writeLog("turn.workspace-context.loaded", { sessionId, workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null, snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0 });
@@ -961,21 +1029,37 @@ app.post("/api/copilot/intent", async (req, res) => {
       );
       let captured = pendingPlans.get(sessionId) || null;
       pendingPlans.delete(sessionId);
+      let capturedProposal = pendingAgentProposals.get(sessionId) || null;
+      pendingAgentProposals.delete(sessionId);
       let modelText = assistantText(firstTurn);
-      if (!captured) {
+      if (!captured && !capturedProposal) {
         // Models answer greetings and small talk in prose; one explicit nudge makes them answer through the tool,
         // which is the only channel this server can validate and apply.
         await writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
         const nudged = await turn.send(
-          { prompt: JSON.stringify({ request: "Answer the previous request with the propose_layout_plan tool instead; if no layout change is needed, submit an empty command list and explain why in the reply field.", diagram: context }) },
+          { prompt: JSON.stringify({ request: "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For semantic changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context }) },
           25000
         );
         captured = pendingPlans.get(sessionId) || null;
         pendingPlans.delete(sessionId);
+        capturedProposal = pendingAgentProposals.get(sessionId) || null;
+        pendingAgentProposals.delete(sessionId);
         modelText = assistantText(nudged) || modelText;
       }
-      return { captured, modelText, session: turn.session };
+      return { captured, capturedProposal, modelText, session: turn.session };
     });
+    if (plan.capturedProposal) {
+      const proposal = plan.capturedProposal;
+      const response = {
+        commands: [], reply: proposal.summary,
+        proposal: { proposalId: proposal.id, baseRevision: proposal.baseRevision, document: proposal.document, summary: proposal.summary, baseQuality: proposal.baseQuality, quality: proposal.quality },
+        sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
+      };
+      await writeLog("turn.completed.with-proposal", { sessionId, proposalId: proposal.id, summary: proposal.summary, qualityScore: proposal.quality.score });
+      res.json(response);
+      return;
+    }
     let resolved = plan.captured;
     let modelText = plan.modelText;
     if (!resolved) {

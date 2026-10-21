@@ -149,6 +149,7 @@ export default function App() {
     return FIXTURES.c4();
   });
   const [previewDocument, setPreviewDocument] = useState<DiagramDocument | null>(null);
+  const [pendingAgentProposalId, setPendingAgentProposalId] = useState<string | null>(null);
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
@@ -698,11 +699,20 @@ export default function App() {
           try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", plan.sessionId); } catch { /* Session remains active in memory. */ }
         }
         modelReply = plan.reply;
-        recordDiagnostic("copilot.agent.response", "Received the tool plan from the Copilot SDK agent", {
+        recordDiagnostic("copilot.agent.response", "Received a structured result from the Copilot SDK agent", {
           sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
-          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: "propose_layout_plan",
-          commandCount: plan.commands.length, replyLength: plan.reply.length
+          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: plan.proposal ? "propose_diagram_edit" : "propose_layout_plan",
+          commandCount: plan.commands.length, hasProposal: Boolean(plan.proposal), replyLength: plan.reply.length
         });
+        if (plan.proposal) {
+          setPendingAgentProposalId(plan.proposal.proposalId);
+          setPreviewDocument(plan.proposal.document);
+          setPreviewSummary(plan.proposal.summary);
+          setViewMode("studio");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.proposal!.summary + ". A server-validated preview is ready (quality score " + plan.proposal!.quality.score + "). Review it, then apply or discard." }]);
+          recordDiagnostic("copilot.preview.created", "A revision-bound internal Agent proposal is awaiting user confirmation", { proposalId: plan.proposal.proposalId, qualityScore: plan.proposal.quality.score, nodeCount: plan.proposal.document.nodes.length, relationCount: plan.proposal.document.relations.length });
+          return;
+        }
         if (!plan.commands.length) {
           recordDiagnostic("copilot.plan.empty", "Model returned no executable layout command; document untouched", {}, "warn");
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "No changes applied. " + (modelReply || "This request did not match any supported safe layout operation.") }]);
@@ -727,6 +737,7 @@ export default function App() {
         result.changed ? "Layout intent mapped to executable rules" : "Layout intent matched no executable rule",
         { changed: result.changed, requiresLayout: result.requiresLayout, commandLength: effectiveText.length });
       if (result.changed) {
+        setPendingAgentProposalId(null);
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
         setViewMode("studio");
@@ -1055,10 +1066,28 @@ export default function App() {
     })();
   }
 
-  function acceptPreview() {
+  async function acceptPreview() {
     if (!previewDocument) return;
-    const next = previewDocument;
+    const proposalId = pendingAgentProposalId;
     const summary = previewSummary || "Layout preview applied";
+    if (proposalId) {
+      try {
+        const response = await fetch("/api/workspace/diagram/apply-proposal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ proposalId, confirmed: true }) });
+        const payload = await response.json() as { error?: string; document?: unknown; workspaceRevision?: string; version?: { id?: string; drawioXml?: unknown } };
+        if (!response.ok || !isDiagramDocument(payload.document)) throw new Error(payload.error || "The Agent proposal could not be applied");
+        const preservedXml = typeof payload.version?.drawioXml === "string" ? payload.version.drawioXml : undefined;
+        serverRevisionRef.current = typeof payload.workspaceRevision === "string" ? payload.workspaceRevision : null;
+        setPendingAgentProposalId(null);
+        commitDocument(payload.document, summary + " (confirmed)", preservedXml);
+        setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "The reviewed proposal was applied and versioned by the Studio server." }]);
+        recordDiagnostic("copilot.preview.applied", "User confirmed and applied the revision-bound Agent proposal", { proposalId, versionId: payload.version?.id, documentId: payload.document.id });
+      } catch (error) {
+        setLastAction("Proposal not applied: " + (error instanceof Error ? error.message : String(error)));
+        recordDiagnostic("copilot.preview.apply.failed", "The Agent proposal could not be applied; the current document was preserved", { proposalId, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
+      }
+      return;
+    }
+    const next = previewDocument;
     commitDocument(next, summary + " (applied)");
     recordDiagnostic("copilot.preview.applied", "User applied the layout preview", {
       diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
@@ -1070,6 +1099,7 @@ export default function App() {
     if (!previewDocument) return;
     setPreviewDocument(null);
     setPreviewSummary("");
+    setPendingAgentProposalId(null);
     setLastAction("Preview discarded; document unchanged");
     recordDiagnostic("copilot.preview.discarded", "User discarded the layout preview; document unchanged");
   }

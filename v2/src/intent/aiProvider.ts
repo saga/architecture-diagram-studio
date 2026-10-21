@@ -1,4 +1,5 @@
 import { recordDiagnostic } from "../diagnostics";
+import { isDiagramDocument, type DiagramDocument, type LayoutQualityReport } from "../model/types";
 
 export interface AIProviderConfig {
   /** Retained for persisted-settings compatibility; requests go to the same-origin Copilot SDK service. */
@@ -19,6 +20,7 @@ export interface AIIntentContext {
 export interface AIIntentPlan {
   commands: string[];
   reply: string;
+  proposal?: { proposalId: string; baseRevision: string; document: DiagramDocument; summary: string; baseQuality: LayoutQualityReport; quality: LayoutQualityReport };
   model?: string;
   provider?: string;
   durationMs?: number;
@@ -83,8 +85,13 @@ function validatePlan(value: unknown): AIIntentPlan {
   if (rawCommands.some((command) => !ALLOWED_COMMANDS.has(command))) {
     throw new Error("The agent plan contains a command outside the whitelist; nothing was applied");
   }
+  const rawProposal = item.proposal && typeof item.proposal === "object" ? item.proposal as Record<string, unknown> : null;
+  const proposal = rawProposal && typeof rawProposal.proposalId === "string" && typeof rawProposal.baseRevision === "string" && isDiagramDocument(rawProposal.document) && typeof rawProposal.summary === "string" && rawProposal.baseQuality && typeof rawProposal.baseQuality === "object" && rawProposal.quality && typeof rawProposal.quality === "object"
+    ? { proposalId: rawProposal.proposalId, baseRevision: rawProposal.baseRevision, document: rawProposal.document, summary: rawProposal.summary.slice(0, 500), baseQuality: rawProposal.baseQuality as LayoutQualityReport, quality: rawProposal.quality as LayoutQualityReport }
+    : undefined;
   return {
     commands: rawCommands,
+    ...(proposal ? { proposal } : {}),
     reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
     ...(typeof item.model === "string" ? { model: item.model } : {}),
     ...(typeof item.provider === "string" ? { provider: item.provider } : {}),
