@@ -1,9 +1,10 @@
 # 支持 draw.io 全部图形：架构可行性评审
 
 - 评审对象：`v2/`（React 19 + Vite + antd 6 + 本地 bundled draw.io v32.0.2）
-- 评审方式：只读代码分析，**未修改任何源码**
+- 评审方式：改造前只读代码分析；后续实现由 ADR-0006 与本轮提交跟踪。
 - 结论文件位置：仓库根目录
 - 对照基线：`ARCHITECTURE-V2.md`（2026-10-20）
+- 当前决策：`docs/adr/0006-drawio-xml-single-source-of-truth.md`；本文第 3 节及第 9 节的路径/行号主要用来描述改造前问题。
 
 ---
 
