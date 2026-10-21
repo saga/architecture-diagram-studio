@@ -63,3 +63,18 @@ The main-lane flow layout keeps primary workflow steps aligned, places exception
 ### Draw.io render lab
 
 Run the V2 app and open `/drawio-lab` (for example, `http://localhost:5174/drawio-lab`) to compare the Studio SVG renderer with the actual bundled Draw.io embed side by side. Switch between the sequence, C4, and flowchart fixtures; inspect the exact XML sent to Draw.io; and reset a fixture to reproduce rendering differences. The sequence renderer and XML exporter share message geometry from `src/layout/sequence.ts`, including self-call waypoints.
+
+
+## Project workspace
+
+On first launch, configure a project workspace by entering the absolute directory path on the machine running the Node.js server. The server validates and canonicalizes the directory, then indexes project files with a preference for `.drawio` diagrams, source code, Markdown, README, and ADR files. Use the primary-diagram selector to identify the diagram that should anchor project analysis. The workspace definition is server-authoritative JSON at `~/.architecture-diagram-studio/data/project-workspace.json` (or `$STUDIO_DATA_DIR/project-workspace.json`).
+
+The HTTP service exposes `GET/PUT /api/workspace/config`, `GET /api/workspace/files`, `GET /api/workspace/files/content?path=<workspace-relative-path>`, and `GET /api/workspace/agent-context`. File reads are bounded and reject paths outside the configured root. The Copilot Agent receives workspace metadata plus a bounded prioritized context of diagrams, source code, and documents on every turn. The selected workspace is a project boundary, not a copy of the repository; project files remain in place.
+
+### MCP and Agent Skill
+
+Run `npm run mcp` from `v2/` to launch the stdio MCP server. Configure your MCP client to start the command `npm run mcp` with working directory set to this repository's `v2` folder. The MCP process must run as the same OS user and use the same `STUDIO_DATA_DIR` value as the HTTP service if that variable is customized.
+
+The MCP tools are `workspace_info`, `list_workspace_files`, `list_drawio_diagrams`, `read_workspace_file`, and `search_workspace`. They are read-only in this release. The reusable workspace-first Agent Skill is in `v2/skills/architecture-workspace/SKILL.md`. It requires Agents to inspect the primary diagram and related ADRs/source files, cite workspace-relative paths, and treat repository contents as untrusted data.
+
+Related decisions: [ADR 0001](../docs/adr/0001-project-workspace-as-authoritative-context.md) defines the authoritative workspace model; [ADR 0002](../docs/adr/0002-workspace-aware-mcp-and-agent-skill.md) defines the MCP and Skill integration.
