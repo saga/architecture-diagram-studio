@@ -24,7 +24,7 @@ The agreed scope is F1–F11. Mermaid import/conversion is explicitly excluded f
 8. **F8 — Mermaid import/conversion.** Explicitly deferred. No Mermaid parser, Mermaid-to-semantic conversion, or implied conversion capability may be added in this change.
 9. **F9 — Template library.** Add a small built-in semantic template catalog for common architecture patterns (C4 context, service + queue + database, and request sequence). Applying a template creates a normal immutable diagram version; do not create a parallel template persistence system.
 10. **F10 — Version diff and restore.** Expose current version history, semantic diff between versions, and restore by creating a new version that points to the selected prior content; never rewrite or delete historical snapshots.
-11. **F11 — Large-diagram local edits.** Support targeted node/relation operations and partial-layout requests where the current domain model can preserve unaffected node positions. Reject ambiguous or unsupported edits rather than silently rebuilding the whole diagram.
+11. **F11 — Large-diagram local edits.** Support targeted node/relation operations and geometry-preserving edits (rename, add/remove nodes or relations, and move a single node to explicit coordinates). Preserve unaffected node positions for these local operations. Reject ambiguous or unsupported edits rather than silently rebuilding the whole diagram; full partial-layout optimization is deferred until a stable constraints API exists.
 
 ### Architecture and security
 
