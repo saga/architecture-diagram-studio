@@ -1131,3 +1131,7 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
 .canvas-menu button:disabled { opacity: .45; cursor: not-allowed; }
 .canvas-menu-caption { padding: 6px 8px 3px; color: var(--theme-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .canvas-menu-divider { height: 1px; flex: 0 0 1px; margin: 4px 2px; background: var(--theme-border); }
+
+.diagram-relation .relation-endpoint-handle { opacity: 0; pointer-events: none; fill: var(--theme-panel); stroke: var(--theme-accent); stroke-width: 2; cursor: crosshair; }
+.diagram-relation.selected .relation-endpoint-handle { opacity: 1; pointer-events: all; }
+.diagram-relation .relation-endpoint-handle:hover { r: 7; fill: var(--theme-accent); stroke: var(--theme-panel); }
