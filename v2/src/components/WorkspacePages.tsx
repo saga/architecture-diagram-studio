@@ -198,7 +198,6 @@ export default function WorkspacePages(props: Props) {
                     <UiButton type="button" key={prompt} onClick={() => setChatInput(prompt)}>{prompt}<span>↗</span></UiButton>
                   )}
                 </div>
-              </div>
               </div>}
               {messages.length > 0 && <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
