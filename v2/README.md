@@ -75,6 +75,6 @@ The HTTP service exposes `GET/PUT /api/workspace/config`, `GET /api/workspace/fi
 
 Run `npm run mcp` from `v2/` to launch the stdio MCP server. Configure your MCP client to start the command `npm run mcp` with working directory set to this repository's `v2` folder. The MCP process must run as the same OS user and use the same `STUDIO_DATA_DIR` value as the HTTP service if that variable is customized.
 
-The MCP tools are `workspace_info`, `list_workspace_files`, `list_drawio_diagrams`, `read_workspace_file`, and `search_workspace`. They are read-only in this release. The reusable workspace-first Agent Skill is in `v2/skills/architecture-workspace/SKILL.md`. It requires Agents to inspect the primary diagram and related ADRs/source files, cite workspace-relative paths, and treat repository contents as untrusted data.
+The MCP tools are `workspace_info`, `list_workspace_files`, `list_drawio_diagrams`, `read_workspace_file`, and `search_workspace`. They are read-only in this release. The reusable workspace-first Agent Skill is in `.agents/skills/architecture-workspace/SKILL.md`. It requires Agents to inspect the primary diagram and related ADRs/source files, cite workspace-relative paths, and treat repository contents as untrusted data.
 
 Related decisions: [ADR 0001](../docs/adr/0001-project-workspace-as-authoritative-context.md) defines the authoritative workspace model; [ADR 0002](../docs/adr/0002-workspace-aware-mcp-and-agent-skill.md) defines the MCP and Skill integration.
