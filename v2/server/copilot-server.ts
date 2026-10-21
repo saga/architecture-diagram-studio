@@ -20,16 +20,20 @@ type RuntimeSession = {
   tail: Promise<unknown>;
 };
 const sessions = new Map<string, RuntimeSession>();
+let logWriteQueue: Promise<void> = Promise.resolve();
 const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
 
 async function writeLog(event: string, fields: Record<string, unknown> = {}): Promise<void> {
   const record = { timestamp: new Date().toISOString(), event, ...fields };
-  try {
+  const line = JSON.stringify(record) + "\n";
+  const persist = logWriteQueue.then(async () => {
     await mkdir(LOG_DIR, { recursive: true });
-    await appendFile(LOG_FILE, JSON.stringify(record) + "\n", "utf8");
-  } catch (error) {
+    await appendFile(LOG_FILE, line, "utf8");
+  });
+  logWriteQueue = persist.catch((error) => {
     console.error("[studio:copilot-sdk] failed to persist log", error instanceof Error ? error.message : String(error));
-  }
+  });
+  await logWriteQueue;
   const level = event.endsWith(".failed") || event.endsWith(".error") ? "error" : "info";
   (level === "error" ? console.error : console.info)("[studio:copilot-sdk]", record);
 }
