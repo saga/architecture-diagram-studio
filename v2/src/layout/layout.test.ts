@@ -67,6 +67,17 @@ describe("V2 diagram-specific layouts", () => {
     }
   });
 
+  it("applies explicit preferredSide hints with alternative ELK profiles", async () => {
+    const document = createC4Fixture();
+    document.layout.profile = "elk-mrtree";
+    const preferred = document.nodes.find((node) => node.id === "vendor")!;
+    preferred.layoutHints = { ...(preferred.layoutHints || {}), preferredSide: "LEFT" };
+    const result = await layoutDiagram(document);
+    const node = result.nodes.find((item) => item.id === "vendor")!;
+    const internal = result.nodes.filter((item) => item.id !== "vendor" && !["storage", "data", "infra"].includes(item.role));
+    expect(node.x + node.width).toBeLessThanOrEqual(Math.min(...internal.map((item) => item.x)));
+  });
+
   it("registers Dagre and supports horizontal and vertical layouts", async () => {
     expect(LAYOUT_PROFILES.map((profile) => profile.value)).toContain("dagre-layered");
     const horizontalDoc = createC4Fixture();
