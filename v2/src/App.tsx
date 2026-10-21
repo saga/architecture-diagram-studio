@@ -458,7 +458,7 @@ export default function App() {
       name: role === "storage" ? "New data store" : role === "external" ? "External system" : role === "decision" ? "Decision" : "New component",
       role, visualRole: role === "external" ? "external" : "secondary",
       x: 80 + (document.nodes.length % 4) * 36, y: 90 + (document.nodes.length % 5) * 30,
-      width: role === "actor" ? 154 : 190, height: role === "decision" ? 84 : 82, layoutHints: {}
+      width: role === "decision" ? 156 : role === "actor" ? 154 : 190, height: role === "decision" ? 84 : 82, layoutHints: {}
     };
     const next = { ...document, nodes: [...document.nodes, node] };
     setSelectedNodeId(id);
