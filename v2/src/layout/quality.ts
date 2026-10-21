@@ -382,13 +382,13 @@ export function evaluateLayout(doc: DiagramDocument): LayoutQualityReport {
   const complexityIssues = evaluateComplexityBudget(doc);
   warnings.push(...complexityIssues);
 
-  const score = Math.max(0, Math.round(
+  const score = Math.max(0, Math.min(100, Math.round(
     100 - nodeOverlaps * 80 - edgeNodeIntersections * 100 - connectorRoutingViolations * 80 -
     edgeLabelOutOfBoundsCount * 25 - edgeCrossings * 12 - labelCollisions * 20 -
     labelOverflowCount * 5 - portSpacingViolations * 3 - contrastViolations * 2 -
     disconnectedComponents * 4 + alignmentScore * 8 + gridAlignmentScore * 5 +
     whitespaceScore * 6 + densityScore * 4
-  ));
+  )));
   return {
     score, errors, warnings,
     metrics: {
