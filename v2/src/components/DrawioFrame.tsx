@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { recordDiagnostic } from "../diagnostics";
@@ -15,6 +15,11 @@ interface Props {
 
 export default function DrawioFrame({ document, xml, onDocumentChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const documentRef = useRef(document);
+  const onDocumentChangeRef = useRef(onDocumentChange);
+  const iframeLoadedRef = useRef(false);
+  documentRef.current = document;
+  onDocumentChangeRef.current = onDocumentChange;
   const lastSent = useRef("");
   const seenEvents = useRef(new Set<string>());
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -82,7 +87,9 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
     }
   }, [editorReady, xml, document.nodes.length, document.relations.length]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // Install the message listener in the commit phase before the iframe can finish loading
+    // and send its configure/init handshake. Keep it stable across document and callback changes.
     function receive(event: MessageEvent) {
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (event.origin !== window.location.origin && event.origin !== "null") {
@@ -113,13 +120,13 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
       }
       if (data.event === "init") {
         recordDiagnostic("drawio.handshake.ready", "Draw.io embed API 已初始化；现在可以安全加载文档", {
-          iframeLoaded, origin: event.origin
+          iframeLoaded: iframeLoadedRef.current, origin: event.origin
         });
         setStartupError(null);
         setEditorReady(true);
       }
       if (data.event === "error") {
-        const message = typeof data.message === "string" ? data.message : "Draw.io 返回了未说明的错误。";
+        const message = typeof data.message === "string" ? data.message.slice(0, 300) : "Draw.io 返回了未说明的错误。";
         setStartupError("Draw.io 错误：" + message);
         recordDiagnostic("drawio.editor.error", "Draw.io 编辑器返回错误", { message }, "error");
       }
@@ -127,11 +134,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         if (data.xml === lastSent.current) return;
         lastSent.current = data.xml;
         try {
-          const next = fromDrawioXml(data.xml, document);
+          const currentDocument = documentRef.current;
+          const next = fromDrawioXml(data.xml, currentDocument);
           recordDiagnostic("drawio.document.saved", "接收到 Draw.io 保存结果并同步语义模型", {
             event: data.event, xmlLength: data.xml.length, nodeCount: next.nodes.length, relationCount: next.relations.length
           });
-          onDocumentChange(next, data.xml);
+          onDocumentChangeRef.current(next, data.xml);
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "解析 Draw.io 保存结果失败",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
@@ -141,13 +149,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
     }
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [document, iframeLoaded, onDocumentChange]);
+  }, []);
 
   function retryEditor() {
     recordDiagnostic("drawio.retry", "用户请求重新初始化 Draw.io 编辑器", { previousFrameKey: frameKey }, "warn");
     lastSent.current = "";
     setEditorReady(false);
     setIframeLoaded(false);
+    iframeLoadedRef.current = false;
     setStartupError(null);
     setFrameKey((value) => value + 1);
   }
@@ -177,6 +186,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
         src={EMBED_URL}
         onLoad={() => {
           setIframeLoaded(true);
+          iframeLoadedRef.current = true;
           recordDiagnostic("drawio.iframe.loaded", "Draw.io iframe 的浏览器 load 事件已触发；继续等待 embed init", { url: EMBED_URL, frameKey });
         }}
         onError={() => {
