@@ -94,6 +94,11 @@ export interface SequenceFragment {
   participants?: string[];
 }
 
+/**
+ * Derived partial semantic projection of the authoritative Draw.io XML.
+ * Never use this object as the persisted source of truth or regenerate an existing
+ * native document wholesale from it. Semantic edits must be patched into the source XML.
+ */
 export interface DiagramDocument {
   schemaVersion: 2;
   id: string;
