@@ -262,7 +262,7 @@ export default function DiagramCanvas({
         const paint = nodePaint(node);
         const selected = selectedNodeId === node.id;
         const titleY = node.y + (node.description || node.technology ? 28 : node.height / 2 + 4);
-        return <g key={node.id} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
+        return <g key={node.id} data-role={node.role} className={"diagram-node" + (selected ? " selected" : "") + (drag?.id === node.id ? " dragging" : "")}
           onPointerDown={(event) => startDrag(event, node)} onClick={(event) => { event.stopPropagation(); onSelectNode(node.id); }} style={{ cursor: "grab" }}>
           <path d={nodePath(node, paint.shape)} fill={paint.fill} stroke={selected ? tokens.accent : paint.stroke} strokeWidth={selected ? 2 : 1.2} />
           <path d={"M " + (node.x + 9) + " " + (node.y + 13) + " V " + (node.y + node.height - 13)} stroke={paint.accent} strokeWidth="3" strokeLinecap="round" opacity={node.role === "actor" || node.role === "source" ? 0.45 : 0.9} />
