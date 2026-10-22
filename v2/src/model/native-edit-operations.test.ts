@@ -170,8 +170,7 @@ describe("toNativeCellEdits", () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.edits).toEqual([
-      { cellId: "db", path: "geometry:x", value: "100" },
-      { cellId: "db", path: "geometry:y", value: "95" }
+      { cellId: "db", path: "geometry:translate", value: "-20,15" }
     ]);
   });
 
