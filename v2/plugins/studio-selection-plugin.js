@@ -83,7 +83,7 @@
         var restoreAllIds = Object.create(null);
         var pathsById = Object.create(null);
         function markCellTree(cell) {
-          if (!cell || cell.id === "0" || cell.id === "1" || affectedIds[cell.id]) return;
+          if (!cell || cell.id === "0" || cell.id === "1" || deletedIds[cell.id]) return;
           affectedIds[cell.id] = true;
           deletedIds[cell.id] = true;
           restoreAllIds[cell.id] = true;
