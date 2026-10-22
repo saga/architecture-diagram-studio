@@ -43,13 +43,24 @@ function directChildren(element: Element, name: string): Element[] {
   }
   return values;
 }
-function roleFromStyle(style: string): NodeRole {
+export function roleFromStyle(style: string): NodeRole {
   const explicit = style.match(/(?:^|;)studioRole=([^;]+)/)?.[1];
   const allowed: NodeRole[] = ["actor", "source", "entry", "ui", "domain", "business", "api", "worker", "data", "storage", "external", "vendor", "infra", "decision", "start", "end", "service"];
   if (explicit && allowed.includes(explicit as NodeRole)) return explicit as NodeRole;
-  if (style.includes("rhombus")) return "decision";
-  if (style.includes("ellipse") || style.includes("arcSize=50")) return "service";
-  if (style.includes("database") || style.includes("cylinder")) return "storage";
+
+  const normalized = style.toLowerCase();
+  const shape = style.match(/(?:^|;)shape=([^;]+)/i)?.[1]?.toLowerCase() || "";
+  if (shape.includes("umllifeline") || shape.includes("umlactor") || shape === "actor" ||
+      /(?:^|;)shape=actor(?:;|$)/i.test(style)) return "actor";
+  if (shape.includes("cloud")) return "external";
+  if (shape.includes("flowchart.start") || /(?:^|;)shape=start(?:;|$)/i.test(style)) return "start";
+  if (shape.includes("flowchart.end") || /(?:^|;)shape=end(?:;|$)/i.test(style)) return "end";
+  if (shape.includes("rhombus") || shape.includes("decision") || normalized.includes("rhombus")) return "decision";
+  if (shape.includes("database") || shape.includes("cylinder") || shape.includes("datastore") ||
+      normalized.includes("database") || normalized.includes("cylinder")) return "storage";
+  if (shape === "table" || shape.includes("entityrelation") || shape.includes("umlclass") ||
+      shape.includes("document") || shape.includes("parallelogram") || shape.includes("note")) return "data";
+  if (shape.includes("process") || shape.includes("hexagon") || normalized.includes("ellipse") || normalized.includes("arcsize=50")) return "service";
   return "domain";
 }
 function visualRoleFromStyle(style: string): DiagramNode["visualRole"] {
@@ -218,6 +229,37 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const cellId = (cell: Element) => idByCell.get(cell) || cell.getAttribute("id") || "";
   const currentCellIds = new Set(cells.map(cellId));
   const cellById = new Map(cellEntries.map((entry) => [entry.id, entry.cell]));
+  const layerCell = cellById.get("1");
+  const storedLayout = styleValues(layerCell?.getAttribute("style") || "");
+  const storedNumber = (key: string, fallback: number, minimum: number) => {
+    const raw = storedLayout.get(key);
+    if (raw === undefined) return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= minimum ? value : fallback;
+  };
+  const storedEnum = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const value = storedLayout.get(key);
+    return value && (allowed as readonly string[]).includes(value) ? value as T : fallback;
+  };
+  let storedProfile = previous.layout.profile;
+  const encodedProfile = storedLayout.get("studioLayoutProfile");
+  if (encodedProfile) {
+    try {
+      const decoded = decodeURIComponent(encodedProfile);
+      if (/^[a-zA-Z0-9._-]{1,100}$/.test(decoded)) storedProfile = decoded;
+    } catch { /* Ignore malformed non-Studio metadata and retain the supplied fallback. */ }
+  }
+  const projectedLayout: DiagramDocument["layout"] = {
+    ...previous.layout,
+    profile: storedProfile,
+    direction: storedEnum("studioLayoutDirection", ["RIGHT", "DOWN"] as const, previous.layout.direction),
+    routing: storedEnum("studioLayoutRouting", ["orthogonal", "polyline", "curved"] as const, previous.layout.routing),
+    nodeSpacing: storedNumber("studioNodeSpacing", previous.layout.nodeSpacing, 1),
+    layerSpacing: storedNumber("studioLayerSpacing", previous.layout.layerSpacing, 1),
+    boundaryPadding: storedNumber("studioBoundaryPadding", previous.layout.boundaryPadding, 0),
+    externalSide: storedEnum("studioExternalSide", ["LEFT", "RIGHT"] as const, previous.layout.externalSide),
+    storageSide: storedEnum("studioStorageSide", ["BOTTOM", "RIGHT"] as const, previous.layout.storageSide)
+  };
   const absolutePosition = (cell: Element): Point => {
     const geometry = directChild(cell, "mxGeometry");
     let x = Number(geometry?.getAttribute("x") || 0);
@@ -381,7 +423,12 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   }));
   const embeddedTheme = cells.map((cell) => styleValues(cell.getAttribute("style") || "").get("studioTheme")).find(Boolean);
   const importedTheme = embeddedTheme || previous.renderTheme || "editorial";
-  const isSequenceDiagram = previous.kind === "sequence" || cells.some((cell) => {
+  const hasNativeSequenceStructure = cells.some((cell) => {
+    const style = (cell.getAttribute("style") || "").toLowerCase();
+    const shape = style.match(/(?:^|;)shape=([^;]+)/)?.[1] || "";
+    return shape.includes("lifeline") || shape.includes("umlactor");
+  });
+  const isSequenceDiagram = previous.kind === "sequence" || hasNativeSequenceStructure || cells.some((cell) => {
     const cellId = idByCell.get(cell) || cell.getAttribute("id") || "";
     return cellId.endsWith("__lifelineEnd") || cellId.endsWith("__messageSourceAnchor");
   }) || importedFragments.size > 0;
@@ -397,7 +444,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     ...previous,
     renderTheme: importedTheme as DiagramDocument["renderTheme"],
     kind: isSequenceDiagram ? "sequence" : previous.kind,
-    layout: isSequenceDiagram ? { ...previous.layout, direction: "RIGHT", routing: "polyline" } : previous.layout,
+    layout: isSequenceDiagram ? { ...projectedLayout, direction: "RIGHT", routing: "polyline" } : projectedLayout,
     nodes, relations: relationList, boundaries, sequence
   };
   return imported;
