@@ -9,6 +9,7 @@ describe("native Draw.io Copilot contract", () => {
       nativeEdits: {
         operations: [{ op: "add_node_after", target: "Database", cellId: "db", targetLabel: "Database", newLabel: "Audit Service" }],
         summary: "Add an audit service after Database",
+        requestId: "11111111-1111-4111-8111-111111111111",
         pageId: "p1",
         documentRevision: "revision-1"
       },
@@ -25,6 +26,7 @@ describe("native Draw.io Copilot contract", () => {
       nativeEdits: {
         operations: [{ op: "set_label", target: "Database", label: "Store" }],
         summary: "Rename",
+        requestId: "22222222-2222-4222-8222-222222222222",
         pageId: "p1",
         documentRevision: "revision-1"
       }
@@ -40,6 +42,7 @@ describe("native Draw.io Copilot contract", () => {
           targetLabel: "Database", label: "Data Store"
         }],
         summary: "Rename Database to Data Store",
+        requestId: "33333333-3333-4333-8333-333333333333",
         pageId: "p1",
         documentRevision: "revision-1"
       }
