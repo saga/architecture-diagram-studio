@@ -132,7 +132,7 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   return parsed;
 }
 
-/** Read edit targets from native mxCells instead of the retired DiagramDocument projection. */
+/** Read edit targets from native mxCells directly from native mxCells. */
 export function extractNativeEditTargets(xml: string, pageId?: string | null): NativeEditTarget[] {
   const parsed = parseNativeGraphModel(xml, pageId);
   const cells = findDrawioElements(parsed, "mxCell");
