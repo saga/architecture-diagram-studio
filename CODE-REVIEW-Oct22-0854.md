@@ -473,3 +473,7 @@ git clone --depth 1 -b dev https://github.com/jgraph/drawio-diagrams /tmp/dd
 ## 16. 复审继续：切换导入文件时清除旧时序图分类
 
 发现 `fromDrawioXml()` 会把 `previous.kind === "sequence"` 当作当前页面的时序图证据，并在非时序页面导入后继续保留旧的 `sequence` 数据。这是另一个跨文档状态泄漏。现在只依据当前 XML 页中的原生时序结构/Studio 时序标记识别 sequence；如果上一份投影是 sequence、当前页没有时序标记，则回退到 C4 分类并清除旧 sequence 数据。新增对应回归用例。尚未执行测试。
+
+## 17. 复审继续：原生 shape 映射也不能沿用旧角色
+
+进一步确认上一处旧状态问题不只影响显式 `studioRole`：当原生 XML 的同 ID cell 改成 `shape=table`，旧实现仍会保留旧投影中的 `service` 角色，而不是映射为 `data`。现在节点的 `role` 和 `visualRole` 一律从当前 XML style 重新投影；Studio 自身导出的 XML 会携带显式标记，原生 Draw.io shape 则按当前形状映射。新增原生 table shape 覆盖旧 service 角色的测试。尚未运行测试。
