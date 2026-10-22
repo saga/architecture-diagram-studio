@@ -3,7 +3,7 @@ import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
-import { applyDrawioThemeBackgroundReversible, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
+import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -135,7 +135,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     themeBackgroundRef.current = {
       restore: theme === "editorial",
       background: palette.canvas,
-      restoreBackground: storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || null
+      restoreBackground: explicitBackground
     };
     if (nativeDocumentLoadedRef.current && bridgeReady) {
       iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
@@ -143,14 +143,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       }), window.location.origin);
     }
 
-    // For uncompressed XML pages, persist the corresponding mxGraphModel background
-    // attribute without touching cell styles. Compressed pages use the graph API above.
-    if (editorReady && themedXml !== xml) {
-      recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
-        theme, background: palette.canvas, xmlChanged: true
-      });
-      onDocumentChangeRef.current(documentRef.current, themedXml);
-    }
+    // Deliberately do not call onDocumentChange here: UI theme changes are not document edits.
   }, [theme, editorReady, iframeLoaded, xml, bridgeReady]);
 
   useEffect(() => {
