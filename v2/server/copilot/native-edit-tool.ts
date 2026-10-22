@@ -1,7 +1,7 @@
 import type { NativeEditOperation, ResolvedNativeEditOperation } from "../../src/model/native-edit-operations";
 
 /** Native Draw.io cell index sent with each request; only ids, labels and cell kinds are needed for targeting. */
-export interface NativeEditContextNode {
+export interface NativeEditContextCell {
   id?: unknown;
   name?: unknown;
   cellType?: unknown;
@@ -30,28 +30,28 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       .map((node) => ({
         id: typeof node.id === "string" ? node.id : "",
         name: typeof node.name === "string" ? node.name.trim() : "",
-        cellType: node.cellType === "vertex" || node.cellType === "edge" ? node.cellType : undefined
+        cellType: node.cellType === "vertex" || cell.cellType === "edge" ? node.cellType : undefined
       }))
       .filter((node) => node.id)
     : [];
-  if (cells.length === 0) return { ok: false, error: "The request did not include any diagram elements to target" };
+  if (cells.length === 0) return { ok: false, error: "The request did not include any native Draw.io cells to target" };
 
   const resolved: ResolvedNativeEditOperation[] = [];
   for (const [index, operation] of operations.entries()) {
     const target = operation.target.trim();
     const byId = cells.filter((node) => node.id === target);
-    const matches = byId.length ? byId : nodes.filter((node) => node.name && normalize(node.name) === normalize(target));
+    const matches = byId.length ? byId : cells.filter((cell) => cell.name && normalize(cell.name) === normalize(target));
     if (matches.length === 0) {
       return { ok: false, error: `Operation ${index + 1}: native Draw.io cell “${target}” was not found among the ${cells.length} cells indexed on the active page. Use an exact cell id or exact label from the supplied diagram context.` };
     }
     if (matches.length > 1) {
       return { ok: false, error: `Operation ${index + 1}: label “${target}” is ambiguous (${matches.length} elements match). Use the exact cell id instead.` };
     }
-    const node = matches[0];
+    const cell = matches[0];
     if (operation.op === "add_node_after" && node.cellType === "edge") {
       return { ok: false, error: `Operation ${index + 1}: “${target}” resolves to a connector; add_node_after requires a vertex cell.` };
     }
-    resolved.push({ ...operation, target, cellId: node.id, label: node.name || node.id });
+    resolved.push({ ...operation, target, cellId: cell.id, label: cell.name || cell.id });
   }
   return { ok: true, operations: resolved };
 }
