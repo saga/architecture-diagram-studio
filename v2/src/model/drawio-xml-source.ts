@@ -12,8 +12,7 @@ interface RootSlice {
 }
 
 function attribute(raw: string, name: string): string | null {
-  const match = new RegExp("\\b" + name + "=(['\"])([\\s\\S]*?)\\1").exec(raw);
-  return match?.[2] ?? null;
+  return findXmlAttribute(raw, name)?.value ?? null;
 }
 
 function tagEnd(source: string, start: number): number {
@@ -83,10 +82,15 @@ function parseRootSlice(xml: string): RootSlice | null {
   }
   if (roots.length !== 1) return null;
 
-  const mxfile = /<mxfile\b/.test(xml);
-  const modelCount = (xml.match(/<mxGraphModel\b/g) || []).length;
-  const pageCount = (xml.match(/<diagram\b/g) || []).length;
-  if (mxfile ? pageCount !== 1 || modelCount !== 1 : modelCount !== 1 || pageCount !== 0) return null;
+  // DOM validation decides XML structure; lexical scanning below only retains exact source slices.
+  const validation = validateDrawioXmlDocument(xml);
+  if (!validation.success) return null;
+  const mxfile = validation.format === "mxfile";
+  const pages = mxfile ? validation.root.children.filter((child) => child.name === "diagram") : [];
+  const models = mxfile
+    ? pages[0]?.children.filter((child) => child.name === "mxGraphModel") || []
+    : validation.root.name === "mxGraphModel" ? [validation.root] : [];
+  if (mxfile ? pages.length !== 1 || models.length !== 1 : models.length !== 1) return null;
 
   const root = roots[0];
   const inner = xml.slice(root.contentStart, root.closeStart);
