@@ -6,6 +6,7 @@ type OperationBranch = {
     op: { enum: readonly string[] };
     target?: unknown;
     newLabel?: { type?: string; minLength?: number; maxLength?: number };
+    key?: { type?: string; enum?: readonly string[]; default?: string };
   };
   required: readonly string[];
   additionalProperties: boolean;
