@@ -337,15 +337,6 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         setStartupError(null);
         setEditorReady(true);
       }
-      if (data.event === "selectionChanged") {
-        const cells = Array.isArray(data.cells) ? data.cells : [];
-        const ids = cells.map((cell: unknown) => {
-          if (typeof cell === "string") return cell;
-          if (cell && typeof cell === "object" && typeof (cell as Record<string, unknown>).id === "string") return (cell as Record<string, unknown>).id as string;
-          return null;
-        }).filter((id): id is string => Boolean(id));
-        onSelectionChangeRef.current(ids[0] || null, null);
-      }
       if (data.event === "error") {
         const message = typeof data.message === "string" ? data.message.slice(0, 300) : "Draw.io returned an unspecified error.";
         setStartupError("Draw.io error: " + message);
