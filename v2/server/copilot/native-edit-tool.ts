@@ -26,10 +26,10 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
   const source = context && typeof context === "object" ? context as { cells?: unknown } : {};
   const cells = Array.isArray(source.cells)
     ? source.cells
-      .filter((node): node is NativeEditContextNode => Boolean(node) && typeof node === "object")
-      .map((node) => ({
-        id: typeof node.id === "string" ? node.id : "",
-        name: typeof node.name === "string" ? node.name.trim() : "",
+      .filter((cell): cell is NativeEditContextCell => Boolean(cell) && typeof cell === "object")
+      .map((cell) => ({
+        id: typeof cell.id === "string" ? cell.id : "",
+        name: typeof cell.name === "string" ? cell.name.trim() : "",
         cellType: node.cellType === "vertex" || cell.cellType === "edge" ? node.cellType : undefined
       }))
       .filter((node) => node.id)
@@ -39,7 +39,7 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
   const resolved: ResolvedNativeEditOperation[] = [];
   for (const [index, operation] of operations.entries()) {
     const target = operation.target.trim();
-    const byId = cells.filter((node) => node.id === target);
+    const byId = cells.filter((cell) => cell.id === target);
     const matches = byId.length ? byId : cells.filter((cell) => cell.name && normalize(cell.name) === normalize(target));
     if (matches.length === 0) {
       return { ok: false, error: `Operation ${index + 1}: native Draw.io cell “${target}” was not found among the ${cells.length} cells indexed on the active page. Use an exact cell id or exact label from the supplied diagram context.` };
@@ -51,7 +51,7 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
     if (operation.op === "add_node_after" && node.cellType === "edge") {
       return { ok: false, error: `Operation ${index + 1}: “${target}” resolves to a connector; add_node_after requires a vertex cell.` };
     }
-    resolved.push({ ...operation, target, cellId: cell.id, label: cell.name || cell.id });
+    resolved.push({ ...operation, target, cellId: cell.id, targetLabel: cell.name || cell.id });
   }
   return { ok: true, operations: resolved };
 }
