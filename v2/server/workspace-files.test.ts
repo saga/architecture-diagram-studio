@@ -34,7 +34,9 @@ describe("workspace file service", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "studio-root-"));
     try {
       const resolved = await resolveWorkspaceRoot(root);
-      expect(resolved.rootPath).toBe(root);
+      // The service canonicalises the path, and on macOS the temp directory is reached
+      // through a symlink (/var → /private/var), so compare against the real path.
+      expect(resolved.rootPath).toBe(await realpath(root));
       expect(resolved.repositoryRoot).toBe(false);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
