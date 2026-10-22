@@ -251,7 +251,6 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         }), window.location.origin);
       }
       if (data.event === "init") {
-        setBridgeReady(false);
         recordDiagnostic("drawio.handshake.ready", "Draw.io embed API initialised; documents can be loaded safely", {
           iframeLoaded: iframeLoadedRef.current, origin: event.origin
         });
