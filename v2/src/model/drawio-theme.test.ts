@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDrawioThemeBackground, drawioFrameThemeCss } from "./drawio-theme";
+import { applyDrawioThemeBackground, applyDrawioThemeStyles, drawioFrameThemeCss } from "./drawio-theme";
 
 describe("native Draw.io theme adapter", () => {
   it("updates only the mxGraphModel background and preserves cell styles and XML metadata", () => {
