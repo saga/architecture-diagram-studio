@@ -4,6 +4,13 @@ import { resolveNativeEditTargets } from "./native-edit-tool";
 const CONTEXT = { nodes: [{ id: "db", name: "Database" }, { id: "api", name: "API Service" }, { id: "cache", name: "Cache" }] };
 
 describe("resolveNativeEditTargets", () => {
+  it("resolves the anchor for add_node_after without losing the new label", () => {
+    const resolved = resolveNativeEditTargets(CONTEXT, [{ op: "add_node_after", target: "Database", newLabel: "bbb" }]);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.operations[0]).toMatchObject({ op: "add_node_after", cellId: "db", label: "Database", newLabel: "bbb" });
+  });
+
   it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);
     const byLabel = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "database" }]);
