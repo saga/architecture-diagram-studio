@@ -38,7 +38,17 @@ describe("resolveNativeEditTargets", () => {
     const result = resolveNativeEditTargets(context, [{ op: "add_node_after", target: "calls", newLabel: "Worker" }]);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toContain("requires a vertex");
+    expect(result.error).toContain("must resolve to a vertex");
+  });
+
+  it("rejects moving or resizing a connector until routing geometry has its own operation", () => {
+    const context = { cells: [{ id: "edge1", name: "calls", cellType: "edge" }] };
+    const move = resolveNativeEditTargets(context, [{ op: "move", target: "calls", dx: 10, dy: 0 }]);
+    const resize = resolveNativeEditTargets(context, [{ op: "resize", target: "calls", width: 200, height: 80 }]);
+    expect(move.ok).toBe(false);
+    expect(resize.ok).toBe(false);
+    if (!move.ok) expect(move.error).toContain("not a vertex");
+    if (!resize.ok) expect(resize.error).toContain("not a vertex");
   });
 
   it("rejects unknown labels with an actionable message", () => {
