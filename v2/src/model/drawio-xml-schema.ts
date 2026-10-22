@@ -1,0 +1,354 @@
+import { DOMParser } from "@xmldom/xmldom";
+import { inflateSync, unzlibSync } from "fflate";
+import { z } from "zod";
+
+/**
+ * Lossless-enough validation view of XML. It is never serialized back over the user's
+ * source: unknown element names, attributes and children deliberately remain representable.
+ * The exact original XML string remains the source of truth.
+ */
+export interface DrawioXmlElement {
+  name: string;
+  attributes: Record<string, string>;
+  children: DrawioXmlElement[];
+  text: string;
+}
+
+const XmlAttributesSchema = z.record(z.string(), z.string());
+
+export const DrawioXmlElementSchema: z.ZodType<DrawioXmlElement> = z.lazy(() =>
+  z.object({
+    name: z.string().min(1),
+    attributes: XmlAttributesSchema,
+    children: z.array(DrawioXmlElementSchema),
+    text: z.string()
+  }).strict()
+);
+
+function issue(ctx: z.RefinementCtx, message: string, path: (string | number)[] = []): void {
+  ctx.addIssue({ code: "custom", message, path });
+}
+
+function childNodesNamed(element: DrawioXmlElement, name: string): DrawioXmlElement[] {
+  return element.children.filter((child) => child.name === name);
+}
+
+function effectiveCellId(wrapper: DrawioXmlElement): string | undefined {
+  const innerCell = wrapper.name === "mxCell"
+    ? wrapper
+    : wrapper.children.find((child) => child.name === "mxCell");
+  return wrapper.attributes.id || innerCell?.attributes.id || undefined;
+}
+
+function cellsFromRoot(root: DrawioXmlElement): Array<{ wrapper: DrawioXmlElement; cell: DrawioXmlElement; index: number }> {
+  const result: Array<{ wrapper: DrawioXmlElement; cell: DrawioXmlElement; index: number }> = [];
+  root.children.forEach((wrapper, index) => {
+    const cell = wrapper.name === "mxCell"
+      ? wrapper
+      : wrapper.children.find((child) => child.name === "mxCell");
+    if (cell) result.push({ wrapper, cell, index });
+  });
+  return result;
+}
+
+function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+  if (element.name !== "mxCell") {
+    issue(ctx, "Expected an mxCell element", path);
+    return;
+  }
+  const geometries = childNodesNamed(element, "mxGeometry");
+  if (geometries.length > 1) issue(ctx, "An mxCell can have at most one direct mxGeometry child", path.concat("children"));
+  for (const [index, geometry] of geometries.entries()) {
+    if (geometry.attributes.as !== undefined && geometry.attributes.as !== "geometry") {
+      issue(ctx, "A cell's geometry must use as=\"geometry\"", path.concat("children", index, "attributes", "as"));
+    }
+    validateGeometry(geometry, ctx, path.concat("children", index));
+  }
+}
+
+/** Extensible geometry schema: known mxPoint/Array/alternateBounds nodes are checked, unknown extensions are retained. */
+export const MxGeometrySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "mxGeometry") issue(ctx, "Expected mxGeometry");
+  for (const child of element.children) {
+    if (child.name === "mxPoint" && child.attributes.as !== undefined &&
+        !["sourcePoint", "targetPoint", "offset", "geometry"].includes(child.attributes.as)) {
+      issue(ctx, "Unsupported mxPoint as attribute", ["children", element.children.indexOf(child), "attributes", "as"]);
+    }
+    if (child.name === "Array" && child.attributes.as !== undefined && child.attributes.as !== "points") {
+      // Draw.io can add other named geometry arrays; keep them valid and opaque.
+    }
+  }
+});
+
+function validateGeometry(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+  const checked = MxGeometrySchema.safeParse(element);
+  if (!checked.success) {
+    for (const item of checked.error.issues) ctx.addIssue({ ...item, path: path.concat(item.path) });
+  }
+}
+
+/** Core cell schema; arbitrary attributes/style keys and wrapper metadata are intentionally open. */
+export const MxCellSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  validateCell(element, ctx);
+});
+
+/** mxGraph root is a flat cell list; custom object names may wrap a single mxCell. */
+export const MxRootSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "root") issue(ctx, "Expected root under mxGraphModel");
+  const inventory = cellsFromRoot(element);
+  const seenIds = new Map<string, number>();
+  for (const entry of inventory) {
+    const id = effectiveCellId(entry.wrapper);
+    if (id) {
+      const previous = seenIds.get(id);
+      if (previous !== undefined) issue(ctx, "Duplicate cell id \"" + id + "\" within this page", ["children", entry.index]);
+      else seenIds.set(id, entry.index);
+    }
+    validateCell(entry.cell, ctx, ["children", entry.index, ...(entry.wrapper === entry.cell ? [] : ["children", entry.wrapper.children.indexOf(entry.cell)])]);
+  }
+  // No fixed whitelist for root children: UserObject, object, vendor wrappers and future
+  // mxCodec elements are valid so long as an actual mxCell inside them can be preserved.
+});
+
+/** Every mxGraphModel attribute is optional in Draw.io; defs is valid before root when styles are compressed. */
+export const MxGraphModelSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "mxGraphModel") issue(ctx, "Expected mxGraphModel");
+  const roots = childNodesNamed(element, "root");
+  if (roots.length !== 1) {
+    issue(ctx, "mxGraphModel must contain exactly one direct root element", ["children"]);
+  } else {
+    const result = MxRootSchema.safeParse(roots[0]);
+    if (!result.success) for (const item of result.error.issues) {
+      ctx.addIssue({ ...item, path: ["children", element.children.indexOf(roots[0]), ...item.path] });
+    }
+  }
+  if (childNodesNamed(element, "defs").length > 1) issue(ctx, "mxGraphModel may contain at most one defs element", ["children"]);
+  // All unknown model-level extension elements and attributes remain legal and opaque.
+});
+
+/** A page can be represented by an inline model or by a compressed raw-DEFLATE/Base64 payload. */
+export const DrawioDiagramPageSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((page, ctx) => {
+  if (page.name !== "diagram") issue(ctx, "Expected diagram page");
+  const models = childNodesNamed(page, "mxGraphModel");
+  const payload = page.text.trim();
+  if (models.length > 1) issue(ctx, "A diagram page may contain at most one inline mxGraphModel", ["children"]);
+  if (models.length === 0 && !payload) issue(ctx, "A diagram page must contain an mxGraphModel or a non-empty compressed payload", ["text"]);
+  if (models.length > 0 && payload) issue(ctx, "A diagram page cannot mix an inline mxGraphModel with a compressed payload", ["text"]);
+  for (const [index, model] of models.entries()) {
+    const result = MxGraphModelSchema.safeParse(model);
+    if (!result.success) for (const item of result.error.issues) {
+      ctx.addIssue({ ...item, path: ["children", page.children.indexOf(model), ...item.path] });
+    }
+    void index;
+  }
+});
+
+/** The outer mxfile contains metadata and one or more named pages; its attributes are open-ended. */
+export const MxfileSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((file, ctx) => {
+  if (file.name !== "mxfile") issue(ctx, "Expected mxfile root");
+  const pages = childNodesNamed(file, "diagram");
+  if (pages.length === 0) issue(ctx, "mxfile must contain at least one diagram page", ["children"]);
+  const pageIds = new Map<string, number>();
+  for (const [index, page] of pages.entries()) {
+    const pageId = page.attributes.id;
+    if (pageId) {
+      const previous = pageIds.get(pageId);
+      if (previous !== undefined) issue(ctx, "Duplicate diagram page id \"" + pageId + "\"", ["children", index, "attributes", "id"]);
+      else pageIds.set(pageId, index);
+    }
+    const result = DrawioDiagramPageSchema.safeParse(page);
+    if (!result.success) for (const item of result.error.issues) {
+      ctx.addIssue({ ...item, path: ["children", file.children.indexOf(page), ...item.path] });
+    }
+  }
+});
+
+/** Draw.io also uses the distinct <mxlibrary> format for custom shape libraries; it is not an editable diagram file. */
+export const MxLibraryEntrySchema = z.object({
+  xml: z.string().min(1).optional(),
+  data: z.string().min(1).optional(),
+  w: z.union([z.number().finite(), z.string().regex(/^-?\d+(?:\.\d+)?$/)]),
+  h: z.union([z.number().finite(), z.string().regex(/^-?\d+(?:\.\d+)?$/)]),
+  title: z.string().optional(),
+  aspect: z.string().optional(),
+  style: z.string().optional()
+}).passthrough().refine((entry) => Boolean(entry.xml || entry.data), {
+  message: "Each mxlibrary item must contain either xml or data"
+});
+
+export const MxLibrarySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((library, ctx) => {
+  if (library.name !== "mxlibrary") issue(ctx, "Expected mxlibrary root");
+  let items: unknown;
+  try { items = JSON.parse(library.text); }
+  catch { issue(ctx, "mxlibrary text must be a JSON array"); return; }
+  const result = z.array(MxLibraryEntrySchema).safeParse(items);
+  if (!result.success) for (const item of result.error.issues) {
+    ctx.addIssue({ ...item, path: ["text", ...item.path] });
+  }
+});
+
+/** Covers the documented Draw.io XML root formats while keeping library files distinct from editable diagrams. */
+export const DrawioXmlRootSchema = z.union([MxfileSchema, MxGraphModelSchema, MxLibrarySchema]);
+export const DrawioDiagramXmlSchema = z.union([MxfileSchema, MxGraphModelSchema]);
+
+export interface DrawioXmlValidationSuccess {
+  success: true;
+  format: "mxfile" | "mxGraphModel" | "mxlibrary";
+  root: DrawioXmlElement;
+  warnings: string[];
+}
+export interface DrawioXmlValidationFailure {
+  success: false;
+  issues: string[];
+}
+export type DrawioXmlValidationResult = DrawioXmlValidationSuccess | DrawioXmlValidationFailure;
+
+function toXmlElement(element: Element): DrawioXmlElement {
+  const attributes: Record<string, string> = {};
+  for (let index = 0; index < element.attributes.length; index += 1) {
+    const attr = element.attributes.item(index);
+    if (attr) attributes[attr.name] = attr.value;
+  }
+  const children: DrawioXmlElement[] = [];
+  let text = "";
+  for (let index = 0; index < element.childNodes.length; index += 1) {
+    const child = element.childNodes.item(index);
+    if (!child) continue;
+    if (child.nodeType === 1) children.push(toXmlElement(child as Element));
+    else if (child.nodeType === 3 || child.nodeType === 4) text += child.nodeValue || "";
+  }
+  return { name: element.nodeName, attributes, children, text };
+}
+
+function issuesAsStrings(issues: z.ZodIssue[]): string[] {
+  return issues.map((item) => {
+    const path = item.path.map((part) => String(part)).join(".");
+    return (path ? path + ": " : "") + item.message;
+  });
+}
+
+function parseXmlTree(xml: string): DrawioXmlElement {
+  // DTD/entity declarations are unnecessary for Draw.io files and create avoidable parser risk.
+  // Ignore comments, CDATA and processing instructions when detecting declarations.
+  const withoutSafeRegions = xml
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+    .replace(/<\?[\s\S]*?\?>/g, "");
+  if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(withoutSafeRegions)) throw new Error("DTD and custom entity declarations are not supported.");
+  const errors: string[] = [];
+  const parser = new DOMParser({
+    locator: false,
+    onError: (level, message) => {
+      if (level !== "warning") errors.push(message);
+    }
+  });
+  const document = parser.parseFromString(xml, "application/xml");
+  if (errors.length) throw new Error(errors.slice(0, 5).join("; "));
+  if (!document.documentElement) throw new Error("The XML document has no root element.");
+  return toXmlElement(document.documentElement);
+}
+
+function decodeCompressedPage(payload: string): string {
+  const compact = payload.replace(/\s+/g, "");
+  const binary = atob(compact);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  let inflated: Uint8Array | null = null;
+  try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped legacy payload. */ }
+  if (!inflated) {
+    try { inflated = unzlibSync(bytes); } catch { /* Invalid or unsupported compression. */ }
+  }
+  if (!inflated) throw new Error("The compressed diagram page could not be inflated.");
+  const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
+  const candidates = [decoded];
+  try {
+    const uriDecoded = decodeURIComponent(decoded);
+    if (uriDecoded !== decoded) candidates.push(uriDecoded);
+  } catch { /* Some older files contain direct XML text. */ }
+  const nestedErrors: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const root = parseXmlTree(candidate);
+      if (root.name !== "mxGraphModel") {
+        nestedErrors.push("The compressed page did not decode to mxGraphModel.");
+        continue;
+      }
+      const result = MxGraphModelSchema.safeParse(root);
+      if (result.success) return candidate;
+      nestedErrors.push(...issuesAsStrings(result.error.issues));
+    } catch (error) {
+      nestedErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(nestedErrors.slice(0, 5).join("; ") || "Invalid compressed Draw.io page.");
+}
+
+function addCellInventoryWarnings(root: DrawioXmlElement, warnings: string[], pageLabel: string): void {
+  const graphModel = root.name === "mxGraphModel"
+    ? root
+    : root.children.find((page) => page.name === "diagram")?.children.find((child) => child.name === "mxGraphModel");
+  if (!graphModel) return;
+  const graphRoot = graphModel.children.find((child) => child.name === "root");
+  if (!graphRoot) return;
+  const inventory = cellsFromRoot(graphRoot);
+  const ids = new Set(inventory.map((entry) => effectiveCellId(entry.wrapper)).filter((id): id is string => Boolean(id)));
+  if (!ids.has("0")) warnings.push(pageLabel + ": missing conventional root cell id 0.");
+  if (!ids.has("1")) warnings.push(pageLabel + ": missing conventional default-layer cell id 1.");
+  for (const [index, entry] of inventory.entries()) {
+    if (!effectiveCellId(entry.wrapper)) warnings.push(pageLabel + ": cell " + index + " has no id; Draw.io may assign one on open.");
+    const parent = entry.cell.attributes.parent;
+    if (parent && !ids.has(parent)) warnings.push(pageLabel + ": cell " + (effectiveCellId(entry.wrapper) || index) + " references missing parent " + parent + ".");
+  }
+}
+
+function parseValidated(xml: string, allowLibrary: boolean): DrawioXmlValidationResult {
+  if (!xml.trim()) return { success: false, issues: ["The XML document is empty."] };
+  if (xml.length > 20_000_000) return { success: false, issues: ["The Draw.io XML exceeds the 20 MB application limit."] };
+  let root: DrawioXmlElement;
+  try { root = parseXmlTree(xml); }
+  catch (error) {
+    return { success: false, issues: [error instanceof Error ? error.message : String(error)] };
+  }
+  const schema = allowLibrary ? DrawioXmlRootSchema : DrawioDiagramXmlSchema;
+  const parsed = schema.safeParse(root);
+  if (!parsed.success) return { success: false, issues: issuesAsStrings(parsed.error.issues) };
+
+  if (root.name === "mxfile") {
+    const pages = root.children.filter((child) => child.name === "diagram");
+    for (const [index, page] of pages.entries()) {
+      const inlineModel = page.children.find((child) => child.name === "mxGraphModel");
+      if (inlineModel) continue;
+      try {
+        decodeCompressedPage(page.text);
+      } catch (error) {
+        return { success: false, issues: ["diagram[" + index + "]: " + (error instanceof Error ? error.message : String(error))] };
+      }
+    }
+  }
+  const warnings: string[] = [];
+  if (root.name === "mxfile") {
+    root.children.filter((child) => child.name === "diagram").forEach((page, index) => {
+      const model = page.children.find((child) => child.name === "mxGraphModel");
+      if (model) addCellInventoryWarnings(model, warnings, "diagram[" + index + "]");
+      else {
+        try { addCellInventoryWarnings(parseXmlTree(decodeCompressedPage(page.text)), warnings, "diagram[" + index + "]"); }
+        catch { /* Compressed payload errors already return above. */ }
+      }
+    });
+  } else if (root.name === "mxGraphModel") addCellInventoryWarnings(root, warnings, "mxGraphModel");
+
+  return { success: true, format: root.name as DrawioXmlValidationSuccess["format"], root, warnings };
+}
+
+/** Validate a .drawio/.xml diagram or bare mxGraphModel, including compressed pages. */
+export function validateDrawioXmlDocument(xml: string): DrawioXmlValidationResult {
+  return parseValidated(xml, false);
+}
+
+/** Validate any documented Draw.io XML root, including the separate custom-shape-library format. */
+export function validateDrawioXmlFile(xml: string): DrawioXmlValidationResult {
+  return parseValidated(xml, true);
+}
+
+export function isDrawioXmlDocument(xml: string): boolean {
+  return validateDrawioXmlDocument(xml).success;
+}
