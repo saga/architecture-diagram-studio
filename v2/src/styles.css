@@ -712,7 +712,7 @@ button:disabled { opacity: .58; cursor: wait; }
 @media (max-width: 980px) { .drawio-render-lab-panels { grid-template-columns: minmax(0, 1fr); } .drawio-render-lab-canvas, .drawio-render-lab-editor { height: 560px; } }
 
 
-/* Ant Design / Ant Design X integration: preserve the Studio canvas while standardizing controls. */
+/* Ant Design / Ant Design X integration: standardize controls around the native Draw.io canvas. */
 .ant-app { height: 100%; }
 .ant-tag { margin-inline-end: 0; }
 .copilot-bubble { max-width: min(680px, 100%); }
