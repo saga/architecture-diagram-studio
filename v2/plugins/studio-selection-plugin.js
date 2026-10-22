@@ -91,8 +91,12 @@
         }
         operations.forEach(function (operation) {
           if (!operation || typeof operation.cellId !== "string") return;
-          if (operation.cellId !== "0" && operation.cellId !== "1") affectedIds[operation.cellId] = true;
-          if (operation.path === "cell:delete") markCellTree(activeModel.getCell(operation.cellId));
+          if (operation.path === "cell:delete") {
+            // markCellTree must own the first visit so it can also mark descendants and incident edges.
+            markCellTree(activeModel.getCell(operation.cellId));
+          } else if (operation.cellId !== "0" && operation.cellId !== "1") {
+            affectedIds[operation.cellId] = true;
+          }
         });
         // Deleting a vertex can also remove its connected edges. Include only those edges
         // that a requested delete may affect; unrelated cells never participate in rollback.
