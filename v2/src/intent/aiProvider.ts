@@ -100,13 +100,24 @@ function validateResponse(value: unknown): AIIntentResponse {
             typeof (target as { label?: unknown }).label !== "string")) {
         throw new Error("The applied outcome requires requestId, documentRevision, versionId, editor acknowledgement, persistence status, and resolved targets");
       }
+      const versionId = item.versionId as string | null;
+      const persistenceStatus = item.persistenceStatus;
+      const persistedRevision = typeof item.persistedRevision === "string" || item.persistedRevision === null
+        ? item.persistedRevision as string | null : null;
+      if (persistenceStatus === "saved" &&
+          (typeof versionId !== "string" || !persistedRevision || persistedRevision !== item.documentRevision)) {
+        throw new Error("A saved workspace outcome must include the matching persisted revision and immutable version ID");
+      }
+      if (persistenceStatus === "not_managed_by_server" && versionId !== null) {
+        throw new Error("A standalone applied outcome must not claim a server-managed workspace version");
+      }
       return {
         outcome: "applied", reply: reply || "The diagram change was applied.",
         requestId: item.requestId, documentRevision: item.documentRevision,
         ...(typeof item.persistedRevision === "string" || item.persistedRevision === null ? { persistedRevision: item.persistedRevision as string | null } : {}),
-        versionId: item.versionId as string | null,
+        versionId,
         editorAcknowledged: true,
-        persistenceStatus: item.persistenceStatus,
+        persistenceStatus,
         resolvedTargets: item.resolvedTargets as Array<{ cellId: string; label: string }>,
         ...metadata
       };
