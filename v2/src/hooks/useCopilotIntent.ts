@@ -83,7 +83,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             cellId: selectedNativeCellId, pageId: activePageId,
             label: selectedTarget?.name || selectedNativeCellId
           } : null,
-          nodes: nativeTargets
+          cells: nativeTargets
         }
       );
 
