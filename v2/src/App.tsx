@@ -457,146 +457,6 @@ export default function App() {
     recordDiagnostic("ui.theme.changed", "Updated the interface colour theme", { theme: uiTheme });
   }, [uiTheme]);
 
-  const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
-    let nextXml = preservedNativeXml;
-    if (nextXml === undefined) {
-      if (!semanticEditingSafe) {
-        const message = "Semantic editing is disabled because this Draw.io XML contains cells or structure that cannot be safely round-tripped. Continue editing in the native Draw.io canvas.";
-        setLastAction(message);
-        recordDiagnostic("drawio.semantic-edit.blocked", message, { documentId: document.id, action }, "warn");
-        return;
-      }
-      nextXml = patchDrawioXml(drawioXml, toDrawioXml(next), document) ?? undefined;
-      if (nextXml === undefined) {
-        const message = "The semantic edit was not applied because the native XML could not be patched safely.";
-        setLastAction(message);
-        recordDiagnostic("drawio.semantic-patch.failed", message, { documentId: document.id, action }, "error");
-        return;
-      }
-    }
-    // Draw.io can emit autosave after initialization or UI-only operations. Do not
-    // create a revision/history entry unless the authoritative XML actually changed.
-    if (nextXml === drawioXml) return;
-    nextSaveLabelRef.current = action;
-setNativeXmlOverride(nextXml);
-    const nextHistory = [...historyRef.current.slice(0, historyIndexRef.current + 1), next].slice(-50);
-    historyRef.current = nextHistory;
-    historyIndexRef.current = nextHistory.length - 1;
-    setCanUndo(historyIndexRef.current > 0);
-    setCanRedo(false);
-    setDocument(next);
-    setRevision((value) => value + 1);
-    setLastAction(action);
-    recordDiagnostic("diagram.change.committed", "The diagram projection was updated and patched into the authoritative Draw.io XML", {
-      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
-      hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml), xmlLength: nextXml.length
-    });
-  }, [document, drawioXml, semanticEditingSafe]);
-
-  /**
-   * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
-   * a fixture before it was laid out, and every later reload restored the stack of nodes on one spot.
-   *
-   * Runs once, after hydration, on whatever document the server handed back — the layouts of new documents
-   * are already computed by the paths that create them.
-   */
-  useEffect(() => {
-    if (!serverHydrated || geometryHealRef.current || !semanticEditingSafe) return;
-    geometryHealRef.current = true;
-    const current = documentRef.current;
-    if (!hasStackedGeometry(current)) return;
-    void layoutSample(current).then((laidOut) => {
-      if (hasStackedGeometry(laidOut) || documentRef.current.id !== current.id) return;
-      commitDocument(laidOut, "Nodes shared a position, so the layout was computed automatically");
-      recordDiagnostic("diagram.layout.auto-healed", "Nodes shared a position; layout computed automatically", {
-        documentId: laidOut.id, diagramKind: laidOut.kind, nodeCount: laidOut.nodes.length
-      }, "warn");
-    }).catch((error: unknown) => {
-      geometryHealRef.current = false;
-      recordDiagnostic("diagram.layout.auto-heal.failed", "Automatic layout repair failed", {
-        documentId: current.id, errorMessage: error instanceof Error ? error.message : String(error)
-      }, "error");
-    });
-  }, [serverHydrated, commitDocument]);
-
-  const runLayout = useCallback(async (source: DiagramDocument = document) => {
-    const startedAt = Date.now();
-    recordDiagnostic("layout.run.started", "Started recomputing layout, routing, and overlap repair", {
-      diagramKind: source.kind, nodeCount: source.nodes.length, relationCount: source.relations.length,
-      routing: source.layout.routing, profile: source.layout.profile
-    });
-    setIsLayoutting(true);
-    try {
-      const next = await requestServerLayout(source);
-      recordDiagnostic("layout.run.completed", "Layout computed", {
-        durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length,
-        routing: next.layout.routing, profile: next.layout.profile
-      });
-      commitDocument(next, "Recomputed layout and routing, and repaired overlaps");
-    } catch (error) {
-      recordDiagnostic("layout.run.failed", "Layout computation failed", {
-        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      }, "error");
-      setLastAction("Layout failed: " + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      setIsLayoutting(false);
-    }
-  }, [commitDocument, document]);
-
-  function undoDocument() {
-    if (!semanticEditingSafe) { setLastAction("Undo is available in the native Draw.io editor for this document."); return; }
-    if (historyIndexRef.current <= 0) return;
-    const previous = historyRef.current[historyIndexRef.current - 1];
-    const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(previous), document);
-    if (!restoredXml) { setLastAction("Undo was refused because the native XML could not be patched safely."); return; }
-    setSelectedRelationId(null);
-    historyIndexRef.current -= 1;
-setNativeXmlOverride(restoredXml);
-    setDocument(previous);
-    setSelectedNodeId((current) => previous.nodes.some((node) => node.id === current) ? current : previous.nodes[0]?.id || null);
-    setCanUndo(historyIndexRef.current > 0);
-    setCanRedo(true);
-    setRevision((value) => value + 1);
-    setLastAction("Undid to the previous revision");
-    recordDiagnostic("diagram.history.undo", "Undid to the previous revision", {
-      diagramKind: previous.kind, nodeCount: previous.nodes.length, relationCount: previous.relations.length
-    });
-  }
-
-  function redoDocument() {
-    if (!semanticEditingSafe) { setLastAction("Redo is available in the native Draw.io editor for this document."); return; }
-    if (historyIndexRef.current >= historyRef.current.length - 1) return;
-    const next = historyRef.current[historyIndexRef.current + 1];
-    const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
-    if (!restoredXml) { setLastAction("Redo was refused because the native XML could not be patched safely."); return; }
-    setSelectedRelationId(null);
-    historyIndexRef.current += 1;
-setNativeXmlOverride(restoredXml);
-    setDocument(next);
-    setSelectedNodeId((current) => next.nodes.some((node) => node.id === current) ? current : next.nodes[0]?.id || null);
-    setCanUndo(historyIndexRef.current > 0);
-    setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
-    setRevision((value) => value + 1);
-    setLastAction("Redid to the next revision");
-    recordDiagnostic("diagram.history.redo", "Redid to the next revision", {
-      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
-    });
-  }
-
-  function changeKind(kind: DiagramKind) {
-    if (!semanticEditingSafe) { setLastAction("Create a new diagram before switching semantic diagram types; this native XML is preserved unchanged."); return; }
-setSelectedRelationId(null);
-    const label = "Switched to " + (kind === "c4" ? "C4 diagram" : kind === "sequence" ? "sequence diagram" : "flowchart");
-    // Fixtures carry no coordinates, so the layout has to exist before the first paint; committing the
-    // raw fixture first is what used to stack every node on one spot until "Auto layout" was pressed.
-    void (async () => {
-      const next = await layoutSample(FIXTURES[kind]());
-      setSelectedNodeId(next.nodes[0]?.id || null);
-      commitDocument(next, label);
-    })();
-  }
-
   const archiveNativeHistory = (label: string, requestId: number) => {
     const fileKey = (standaloneFileName || "standalone").replace(/[^a-zA-Z0-9._-]/g, "_");
     const historyKey = "architecture-diagram-studio:v2:standalone-history:" + fileKey;
@@ -690,13 +550,7 @@ setSelectedRelationId(null);
     }
   }
 
-  const {
-    changeNode
-  } = useDiagramEditing({
-    document, selectedNode, selectedRelationId,
-    setSelectedNodeId, setSelectedRelationId, setLastAction,
-    commitDocument, runLayout
-  });
+
 
   /** Drag a sidebar edge to resize it; the width is persisted with the rest of the UI preferences. */
   function startPanelResize(side: keyof PanelWidths, event: ReactPointerEvent<HTMLDivElement>) {
@@ -716,19 +570,6 @@ setSelectedRelationId(null);
     window.document.body.classList.add("resizing-panels");
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }
-
-  function resetDiagram() {
-    if (!semanticEditingSafe) { setLastAction("Reset is disabled for native Draw.io documents to prevent replacing their XML."); return; }
-    setSelectedRelationId(null);
-    void (async () => {
-      const next = await layoutSample(FIXTURES[document.kind]());
-      setSelectedNodeId(next.nodes[0]?.id || null);
-      commitDocument(next, "Sample diagram restored");
-      recordDiagnostic("diagram.reset", "User restored the built-in sample for this diagram kind", {
-        diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
-      }, "warn");
-    })();
   }
 
   function exportDiagram() {
@@ -994,13 +835,6 @@ setSelectedRelationId(null);
     recordDiagnostic("navigation.opened", "Opened a workspace page", { page });
   }
 
-  function selectRelation(id: string) {
-    const relation = document.relations.find((item) => item.id === id);
-    if (!relation) return;
-    setSelectedRelationId(id);
-    setSelectedNodeId(relation.source);
-    recordDiagnostic("diagram.relation.selected", "Selected a relation on the canvas", { relationId: id });
-  }
 
   return (
     <ConfigProvider
