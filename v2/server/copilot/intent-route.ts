@@ -89,7 +89,7 @@ interface IntentDependencies {
   writeLog(event: string, fields?: Record<string, unknown>): Promise<void>;
   getStudioConfig(): Promise<AgentPromptConfig>;
   getProjectWorkspace(): Promise<ProjectWorkspace | null>;
-  getWorkspaceDiagramSnapshot(): Promise<{ drawioXml: string; revision: string } | null>;
+  getWorkspaceDiagramSnapshot(): Promise<{ drawioXml: string; revision: string; versionId?: string | null } | null>;
   collectAgentWorkspaceContext(): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
   acknowledgements?: NativeExecutionAcknowledgements;
@@ -262,6 +262,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const serializedXmlRevision = typeof body.serializedXmlRevision === "string" ? body.serializedXmlRevision : null;
     const persistenceStatus = typeof body.persistenceStatus === "string" ? body.persistenceStatus : "not_attempted";
     const persistedRevision = typeof body.persistedRevision === "string" ? body.persistedRevision : null;
+    const versionId = typeof body.versionId === "string" ? body.versionId : null;
     const failureStage = body.failureStage === "editor" || body.failureStage === "persistence" ? body.failureStage : null;
     const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
     if (!outcome || (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) ||
@@ -283,10 +284,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         res.status(502).json({ outcome: "failed", reply: "The edit result was received, but the server could not verify the saved workspace revision. Retry the acknowledgement.", error: message.slice(0, 1000), requestId });
         return;
       }
-      if (persistenceStatus !== "saved" || !persistedRevision ||
+      if (persistenceStatus !== "saved" || !persistedRevision || !versionId ||
           persistedRevision !== serializedXmlRevision || !authoritative ||
-          authoritative.revision !== persistedRevision) {
-        const responseBody = { outcome: "stale_context", reply: "The saved workspace revision no longer matches this edit.", error: "The workspace's saved revision does not match the acknowledged native XML.", documentRevision: authoritative?.revision ?? null };
+          authoritative.revision !== persistedRevision || authoritative.versionId !== versionId) {
+        const responseBody = { outcome: "stale_context", reply: "The saved workspace revision or version no longer matches this edit.", error: "The workspace's saved XML revision and immutable version ID must both match the browser acknowledgement.", documentRevision: authoritative?.revision ?? null, versionId: authoritative?.versionId ?? null };
         await deps.writeLog("turn.native-edit.ack-rejected", {
           requestId, sessionId, reason: "workspace_persistence_revision_mismatch",
           serializedXmlRevision, persistedRevision, currentWorkspaceRevision: authoritative?.revision ?? null
@@ -296,12 +297,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return;
       }
     }
-    const responseBody = { outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."), requestId, documentRevision: serializedXmlRevision, persistedRevision, ...(errorMessage ? { error: errorMessage } : {}) };
+    const responseBody = { outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."), requestId, documentRevision: serializedXmlRevision, persistedRevision, versionId, ...(errorMessage ? { error: errorMessage } : {}) };
     await deps.writeLog("turn.native-edit.final-outcome", {
       requestId, sessionId, standalone: pending.standalone,
       baseDocumentRevision: pending.documentRevision,
       operationCount: pending.operationCount, summary: pending.summary,
-      outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision,
+      outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision, versionId,
       failureStage, error: errorMessage
     });
     acknowledgements.complete(requestId, { fingerprint, status: outcome === "applied" ? 200 : 200, body: responseBody, completedAt: Date.now() });
