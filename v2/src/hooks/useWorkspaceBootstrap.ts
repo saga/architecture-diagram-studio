@@ -137,9 +137,9 @@ export function useWorkspaceBootstrap(options: Options) {
           const xmlDiagnostics = reportXmlDiagnostics(result.content, projectWorkspace.primaryDiagram);
           if (xmlDiagnostics.issues.length) throw new Error(xmlDiagnostics.issues[0]);
           const parsedDocument = fromDrawioXml(result.content, baseDocument);
-          if (parsedDocument === baseDocument) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
-          // The XML file is authoritative: opening it must never normalize or relayout its projection.
-          const imported = parsedDocument;
+          // A valid native document remains openable even when the partial semantic projection
+          // cannot represent any of its cells. The original XML remains authoritative.
+          const imported = parsedDocument === baseDocument ? baseDocument : parsedDocument;
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
