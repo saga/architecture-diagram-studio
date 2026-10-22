@@ -422,12 +422,15 @@ app.put("/api/workspace/config", async (req, res) => {
       // the on-disk file before the browser's next autosave.
       await getWorkspaceState();
     }
+    const activeState = await getWorkspaceState();
     await writeLog("workspace.config.saved", {
       workspaceId: workspace.id, primaryDiagram: workspace.primaryDiagram, contextChanged,
       fileCount: files.length
     });
     res.json({
-      configured: true, workspace, files,
+      configured: true, workspace,
+      workspaceRevision: typeof activeState.drawioXml === "string" ? workspaceRevision(activeState.drawioXml) : null,
+      files,
       counts: {
         files: files.length, diagrams: files.filter((file) => file.kind === "diagram").length,
         code: files.filter((file) => file.kind === "code").length,
