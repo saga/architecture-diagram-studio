@@ -214,11 +214,15 @@ export async function requestAIIntentPlan(
   }
 
   const plan = validateResponse(payload);
-  if (plan.nativeEdits && plan.nativeEdits.documentRevision !== config.documentRevision) {
-    throw new Error("The native edit plan belongs to a different diagram revision; nothing was applied.");
+  if (plan.outcome === "command_ready" &&
+      (plan.nativeEdits.documentRevision !== config.documentRevision ||
+       plan.nativeEdits.pageId !== (context.activePageId ?? null))) {
+    throw new Error("The native edit plan belongs to a different diagram revision or page; nothing was applied.");
   }
-  if (plan.nativeEdits && plan.nativeEdits.pageId !== (context.activePageId ?? null)) {
-    throw new Error("The native edit plan belongs to a different Draw.io page; nothing was applied.");
+  if (plan.outcome === "proposal_required" &&
+      (plan.proposal.documentRevision !== config.documentRevision ||
+       plan.proposal.pageId !== (context.activePageId ?? null))) {
+    throw new Error("The review proposal belongs to a different diagram revision or page; nothing was applied.");
   }
   recordDiagnostic("copilot.agent.response.validated", "The native Draw.io response passed client-side validation", {
     durationMs: Date.now() - startedAt,
@@ -229,3 +233,37 @@ export async function requestAIIntentPlan(
   });
   return plan;
 }
+
+/** Confirms a server-held review proposal against the current XML snapshot; the server revalidates it. */
+export async function confirmAIIntentProposal(
+  config: AIProviderConfig,
+  proposalId: string,
+  context: AIIntentContext
+): Promise<AIIntentResponse> {
+  let response: Response;
+  try {
+    response = await fetch("/api/copilot/intent/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        proposalId, sessionId: config.sessionId, standalone: config.standalone === true,
+        diagramXml: config.diagramXml, documentRevision: config.documentRevision, context
+      }),
+      signal: AbortSignal.timeout(30_000)
+    });
+  } catch (error) {
+    throw new Error("Could not send the proposal confirmation to the local Copilot service: " + (error instanceof Error ? error.message : String(error)));
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  if (!payload || typeof payload !== "object" || !isCopilotIntentOutcome((payload as { outcome?: unknown }).outcome)) {
+    throw new Error("The Copilot service returned an invalid proposal-confirmation response.");
+  }
+  const result = validateResponse(payload);
+  if (!response.ok) return result;
+  if (result.outcome !== "command_ready") throw new Error("The server did not return a validated command after confirmation.");
+  if (result.nativeEdits.documentRevision !== config.documentRevision || result.nativeEdits.pageId !== (context.activePageId ?? null)) {
+    throw new Error("The confirmed command belongs to a different diagram revision or page.");
+  }
+  return result;
+}
+
