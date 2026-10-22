@@ -195,7 +195,7 @@ export function canEditInStudio(sourceXml: string, projectionXml: string, docume
   if (source.cellMap.size !== projection.cellMap.size) return false;
   for (const [id, raw] of source.cellMap) {
     const projectedCell = projection.cellMap.get(id);
-    if (projectedCell !== raw && stripThemeMetadata(projectedCell) !== stripThemeMetadata(raw) && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
+    if (projectedCell === undefined) return false;\n    if (projectedCell !== raw && stripThemeMetadata(projectedCell) !== stripThemeMetadata(raw) && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
   }
 
   for (const node of document.nodes) {
