@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDrawioThemeBackground, applyDrawioThemeStyles, drawioFrameThemeCss } from "./drawio-theme";
+import { applyDrawioThemeBackground, applyDrawioThemeBackgroundReversible, applyDrawioThemeStyles, drawioFrameThemeCss } from "./drawio-theme";
 
 describe("native Draw.io theme adapter", () => {
   it("updates only the mxGraphModel background and preserves cell styles and XML metadata", () => {
@@ -70,6 +70,16 @@ describe("native Draw.io theme adapter", () => {
     const nextTheme = applyDrawioThemeStyles(userEdited, "midnight", { ...palette, soft: "#222222" });
     expect(nextTheme).toContain("fillColor=#abcdef");
     expect(nextTheme).toContain("studioThemeOverrideFillColor=1");
+  });
+
+  it("restores the original model background when returning to Editorial", () => {
+    const source = '<mxfile><diagram><mxGraphModel background="#fefefe"><root/></mxGraphModel></diagram></mxfile>';
+    const themed = applyDrawioThemeBackgroundReversible(source, "#101a2b", "youth");
+    expect(themed).toContain('background="#101a2b"');
+    expect(themed).toContain('studioThemeOriginalBackground="#fefefe"');
+    const restored = applyDrawioThemeBackgroundReversible(themed, "#ffffff", "editorial");
+    expect(restored).toContain('background="#fefefe"');
+    expect(restored).not.toContain("studioThemeOriginalBackground");
   });
 
 });
