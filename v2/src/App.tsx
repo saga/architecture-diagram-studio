@@ -511,10 +511,10 @@ export default function App() {
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiModel("");
       try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Server JSONL is authoritative. */ }
-      setLastAction("Local-rules mode config saved as a new revision");
+      setLastAction("Server default model selected in a new config revision");
       recordDiagnostic("settings.model.cleared", "Model settings cleared from the server revision history", { revisionId: payload.config.revisionId }, "warn");
     } catch (error) {
-      setLastAction("Clearing model settings failed: " + (error instanceof Error ? error.message : String(error)));
+      setLastAction("Resetting the model to the server default failed: " + (error instanceof Error ? error.message : String(error)));
     }
   }
 
