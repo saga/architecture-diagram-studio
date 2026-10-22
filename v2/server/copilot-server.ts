@@ -551,7 +551,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       if (!patchedXml) return { status: 409 as const, error: "The template could not be applied without damaging the authoritative Draw.io XML; no changes were saved." };
       const xml = patchedXml, now = new Date().toISOString();
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
-      const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await persistDiagramVersions(diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: laidOut, drawioXml: xml, updatedAt: now }; await persistWorkspaceState(workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
@@ -640,7 +640,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: new Date().toISOString(), label: "Agent edit: " + proposal.summary.slice(0, 220), document: proposal.document, drawioXml: xml };
       const versions = await getDiagramVersions();
       diagramVersions = retainRecentVersions([...versions, version]);
-      await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      await persistDiagramVersions(diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
         await writeTextAtomic(absolutePath, xml);
@@ -729,7 +729,7 @@ app.put("/api/workspace/config", async (req, res) => {
           }
           return version;
         });
-        if (migratedLegacyVersions) await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+        if (migratedLegacyVersions) await persistDiagramVersions(diagramVersions);
         const state = await getWorkspaceState();
         workspaceState = {
           ...state, workspaceId: workspace.id, diagramPath: workspace.primaryDiagram,
@@ -788,7 +788,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
           }
           return version;
         });
-        if (migratedLegacyVersions) await writeJsonAtomic(VERSIONS_FILE, versions);
+        if (migratedLegacyVersions) await persistDiagramVersions(versions);
       }
       const version: DiagramVersion = {
         id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
@@ -796,7 +796,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
         createdAt: now, label: "Created diagram: " + fileName, document, drawioXml: xml
       };
       diagramVersions = retainRecentVersions([...versions, version]);
-      await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      await persistDiagramVersions(diagramVersions);
       projectWorkspace = workspace;
       await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace);
       workspaceState = {
@@ -878,7 +878,7 @@ app.put("/api/workspace/document", async (req, res) => {
           drawioXml
         };
         diagramVersions = retainRecentVersions([...allVersions, version]);
-        await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+        await persistDiagramVersions(diagramVersions);
         if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
           const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
           await writeTextAtomic(absolutePath, drawioXml);
@@ -1008,7 +1008,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
         drawioXml: source.drawioXml
       };
       diagramVersions = retainRecentVersions([...versions, version]);
-      await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
+      await persistDiagramVersions(diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
         const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
         await writeTextAtomic(absolutePath, version.drawioXml);
