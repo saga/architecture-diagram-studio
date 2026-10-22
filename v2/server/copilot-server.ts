@@ -1210,6 +1210,17 @@ registerCopilotIntentRoute(app, {
       if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) return null;
       return typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null;
     },
+    getActiveProjectionStatus: async () => {
+      const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
+      if (!state.document || !isDiagramDocument(state.document) || !workspaceStateMatchesActiveDiagram(state, workspace)) {
+        return { complete: false, reason: "The active workspace has no loaded semantic projection for its current primary diagram." };
+      }
+      if (typeof state.drawioXml !== "string") return { complete: false, reason: "The authoritative Draw.io XML is not loaded; semantic counts and quality cannot be treated as complete." };
+      if (!isStudioProjectionCurrent(state.drawioXml, state.document)) {
+        return { complete: false, reason: "The authoritative XML contains cells, pages, or properties outside the lossless semantic projection. Inspection counts are partial; do not use semantic layout or edit tools." };
+      }
+      return { complete: true };
+    },
     applyProposal: async (proposalId: string, expectedRevision: string, summary: string): Promise<AgentAppliedEditView> => {
       const response = await fetch("http://127.0.0.1:" + PORT + "/api/workspace/diagram/apply-proposal?includeXml=false", {
         method: "POST", headers: { "content-type": "application/json" },
