@@ -91,7 +91,10 @@ function hasValidBundle() {
     if (fs.readFileSync(STAMP, "utf8").trim() !== VERSION) return false;
     if (!fs.existsSync(path.join(DEST, "index.html"))) return false;
     const manifest = JSON.parse(fs.readFileSync(path.join(DEST, "studio-bundle.json"), "utf8"));
-    return manifest.version === VERSION && manifest.sha256 === SHA256;
+    const indexHtml = fs.readFileSync(path.join(DEST, "index.html"), "utf8");
+    return manifest.version === VERSION && manifest.sha256 === SHA256 &&
+      fs.existsSync(path.join(DEST, "studio-selection-plugin.js")) &&
+      indexHtml.includes('<script src="studio-selection-plugin.js"></script>');
   } catch {
     return false;
   }
@@ -134,6 +137,21 @@ async function main() {
     fs.writeFileSync(target, entry.data);
     written++;
     extractedBytes += entry.data.length;
+  }
+
+  // Add a first-party plugin to bridge native Draw.io selection events to the host.
+  // Draw.io intentionally does not expose editorUi on window and its embed protocol has no
+  // selection event, so the plugin is loaded from this same-origin, pinned local bundle.
+  const pluginSource = path.join(ROOT, "plugins", "studio-selection-plugin.js");
+  if (!fs.existsSync(pluginSource)) throw new Error("Missing local Draw.io selection bridge: " + pluginSource);
+  fs.copyFileSync(pluginSource, path.join(temp, "studio-selection-plugin.js"));
+  const indexHtmlPath = path.join(temp, "index.html");
+  let indexHtml = fs.readFileSync(indexHtmlPath, "utf8");
+  if (!indexHtml.includes('<script src="studio-selection-plugin.js"></script>')) {
+    const mainScript = /(<script\\s+src=["']js\\/main\\.js["'][^>]*>\\s*<\\/script>)/i;
+    if (!mainScript.test(indexHtml)) throw new Error("Could not locate js/main.js in Draw.io index.html to install the selection bridge.");
+    indexHtml = indexHtml.replace(mainScript, '$1\\n<script src="studio-selection-plugin.js"></script>');
+    fs.writeFileSync(indexHtmlPath, indexHtml);
   }
 
   fs.writeFileSync(path.join(temp, ".version"), VERSION + "\n");
