@@ -177,15 +177,16 @@
             error: error && error.message ? String(error.message) : String(error) });
         }
       } else if (request.event === "studioSetBackground") {
+        var backgroundGraph = currentGraph();
         if (!hasOriginalBackground) {
-          originalBackground = typeof request.restoreBackground === "string" ? request.restoreBackground : graph.background;
+          originalBackground = typeof request.restoreBackground === "string" ? request.restoreBackground : backgroundGraph.background;
           hasOriginalBackground = true;
         }
-        graph.background = request.restore
+        backgroundGraph.background = request.restore
           ? (typeof request.restoreBackground === "string" ? request.restoreBackground : originalBackground)
           : request.background;
-        if (graph.view && typeof graph.view.validateBackground === "function") graph.view.validateBackground();
-        if (typeof graph.refresh === "function") graph.refresh();
+        if (backgroundGraph.view && typeof backgroundGraph.view.validateBackground === "function") backgroundGraph.view.validateBackground();
+        if (typeof backgroundGraph.refresh === "function") backgroundGraph.refresh();
         publish({ event: "studioBackgroundResult", success: true });
       }
     });
