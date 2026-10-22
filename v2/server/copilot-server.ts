@@ -134,12 +134,17 @@ async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
 let projectedSourceXml: string | null = null;
 let projectedSourceDocument: DiagramDocument | null = null;
 let projectedSourceIsValid = false;
+let projectedSourceCachedValidity = false;
 
 /** Rebuild the ephemeral semantic view from XML; never hydrate the view from persisted JSON. */
 function projectDocumentFromXml(xml: string): DiagramDocument {
-  if (projectedSourceXml === xml && projectedSourceDocument) return projectedSourceDocument;
+  if (projectedSourceXml === xml && projectedSourceDocument) {
+    projectedSourceIsValid = projectedSourceCachedValidity;
+    return projectedSourceDocument;
+  }
   const validation = validateDrawioXmlDocument(xml);
   projectedSourceIsValid = validation.success;
+  projectedSourceCachedValidity = validation.success;
   const firstPage = validation.success && validation.root.name === "mxfile"
     ? validation.root.children.find((child) => child.name === "diagram") : undefined;
   const title = firstPage?.attributes.name || "Draw.io diagram";
@@ -269,6 +274,10 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
           migrated = true;
         }
         if (xml === null) continue;
+        if (Buffer.byteLength(xml, "utf8") > 20_000_000 || !validateDrawioXmlDocument(xml).success) {
+          migrated = true;
+          continue;
+        }
         const derivedProjection = projectDocumentFromXml(xml);
         const projection = projectedSourceIsValid
           ? derivedProjection
