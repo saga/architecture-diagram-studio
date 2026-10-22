@@ -340,7 +340,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       y: Number(point.getAttribute("y") || 0)
     }));
     const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
-    const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\\d+)(?:;|$)/)?.[1];
+    const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\d+)(?:;|$)/)?.[1];
     const relationKind = explicitKind || old?.kind || "flow";
     const importedRelationStyle = relationVisualStyleFromDrawio(style, relationKind, previous.renderTheme || "editorial");
     const sourceGeometryNode = nodeById.get(source) || previousNodes.get(source);
