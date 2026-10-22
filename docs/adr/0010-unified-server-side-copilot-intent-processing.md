@@ -119,3 +119,18 @@ This ADR records the required architecture; it does not assert that the migratio
 - [ ] Verify that no frontend regex or local-rules path still interprets natural-language edit requests.
 - [ ] Verify diagnostics distinguish interpretation, validation, execution and persistence failures.
 - [ ] Run relevant tests and build checks, then report actual results and any remaining gaps separately.
+
+## Session-level SDK callback policy
+
+Copilot SDK permission and MCP authentication callbacks are part of the session configuration, not implicit behavior supplied by the client. The application MUST install the intended `onPermissionRequest` and `onMcpAuthRequest` callbacks in the configuration passed to both `resumeSession` and `createSession`. Otherwise, a permission request may be emitted as a pending event without a consumer resolving it, leaving a turn waiting indefinitely.
+
+Studio's current policy is deliberately local to this application:
+
+- The client uses `mode: "empty"`; a session exposes only Studio-owned custom tools, not ambient shell or filesystem tools.
+- Studio approves those tool requests once. The server still validates each requested operation, resolves targets against the native Draw.io XML and current revision, waits for editor acknowledgement, and follows the normal save/version path before reporting an edit as applied.
+- Studio has no MCP OAuth user interface or token broker, so MCP auth requests are explicitly cancelled and logged. The caller must surface an actionable message if an operation requires external authentication.
+
+The callbacks MUST NOT await logging or other nonessential I/O. Diagnostics are scheduled separately and their synchronous exceptions and rejected promises are isolated from the SDK callback result. A callback must always settle promptly.
+
+This policy is not a common runtime default. `common-agent-lib` provides a `CopilotSessionPolicy` type seam and documents the SDK contract, but leaves permission decisions, OAuth handling, available-tool scope and user-facing error behavior to each host application. Any future change to the session's tool set or side effects requires reviewing this application's approval decision and the server-side operation governance together.
+
