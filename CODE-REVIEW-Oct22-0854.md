@@ -444,3 +444,14 @@ git clone --depth 1 -b dev https://github.com/jgraph/drawio-diagrams /tmp/dd
 | 复审提到的测试问题 | 已修正 sequence fragment 的过期断言、macOS canonical realpath 断言；`parseAIIntentPlan()` 改为复用完整计划验证逻辑，避免丢弃直接应用回执。 |
 
 新增了相关回归用例，但本次没有重新运行全量 Vitest 或 619 个 Draw.io 语料文件。因此，不能据此声称全量测试已通过，也不能声称新的语料映射率已经达到原报告提出的目标。剩余验证重点是实跑语料、检查 XML 往返保真度及验证多页文件的原生编辑链路。
+
+
+---
+
+## 13. 复审补充（2026-10-22，面向 LeanIX 的范围校准）
+
+本次按 LeanIX 的实际消费约束重新审视本报告。**只投影第一页是预期行为，不是缺陷**；LeanIX 集成只消费第一页，因此不应把“没有 Studio 多页选择器”列为待修 P1，也不应仅因文件包含多页就生成兼容性 warning。校验结果仍保留 `pageCount`，供需要显示信息的调用方使用；真正的 schema warnings 仍正常报告。原生 XML 的单一事实源原则不变。
+
+复审同时发现一项独立的导入状态错误：`fromDrawioXml()` 在当前 XML 没有 edge cell 时，会回退到 `previous.relations` 中端点仍存在的关系。这可能把上一份图的关系带进新导入的无边图。已修改为关系集合完全由当前 XML 投影，并移除“节点为空就返回 previous”的短路，使合法空页也能被导入为空文档。新增回归用例覆盖空页和第一页范围不再作为兼容性 warning。
+
+其余已记录的 P0/P1 修复仍需要实际运行测试和 corpus probe 才能确认；本次源码复审不把“已增加测试”误报为“测试已通过”。当前没有重新运行全量测试或 619 文件语料。
