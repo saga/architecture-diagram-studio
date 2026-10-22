@@ -111,7 +111,6 @@ export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: D
     if (!attr && (!edge && !vertex || theme === "editorial")) return cellTag;
     const rawStyle = attr ? decodeXmlAttribute(attr[2]) : "";
     const values = styleEntries(rawStyle);
-    const edge = /\bedge=(["'])1\1/.test(cellTag);
     let changed = !attr;
     for (const key of COLOR_KEYS) {
       const originalKey = ORIGINAL_PREFIX + key[0].toUpperCase() + key.slice(1);
