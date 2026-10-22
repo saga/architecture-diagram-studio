@@ -155,7 +155,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
 
   useEffect(() => {
-    if (!cellEdit || !editorReady || !bridgeReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
+    if (!cellEdit || !editorReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
     const target = iframeRef.current?.contentWindow;
     if (!target) return;
     lastHandledCellEditRequestRef.current = cellEdit.requestId;
@@ -167,11 +167,10 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       path: cellEdit.path,
       value: cellEdit.value
     }), window.location.origin);
-    recordDiagnostic("drawio.selection.property.requested", "Sent a selected-cell property edit to the native Draw.io bridge", {
+    recordDiagnostic("drawio.selection.property.requested", "Sent a native property edit through the Draw.io plugin bridge", {
       cellId: cellEdit.cellId, property: cellEdit.path, requestId: cellEdit.requestId
     });
-  }, [cellEdit, editorReady, bridgeReady]);
-
+  }, [cellEdit, editorReady]);
 
   useLayoutEffect(() => {
     // Install the message listener in the commit phase before the iframe can finish loading
@@ -205,6 +204,21 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
         const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
         onSelectionChangeRef.current(cellId, pageId);
+      }
+      if (data.event === "studioBridgeReady") {
+        recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready");
+      }
+      if (data.event === "studioPropertyEditResult") {
+        const requestId = typeof data.requestId === "number" ? data.requestId : null;
+        if (data.success === true) {
+          recordDiagnostic("drawio.selection.property.updated", "Updated a selected native Draw.io cell property", {
+            cellId: data.cellId, property: data.path, requestId
+          });
+        } else {
+          recordDiagnostic("drawio.selection.property.update.failed", "Could not update a selected native Draw.io cell property", {
+            cellId: data.cellId, property: data.path, requestId, errorMessage: typeof data.error === "string" ? data.error : "Unknown property edit error"
+          }, "error");
+        }
       }
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
