@@ -107,17 +107,18 @@ See [Native Copilot / Draw.io Capability Audit](../NATIVE-COPILOT-CAPABILITY-AUD
 
 This ADR records the required architecture; it does not assert that the migration is already implemented or tested. Mark each item complete only with code and regression-test evidence.
 
-- [ ] Remove natural-language regex parsing and direct intent decisions from frontend Copilot hooks/components.
+- [x] Remove natural-language regex parsing and direct intent decisions from frontend Copilot hooks/components; the V2 hook submits a typed snapshot and handles explicit server outcomes only.
 - [x] Route standalone and workspace requests through the same server intent endpoint and orchestration.
 - [x] Add validated request fields for native selected cell/page and document revision/hash.
 - [x] Implement allowlisted native-cell operations through the server-to-Draw.io bridge, with explicit editor acknowledgement and returned XML/save state; workspace mode waits for the revision-checked save.
 - [x] Ensure workspace XML mutation is loss-preserving, revision-checked, server-validated and versioned.
 - [x] Normalize conflicting legacy prompts and make tool schemas/descriptions consistent with mode capabilities.
-- [ ] Return the full discriminated outcome contract; the native-edit path now returns `command_ready` and a correlated `applied`/`failed` acknowledgement, but clarification, unsupported, stale-context and ordinary-reply outcomes are not yet a complete union.
-- [ ] Add tests for Chinese and English rename variants; selected-cell move up/down/left/right by numeric delta; resize; delete; selection alignment/grouping; duplicate/missing labels; no selection; stale selection/revision; unsupported/incomplete semantic projection; malformed XML; native-editor failure; save failure; and prompt/tool-call failure.
+- [x] Return the discriminated outcome contract for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context`, and `failed`; final `applied` results require editor acknowledgement, resolved targets, XML revision and immutable version reference.
+- [x] Add route-level tests for typed no-mutation outcomes, invalid source hashes, stale page/selection, workspace changes during model latency, duplicate labels beyond the first 200 cells, standalone isolation, review-proposal confirmation/replay, acknowledgement expiry/replay, immutable-version mismatch, and conflicting terminal tool calls.
+- [ ] Complete the remaining intent/browser matrix: Chinese and English rename variants; all four selected-cell move directions; resize/delete; selection alignment/grouping and relation edits if supported; malformed XML; native-editor/save failure; and standalone/workspace browser-adapter parity. Unsupported capabilities must return `unsupported` rather than silently mutating the diagram.
 - [ ] Add integration tests proving the same intent resolves consistently in workspace and standalone modes while using their respective adapters.
-- [ ] Verify that no frontend regex or local-rules path still interprets natural-language edit requests.
-- [ ] Verify diagnostics distinguish interpretation, validation, execution and persistence failures.
+- [x] Verify that no frontend regex or local-rules path interprets natural-language edit requests in the active V2 Copilot path.
+- [x] Verify diagnostics distinguish model interpretation, tool calls, request/revision validation, native-editor acknowledgement, persistence/version acknowledgement, and final outcome.
 - [ ] Run relevant tests and build checks, then report actual results and any remaining gaps separately.
 
 ## Session-level SDK callback policy
