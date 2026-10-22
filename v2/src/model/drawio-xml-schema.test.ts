@@ -40,6 +40,12 @@ describe("Zod Draw.io XML schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts plaintext XML nested as a page payload as well as inline mxGraphModel children", () => {
+    const model = extractModel(toDrawioXml(FIXTURES.c4()));
+    const xml = '<mxfile><diagram id="plain" name="Plain page"><![CDATA[' + model + ']]></diagram></mxfile>';
+    expect(validateDrawioXmlDocument(xml)).toMatchObject({ success: true, format: "mxfile" });
+  });
+
   it("accepts defs/style compression, custom attributes and unknown cell extensions", () => {
     const xml = '<mxfile host="app.diagrams.net" customFileFlag="keep">' +
       '<diagram id="main" name="Main">' +
