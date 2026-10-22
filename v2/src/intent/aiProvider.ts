@@ -1,5 +1,6 @@
 import { recordDiagnostic } from "../diagnostics";
 import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
+import { isCopilotIntentOutcome, type CopilotIntentResponse } from "./copilot-intent-outcome";
 
 export interface AIProviderConfig {
   model: string;
@@ -21,18 +22,7 @@ export interface AIIntentContext {
   cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
 }
 
-export interface AIIntentResponse {
-  /** command_ready is not an execution success; it must be followed by the native bridge acknowledgement. */
-  outcome?: "command_ready";
-  reply: string;
-  selection?: { cellId: string; pageId: string | null; label: string };
-  nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; pageId: string | null; documentRevision: string; requestId: string };
-  model?: string;
-  provider?: string;
-  durationMs?: number;
-  reasoningEffort?: string;
-  sessionId?: string;
-}
+export type AIIntentResponse = CopilotIntentResponse;
 
 /** Parses only the typed native Draw.io cell-operation contract. */
 export function parseAIIntentResponse(raw: string): AIIntentResponse {
@@ -48,56 +38,115 @@ export function parseAIIntentResponse(raw: string): AIIntentResponse {
 
 function validateResponse(value: unknown): AIIntentResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("The Copilot SDK returned an invalid native-edit response");
+    throw new Error("The Copilot SDK returned an invalid intent response");
   }
   const item = value as Record<string, unknown>;
-  const rawSelection = item.selection && typeof item.selection === "object" ? item.selection as Record<string, unknown> : null;
-  const selection = rawSelection && typeof rawSelection.cellId === "string" && rawSelection.cellId.trim() &&
-    typeof rawSelection.label === "string"
-    ? {
-        cellId: rawSelection.cellId.trim(),
-        pageId: typeof rawSelection.pageId === "string" ? rawSelection.pageId : null,
-        label: rawSelection.label.slice(0, 500)
-      }
-    : undefined;
-  const nativeEdits = parseNativeEditsPayload(item.nativeEdits);
-  return {
-    ...(item.outcome === "command_ready" ? { outcome: "command_ready" as const } : {}),
-    reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
-    ...(selection ? { selection } : {}),
-    ...(nativeEdits ? { nativeEdits } : {}),
+  if (!isCopilotIntentOutcome(item.outcome)) {
+    throw new Error("The Copilot SDK response is missing a supported discriminated outcome");
+  }
+  const reply = typeof item.reply === "string" ? item.reply.trim().slice(0, 2000) : "";
+  const metadata = {
+    ...(typeof item.sessionId === "string" ? { sessionId: item.sessionId } : {}),
     ...(typeof item.model === "string" ? { model: item.model } : {}),
     ...(typeof item.provider === "string" ? { provider: item.provider } : {}),
     ...(typeof item.durationMs === "number" ? { durationMs: item.durationMs } : {}),
     ...(typeof item.reasoningEffort === "string" ? { reasoningEffort: item.reasoningEffort } : {}),
-    ...(typeof item.sessionId === "string" ? { sessionId: item.sessionId } : {})
+    ...(Array.isArray(item.toolsUsed) && item.toolsUsed.every((entry) => typeof entry === "string") ? { toolsUsed: item.toolsUsed as string[] } : {}),
+    ...(item.usage !== undefined ? { usage: item.usage } : {}),
+    ...(Array.isArray(item.modelCallUsages) ? { modelCallUsages: item.modelCallUsages } : {}),
+    ...(item.contextUsage !== undefined ? { contextUsage: item.contextUsage } : {})
   };
+  const selection = parseSelection(item.selection);
+
+  switch (item.outcome) {
+    case "command_ready": {
+      const nativeEdits = parseNativeEditsPayload(item.nativeEdits);
+      if (!nativeEdits) throw new Error("The command_ready outcome requires a validated native edit command");
+      return { outcome: "command_ready", reply, nativeEdits, ...(selection ? { selection } : {}), ...metadata };
+    }
+    case "selected":
+      if (!selection) throw new Error("The selected outcome requires a resolved cell and page");
+      return { outcome: "selected", reply: reply || "Selected “" + selection.label + "”.", selection, ...metadata };
+    case "proposal_required": {
+      const proposal = parseNativeProposal(item.proposal);
+      return { outcome: "proposal_required", reply, proposal, ...metadata };
+    }
+    case "stale_context":
+    case "failed": {
+      const error = typeof item.error === "string" ? item.error.trim().slice(0, 1000) : reply;
+      if (!error) throw new Error("The " + item.outcome + " outcome requires a safe error message");
+      if (item.outcome === "stale_context") return {
+        outcome: "stale_context", reply: reply || error, error,
+        ...(typeof item.documentRevision === "string" || item.documentRevision === null ? { documentRevision: item.documentRevision as string | null } : {}),
+        ...metadata
+      };
+      return { outcome: "failed", reply: reply || error, error, ...(typeof item.requestId === "string" ? { requestId: item.requestId } : {}), ...metadata };
+    }
+    case "needs_clarification":
+      return { outcome: "needs_clarification", reply: reply || "I need more information before changing the diagram.", ...(typeof item.question === "string" ? { question: item.question.slice(0, 1000) } : {}), ...metadata };
+    case "unsupported":
+      return { outcome: "unsupported", reply: reply || "This operation is not supported by the current native-edit allowlist.", ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 1000) } : {}), ...metadata };
+    case "answered":
+      return { outcome: "answered", reply: reply || "No diagram change was requested.", ...metadata };
+    case "applied":
+      if (typeof item.requestId !== "string" || !item.requestId.trim() || typeof item.documentRevision !== "string" || !item.documentRevision.trim()) {
+        throw new Error("The applied outcome requires requestId and documentRevision");
+      }
+      return { outcome: "applied", reply: reply || "The diagram change was applied.", requestId: item.requestId, documentRevision: item.documentRevision,
+        ...(typeof item.persistedRevision === "string" || item.persistedRevision === null ? { persistedRevision: item.persistedRevision as string | null } : {}),
+        ...metadata };
+  }
+}
+
+function parseSelection(value: unknown): { cellId: string; pageId: string | null; label: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  if (typeof item.cellId !== "string" || !item.cellId.trim() || typeof item.label !== "string" || !item.label.trim()) return null;
+  if (item.pageId !== null && item.pageId !== undefined && typeof item.pageId !== "string") return null;
+  return { cellId: item.cellId.trim(), pageId: typeof item.pageId === "string" ? item.pageId : null, label: item.label.trim().slice(0, 500) };
+}
+
+function parseResolvedNativeOperations(value: unknown): ResolvedNativeEditOperation[] {
+  if (!Array.isArray(value)) throw new Error("The native edit proposal must contain an operation list");
+  const parsed = parseNativeEditOperations(value);
+  if (!parsed.ok) throw new Error("The agent returned an invalid native edit batch: " + parsed.error);
+  return parsed.operations.map((operation, index) => {
+    const source = value[index] as Record<string, unknown>;
+    const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
+    const targetLabel = typeof source.targetLabel === "string" ? source.targetLabel.trim() : "";
+    if (!cellId || !targetLabel) throw new Error("The agent returned an operation without a resolved cell id and target label");
+    return { ...operation, cellId, targetLabel };
+  });
 }
 
 /** The server resolves target IDs; this boundary validates the batch again before it reaches Draw.io. */
-function parseNativeEditsPayload(value: unknown): AIIntentResponse["nativeEdits"] | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+function parseNativeEditsPayload(value: unknown): Extract<AIIntentResponse, { outcome: "command_ready" }>["nativeEdits"] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
-  const rawOperations = raw.operations;
-  if (!Array.isArray(rawOperations)) return undefined;
-  const parsed = parseNativeEditOperations(rawOperations);
-  if (!parsed.ok) throw new Error("The agent returned an invalid native edit batch: " + parsed.error);
-  const operations: ResolvedNativeEditOperation[] = parsed.operations.map((operation, index) => {
-    const source = rawOperations[index] as Record<string, unknown>;
-    const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
-    const targetLabel = typeof source.targetLabel === "string" ? source.targetLabel.trim() : "";
-    if (!cellId || !targetLabel) throw new Error("The agent returned a native edit without a resolved cell id and target label");
-    return { ...operation, cellId, targetLabel };
-  });
   if (raw.pageId !== null && typeof raw.pageId !== "string") throw new Error("The native edit response is missing its resolved page ID");
   if (typeof raw.documentRevision !== "string" || !raw.documentRevision.trim()) throw new Error("The native edit response is missing its document revision");
   if (typeof raw.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(raw.requestId)) throw new Error("The native edit response is missing its server request ID");
   return {
-    operations,
+    operations: parseResolvedNativeOperations(raw.operations),
     summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
     pageId: typeof raw.pageId === "string" ? raw.pageId : null,
     documentRevision: raw.documentRevision,
     requestId: raw.requestId
+  };
+}
+
+function parseNativeProposal(value: unknown): Extract<AIIntentResponse, { outcome: "proposal_required" }>["proposal"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The proposal_required outcome requires a reviewable proposal");
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.id !== "string" || !/^[0-9a-f-]{36}$/i.test(raw.id)) throw new Error("The proposal is missing its ID");
+  if (raw.pageId !== null && typeof raw.pageId !== "string") throw new Error("The proposal is missing its page ID");
+  if (typeof raw.documentRevision !== "string" || !raw.documentRevision.trim()) throw new Error("The proposal is missing its base revision");
+  return {
+    id: raw.id,
+    summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
+    operations: parseResolvedNativeOperations(raw.operations),
+    pageId: typeof raw.pageId === "string" ? raw.pageId : null,
+    documentRevision: raw.documentRevision
   };
 }
 
@@ -148,6 +197,13 @@ export async function requestAIIntentPlan(
 
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
+    if (payload && typeof payload === "object" && isCopilotIntentOutcome((payload as { outcome?: unknown }).outcome)) {
+      const outcome = validateResponse(payload);
+      recordDiagnostic("copilot.agent.response.outcome", "The Copilot service returned a non-success intent outcome", {
+        durationMs: Date.now() - startedAt, httpStatus: response.status, outcome: outcome.outcome
+      }, outcome.outcome === "failed" ? "error" : "warn");
+      return outcome;
+    }
     const message = payload && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string"
       ? (payload as { error: string }).error
       : "The Copilot SDK service returned HTTP " + response.status;
