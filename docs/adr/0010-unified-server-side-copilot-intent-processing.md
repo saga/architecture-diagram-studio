@@ -128,6 +128,7 @@ Studio's current policy is deliberately local to this application:
 
 - The client uses `mode: "empty"`; a session exposes only Studio-owned custom tools, not ambient shell or filesystem tools.
 - Studio approves those tool requests once. The server still validates each requested operation, resolves targets against the native Draw.io XML and current revision, waits for editor acknowledgement, and follows the normal save/version path before reporting an edit as applied.
+- If a permission request carries `managedApprovalRequired`, or the SDK invocation reports that managed settings are enabled, Studio returns `user-not-available`. This is fail-closed behavior because Studio has no managed-approval UI or broker; returning `no-result` here would leave the request awaiting another participant rather than producing a user-facing denial.
 - Studio has no MCP OAuth user interface or token broker, so MCP auth requests are explicitly cancelled and logged. The caller must surface an actionable message if an operation requires external authentication.
 
 The callbacks MUST NOT await logging or other nonessential I/O. Diagnostics are scheduled separately and their synchronous exceptions and rejected promises are isolated from the SDK callback result. A callback must always settle promptly.
