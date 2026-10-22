@@ -1319,6 +1319,13 @@ export default function App() {
           {!semanticEditingSafe && <div className="drawio-source-banner" role="status">This diagram contains native Draw.io structure that cannot be safely represented by the semantic projection. The original XML remains authoritative; semantic layout and structural operations are disabled to prevent data loss.</div>}
           {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
                       <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme}
+            onNativeEditResult={(result) => {
+              const status = result.success ? "Native Draw.io accepted " + (result.path || "edit") + (result.cellId === "__batch__" ? " batch" : "") + "." : "Native Draw.io edit failed: " + (result.error || "Unknown error");
+              setLastAction(status);
+              recordDiagnostic(result.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
+                requestId: result.requestId, cellId: result.cellId, path: result.path, error: result.error || null
+              }, result.success ? "info" : "error");
+            }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={previewDocument ? null : cellEditRequest}
             onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
         </div>
