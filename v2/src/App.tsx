@@ -1322,9 +1322,19 @@ export default function App() {
             onNativeEditResult={(result) => {
               const status = result.success ? "Native Draw.io accepted " + (result.path || "edit") + (result.cellId === "__batch__" ? " batch" : "") + "." : "Native Draw.io edit failed: " + (result.error || "Unknown error");
               setLastAction(status);
+              if (result.batchResults?.length) {
+                for (const step of result.batchResults) {
+                  recordDiagnostic("copilot.native-batch.step." + (result.success ? "applied" : "rolled-back"),
+                    "Native batch step " + step.index + (result.success ? " applied" : " was rolled back"),
+                    { requestId: result.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
+                      stepSuccess: step.success, batchSuccess: result.success });
+                }
+              }
               recordDiagnostic(result.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
-                requestId: result.requestId, cellId: result.cellId, path: result.path, error: result.error || null
-              }, result.success ? "info" : "error");
+                requestId: result.requestId, cellId: result.cellId, path: result.path, error: result.error || null,
+                failedIndex: result.failedIndex ?? null, rollbackErrors: result.rollbackErrors ?? [],
+                batchResults: result.batchResults ?? null
+              }, result.success && !(result.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={previewDocument ? null : cellEditRequest}
             onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
