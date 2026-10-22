@@ -88,6 +88,16 @@ describe("Draw.io style import parity", () => {
     expect(exported).toContain('parent="container"><mxGeometry x="10" y="20"');
   });
 
+  it("imports a valid empty page without retaining the previous document", () => {
+    const previous = FIXTURES.c4();
+    const xml = '<mxfile><diagram id="empty" name="Empty"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, previous);
+    expect(imported.nodes).toEqual([]);
+    expect(imported.relations).toEqual([]);
+  });
+
   it("maps common Draw.io shapes to coarse semantic roles", () => {
     expect(roleFromStyle("shape=umlActor;")).toBe("actor");
     expect(roleFromStyle("shape=cloud;")).toBe("external");
@@ -123,12 +133,12 @@ describe("Draw.io style import parity", () => {
     expect(restored.layout).toEqual(document.layout);
   });
 
-  it("warns on multi-page XML and explains non-diagram Draw.io files", () => {
+  it("treats first-page-only projection as an intentional scope, not a compatibility warning", () => {
     const singlePage = toDrawioXml(FIXTURES.c4());
     const secondPage = '<diagram id="second-page" name="Second page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>';
     const diagnostics = getDrawioXmlDiagnostics(singlePage.replace("</mxfile>", secondPage + "</mxfile>"));
     expect(diagnostics.pageCount).toBe(2);
-    expect(diagnostics.warnings.some((warning) => warning.includes("only the first page"))).toBe(true);
+    expect(diagnostics.warnings.some((warning) => warning.includes("only the first page"))).toBe(false);
     expect(getDrawioXmlDiagnostics("<mxlibrary>[]</mxlibrary>").issues[0]).toContain("custom shape library");
     expect(getDrawioXmlDiagnostics("<templates/>").issues[0]).toContain("template index");
   });
