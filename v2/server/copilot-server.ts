@@ -10,7 +10,7 @@ import { createEmptyDrawioXml, normalizeNewDrawioFileName } from "./diagram-file
 import { readCopilotProvider, describeModelRouting, isModelConfiguredWithoutProvider } from "./copilot/model-routing";
 import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
-import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
+import type { ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
@@ -41,7 +41,6 @@ const LEGACY_DEFAULT_MODEL = "claude-sonnet-5.5";
 const LOG_DIR = process.env.COPILOT_LOG_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "logs");
 const LOG_FILE = path.join(LOG_DIR, "copilot-sessions.jsonl");
 const DATA_DIR = process.env.STUDIO_DATA_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "data");
-const SUGGESTED_WORKSPACE_ROOT = path.resolve(process.cwd(), path.basename(process.cwd()) === "v2" ? ".." : ".");
 const WORKSPACE_FILE = path.join(DATA_DIR, "workspace.json");
 const VERSIONS_FILE = path.join(DATA_DIR, "diagram-versions.json");
 const APP_LOG_FILE = path.join(DATA_DIR, "application-events.jsonl");
