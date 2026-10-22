@@ -1020,9 +1020,21 @@ export default function App() {
                       failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
                     })
                   });
-                  const ackBody = await ackResponse.json().catch(() => null) as { error?: string; outcome?: string } | null;
-                  if (!ackResponse.ok) {
-                    finalResult = { ...finalResult, auditWarning: "The browser received the edit result, but the server did not accept its final audit receipt: " + (ackBody?.error || "HTTP " + ackResponse.status) };
+                  const ackBody = await ackResponse.json().catch(() => null) as {
+                    error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
+                  } | null;
+                  const expectedOutcome = finalResult.success ? "applied" : "failed";
+                  const appliedReceiptMismatch = finalResult.success && (
+                    ackBody?.documentRevision !== serializedXmlRevision ||
+                    ackBody?.persistedRevision !== persistedRevision ||
+                    ackBody?.versionId !== persistedVersionId
+                  );
+                  if (!ackResponse.ok || ackBody?.outcome !== expectedOutcome || appliedReceiptMismatch) {
+                    finalResult = {
+                      ...finalResult,
+                      auditWarning: "The browser received the edit result, but the server did not confirm the matching final outcome/revision/version: " +
+                        (ackBody?.error || (ackResponse.ok ? "receipt fields did not match" : "HTTP " + ackResponse.status))
+                    };
                   }
                 } catch (error) {
                   finalResult = { ...finalResult, auditWarning: "The edit result could not be recorded by the server: " + (error instanceof Error ? error.message : String(error)) };
