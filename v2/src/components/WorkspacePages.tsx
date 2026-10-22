@@ -361,7 +361,7 @@ export default function WorkspacePages(props: Props) {
                           {traceContextUsage(entry)!.tokenLimit !== null && <><span>Limit</span><code>{formatTokenCount(traceContextUsage(entry)!.tokenLimit!)}</code></>}
                           {traceContextUsage(entry)!.percent !== null && <><span>Occupied</span><code>{traceContextUsage(entry)!.percent}%</code></>}
                           {traceContextUsage(entry)!.messagesLength !== null && <><span>Messages</span><code>{formatTokenCount(traceContextUsage(entry)!.messagesLength!)}</code></>}
-                        </div>
+                        </div>}
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
