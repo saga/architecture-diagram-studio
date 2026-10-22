@@ -170,10 +170,11 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
       try {
         const { absolutePath } = await resolveWorkspaceFile(activeWorkspace.primaryDiagram);
         const sourceXml = await readFile(absolutePath, "utf8");
-        const validSource = validateDrawioXmlDocument(sourceXml).success;
+        const projection = projectDocumentFromXml(sourceXml);
+        const validSource = projectedSourceIsValid;
         workspaceState = {
           ...workspaceState, workspaceId: activeWorkspace.id, diagramPath: activeWorkspace.primaryDiagram,
-          drawioXml: sourceXml, document: validSource ? projectDocumentFromXml(sourceXml) : null
+          drawioXml: sourceXml, document: validSource ? projection : null
         };
         // Import the existing file into the source store without replacing its XML.
         await persistWorkspaceState(workspaceState);
@@ -900,13 +901,16 @@ app.put("/api/workspace/document", async (req, res) => {
   const drawioXml = req.body?.drawioXml;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
   const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : req.body?.baseRevision === null ? null : undefined;
-  if (typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000 || !isDrawioXmlEnvelope(drawioXml)) {
+  if (typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000) {
     res.status(400).json({ error: "Invalid Draw.io XML document or the XML exceeds 20 MB" });
     return;
   }
-  // The server ignores any client-side semantic cache. Rebuild a transient view from the
-  // validated XML so callers cannot persist a divergent DiagramDocument alongside it.
+  // Validate and derive once from the canonical XML. No client-supplied projection is accepted.
   const document = projectDocumentFromXml(drawioXml);
+  if (!projectedSourceIsValid) {
+    res.status(400).json({ error: "The Draw.io XML does not match the supported XML document schema." });
+    return;
+  }
   try {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState();
