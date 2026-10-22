@@ -76,11 +76,9 @@ test.describe("原生画布", () => {
     expect(cellX(await readWorkspaceXml(workspace), "client")).toBe(draggedX);
   });
 
-  test.fixme("选中画布元素后右侧切换到原生 Draw.io 属性面板", async ({ page }) => {
-    // The click does select the cell inside the canvas, but DrawioFrame attaches its
-    // listener through `iframe.contentWindow.editorUi`, and the bundled Draw.io v32.0.2
-    // never exposes that global in any entry URL, so no selection id ever reaches Studio.
-    // Tracked as a product gap in the embed bridge, not as a test defect.
+  test("选中画布元素后可以查看并编辑原生 Draw.io 属性", async ({ page }) => {
+    // Selection is bridged from Draw.io's supported plugin entry point; no private
+    // editorUi global or non-standard embed event is assumed.
     await nativeFrame(page).getByText("Database", { exact: true }).click();
 
     const inspector = page.locator(".native-inspector");
