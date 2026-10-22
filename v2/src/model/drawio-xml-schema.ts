@@ -191,9 +191,16 @@ export const MxRootSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.
   if (element.name !== "root") issue(ctx, "Expected root under mxGraphModel");
   const inventory = cellsFromRoot(element);
   const seenIds = new Map<string, number>();
+  const rootlessCells = inventory.filter((entry) => entry.cell.attributes.parent === undefined);
+  if (rootlessCells.length !== 1) issue(ctx, "A well-formed Draw.io page has exactly one cell without a parent", ["children"]);
   for (const entry of inventory) {
     if (entry.wrapper.name !== "mxCell" && childNodesNamed(entry.wrapper, "mxCell").length !== 1) {
       issue(ctx, "A cell wrapper must contain exactly one direct mxCell", ["children", entry.index]);
+    }
+    const wrapperId = entry.wrapper === entry.cell ? undefined : entry.wrapper.attributes.id;
+    const innerId = entry.cell.attributes.id;
+    if (wrapperId && innerId && wrapperId !== innerId) {
+      issue(ctx, "A user-object wrapper ID and its inner mxCell ID must match when both are present", ["children", entry.index]);
     }
     const id = effectiveCellId(entry.wrapper);
     if (id) {
