@@ -14,7 +14,6 @@ import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { canEditInStudio, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
 import { roleLabels } from "./design/tokens";
-import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
@@ -112,7 +111,6 @@ export default function App() {
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "quality" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
-  const [viewMode, setViewMode] = useState<"studio" | "drawio">("studio");
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
   const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
@@ -120,8 +118,6 @@ export default function App() {
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
-  const [studioZoom, setStudioZoom] = useState(1);
-  const [canvasViewResetToken, setCanvasViewResetToken] = useState(0);
   const [chatInput, setChatInput] = useState("");
   const [copilotSessionId, setCopilotSessionId] = useState(() => {
     try {
@@ -660,7 +656,6 @@ export default function App() {
     setPreviewDocument(null);
     setPreviewSummary("");
     setSelectedRelationId(null);
-    setViewMode("studio");
     const label = "Switched to " + (kind === "c4" ? "C4 diagram" : kind === "sequence" ? "sequence diagram" : "flowchart");
     // Fixtures carry no coordinates, so the layout has to exist before the first paint; committing the
     // raw fixture first is what used to stack every node on one spot until "Auto layout" was pressed.
@@ -717,7 +712,7 @@ export default function App() {
   const sendIntent = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode,
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary,
     onAppliedEdit: applyCopilotEdit
   });
 
@@ -878,7 +873,6 @@ export default function App() {
       setDocument(parsed); setNativeXmlOverride(xml);
       setPreviewDocument(null); setPreviewSummary(""); setPendingAgentProposalId(null);
       setSelectedNodeId(parsed.nodes[0]?.id || null); setSelectedRelationId(null);
-      setViewMode("drawio");
       historyRef.current = [parsed]; historyIndexRef.current = 0;
       setCanUndo(false); setCanRedo(false);
       serverRevisionRef.current = null; serverCommittedDocumentRef.current = null;
@@ -934,7 +928,6 @@ export default function App() {
       const next = parsed === empty ? empty : { ...parsed, title: empty.title };
       setSelectedRelationId(null);
       setSelectedNodeId(next.nodes[0]?.id || null);
-      setViewMode("drawio");
       commitDocument(next, "Imported native Draw.io XML from " + file.name, xml);
       if (xmlDiagnostics.warnings.length) {
         setLastAction("Imported " + file.name + " with " + xmlDiagnostics.warnings.length + " compatibility warning(s): " + xmlDiagnostics.warnings.slice(0, 2).join(" "));
@@ -1212,7 +1205,7 @@ export default function App() {
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
           
-        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to canvas</UiButton></div>}
+        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to diagram</UiButton></div>}
       </header>
 
       {activePage === "studio" ? (
@@ -1274,7 +1267,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
+        <div className="canvas-stage native-mode">
           {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram is preserved as native Draw.io XML. Its cells, styles, labels, pages or hierarchy cannot all be represented safely by the Studio projection, so semantic editing and automatic layout are disabled to prevent data loss. Use the native Draw.io editor; the full XML remains the saved source of truth.</div>}
                       <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />}
         </div>
@@ -1295,7 +1288,7 @@ export default function App() {
             page="copilot" document={document} previewDocument={previewDocument} previewSummary={previewSummary}
             messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
             sendIntent={() => void sendIntent()} acceptPreview={acceptPreview} discardPreview={discardPreview}
-            openStudio={() => { setViewMode("studio"); setRightPanelTab("properties"); }}
+            openStudio={() => { setRightPanelTab("properties"); }}
             aiBaseUrl={aiBaseUrl} setAiBaseUrl={setAiBaseUrl} aiModel={aiModel} setAiModel={setAiModel}
             reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
             aiApiKey={aiApiKey} setAiApiKey={setAiApiKey} saveAISettings={saveAISettings} clearAISettings={clearAISettings}
@@ -1365,7 +1358,7 @@ export default function App() {
           sendIntent={() => void sendIntent()}
           acceptPreview={acceptPreview}
           discardPreview={discardPreview}
-          openStudio={() => { setViewMode("studio"); openPage("studio"); }}
+          openStudio={() => { openPage("studio"); }}
           aiBaseUrl={aiBaseUrl}
           setAiBaseUrl={setAiBaseUrl}
           aiModel={aiModel}
