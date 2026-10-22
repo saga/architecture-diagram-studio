@@ -289,7 +289,6 @@ export default function App() {
         setCopilotSessionId(newSessionId);
         setMessages([{ role: "assistant", id: Date.now(), text: "Created a new Draw.io diagram. The project workspace remains the folder; this file is the active diagram." }]);
         serverRevisionRef.current = result.workspaceRevision;
-        serverCommittedDocumentRef.current = { document: nextDocument, workspaceId: nextWorkspace.id };
         workspaceInitialLoadRef.current = nextWorkspace.id;
         setServerDocumentAvailable(true); setWorkspaceContentReady(true);
         setWorkspaceLaunchMode("open"); setWorkspaceSetupOpen(false);
@@ -356,7 +355,6 @@ export default function App() {
       setNativeXmlOverride(nextXml);
       // Opening a file is an explicit refresh, so don't let a prior Copilot receipt suppress
       // persistence if the native XML changed while the app was open.
-      serverCommittedDocumentRef.current = null;
       workspaceInitialLoadRef.current = nextWorkspace.id;
       setServerDocumentAvailable(true); setProjectWorkspace(nextWorkspace); setStandaloneFileHandle(null); setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
@@ -771,7 +769,6 @@ export default function App() {
         if (!response.ok || !isDiagramDocument(payload.document)) throw new Error(payload.error || "The Agent proposal could not be applied");
         const preservedXml = typeof payload.version?.drawioXml === "string" ? payload.version.drawioXml : undefined;
         serverRevisionRef.current = typeof payload.workspaceRevision === "string" ? payload.workspaceRevision : null;
-        serverCommittedDocumentRef.current = { document: payload.document, workspaceId: projectWorkspace?.id ?? null };
         setPendingAgentProposalId(null);
         commitDocument(payload.document, summary + " (confirmed)", preservedXml);
         setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "The reviewed proposal was applied and versioned by the Studio server." }]);
@@ -854,7 +851,7 @@ export default function App() {
       setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
       historyRef.current = [parsed]; historyIndexRef.current = 0;
       setCanUndo(false); setCanRedo(false);
-      serverRevisionRef.current = null; serverCommittedDocumentRef.current = null;
+      serverRevisionRef.current = null;
       setMessages([{ role: "assistant", id: Date.now(), text: "Opened a standalone Draw.io file. It is independent of the configured project workspace." }]);
       setWorkspaceSetupOpen(false); setWorkspaceError("");
       setLastAction(handle ? "Opened " + file.name + " with local autosave enabled" : "Opened " + file.name + " as a standalone document; use Export to save changes");
