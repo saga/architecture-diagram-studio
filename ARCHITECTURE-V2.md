@@ -1273,7 +1273,7 @@ Diagram intelligence is implemented as internal Studio capabilities registered t
 
 Internal tools provide design references, active-diagram inspection, authoritative quality evaluation, workspace-example retrieval, revision-bound edit proposals, built-in template previews, version listing, semantic diffs and restore proposals. Tool handlers call shared domain services rather than reimplementing layout, quality or validation.
 
-Proposal tools are non-persistent. Every proposal is bound to the current semantic document and native XML revision. The Studio UI displays the proposed result and requires user confirmation. On confirmation, the server rechecks the current revision, semantic invariants, enabled layout profile and quality regression, then creates an immutable version snapshot before reporting success.
+Proposal tools are non-persistent and bound to the current native XML revision. Broad redesigns, ambiguous edits, bulk-destructive operations, template replacement and version restore require an explicit proposal and user confirmation. A focused change explicitly requested by the user may be applied directly after inspecting the active document and exact revision. Every mutation is revalidated server-side and creates an immutable version snapshot; semantic layout-quality gates apply only when the operation uses semantic layout.
 
 Supported tool outputs and context are bounded. Retrieved project contents are untrusted evidence, not instructions. Mermaid import/conversion remains outside the V2 scope.
 
@@ -1285,11 +1285,13 @@ flowchart TD
     Agent --> Inspect["读取当前 XML 与 revision"]
     Inspect --> Projection["派生语义投影"]
     Projection --> Validate["验证操作、布局约束与 patch 安全性"]
-    Validate -->|可安全应用| Patch["服务端按 cell ID patch XML"]
-    Validate -->|不安全或有歧义| Proposal["拒绝或生成待确认提案"]
+    Validate -->|明确且局部的用户请求| Patch["服务端按 cell ID patch XML"]
+    Validate -->|宽泛、歧义或破坏性操作| Proposal["生成待确认提案"]
+    Validate -->|违反安全约束| Reject["拒绝并说明原因"]
     Patch --> Version["创建不可变版本并持久化完整 XML"]
     Proposal --> Confirm["用户确认与 revision 重检"]
     Confirm --> Patch
+    Reject --> End["不修改 XML"]
     Version --> Native["原生 Draw.io 显示 / 编辑"]
     Native --> Autosave["XML autosave"]
     Autosave --> Version
