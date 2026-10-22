@@ -259,7 +259,7 @@ export default function WorkspacePages(props: Props) {
             <div className="gemini-chat-scroll">
               {messages.length === 0 && <div className="gemini-welcome">
                 <div className="prompt-suggestions">
-                  {["Put all external systems on the right", "Move databases and storage to the bottom", "Make all relations dashed", "Change curves to polylines"].map((prompt) =>
+                  {["Add Audit Service after Database and connect it", "Rename Database to Data Store", "Make Database background red", "Move API Service right by 60"].map((prompt) =>
                     <UiButton type="button" key={prompt} onClick={() => setChatInput(prompt)}>{prompt}<span>↗</span></UiButton>
                   )}
                 </div>
