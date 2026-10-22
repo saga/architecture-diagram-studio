@@ -11,7 +11,7 @@ import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
 export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
 
-/** The bridge batch caps at 50 steps; two geometry steps per move stay well inside it. */
+/** The bridge batch caps at 50 steps; typed moves are a single live-geometry delta. */
 export const MAX_NATIVE_EDIT_OPERATIONS = 20;
 
 export type NativeEditOperation =
