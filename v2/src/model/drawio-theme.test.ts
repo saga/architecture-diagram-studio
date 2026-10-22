@@ -79,7 +79,7 @@ describe("native Draw.io theme adapter", () => {
     const source = '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="rounded=1;fillColor=#ffffff;strokeColor=#64748b;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
     const themed = applyDrawioCellThemeReversible(source, "youth");
     expect(themed).toContain('<mxCell id="n1" value="API" style="rounded=1;fillColor=#fce7f3;strokeColor=#b91f6d;');
-    expect(themed.match(/<mxCell\\b/g) || []).toHaveLength(3);
+    expect(themed.match(/<mxCell\b/g) || []).toHaveLength(3);
     expect(themed).not.toContain('<mxCell<mxCell');
     expect(applyDrawioCellThemeReversible(themed, "youth")).toBe(themed);
     expect(applyDrawioCellThemeReversible(themed, "editorial")).toContain('style="rounded=1;fillColor=#ffffff;strokeColor=#64748b;"');
