@@ -14,12 +14,12 @@ test.beforeEach(async ({ page, request }) => {
 
 test.describe("版本历史与文件交换", () => {
   test("版本历史列出服务端快照并可以恢复到创建时的空文档", async ({ page }) => {
-    await expect(page.locator(".status-right")).toContainText("5 nodes");
+    await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "History" }).click();
     const dialog = page.getByRole("dialog", { name: "Server version history" });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/Applied template: service-queue-database/)).toBeVisible();
+    await expect(dialog.getByText(/E2E native Draw.io fixture/)).toBeVisible();
 
     // Each version row is a flex container; match the row by its label, not by index.
     const createdRow = dialog.locator('div[style*="display: flex"]').filter({ hasText: "Created diagram: architecture.drawio" });
@@ -30,10 +30,9 @@ test.describe("版本历史与文件交换", () => {
 
     // The restore status line is transient: the native autosave that follows the reload
     // replaces it with its own sync message. Assert the durable outcome instead.
-    await expect(page.locator(".status-right")).toContainText("0 nodes");
-    await expect(nativeFrame(page).getByText("API Service", { exact: true })).toHaveCount(0);
+    await expect(nativeFrame(page).getByText("Database", { exact: true })).toHaveCount(0);
     await expect
-      .poll(async () => (await readWorkspaceXml(workspace)).includes("API Service"), { timeout: 30_000, intervals: [500] })
+      .poll(async () => (await readWorkspaceXml(workspace)).includes("Database"), { timeout: 30_000, intervals: [500] })
       .toBe(false);
 
     // Restoring appends a new server snapshot that points back at the source version.
@@ -50,13 +49,13 @@ test.describe("版本历史与文件交换", () => {
     expect(download.suggestedFilename()).toMatch(/\.drawio$/);
     const exported = await readFile((await download.path())!, "utf8");
     expect(exported).toContain("<mxfile");
-    expect(exported).toContain("API Service");
+    expect(exported).toContain("Database");
     await expect(page.locator(".status-left")).toContainText("Exported the native .drawio file");
   });
 
   test("导入本地 .drawio 文件后画布与工作区文件都更新", async ({ page }) => {
     const source = await readWorkspaceXml(workspace);
-    const renamed = source.replace("API Service", "Edge Gateway");
+    const renamed = source.replace("Database", "Edge Gateway");
     expect(renamed).not.toBe(source);
     const importPath = path.join(workspace.rootPath, "incoming.drawio");
     await writeFile(importPath, renamed, "utf8");
