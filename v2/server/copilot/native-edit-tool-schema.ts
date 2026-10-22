@@ -48,7 +48,7 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       type: "object",
       properties: {
         op: { type: "string", enum: ["move"] },
-        target,
+        target: { ...target, description: "Exact cell ID or unique exact label of a vertex. Moving connector routing is not supported by this operation." },
         dx: { type: "number", minimum: -10000, maximum: 10000, description: "Required horizontal delta." },
         dy: { type: "number", minimum: -10000, maximum: 10000, description: "Required vertical delta." }
       },
@@ -59,7 +59,7 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       type: "object",
       properties: {
         op: { type: "string", enum: ["resize"] },
-        target,
+        target: { ...target, description: "Exact cell ID or unique exact label of a vertex. Resizing connector geometry is not supported by this operation." },
         width: { type: "number", minimum: 1, maximum: 10000, description: "Required width." },
         height: { type: "number", minimum: 1, maximum: 10000, description: "Required height." }
       },
