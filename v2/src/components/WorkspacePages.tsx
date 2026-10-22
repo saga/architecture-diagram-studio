@@ -133,14 +133,10 @@ interface Props {
   setChatInput: (value: string) => void;
   chatBusy: boolean;
   sendIntent: () => void;
-  aiBaseUrl: string;
-  setAiBaseUrl: (value: string) => void;
   aiModel: string;
   setAiModel: (value: string) => void;
   reasoningEffort: "high" | "max";
   setReasoningEffort: (value: "high" | "max") => void;
-  aiApiKey: string;
-  setAiApiKey: (value: string) => void;
   saveAISettings: () => void;
   clearAISettings: () => void;
   traceEntries: DiagnosticEntry[];
