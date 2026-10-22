@@ -45,8 +45,11 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     const startedAt = Date.now();
     recordDiagnostic("copilot.request.started", "Layout intent handling started", {
       configuredModel: Boolean(aiModel.trim()), provider: aiModel.trim() ? "github-copilot-sdk" : "local-rules", model: aiModel.trim() || "local-rules",
-      sessionId: copilotSessionId, diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length,
-      inputLength: text.length
+      sessionId: copilotSessionId, standaloneMode, diagramKind: document.kind, diagramTitle: document.title,
+      nodeCount: document.nodes.length, relationCount: document.relations.length,
+      selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
+      userRequest: text, inputLength: text.length,
+      executionCapabilities: standaloneMode ? ["allowlisted global layout plans only", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "reviewable proposals", "allowlisted layout plans"]
     });
     setMessages((items) => [...items, { role: "user", id: Date.now(), text }]);
     if (!promptOverride) setChatInput("");
@@ -58,7 +61,11 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       let modelReply = "";
       if (aiModel.trim()) {
         recordDiagnostic("copilot.agent.request", "Asked the Copilot SDK agent for a constrained layout plan", {
-          sessionId: copilotSessionId, model: aiModel.trim(), reasoningEffort, provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
+          sessionId: copilotSessionId, model: aiModel.trim(), reasoningEffort, provider: "github-copilot-sdk",
+          standaloneMode, inputLength: text.length, userRequest: text, diagramTitle: document.title,
+          nodeCount: Math.min(document.nodes.length, 80), relationCount: document.relations.length,
+          selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
+          executionCapabilities: standaloneMode ? ["allowlisted global layout plans only", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "reviewable proposals", "allowlisted layout plans"]
         });
         const plan = await requestAIIntentPlan(
           { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
@@ -145,6 +152,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     } catch (error) {
       recordDiagnostic("copilot.request.failed", "Layout intent failed; nothing was committed", {
         durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        sessionId: copilotSessionId, model: aiModel.trim() || "local-rules", standaloneMode,
+        userRequest: text, diagramTitle: document.title, diagramKind: document.kind,
+        selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name } : null,
         detailRecordedByProvider: Boolean(aiModel.trim())
       }, "error");
       setMessages((items) => [...items, { role: "assistant", id: Date.now() + 2, text: "Nothing was committed: " + (error instanceof Error ? error.message : String(error)) }]);
