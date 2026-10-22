@@ -227,7 +227,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           model.setGeometry(cell, geometry);
         } else if (path.startsWith("cell:")) {
           const key = path.slice("cell:".length);
-          if (key === "source" || key === "target") {
+          if (["visible", "collapsed", "connectable"].includes(key)) {
+            const normalized = value.toLowerCase();
+            if (!["1", "0", "true", "false"].includes(normalized)) throw new Error(key + " must be 1/0 or true/false");
+            const enabled = normalized === "1" || normalized === "true";
+            if (key === "visible") model.setVisible(cell, enabled);
+            else if (key === "collapsed") model.setCollapsed(cell, enabled);
+            else model.setConnectable(cell, enabled);
+          } else if (key === "source" || key === "target") {
             const terminal = value ? model.getCell(value) : null;
             if (value && !terminal) throw new Error("No cell exists with id " + value);
             model.setTerminal(cell, terminal, key === "source");
