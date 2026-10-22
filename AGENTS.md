@@ -2,7 +2,7 @@
 
 ## Workspace and diagram model
 
-- **Native Draw.io XML (mxfile / mxGraphModel) is the only diagram model.** Do not reintroduce DiagramDocument, a partial graph projection, semantic fixtures, a layout engine, or another parallel diagram model in V2.
+- **Native Draw.io XML (mxfile / mxGraphModel) is the only diagram model.** Do not reintroduce `DiagramDocument`, a persisted/authoritative partial graph projection, semantic fixtures, the legacy graph-model-dependent layout pipeline, or another parallel diagram model in V2. A future layout capability is allowed only as a native-cell operation provider under ADR-0012; it must not reconstruct or persist a second graph.
 - Use the embedded native Draw.io editor for selection, geometry, styling, relationships, grouping, pages, undo/redo and every diagram-specific interaction.
 - Import, open, bootstrap, autosave, version history, recovery and export must keep native Draw.io XML as the sole source of truth and retain its full content: multiple pages, unknown cells, layers, nested cells, custom shapes, HTML labels and arbitrary attributes. Never rebuild an existing diagram from a reduced model. Native-editor saves may normalize XML formatting or attribute order after an edit; they must not drop unrelated diagram content.
 - Copilot changes must use typed, allowlisted native-cell operations. The server resolves targets against the active page, checks the requested operation and source revision, and the browser waits for the editor acknowledgement. Unsupported, ambiguous, invalid or stale operations fail closed.
