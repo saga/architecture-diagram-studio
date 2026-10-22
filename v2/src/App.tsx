@@ -494,22 +494,6 @@ export default function App() {
     });
   }, [document, drawioXml, semanticEditingSafe]);
 
-  const replaceDocument = useCallback((next: DiagramDocument) => {
-    if (semanticEditingSafe) {
-      const patchedXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
-      if (!patchedXml) {
-        setLastAction("The update was not applied because the authoritative Draw.io XML could not be patched safely.");
-        recordDiagnostic("drawio.semantic-patch.failed", "A replacement update was refused because XML cell patching was unsafe", { documentId: document.id }, "error");
-        return;
-      }
-      setNativeXmlOverride(patchedXml);
-    }
-    const index = historyIndexRef.current;
-    if (index >= 0) historyRef.current = [...historyRef.current.slice(0, index), next];
-    setDocument(next);
-    setRevision((value) => value + 1);
-  }, [document, drawioXml, semanticEditingSafe]);
-
   /**
    * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
    * a fixture before it was laid out, and every later reload restored the stack of nodes on one spot.
