@@ -131,7 +131,7 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
     requestId: body.requestId, sessionId: body.sessionId, standalone: body.standalone,
     documentRevision: body.documentRevision, outcome: body.outcome, editorAcknowledged: body.editorAcknowledged,
     serializedXmlRevision: body.serializedXmlRevision, persistenceStatus: body.persistenceStatus,
-    persistedRevision: body.persistedRevision, failureStage: body.failureStage, error: body.error
+    persistedRevision: body.persistedRevision, versionId: body.versionId, failureStage: body.failureStage, error: body.error
   });
 }
 
