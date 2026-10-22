@@ -463,3 +463,9 @@ git clone --depth 1 -b dev https://github.com/jgraph/drawio-diagrams /tmp/dd
 已将边端点条件收紧为：source 和 target 都必须存在于当前 XML 页面实际投影出的节点集合。新增回归测试：旧文档中的 source 节点不在新 XML 中，而新 XML 仍包含一条指向该旧节点的边时，该边必须被丢弃。
 
 本次只完成源码和回归用例修改；尚未执行 Vitest 或语料探针，因此不声称该测试已运行通过。
+
+## 15. 复审继续：当前 XML 的显式语义元数据优先
+
+又发现一处旧状态污染：当当前 XML cell 的 ID 与上一份语义投影相同，导入器此前优先沿用 `previous.role` / `previous.visualRole`，即使 XML 已明确写入新的 `studioRole` 或 `studioVisualRole`。这会导致 Draw.io XML 中的显式语义变更被旧缓存覆盖。
+
+已调整为：当前 XML 明确包含 Studio 语义标记时，以该标记为准；只有原生 cell 缺少这些标记时，才使用旧投影作为兼容性回退。新增同 ID 节点从 service 改为 storage/highlight 的回归用例。测试尚未实际执行。
