@@ -375,36 +375,36 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const standalone = req.body?.standalone === true;
     if (!prompt || prompt.length > 4000) {
       await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_prompt", promptLength: prompt.length });
-      res.status(400).json({ error: "prompt must be 1–4000 characters", sessionId });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "prompt must be 1–4000 characters", sessionId });
       return;
     }
     if (!requestedContext || typeof requestedContext !== "object" || Array.isArray(requestedContext)) {
       await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_context" });
-      res.status(400).json({ error: "Invalid native Draw.io request context", sessionId });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "Invalid native Draw.io request context", sessionId });
       return;
     }
     if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000 || !documentRevision) {
       await deps.writeLog("request.validation.failed", { sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ error: "A native Draw.io XML snapshot up to 20 MB and its document revision are required", sessionId });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A native Draw.io XML snapshot up to 20 MB and its document revision are required", sessionId });
       return;
     }
     const xmlValidation = validateDrawioXmlDocument(diagramXml);
     if (!xmlValidation.success) {
       await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ error: "The Copilot request contains invalid Draw.io XML", sessionId });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", sessionId });
       return;
     }
     const computedRevision = workspaceRevision(diagramXml);
     if (computedRevision !== documentRevision) {
       await deps.writeLog("request.validation.failed", { sessionId, reason: "revision_hash_mismatch", documentRevision, computedRevision });
-      res.status(409).json({ error: "The supplied diagram revision does not match its XML snapshot. Reload the diagram and retry.", documentRevision: computedRevision, sessionId });
+      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied diagram revision does not match its XML snapshot.", documentRevision: computedRevision, sessionId });
       return;
     }
     const requestedPageId = typeof (requestedContext as { activePageId?: unknown }).activePageId === "string"
       ? ((requestedContext as { activePageId: string }).activePageId || null) : null;
     const pageInfo = getNativeDiagramPageInfo(diagramXml, requestedPageId);
     if (requestedPageId && pageInfo.id !== requestedPageId) {
-      res.status(409).json({ error: "The requested Draw.io page is not present in this XML revision. Reload the diagram and retry.", documentRevision, sessionId });
+      res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, sessionId });
       return;
     }
     const allNativeCells = extractNativeEditTargets(diagramXml, pageInfo.id);
@@ -414,12 +414,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const selection = requestedSelection as { cellId?: unknown; pageId?: unknown };
       if (typeof selection.cellId === "string" && selection.cellId.trim()) {
         if (typeof selection.pageId === "string" && pageInfo.id && selection.pageId !== pageInfo.id) {
-          res.status(409).json({ error: "The selected cell belongs to a different Draw.io page. Select it again and retry.", documentRevision, sessionId });
+          res.status(409).json({ outcome: "stale_context", reply: "The selected element belongs to another page. Select it again and retry.", error: "The selected cell belongs to a different Draw.io page.", documentRevision, sessionId });
           return;
         }
         const target = allNativeCells.find((cell) => cell.id === selection.cellId);
         if (!target) {
-          res.status(409).json({ error: "The selected cell is not present on the active Draw.io page in this revision. Select it again and retry.", documentRevision, sessionId });
+          res.status(409).json({ outcome: "stale_context", reply: "The selected element changed or was removed. Select it again and retry.", error: "The selected cell is not present on the active Draw.io page in this revision.", documentRevision, sessionId });
           return;
         }
         selectedCell = { cellId: target.id, pageId: pageInfo.id, label: target.name };
@@ -442,7 +442,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const authoritative = await deps.getWorkspaceDiagramSnapshot();
       if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
         await deps.writeLog("request.validation.failed", { sessionId, reason: "stale_workspace_revision", requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
-        res.status(409).json({ error: "The workspace diagram changed or has not been saved to this revision. Reload or retry after saving, then send the request again.", documentRevision: authoritative?.revision ?? null, sessionId });
+        res.status(409).json({ outcome: "stale_context", reply: "The workspace diagram is not saved at the revision shown in the editor. Save or reload, then retry.", error: "The workspace diagram changed or has not been saved to this revision.", documentRevision: authoritative?.revision ?? null, sessionId });
         return;
       }
     }
@@ -451,11 +451,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
     const startedAt = Date.now();
     const requestId = randomUUID();
-    const expiredBefore = Date.now() - 10 * 60_000;
-    for (const [id, pending] of pendingNativeExecutionAcks) {
-      if (pending.createdAt < expiredBefore) {
-        pendingNativeExecutionAcks.delete(id);
-        await deps.writeLog("turn.native-edit.ack-expired", { requestId: id, sessionId: pending.sessionId, ageMs: Date.now() - pending.createdAt });
+    const expiredBefore = Date.now() - ACK_TTL_MS;
+    for (const id of acknowledgements.expire(Date.now(), ACK_TTL_MS)) {
+      await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
+    }
+    for (const [id, proposal] of pendingNativeProposals) {
+      if (proposal.createdAt < expiredBefore) {
+        pendingNativeProposals.delete(id);
+        await deps.writeLog("turn.native-edit.proposal-expired", { proposalId: id, sessionId: proposal.sessionId });
       }
     }
     const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.name.slice(0, 120), cellType: cell.cellType }));
@@ -475,7 +478,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             systemMessage: await buildSystemMessage(standalone),
             tools: [
               createSelectDiagramElementTool(sessionId),
-              createProposeNativeEditsTool(sessionId)
+              createProposeNativeEditsTool(sessionId),
+              createReportIntentOutcomeTool(sessionId)
             ],
             workspaceId: standalone ? undefined : (await deps.getProjectWorkspace())?.id
           };
@@ -489,6 +493,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         contextBySession.set(sessionId, { ...context, cells: allNativeCells });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
+        pendingReportedOutcomes.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -526,20 +531,23 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         await sendAttempt(1, firstRequestPrompt, 50000);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
-        if (!capturedSelection && !capturedNativeEdits) {
+        let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
+        if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Use propose_native_edits for supported native Draw.io changes, including add_node_after for adding a new node after a target and connecting it. Use select_diagram_element only for pure focus requests. Do not invent XML or perform unsupported operations. If the target is ambiguous or the operation is unsupported, make no changes and explain why.",
+            request: "You must finish with exactly one supported tool call. Use propose_native_edits for supported native Draw.io changes, including add_node_after for adding a new node after a target and connecting it. Use select_diagram_element only for pure focus requests. For informational requests call report_intent_outcome with outcome answered; if required information is missing or the target is ambiguous use needs_clarification; if the action is not supported use unsupported. Do not invent XML or claim success. Broad destructive batches will be converted to a reviewable proposal by the server.",
             diagram: context
           });
           await sendAttempt(2, retryPrompt, 25000, "the first response did not invoke a native editor tool");
           capturedSelection = pendingAgentSelections.get(sessionId) || null;
           capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
+          capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
         }
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
+        pendingReportedOutcomes.delete(sessionId);
         return {
-          capturedSelection, capturedNativeEdits, modelText,
+          capturedSelection, capturedNativeEdits, capturedReportedOutcome, modelText,
           session: turn.session,
           usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
         };
@@ -552,7 +560,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           pendingNativeEdits.delete(sessionId);
           pendingAgentSelections.delete(sessionId);
           await deps.writeLog("turn.native-edit.stale", { sessionId, requestId, requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
-          res.status(409).json({ error: "The workspace diagram changed while Copilot was interpreting the request. No edit was dispatched; retry against the current diagram.", documentRevision: authoritative?.revision ?? null, sessionId });
+          res.status(409).json({ outcome: "stale_context", reply: "The workspace changed while Copilot was interpreting the request. No edit was applied; retry against the latest diagram.", error: "The workspace diagram changed while Copilot was interpreting the request.", documentRevision: authoritative?.revision ?? null, sessionId });
           return;
         }
       }
@@ -571,7 +579,31 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       };
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
-        pendingNativeExecutionAcks.set(requestId, {
+        if (requiresExplicitConfirmation(nativeEdits.operations)) {
+          const proposalId = randomUUID();
+          pendingNativeProposals.set(proposalId, {
+            id: proposalId, sessionId, standalone, documentRevision, pageId: context.activePageId,
+            operations: nativeEdits.operations, summary: nativeEdits.summary, createdAt: Date.now()
+          });
+          const proposal = {
+            id: proposalId, summary: nativeEdits.summary, operations: nativeEdits.operations,
+            pageId: context.activePageId, documentRevision
+          };
+          const response = {
+            outcome: "proposal_required" as const,
+            reply: "This batch contains multiple destructive operations or is too broad to apply automatically. Review the listed changes and explicitly confirm before any edit is sent to Draw.io.",
+            proposal,
+            ...shared
+          };
+          await deps.writeLog("turn.completed.proposal-required", {
+            requestId, proposalId, sessionId, operationCount: nativeEdits.operations.length,
+            deleteCount: nativeEdits.operations.filter((operation) => operation.op === "delete").length,
+            summary: nativeEdits.summary, documentRevision
+          });
+          res.json(response);
+          return;
+        }
+        acknowledgements.register({
           requestId, sessionId, standalone, documentRevision,
           operationCount: nativeEdits.operations.length, summary: nativeEdits.summary, createdAt: Date.now()
         });
@@ -590,18 +622,28 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return;
       }
       if (selection) {
-        const response = { commands: [], reply: modelReply || "Selected diagram element: " + selection.label, selection, ...shared };
+        const response = { outcome: "selected" as const, commands: [], reply: modelReply || "Selected diagram element: " + selection.label, selection, ...shared };
         await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response, usage: plan.usage });
         res.json(response);
         return;
       }
+      if (plan.capturedReportedOutcome) {
+        const reported = plan.capturedReportedOutcome;
+        await deps.writeLog("turn.completed.without-native-edit", {
+          requestId, sessionId, outcome: reported.outcome, reply: reported.reply, usage: plan.usage
+        });
+        res.json({ ...reported, ...shared });
+        return;
+      }
       await deps.writeLog("turn.completed.without-native-edit", {
-        sessionId, model: plan.session.model, modelText: modelReply, usage: plan.usage
+        requestId, sessionId, outcome: "failed", model: plan.session.model, modelText: modelReply, usage: plan.usage,
+        reason: "structured_outcome_missing"
       });
-      res.json({
-        commands: [],
-        reply: modelReply || "No supported native edit was produced. The diagram is unchanged.",
-        ...shared
+      res.status(502).json({
+        outcome: "failed",
+        reply: "The Copilot service did not return a validated intent outcome. No diagram changes were dispatched.",
+        error: "The agent failed to call a native edit, selection, or report_intent_outcome tool.",
+        requestId, ...shared
       });
     } catch (error) {
       contextBySession.delete(sessionId);
@@ -616,7 +658,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: message, errorStack: error instanceof Error ? error.stack : null
       });
-      res.status(502).json({ error: describeCopilotFailure(message, { requestedModel: model, actualModel }), sessionId });
+      res.status(502).json({ outcome: "failed", reply: "Copilot could not complete this request. No edit was confirmed.", error: describeCopilotFailure(message, { requestedModel: model, actualModel }), requestId, sessionId });
     }
   });
 }
