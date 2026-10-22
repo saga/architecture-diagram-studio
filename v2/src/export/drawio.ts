@@ -73,6 +73,19 @@ function edgeXml(relation: DiagramRelation, routing: string, doc: DiagramDocumen
     "\" target=\"" + esc(target) + "\"><mxGeometry relative=\"1\" as=\"geometry\">" +
     pointXml(relation.points || []) + "</mxGeometry></mxCell>";
 }
+function layoutCellStyle(doc: DiagramDocument): string {
+  const layout = doc.layout;
+  return [
+    "studioLayoutProfile=" + encodeURIComponent(layout.profile),
+    "studioLayoutDirection=" + layout.direction,
+    "studioLayoutRouting=" + layout.routing,
+    "studioNodeSpacing=" + layout.nodeSpacing,
+    "studioLayerSpacing=" + layout.layerSpacing,
+    "studioBoundaryPadding=" + layout.boundaryPadding,
+    "studioExternalSide=" + layout.externalSide,
+    "studioStorageSide=" + layout.storageSide
+  ].join(";") + ";";
+}
 function boundaryXml(doc: DiagramDocument, boundary: DiagramDocument["boundaries"][number], theme: string): string {
   const members = doc.nodes.filter((node) => boundary.members.includes(node.id));
   if (members.length === 0) return "";
@@ -164,7 +177,7 @@ function sequenceSupport(doc: DiagramDocument, theme: string): { vertices: strin
 export function toDrawioXml(doc: DiagramDocument): string {
   const theme = normalizeRenderTheme(doc.renderTheme);
   const support = sequenceSupport(doc, theme);
-  const cells = "<mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>" +
+  const cells = "<mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\" style=\"" + esc(layoutCellStyle(doc)) + "\"/>" +
     doc.boundaries.map((boundary) => boundaryXml(doc, boundary, theme)).join("") +
     doc.nodes.map((node) => vertexXml(node, theme, doc) + accentXml(node, theme)).join("") + support.vertices +
     (doc.kind === "sequence" ? support.edges : doc.relations.map((relation) => edgeXml(relation, doc.layout.routing, doc, theme)).join(""));
