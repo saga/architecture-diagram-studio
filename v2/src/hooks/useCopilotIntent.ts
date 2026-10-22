@@ -28,7 +28,6 @@ interface CopilotIntentOptions {
   setPendingAgentProposalId: (id: string | null) => void;
   setPreviewDocument: (document: DiagramDocument | null) => void;
   setPreviewSummary: (summary: string) => void;
-  setViewMode: (mode: "studio") => void;
   onAppliedEdit: (application: AppliedDiagramEdit) => void;
 }
 
@@ -36,7 +35,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
-    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode, onAppliedEdit
+    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit
   } = options;
 
   return useCallback(async (promptOverride?: string) => {
@@ -85,7 +84,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           setPendingAgentProposalId(null);
           setPreviewDocument(null);
           setPreviewSummary("");
-          setViewMode("studio");
           onAppliedEdit(application);
           const prefix = modelReply && modelReply !== application.summary ? modelReply + " " : "";
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
