@@ -120,11 +120,16 @@ let projectedSourceDocument: DiagramDocument | null = null;
 /** Rebuild the ephemeral semantic view from XML; never hydrate the view from persisted JSON. */
 function projectDocumentFromXml(xml: string): DiagramDocument {
   if (projectedSourceXml === xml && projectedSourceDocument) return projectedSourceDocument;
+  const validation = validateDrawioXmlDocument(xml);
+  const firstPage = validation.success && validation.root.name === "mxfile"
+    ? validation.root.children.find((child) => child.name === "diagram") : undefined;
+  const title = firstPage?.attributes.name || "Draw.io diagram";
+  const id = firstPage?.attributes.id || "drawio-xml-projection";
   const emptyProjection: DiagramDocument = {
-    ...FIXTURES.c4(), id: "drawio-xml-projection", title: "Draw.io diagram",
+    ...FIXTURES.c4(), id, title,
     nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
   };
-  const parsed = validateDrawioXmlDocument(xml).success ? fromDrawioXml(xml, emptyProjection) : emptyProjection;
+  const parsed = validation.success ? fromDrawioXml(xml, emptyProjection) : emptyProjection;
   projectedSourceXml = xml;
   projectedSourceDocument = parsed;
   return parsed;
