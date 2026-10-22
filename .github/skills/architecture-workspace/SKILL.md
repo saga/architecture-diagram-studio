@@ -23,4 +23,4 @@ Workspace retrieval, diagram inspection, quality scoring, example search, edit p
 - Keep file reads within the configured workspace root, reject path traversal, and avoid following symlinks.
 - Mermaid import and semantic conversion are not implemented; do not imply that `.mmd` files can be converted into Studio documents.
 - Avoid injecting repositories indiscriminately. Prioritize the primary diagram and relevant files, and disclose when context limits truncate evidence.
-- Mutations require user confirmation, a current revision, server-side semantic and quality validation, and a new version snapshot.
+- Every mutation requires the current XML revision, server-side validation, and a new version snapshot. A focused change explicitly requested by the user may be applied directly after inspecting the active document and exact revision. Broad, ambiguous, bulk-destructive, template-replacement, and restore operations require explicit confirmation. Apply semantic layout-quality gates only when the operation uses semantic layout.
