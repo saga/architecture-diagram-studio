@@ -66,6 +66,34 @@ describe("native Draw.io Copilot contract", () => {
     expect(() => parseAIIntentResponse(JSON.stringify({ reply: "The diagram has three services." }))).toThrow("discriminated outcome");
   });
 
+  it("accepts a final applied outcome only when editor, target, revision and version evidence are present", () => {
+    const applied = parseAIIntentResponse(JSON.stringify({
+      outcome: "applied",
+      reply: "Renamed Database.",
+      requestId: "11111111-1111-4111-8111-111111111111",
+      documentRevision: "revision-2",
+      persistedRevision: "revision-2",
+      versionId: "v-1700000000-test",
+      editorAcknowledged: true,
+      persistenceStatus: "saved",
+      resolvedTargets: [{ cellId: "db", label: "Database" }]
+    }));
+    expect(applied.outcome).toBe("applied");
+    if (applied.outcome !== "applied") return;
+    expect(applied.resolvedTargets).toEqual([{ cellId: "db", label: "Database" }]);
+    expect(applied.versionId).toBe("v-1700000000-test");
+    expect(() => parseAIIntentResponse(JSON.stringify({
+      outcome: "applied", reply: "Done", requestId: "11111111-1111-4111-8111-111111111111",
+      documentRevision: "revision-2", versionId: null, editorAcknowledged: true,
+      persistenceStatus: "not_managed_by_server", resolvedTargets: []
+    }))).not.toThrow();
+    expect(() => parseAIIntentResponse(JSON.stringify({
+      outcome: "applied", reply: "Done", requestId: "11111111-1111-4111-8111-111111111111",
+      documentRevision: "revision-2", versionId: null, editorAcknowledged: true,
+      persistenceStatus: "saved"
+    }))).toThrow("resolved targets");
+  });
+
   it("rejects invalid JSON and unsupported operations instead of guessing an intent", () => {
     expect(() => parseAIIntentResponse("move database to the right")).toThrow("valid native-edit response");
     expect(parseNativeEditOperations([{ op: "rewrite_whole_diagram", target: "all" }])).toMatchObject({ ok: false });
