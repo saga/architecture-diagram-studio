@@ -105,12 +105,14 @@ export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: D
   if (!/<mxGraphModel\b/.test(xml) || /<diagram\b[^>]*>\s*[A-Za-z0-9+/]{80,}={0,2}\s*<\/diagram>/i.test(xml)) return xml;
   const color = (value: string) => safeColor(value) ?? value;
   return xml.replace(/<mxCell\b[^<>]*>/g, (cellTag) => {
-    const attr = /\bstyle=(["'])([\s\S]*?)\1/.exec(cellTag);
-    if (!attr) return cellTag;
-    const rawStyle = decodeXmlAttribute(attr[2]);
+    const attr = /\bstyle=(["\'])([\s\S]*?)\1/.exec(cellTag);
+    const edge = /\bedge=(["\'])1\1/.test(cellTag);
+    const vertex = /\bvertex=(["\'])1\1/.test(cellTag);
+    if (!attr && (!edge && !vertex || theme === "editorial")) return cellTag;
+    const rawStyle = attr ? decodeXmlAttribute(attr[2]) : "";
     const values = styleEntries(rawStyle);
     const edge = /\bedge=(["'])1\1/.test(cellTag);
-    let changed = false;
+    let changed = !attr;
     for (const key of COLOR_KEYS) {
       const originalKey = ORIGINAL_PREFIX + key[0].toUpperCase() + key.slice(1);
       const appliedKey = APPLIED_PREFIX + key[0].toUpperCase() + key.slice(1);
@@ -142,6 +144,7 @@ export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: D
     }
     if (!changed) return cellTag;
     const replacement = encodeXmlAttribute(styleString(values));
+    if (!attr) return cellTag.slice(0, -1) + ' style="' + replacement + '">';
     if (!attr) return cellTag.slice(0, -1) + ' style="' + replacement + '">';
     return cellTag.slice(0, attr.index) + 'style="' + replacement + '"' + cellTag.slice(attr.index + attr[0].length);
   });
