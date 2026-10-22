@@ -666,14 +666,12 @@ app.get("/api/workspace/versions", async (_req, res) => {
   try {
     const workspace = await getProjectWorkspace();
     const versions = (await getDiagramVersions()).filter((version) => versionMatchesActiveDiagram(version, workspace));
-    res.json({ versions: versions.map(({ id, createdAt, label, document }) => ({
-      id, createdAt, label,
-      documentId: (document as { id?: string } | null)?.id ?? null,
-      title: (document as { title?: string } | null)?.title ?? null
+    res.json({ versions: versions.map(({ id, createdAt, label, diagramPath }) => ({
+      id, createdAt, label, documentId: null,
+      title: diagramPath?.split(/[\\/]/).pop() || "Draw.io diagram"
     })) });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
-
 app.get("/api/workspace/versions/:id", async (req, res) => {
   try {
     const workspace = await getProjectWorkspace();
@@ -697,7 +695,6 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
         diagramPath: workspace?.primaryDiagram ?? null,
         createdAt: new Date().toISOString(),
         label: "Restored version: " + source.label,
-        document: source.document,
         drawioXml: source.drawioXml
       };
       diagramVersions = retainRecentVersions([...versions, version]);
@@ -716,7 +713,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       }) + "\n", "utf8");
       return { version, state: workspaceState };
     });
-    if (!result) { res.status(404).json({ error: "The version does not exist or its document is invalid" }); return; }
+    if (!result) { res.status(404).json({ error: "The version does not exist or its Draw.io XML is invalid" }); return; }
     if (req.query.includeXml === "false") {
       const version = { ...result.version };
       const state = { ...result.state };
