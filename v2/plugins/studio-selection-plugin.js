@@ -109,10 +109,10 @@
           points[index][axis] = numeric;
           geometry.points = points;
           activeModel.setGeometry(cell, geometry);
-        } else if (path.indexOf("geometry:") === 0 && cell.geometry) {
+        } else if (path === "cell:delete") {\n          if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be deleted");\n          activeModel.remove(cell);\n        } else if (path.indexOf("geometry:") === 0 && cell.geometry) {
           var geometryKey = path.slice(9);
           var nextGeometry = cell.geometry.clone();
-          if (geometryKey === "relative") {
+          if (geometryKey === "size") {\n            var dimensions = value.split(",").map(Number);\n            if (dimensions.length !== 2 || dimensions.some(function (number) { return !Number.isFinite(number) || number < 1 || number > 10000; })) throw new Error("Size must contain width and height between 1 and 10000");\n            nextGeometry.width = dimensions[0];\n            nextGeometry.height = dimensions[1];\n          } else if (geometryKey === "relative") {
             var boolValue = value.toLowerCase();
             if (["1", "0", "true", "false"].indexOf(boolValue) < 0) throw new Error("relative must be 1/0 or true/false");
             nextGeometry.relative = boolValue === "1" || boolValue === "true";
