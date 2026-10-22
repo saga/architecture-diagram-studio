@@ -50,7 +50,7 @@ export function mxEdgeStyle(relation: DiagramRelation, routing: string, theme?: 
   const paint = relationPaint(relation, theme);
   const edgeRouting = relation.routing || routing;
   // Explicit Studio waypoints are authoritative. Letting mxGraph run its own router over those
-  // points can override the path and make exported connectors diverge from the Studio canvas.
+  // points can override the path and make exported connectors diverge from the native Draw.io renderer.
   const route = relation.points?.length ? "edgeStyle=none;" : edgeRouting === "orthogonal"
     ? "edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;" : "edgeStyle=none;";
   const curve = edgeRouting === "curved" ? "curved=1;rounded=1;" : "rounded=0;";
