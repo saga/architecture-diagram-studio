@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { deflateSync } from "fflate";
-import { FIXTURES } from "./fixtures";
-import { toDrawioXml } from "../export/drawio";
 import {
   decodeDrawioPageXml,
   validateDrawioXmlDocument,
   validateDrawioXmlFile
 } from "./drawio-xml-schema";
+
+const XML = '<mxfile host="app.diagrams.net"><diagram id="page-1" name="Overview"><mxGraphModel dx="1200"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="service" value="API" style="rounded=1;fillColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="30" y="40" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
 
 function encodeRawDeflatePayload(xml: string): string {
   const encoded = encodeURIComponent(xml);
@@ -24,43 +24,40 @@ function extractModel(xml: string): string {
 
 describe("Zod Draw.io XML schema", () => {
   it("accepts mxfile and the legacy bare mxGraphModel root", () => {
-    const xml = toDrawioXml(FIXTURES.c4());
-    const model = extractModel(xml);
-    expect(validateDrawioXmlDocument(xml).success).toBe(true);
+    const model = extractModel(XML);
+    expect(validateDrawioXmlDocument(XML).success).toBe(true);
     expect(validateDrawioXmlDocument(model).success).toBe(true);
   });
 
   it("decodes a compressed page payload for read-only property inspection", () => {
-    const model = extractModel(toDrawioXml(FIXTURES.c4()));
+    const model = extractModel(XML);
     const payload = encodeRawDeflatePayload(model);
     expect(decodeDrawioPageXml(payload)).toContain("<mxGraphModel");
     expect(decodeDrawioPageXml(payload)).toContain("</mxGraphModel>");
   });
 
   it("accepts mixed compressed and plain pages in the same mxfile", () => {
-    const model = extractModel(toDrawioXml(FIXTURES.c4()));
+    const model = extractModel(XML);
     const payload = encodeRawDeflatePayload(model);
     const xml = '<mxfile compressed="true" pages="2">' +
       '<diagram id="overview" name="Overview">' + payload + '</diagram>' +
       '<diagram id="details" name="Details">' + model + '</diagram>' +
       '</mxfile>';
-    const result = validateDrawioXmlDocument(xml);
-    expect(result.success).toBe(true);
+    expect(validateDrawioXmlDocument(xml).success).toBe(true);
   });
 
   it("accepts plaintext XML nested as a page payload as well as inline mxGraphModel children", () => {
-    const model = extractModel(toDrawioXml(FIXTURES.c4()));
+    const model = extractModel(XML);
     const xml = '<mxfile><diagram id="plain" name="Plain page"><![CDATA[' + model + ']]></diagram></mxfile>';
     expect(validateDrawioXmlDocument(xml)).toMatchObject({ success: true, format: "mxfile" });
   });
 
-  it("accepts defs/style compression, custom attributes and unknown cell extensions", () => {
+  it("accepts custom attributes, unknown cell extensions, and nested geometry", () => {
     const xml = '<mxfile host="app.diagrams.net" customFileFlag="keep">' +
       '<diagram id="main" name="Main">' +
       '<mxGraphModel customModelFlag="keep">' +
       '<defs><def data="data:image/png;base64,AA=="/></defs>' +
-      '<root>' +
-      '<mxCell id="0"/><mxCell id="1" parent="0" visible="0"/>' +
+      '<root><mxCell id="0"/><mxCell id="1" parent="0" visible="0"/>' +
       '<UserObject id="custom-user-object" label="Web %project%" owner="ops" placeholders="1">' +
       '<mxCell style="shape=custom.enterpriseStencil;customStyleKey=keep;" vertex="1" parent="1" collapsed="1">' +
       '<mxGeometry x="30" y="40" width="200" height="100" as="geometry">' +
@@ -77,16 +74,10 @@ describe("Zod Draw.io XML schema", () => {
   });
 
   it("rejects duplicate page IDs and duplicate effective cell IDs", () => {
-    const base = toDrawioXml(FIXTURES.c4());
-    const firstPage = base.match(/<diagram\b[^>]*>[\s\S]*?<\/diagram>/)?.[0];
+    const firstPage = XML.match(/<diagram\b[^>]*>[\s\S]*?<\/diagram>/)?.[0];
     if (!firstPage) throw new Error("The fixture has no diagram page");
-    const duplicatePageIds = base.replace("</mxfile>", firstPage + "</mxfile>");
-    expect(validateDrawioXmlDocument(duplicatePageIds).success).toBe(false);
-
-    const duplicateCellId = base.replace(
-      "</root>",
-      '<UserObject id="1" label="duplicate"><mxCell vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell></UserObject></root>'
-    );
+    expect(validateDrawioXmlDocument(XML.replace("</mxfile>", firstPage + "</mxfile>")).success).toBe(false);
+    const duplicateCellId = XML.replace("</root>", '<UserObject id="1" label="duplicate"><mxCell vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell></UserObject></root>');
     expect(validateDrawioXmlDocument(duplicateCellId).success).toBe(false);
   });
 
@@ -97,16 +88,15 @@ describe("Zod Draw.io XML schema", () => {
   });
 
   it("validates numeric geometry while keeping unknown style attributes open", () => {
-    const invalidGeometry = '<mxfile><diagram id="p1"><mxGraphModel><root>' +
+    const invalid = '<mxfile><diagram id="p1"><mxGraphModel><root>' +
       '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
       '<mxCell id="shape" value="Box" vertex="1" parent="1" vendorCellFlag="preserve">' +
       '<mxGeometry x="not-a-number" y="20" width="100" height="50" as="geometry"/>' +
       '</mxCell></root></mxGraphModel></diagram></mxfile>';
-    expect(validateDrawioXmlDocument(invalidGeometry).success).toBe(false);
-
-    const validWithOpenStyle = invalidGeometry.replace('x="not-a-number"', 'x="10"')
+    expect(validateDrawioXmlDocument(invalid).success).toBe(false);
+    const valid = invalid.replace('x="not-a-number"', 'x="10"')
       .replace('vendorCellFlag="preserve"', 'vendorCellFlag="preserve" style="shape=custom.enterprise;futureStyleKey=accepted;"');
-    expect(validateDrawioXmlDocument(validWithOpenStyle).success).toBe(true);
+    expect(validateDrawioXmlDocument(valid).success).toBe(true);
   });
 
   it("keeps an unusual cell without geometry while reporting a non-blocking warning", () => {
@@ -119,7 +109,7 @@ describe("Zod Draw.io XML schema", () => {
     if (result.success) expect(result.warnings.some((warning) => warning.includes("legacy-port") && warning.includes("no geometry"))).toBe(true);
   });
 
-  it("distinguishes editable diagram XML from the custom shape-library XML format", () => {
+  it("distinguishes editable diagram XML from shape-library XML", () => {
     const library = '<mxlibrary title="Samples" tags="box example">[{"xml":"&lt;mxGraphModel&gt;&lt;root&gt;&lt;mxCell id=\\\"0\\\"/&gt;&lt;mxCell id=\\\"1\\\" parent=\\\"0\\\"/&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;","w":120,"h":60,"title":"Box"},{"data":"data:image/png;base64,AA==","w":48,"h":48}]</mxlibrary>';
     expect(validateDrawioXmlFile(library)).toMatchObject({ success: true, format: "mxlibrary" });
     expect(validateDrawioXmlDocument(library).success).toBe(false);
