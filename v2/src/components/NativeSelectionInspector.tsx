@@ -46,8 +46,8 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
   return <label className="native-property-field">
     <span>{label}</span>
     {multiline
-      ? <textarea className="text-field text-area" value={value} readOnly={readOnly} rows={3} onChange={(event) => onChange?.(event.target.value)} />
-      : <input className="text-field" value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} />}
+      ? <textarea key={label + ":" + value} className="text-field text-area" defaultValue={value} readOnly={readOnly} rows={3} onBlur={(event) => onChange?.(event.currentTarget.value)} />
+      : <input key={label + ":" + value} className="text-field" defaultValue={value} readOnly={readOnly} onBlur={(event) => onChange?.(event.currentTarget.value)} />}
   </label>;
 }
 
