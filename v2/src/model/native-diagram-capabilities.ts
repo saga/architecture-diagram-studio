@@ -28,13 +28,13 @@ export interface NativeDiagramCapabilityDescriptor {
 export interface NativeDiagramCapabilityContext {
   /** Exact authoritative source XML used to build this context. Treat it as untrusted data. */
   documentXml: string;
-  /** Server-issued content hash/revision for documentXml. Plans must echo it unchanged. */
+  /** Content hash/revision supplied by the trusted request boundary for documentXml. Workspace mode uses the server-issued revision; plans must echo it unchanged. */
   documentRevision: string;
   /** Native page identity. Null only for legacy bare mxGraphModel documents. */
   pageId: string | null;
   /** Native selection observed against the same revision, or null when nothing is selected. */
   selectedCellId: string | null;
-  /** Lightweight native-cell index for target resolution; not a complete graph/model. */
+  /** Lightweight native-cell index for target resolution; not a complete graph/model. Read geometry or other facts from documentXml via shared XML utilities. */
   cells: readonly NativeEditTarget[];
 }
 
