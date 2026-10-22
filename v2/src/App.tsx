@@ -4,7 +4,7 @@ import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { hasStackedGeometry, isDiagramDocument } from "./model/types";
-import type { DiagramDocument, DiagramKind, DiagramNode } from "./model/types";
+import type { DiagramDocument, DiagramKind } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
@@ -12,7 +12,6 @@ import type { AppliedDiagramEdit } from "./intent/aiProvider";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { canApplySemanticEdits, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
-import { roleLabels } from "./design/tokens";
 import DrawioFrame from "./components/DrawioFrame";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
@@ -720,9 +719,7 @@ export default function App() {
   }
 
   const {
-    addSequenceFragment, updateSequenceFragment, removeSequenceFragment,
-    changeNode, updateNodeById, addNode,
-    removeRelation, reverseRelation, updateRelationKind, updateRelationStyle, updateBoundary, createBoundaryForNode, removeBoundary, removeNodeById, duplicateNodeById
+    addSequenceFragment, changeNode
   } = useDiagramEditing({
     document, selectedNode, selectedRelationId,
     setSelectedNodeId, setSelectedRelationId, setLastAction,
