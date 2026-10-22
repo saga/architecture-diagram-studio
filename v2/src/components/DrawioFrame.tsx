@@ -205,7 +205,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           else if (["x", "y", "width", "height"].includes(key)) {
             const numeric = Number(value);
             if (!Number.isFinite(numeric)) throw new Error("Geometry must be numeric");
-            (geometry as Record<string, unknown>)[key] = numeric;
+            (geometry as unknown as Record<string, unknown>)[key] = numeric;
           }
           model.setGeometry(cell, geometry);
         } else if (path.startsWith("cell:")) {
