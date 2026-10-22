@@ -1269,7 +1269,7 @@ export default function App() {
 
         <div className="canvas-stage native-mode">
           {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram is preserved as native Draw.io XML. Its cells, styles, labels, pages or hierarchy cannot all be represented safely by the Studio projection, so semantic editing and automatic layout are disabled to prevent data loss. Use the native Draw.io editor; the full XML remains the saved source of truth.</div>}
-                      <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />}
+                      <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span></div></div>
       </main>
