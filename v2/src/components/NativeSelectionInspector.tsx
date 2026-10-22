@@ -52,9 +52,19 @@ function readCellProperties(xml: string, cellId: string, pageId: string | null):
       const pointArray = geometry && Array.from(geometry.children).find((element) => element.localName === "Array" && element.getAttribute("as") === "points");
       const points = pointArray ? Array.from(pointArray.children).filter((element) => element.localName === "mxPoint")
         .map((point) => ({ x: point.getAttribute("x") ?? "", y: point.getAttribute("y") ?? "" })) : [];
-      const nestedGeometry = geometry ? Array.from(geometry.children)
-        .filter((element) => element !== pointArray)
-        .map((element) => ({ name: element.localName, attributes: attributes(element) })) : [];
+      const nestedGeometry = geometry ? Array.from(geometry.children).flatMap((element) => {
+        if (element === pointArray) {
+          const details: Array<{ name: string; attributes: Array<[string, string]> }> = [];
+          const arrayAttributes = attributes(element).filter(([key]) => key !== "as");
+          if (arrayAttributes.length) details.push({ name: "Array as=points", attributes: arrayAttributes });
+          Array.from(element.children).forEach((point, index) => {
+            const extraAttributes = attributes(point).filter(([key]) => key !== "x" && key !== "y");
+            if (extraAttributes.length) details.push({ name: "points[" + index + "]", attributes: extraAttributes });
+          });
+          return details;
+        }
+        return [{ name: element.localName, attributes: attributes(element) }];
+      }) : [];
       return {
         wrapper, cell, geometry, points, nestedGeometry,
         label: wrapper?.getAttribute("label") ?? wrapper?.getAttribute("value") ?? cell.getAttribute("value") ?? "",
