@@ -449,9 +449,11 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const imported: DiagramDocument = {
     ...previous,
     renderTheme: importedTheme as DiagramDocument["renderTheme"],
-    kind: isSequenceDiagram ? "sequence" : previous.kind,
+    // A previous sequence projection must not classify a newly imported non-sequence
+    // page. Native sequence markers above are derived from the current XML page.
+    kind: isSequenceDiagram ? "sequence" : previous.kind === "sequence" ? "c4" : previous.kind,
     layout: isSequenceDiagram ? { ...projectedLayout, direction: "RIGHT", routing: "polyline" } : projectedLayout,
-    nodes, relations: relationList, boundaries, sequence
+    nodes, relations: relationList, boundaries, sequence: isSequenceDiagram ? sequence : undefined
   };
   return imported;
 }
