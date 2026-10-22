@@ -196,12 +196,12 @@ function managedCellIds(document: DiagramDocument): Set<string> {
  * by the current Studio projection. This intentionally has false negatives: a native
  * document with custom structure stays in Draw.io instead of risking a lossy edit.
  */
-export function canEditInStudio(sourceXml: string, projectionXml: string, document: DiagramDocument): boolean {
+export function canApplySemanticEdits(sourceXml: string, projectionXml: string, document: DiagramDocument): boolean {
   const source = parseRootSlice(sourceXml);
   const projection = parseRootSlice(projectionXml);
   if (!source || !projection) return false;
   // The common lossless case is byte-identical root content. Metadata changes on <mxfile>
-  // or <mxGraphModel> must not force Freeform-only mode when every cell is unchanged.
+  // or <mxGraphModel> must not force native-editor-only mode when every cell is unchanged.
   // Since the entire cell payload equals the generated projection, no per-cell checks are needed.
   if (source.inner === projection.inner) return true;
   if (source.cellMap.size !== projection.cellMap.size) return false;
@@ -237,7 +237,7 @@ export function preserveDrawioThemeMetadata(sourceXml: string, nextXml: string):
 
 /**
  * Patch the authoritative XML by cell identity. The caller must first verify
- * canEditInStudio(source, currentProjection, currentDocument). This function retains
+ * canApplySemanticEdits(source, currentProjection, currentDocument). This function retains
  * the source XML outside <root>, and preserves the order and bytes of unchanged cells.
  */
 export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, previousDocument: DiagramDocument): string | null {
