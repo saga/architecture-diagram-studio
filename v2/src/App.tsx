@@ -4,7 +4,7 @@ import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
-import { downloadText } from "./export/drawio";
+import { downloadText } from "./model/download-text";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
 import DrawioFrame, { DRAWIO_VERSION } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
