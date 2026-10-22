@@ -266,8 +266,6 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       if (data.event === "load") {
         nativeDocumentLoadedRef.current = true;
         const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
-        const computed = appShell ? window.parent.getComputedStyle(appShell) : null;
-        const canvas = computed?.getPropertyValue("--theme-canvas").trim() || "#ffffff";
         // Theme is presentation-only; do not modify Draw.io graph background on init.
 
       }
