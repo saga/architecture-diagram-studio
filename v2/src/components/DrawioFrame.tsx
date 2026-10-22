@@ -3,7 +3,7 @@ import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
-import { applyDrawioThemeBackgroundReversible, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
+import { applyDrawioCellThemeReversible, applyDrawioThemeBackgroundReversible, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -121,7 +121,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     }
     if (style) style.textContent = drawioFrameThemeCss(palette);
 
-    const themedXml = applyDrawioThemeBackgroundReversible(xml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
+    const themedBackgroundXml = applyDrawioThemeBackgroundReversible(xml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
+    const themedXml = applyDrawioCellThemeReversible(themedBackgroundXml, theme as "editorial" | "youth" | "warm" | "midnight");
 
     // The Draw.io plugin bridge owns graph internals; window.editorUi is not a public API.
     const storedBackground = /\bstudioThemeOriginalBackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
