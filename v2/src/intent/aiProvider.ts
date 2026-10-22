@@ -2,12 +2,9 @@ import { recordDiagnostic } from "../diagnostics";
 import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
 
 export interface AIProviderConfig {
-  /** Requests go to the same-origin Copilot SDK service. */
-  baseUrl: string;
   model: string;
   reasoningEffort?: "high" | "max";
   sessionId?: string;
-  apiKey?: string;
   standalone?: boolean;
 }
 
