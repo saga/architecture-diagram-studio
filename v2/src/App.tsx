@@ -859,7 +859,7 @@ export default function App() {
         ...FIXTURES.c4(),
         id: newId("imported"),
         title: file.name.replace(/\.(drawio|dio|xml)$/i, ""),
-        renderTheme: uiTheme,
+        renderTheme: "editorial",
         nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
       };
       const parsed = fromDrawioXml(xml, empty);
