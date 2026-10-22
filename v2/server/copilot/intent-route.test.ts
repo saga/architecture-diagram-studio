@@ -86,8 +86,8 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
 }
 
 function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsupported", reply: string) {
-  let activeSession: Record<string, unknown>;
-  let prepared: { tools: unknown[] };
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { tools: unknown[] } = { tools: [] };
   return {
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
