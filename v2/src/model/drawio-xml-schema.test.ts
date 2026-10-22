@@ -102,8 +102,13 @@ describe("Zod Draw.io XML schema", () => {
   });
 
   it("distinguishes editable diagram XML from the custom shape-library XML format", () => {
-    const library = '<mxlibrary title="Samples" tags="box example">[{"xml":"&lt;mxGraphModel/&gt;","w":120,"h":60,"title":"Box"},{"data":"data:image/png;base64,AA==","w":48,"h":48}]</mxlibrary>';
+    const library = '<mxlibrary title="Samples" tags="box example">[{"xml":"&lt;mxGraphModel&gt;&lt;root&gt;&lt;mxCell id=\\\"0\\\"/&gt;&lt;mxCell id=\\\"1\\\" parent=\\\"0\\\"/&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;","w":120,"h":60,"title":"Box"},{"data":"data:image/png;base64,AA==","w":48,"h":48}]</mxlibrary>';
     expect(validateDrawioXmlFile(library)).toMatchObject({ success: true, format: "mxlibrary" });
     expect(validateDrawioXmlDocument(library).success).toBe(false);
+  });
+
+  it("rejects a malformed embedded mxGraphModel in a shape library", () => {
+    const library = '<mxlibrary>[{"xml":"&lt;mxGraphModel/&gt;","w":120,"h":60}]</mxlibrary>';
+    expect(validateDrawioXmlFile(library).success).toBe(false);
   });
 });
