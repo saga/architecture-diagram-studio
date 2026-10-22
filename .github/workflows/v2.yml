@@ -44,3 +44,28 @@ jobs:
           echo "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7  /tmp/draw.war" | sha256sum --check
       - name: Build app with verified local Draw.io bundle
         run: DRAWIO_WAR=/tmp/draw.war npm run build
+
+  e2e-native-canvas:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v2/package.json
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Chrome for Playwright
+        run: npx playwright install --with-deps chrome
+      - name: Download pinned Draw.io archive
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors --output /tmp/draw.war https://github.com/jgraph/drawio/releases/download/v32.0.2/draw.war
+          echo "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7  /tmp/draw.war" | sha256sum --check
+      - name: Bundle Draw.io and install the selection bridge
+        run: DRAWIO_WAR=/tmp/draw.war npm run drawio:fetch
+      - name: Test native canvas selection and editing
+        run: npm run test:e2e -- e2e/02-canvas.spec.ts
