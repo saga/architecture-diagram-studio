@@ -1,5 +1,5 @@
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
-import { encodeDrawioXmlAttribute } from "../model/drawio-xml-dom";
+import { encodeDrawioXmlAttribute, parseDrawioXml, serializeDrawioXml } from "../model/drawio-xml-dom";
 import { mxEdgeStyle, mxNodeStyle, nodePaint } from "../design/styles";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 import { tokens } from "../design/tokens";
@@ -186,10 +186,11 @@ export function toDrawioXml(doc: DiagramDocument): string {
   const maxY = Math.max(doc.kind === "sequence" ? 800 : 700,
     doc.kind === "sequence" ? sequenceLifelineBottom(doc.relations.length) + 38 : 0,
     ...doc.nodes.map((n) => n.y + n.height + 120));
-  return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+  const xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
     "<mxfile host=\"app.diagrams.net\" modified=\"" + new Date().toISOString() + "\" agent=\"Architecture Diagram Studio V2\" version=\"32.0.2\" type=\"device\">" +
     "<diagram id=\"" + esc(doc.id) + "\" name=\"" + esc(doc.title) + "\"><mxGraphModel dx=\"1200\" dy=\"800\" grid=\"1\" gridSize=\"" + tokens.grid + "\" guides=\"1\" tooltips=\"1\" connect=\"1\" arrows=\"1\" fold=\"1\" page=\"1\" pageScale=\"1\" pageWidth=\"" +
     Math.round(maxX) + "\" pageHeight=\"" + Math.round(maxY) + "\" math=\"0\" shadow=\"0\"><root>" + cells + "</root></mxGraphModel></diagram></mxfile>";
+  return serializeDrawioXml(parseDrawioXml(xml));
 }
 
 export function downloadText(filename: string, content: string, mime = "application/xml;charset=utf-8"): void {
