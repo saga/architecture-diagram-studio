@@ -89,3 +89,90 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
   // The selection step reached the canvas as UI state, not as a document mutation.
   await expect.poll(() => page.evaluate((id) => (window as Window & { __studioSelection?: string[] }).__studioSelection?.includes(id) ?? false, cellId), { timeout: 20_000 }).toBe(true);
 });
+
+
+test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并连接", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
+  const stateResponse = await request.get("/api/workspace/state");
+  expect(stateResponse.ok()).toBe(true);
+  const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
+  // Add a native-only attribute to make the semantic projection intentionally incomplete.
+  const nativeXml = state.drawioXml.replace('<mxCell id="1"', '<mxCell id="1" nativeCustom="preserve-me"');
+  expect(nativeXml).not.toBe(state.drawioXml);
+  const savedNativeXml = await request.put("/api/workspace/document", {
+    data: { drawioXml: nativeXml, label: "Native-only metadata fixture", baseRevision: state.workspaceRevision }
+  });
+  expect(savedNativeXml.status(), await savedNativeXml.text()).toBe(200);
+
+  await openStudio(page);
+  await waitForNativeEditor(page);
+  await nativeFrame(page).getByText("Database", { exact: true }).click();
+
+  const cellId = await nativeFrame(page).locator("text=Database").first().getAttribute("data-cell-id").catch(() => null);
+  let observedCellId: string | null = cellId;
+  await page.evaluate(() => {
+    const state = window as Window & { __studioSelection?: string[] };
+    state.__studioSelection = [];
+    window.addEventListener("message", (event) => {
+      try {
+        const data = typeof event.data === "string" ? JSON.parse(event.data) as { event?: string; cellId?: string } : event.data as { event?: string; cellId?: string };
+        if (data?.event === "studioSelectionChanged" && data.cellId) state.__studioSelection?.push(data.cellId);
+      } catch { /* Ignore unrelated messages. */ }
+    });
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const selection = (window as Window & { __studioSelection?: string[] }).__studioSelection ?? [];
+    return selection[selection.length - 1] ?? null;
+  })).toBeTruthy();
+  observedCellId = await page.evaluate(() => {
+    const selection = (window as Window & { __studioSelection?: string[] }).__studioSelection ?? [];
+    return selection[selection.length - 1] ?? null;
+  });
+  expect(observedCellId).toBeTruthy();
+
+  let seenPrompt = "";
+  await page.route("**/api/copilot/intent", async (route) => {
+    seenPrompt = String((JSON.parse(route.request().postData() || "{}") as { prompt?: unknown }).prompt ?? "");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        commands: [],
+        reply: "Added bbb after Database and connected it.",
+        nativeEdits: {
+          operations: [
+            { op: "add_node_after", target: "Database", cellId: observedCellId, label: "Database", newLabel: "bbb" }
+          ],
+          summary: "Add “bbb” after “Database” and connect it",
+          requiresClientExecution: true
+        },
+        sessionId: "e2e-native-add-after",
+        model: "stub-model",
+        provider: "github-copilot-sdk",
+        durationMs: 1,
+        toolsUsed: ["propose_native_edits"]
+      })
+    });
+  });
+
+  await page.getByRole("tab", { name: "Copilot" }).click();
+  const input = page.locator('textarea[placeholder^="Describe the layout change"]');
+  await input.fill("把 Database 后面加上一个新元素 bbb，然后连接起来");
+  await input.press("Enter");
+
+  const lastMessage = page.locator(".gemini-message.assistant").last();
+  await expect(lastMessage).toContainText("Applied 1 native change");
+  await expect(lastMessage).toContainText("bbb");
+  expect(seenPrompt).toContain("Database");
+
+  await expect.poll(async () => {
+    const xml = await readWorkspaceXml(workspace);
+    const node = /<mxCell\\b(?=[^>]*\\bvalue="bbb")(?=[^>]*\\bvertex="1")[^>]*>/.exec(xml);
+    if (!node) return false;
+    const nodeId = /\\bid="([^"]+)"/.exec(node[0])?.[1];
+    if (!nodeId || !observedCellId) return false;
+    const edge = /<mxCell\\b(?=[^>]*\\bedge="1")[^>]*>/.exec(xml)?.[0] || "";
+    const connected = new RegExp('\\\\bsource="' + observedCellId.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + '"[^>]*\\\\btarget="' + nodeId.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + '"').test(edge);
+    return connected && xml.includes('nativeCustom="preserve-me"');
+  }, { timeout: 20_000 }).toBe(true);
+});
