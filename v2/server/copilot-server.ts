@@ -145,7 +145,17 @@ async function getProjectWorkspace(): Promise<ProjectWorkspace | null> {
     projectWorkspace = null;
     return projectWorkspace;
   }
-  projectWorkspace = stored;
+  projectWorkspace = {
+    schemaVersion: 1,
+    id: stored.id,
+    name: stored.name,
+    rootPath: stored.rootPath,
+    primaryDiagram: typeof stored.primaryDiagram === "string" ? stored.primaryDiagram : null,
+    includePatterns: Array.isArray(stored.includePatterns) ? stored.includePatterns.filter((value): value is string => typeof value === "string") : [],
+    excludePatterns: Array.isArray(stored.excludePatterns) ? stored.excludePatterns.filter((value): value is string => typeof value === "string") : [],
+    createdAt: typeof stored.createdAt === "string" ? stored.createdAt : new Date(0).toISOString(),
+    updatedAt: typeof stored.updatedAt === "string" ? stored.updatedAt : new Date(0).toISOString()
+  };
   return projectWorkspace;
 }
 
