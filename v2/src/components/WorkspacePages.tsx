@@ -6,7 +6,7 @@ import type { DiagnosticEntry } from "../diagnostics";
 
 
 export type WorkspacePage = "diagram" | "copilot" | "traces" | "settings";
-type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
+type TraceFilter = "all" | "copilot" | "drawio" | "error";
 
 const LOW_LEVEL_EVENT_PREFIXES = ["drawio.message.", "drawio.bundle.check.", "drawio.handshake.", "ui.theme."];
 const LOW_LEVEL_EVENTS = new Set([
@@ -267,7 +267,7 @@ export default function WorkspacePages(props: Props) {
               {messages.length > 0 && <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
-                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Layout Copilot" : "You"}</div><Bubble content={message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" /></div>
+                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" /></div>
                 </article>)}
                 <div ref={chatEndRef} />
               </div>}
@@ -276,7 +276,7 @@ export default function WorkspacePages(props: Props) {
             <div className="gemini-composer antd-composer">
               <Sender value={chatInput} onChange={setChatInput} onSubmit={() => sendIntent()} loading={chatBusy}
                 placeholder="Describe the change you want…" autoSize={{ minRows: 2, maxRows: 5 }} submitType="enter" />
-              {chatBusy && <div className="gemini-composer-footer"><span><i className="spinner" /> Analysing the layout request…</span></div>}
+              {chatBusy && <div className="gemini-composer-footer"><span><i className="spinner" /> Thinking…</span></div>}
             </div>
           </section>
         </div>
@@ -295,7 +295,7 @@ export default function WorkspacePages(props: Props) {
 
           <div className="trace-toolbar">
             <div className="trace-filters">
-              {([["all", "All"], ["copilot", "Copilot"], ["layout", "Layout"], ["drawio", "Draw.io"], ["error", "Warnings / errors"]] as Array<[TraceFilter, string]>).map(([value, label]) =>
+              {([["all", "All"], ["copilot", "Copilot"], ["drawio", "Draw.io"], ["error", "Warnings / errors"]] as Array<[TraceFilter, string]>).map(([value, label]) =>
                 <UiButton type="button" key={value} className={traceFilter === value ? "active" : ""} onClick={() => setTraceFilter(value)}>{label}</UiButton>
               )}
             </div>
