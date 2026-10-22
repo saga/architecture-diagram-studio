@@ -289,24 +289,6 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
   }
 }
 
-interface CellGeometry { x: number; y: number; width: number; height: number }
-
-function readCellGeometry(xml: string, cellId: string, pageId?: string | null): CellGeometry | null {
-  const parsed = parseNativeGraphModel(xml, pageId);
-  for (const cell of findDrawioElements(parsed, "mxCell")) {
-    if (cell.getAttribute("id") !== cellId) continue;
-    const geometry = cell.getElementsByTagName("mxGeometry")[0];
-    if (!geometry) return null;
-    const value = (name: string) => {
-      const raw = geometry.getAttribute(name);
-      const parsedValue = raw === null ? Number.NaN : Number(raw);
-      return Number.isFinite(parsedValue) ? parsedValue : 0;
-    };
-    return { x: value("x"), y: value("y"), width: value("width"), height: value("height") };
-  }
-  return null;
-}
-
 export type NativeCellEditPlan =
   | { ok: true; edits: NativeCellEdit[] }
   | { ok: false; error: string };
@@ -343,18 +325,12 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
       case "resize":
         edits.push({ cellId, path: "geometry:size", value: operation.width + "," + operation.height });
         break;
-      case "move": {
-        let geometry: CellGeometry | null;
-        try {
-          geometry = readCellGeometry(xml, cellId, pageId);
-        } catch (error) {
-          return { ok: false, error: "The authoritative Draw.io XML could not be read: " + (error instanceof Error ? error.message : String(error)) };
-        }
-        if (!geometry) return { ok: false, error: `Cell “${operation.targetLabel}” has no geometry to move` };
-        edits.push({ cellId, path: "geometry:x", value: String(geometry.x + operation.dx) });
-        edits.push({ cellId, path: "geometry:y", value: String(geometry.y + operation.dy) });
+      case "move":
+        // Apply deltas to the live mxCell geometry in the native editor. Computing absolute
+        // coordinates from this request's XML would overwrite any movement made while the
+        // model call was in flight.
+        edits.push({ cellId, path: "geometry:translate", value: operation.dx + "," + operation.dy });
         break;
-      }
     }
   }
   return { ok: true, edits };
