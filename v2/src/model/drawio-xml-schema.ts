@@ -520,6 +520,11 @@ function parseValidated(xml: string, allowLibrary: boolean): DrawioXmlValidation
   return { success: true, format: root.name as DrawioXmlValidationSuccess["format"], root, warnings };
 }
 
+/** Decode a Draw.io page payload to its validated mxGraphModel XML for read-only inspection. */
+export function decodeDrawioPageXml(payload: string): string {
+  return decodeCompressedPage(payload);
+}
+
 /** Validate a .drawio/.xml diagram or bare mxGraphModel, including compressed pages. */
 export function validateDrawioXmlDocument(xml: string): DrawioXmlValidationResult {
   return parseValidated(xml, false);
