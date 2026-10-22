@@ -137,7 +137,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
             operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
             rolledBack: execution.rolledBack,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { newLabel: operation.label } : {}) }))
           }, "error");
           setMessages((items) => [...items, {
             role: "assistant",
@@ -151,12 +151,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         return;
       }
 
-      if (plan.selection) {
+      const selection = plan.selection;
+      if (selection) {
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
-        applyNativeCellEdit(plan.selection.cellId, "cell:select", plan.selection.pageId || "");
+        applyNativeCellEdit(selection.cellId, "cell:select", selection.pageId || "");
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
-          text: "Selected “" + plan.selection.label + "”. The diagram itself was not changed."
+          text: "Selected “" + selection.label + "”. The diagram itself was not changed."
         }]);
         return;
       }
