@@ -481,17 +481,30 @@ app.post("/api/workspace/diagram/normalize-sequence", async (req, res) => {
 });
 
 app.post("/api/workspace/diagram/export-drawio", async (req, res) => {
-  const document = req.body?.document;
-  if (!isDiagramDocument(document)) { res.status(400).json({ error: "Invalid diagram document format" }); return; }
   try {
-    const xml = toDrawioXml(document);
-    await writeLog("diagram.drawio-exported", { documentId: document.id, bytes: Buffer.byteLength(xml, "utf8") });
-    res.json({ xml });
+    const state = await getWorkspaceState();
+    const workspace = await getProjectWorkspace();
+    if (!state.drawioXml || !isDrawioXmlEnvelope(state.drawioXml) ||
+        !state.document || !isDiagramDocument(state.document) ||
+        !workspaceStateMatchesActiveDiagram(state, workspace)) {
+      res.status(404).json({ error: "No valid authoritative Draw.io XML is loaded. Create or open a diagram before exporting." });
+      return;
+    }
+    const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : undefined;
+    const revision = workspaceRevision(state.document, state.drawioXml);
+    if (baseRevision && baseRevision !== revision) {
+      res.status(409).json({ error: "The active Draw.io XML changed. Reload it before exporting.", workspaceRevision: revision });
+      return;
+    }
+    await writeLog("diagram.drawio-exported", {
+      documentId: state.document.id, bytes: Buffer.byteLength(state.drawioXml, "utf8"),
+      source: "authoritative-xml"
+    });
+    res.json({ xml: state.drawioXml, workspaceRevision: revision });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
-
 app.post("/api/workspace/intent/apply", async (req, res) => {
   const document = req.body?.document;
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
@@ -585,7 +598,8 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const laidOut = document.kind === "sequence" ? normalizeSequenceDocument(document) : await layoutDiagram(document);
       const errors = validateDiagramSemantics(laidOut);
       if (errors.length) return { status: 422 as const, error: "The template failed semantic validation", validationErrors: errors };
-      const patchedXml = typeof state.drawioXml === "string" ? patchStudioDocumentXml(state.drawioXml, state.document, laidOut) : toDrawioXml(laidOut);
+      if (typeof state.drawioXml !== "string") return { status: 409 as const, error: "A template cannot be committed without an authoritative XML source; create or load the diagram first." };
+      const patchedXml = patchStudioDocumentXml(state.drawioXml, state.document, laidOut);
       if (!patchedXml) return { status: 409 as const, error: "The template could not be applied without damaging the authoritative Draw.io XML; no changes were saved." };
       const xml = patchedXml, now = new Date().toISOString();
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
@@ -669,9 +683,8 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
         if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {
           return { status: 422 as const, error: "The proposal degrades layout quality significantly and was not saved; adjust the request and generate a new proposal", quality, baseQuality };
         }
-        const patchedXml = typeof state.drawioXml === "string"
-          ? patchStudioDocumentXml(state.drawioXml, state.document, proposal.document)
-          : toDrawioXml(proposal.document);
+        if (typeof state.drawioXml !== "string") return { status: 409 as const, error: "A semantic proposal cannot be committed without an authoritative XML source; reload the diagram and try again." };
+        const patchedXml = patchStudioDocumentXml(state.drawioXml, state.document, proposal.document);
         if (!patchedXml) return { status: 409 as const, error: "The semantic edit could not be patched into the authoritative Draw.io XML without data loss; no changes were saved." };
         xml = patchedXml;
       }
