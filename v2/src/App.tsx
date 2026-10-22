@@ -807,7 +807,17 @@ export default function App() {
       // A valid file is still editable in the native canvas even when projection is empty.
       const projected = parsed === empty ? empty : parsed;
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
-        await persistDocumentNow(document, drawioXml, "Autosave before opening standalone Draw.io");
+        try {
+          await persistDocumentNow(document, drawioXml, "Autosave before opening standalone Draw.io");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setLastAction("Could not open " + file.name + " because the current workspace could not be saved: " + message);
+          recordDiagnostic("drawio.open.standalone.pre-save-failed", "Opening the selected Draw.io file was stopped because saving the current workspace failed", {
+            fileName: file.name, errorMessage: message, currentPrimaryDiagram: projectWorkspace.primaryDiagram,
+            workspaceId: projectWorkspace.id, stage: "save-current-workspace-before-open"
+          }, "error");
+          return;
+        }
       }
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
