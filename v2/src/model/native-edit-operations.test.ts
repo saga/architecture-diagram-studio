@@ -150,12 +150,13 @@ describe("toNativeCellEdits", () => {
   });
 
   it("maps rename, delete and resize directly to native-cell bridge operations", () => {
+    const xmlWithObsolete = XML.replace('</root>', '<mxCell id="obsolete" value="Obsolete" vertex="1" parent="1"><mxGeometry x="320" y="80" width="120" height="60" as="geometry"/></mxCell></root>');
     const operations: ResolvedNativeEditOperation[] = [
       { op: "set_label", target: "Database", cellId: "db", targetLabel: "Database", label: "Data Store" },
       { op: "delete", target: "Obsolete", cellId: "obsolete", targetLabel: "Obsolete" },
       { op: "resize", target: "Database", cellId: "db", targetLabel: "Database", width: 220, height: 90 }
     ];
-    const plan = toNativeCellEdits(operations, XML);
+    const plan = toNativeCellEdits(operations, xmlWithObsolete);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.edits).toEqual([
@@ -165,7 +166,7 @@ describe("toNativeCellEdits", () => {
     ]);
   });
 
-  it("turns a move delta into absolute coordinates from the authoritative XML", () => {
+  it("passes a move delta to the native editor for live-coordinate execution", () => {
     const plan = toNativeCellEdits([{ op: "move", target: "Database", cellId: "db", targetLabel: "Database", dx: -20, dy: 15 }], XML);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
@@ -185,8 +186,7 @@ describe("toNativeCellEdits", () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.edits).toEqual([
-      { cellId: "db", path: "geometry:x", value: "505" },
-      { cellId: "db", path: "geometry:y", value: "607" }
+      { cellId: "db", path: "geometry:translate", value: "5,7" }
     ]);
   });
 
