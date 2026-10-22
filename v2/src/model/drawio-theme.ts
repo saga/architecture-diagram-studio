@@ -74,7 +74,7 @@ const DIAGRAM_THEME_COLORS: Record<"editorial" | "youth" | "warm" | "midnight", 
 /** Recolour explicit mxCell colours with reversible original-value metadata. */
 export function applyDrawioCellThemeReversible(xml: string, theme: "editorial" | "youth" | "warm" | "midnight"): string {
   const palette = DIAGRAM_THEME_COLORS[theme];
-  return xml.replace(/<mxCell\\b([^<>]*?)\\sstyle=(["\x27])([\\s\\S]*?)\\2([^<>]*?)\\/?\\s*>/g, (tag, before: string, quote: string, style: string, after: string) => {
+  return xml.replace(/<mxCell\b([^<>]*?)\sstyle=(["\x27])([\s\S]*?)\2([^<>]*?)\/?\s*>/g, (tag, before: string, quote: string, style: string, after: string) => {
     const values = new Map(style.split(";").filter(Boolean).map((entry) => { const i = entry.indexOf("="); return i < 0 ? [entry, "1"] : [entry.slice(0, i), entry.slice(i + 1)]; }));
     const next = new Map(values);
     for (const key of ["fillColor", "strokeColor", "fontColor", "startFillColor", "endFillColor"]) {
