@@ -2,7 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-10-22
-- Related: [ADR-0003 — Server-authoritative diagram operations](./0003-server-authoritative-diagram-operations.md), [ADR-0005 — Internal Copilot Diagram Intelligence and Governed Edits](./0005-diagram-aware-mcp-intelligence.md), [ADR-0006 — Draw.io XML as the Single Source of Truth](./0006-drawio-xml-single-source-of-truth.md), [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md)
+- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0003 — Server-authoritative diagram operations](./0003-server-authoritative-diagram-operations.md), [ADR-0005 — Internal Copilot Diagram Intelligence and Governed Edits](./0005-diagram-aware-mcp-intelligence.md), [ADR-0006 — Draw.io XML as the Single Source of Truth](./0006-drawio-xml-single-source-of-truth.md), [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md)
+
+## Compatibility Note
+
+ADR-0011 supersedes this ADR wherever it assumes that `DiagramDocument` is the active editing model or that a semantic projection is a prerequisite for ordinary native-cell edits. Keep the unified intent pipeline, typed native operations, native selection, revision validation, and explicit acknowledgement rules; remove the parallel semantic-document dependency.
 
 ## Context
 
