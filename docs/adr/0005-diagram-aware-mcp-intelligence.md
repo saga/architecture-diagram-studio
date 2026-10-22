@@ -4,7 +4,7 @@
 - Date: 2026-10-21
 - Scope: Internal diagram analysis, workspace example retrieval, edit proposals, templates, semantic diffs and version recovery
 
-> Historical decision. Where this ADR describes DiagramDocument, semantic layout/quality, templates, semantic proposals, XML projection, or semantic completeness gates as current capabilities, ADR-0011 takes precedence. Retained material explains the prior design only.
+> Historical decision. This ADR records the prior semantic-model implementation. ADR-0011 defines the current XML-only model; ADR-0012 defines the only approved extension seam for future native-cell layout/style operations and read-only analysis. The feature list below is historical and does not imply those providers exist in current V2.
 
 ## Context
 
@@ -31,7 +31,7 @@ The agreed scope is F1–F11. Mermaid import and semantic conversion remain expl
 - There is no standalone MCP server or externally registered MCP tool surface for workspace or diagram operations.
 - All workspace-backed server mutations require a current XML revision, server-side validation and a new snapshot. Standalone local-file edits use Draw.io's native autosave/export path and do not create workspace snapshots. Broad redesigns, ambiguous edits, bulk destructive operations, template replacement and version restore require explicit confirmation. A focused, explicit user request may be applied directly after inspection. Quality gates apply to operations that use semantic layout, not every native XML edit.
 - Keep inputs/results bounded. Validate workspace paths, reject symlink escapes and treat project text as untrusted data. Do not add arbitrary shell execution or arbitrary filesystem writes.
-- Preserve the single workspace configuration, derived semantic projection and authoritative quality implementation.
+- Historical consequence of the superseded design: preserve one workspace configuration and one semantic quality implementation. Current V2 has no derived semantic projection or custom quality provider; see ADR-0012 for the future extension contract.
 
 ## Alternatives considered
 
