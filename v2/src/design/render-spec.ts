@@ -179,7 +179,7 @@ export function sequenceActivationGeometry(startOrder: number, endOrder: number,
   );
   return {
     // Draw.io XML geometry is integer-based in the exporter; round in the shared helper so the
-    // Studio SVG doesn't paint activation bars at sub-pixel positions that native Draw.io rounds away.
+    // Native Draw.io rounds activation-bar geometry to integer coordinates.
     x: Math.round(centerX - sequence.activationWidth / 2),
     y: Math.round(sequence.timelineY + startOrder * sequence.messageSpacing + sequence.activationStartInset),
     width: sequence.activationWidth,
