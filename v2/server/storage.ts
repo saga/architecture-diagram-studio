@@ -27,9 +27,7 @@ export function isWorkspaceSaveContextCompatible(
   return !workspaceHasPrimaryDiagram && !storedXmlExists && baseRevision === null;
 }
 
-export function workspaceRevision(_document: unknown, drawioXml: string | null): string {
-  // A revision tracks the single authoritative source. The semantic projection is a cache
-  // derived from that source, so it cannot independently create or invalidate revisions.
+export function workspaceRevision(drawioXml: string | null): string {
   return createHash("sha256").update(drawioXml ?? "").digest("hex");
 }
 export function retainRecentVersions<T extends { id: string; workspaceId?: string; diagramPath?: string | null }>(versions: T[], maxPerWorkspace: number, maxTotalVersions = 500): T[] {
