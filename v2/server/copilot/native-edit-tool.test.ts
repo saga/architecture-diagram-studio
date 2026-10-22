@@ -51,6 +51,15 @@ describe("resolveNativeEditTargets", () => {
     if (!resize.ok) expect(resize.error).toContain("not a vertex");
   });
 
+  it("checks duplicate labels beyond the prompt-visible first 200 cells", () => {
+    const cells = Array.from({ length: 200 }, (_, index) => ({ id: "cell-" + index, name: "Node " + index, cellType: "vertex" as const }));
+    cells.push({ id: "last-duplicate", name: "Database", cellType: "vertex" as const });
+    cells[3] = { id: "first-duplicate", name: "Database", cellType: "vertex" as const };
+    const resolved = resolveNativeEditTargets({ cells }, [{ op: "delete", target: "Database" }]);
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.error).toContain("ambiguous");
+  });
+
   it("rejects unknown labels with an actionable message", () => {
     const resolved = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "Missing" }]);
     expect(resolved.ok).toBe(false);
