@@ -36,6 +36,16 @@ The server passes the selected page's native cell IDs, labels and cell types to 
 
 Supported edits are select, rename, fill/stroke/font color, move, resize, delete and `add_node_after` (add a vertex to the right of a target and connect it). The server resolves exact IDs or unique exact labels and validates each operation. The browser applies the batch through the Draw.io bridge and waits for editor acknowledgement. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
 
+## Copilot session permission and authentication callbacks
+
+Every Studio session config registers `onPermissionRequest` and `onMcpAuthRequest` before either `resumeSession` or `createSession` is called. Missing permission handlers can leave SDK permission requests pending while the caller waits for `sendAndWait`; a returned `session.idle` event is not a substitute for registering the policy callback or resolving the pending permission RPC.
+
+The current `approve-once` decision is application-specific: the client runs in `mode: "empty"`, and the session only exposes Studio-owned custom tools rather than ambient shell or filesystem tools. Do not move this approval decision into the shared runtime as a default. If the available tools or their side effects change, review this policy alongside the server-side operation allowlist and revision/version checks.
+
+Studio has no MCP OAuth UI or token broker, so the application explicitly cancels MCP authentication requests and emits a diagnostic event. Both callbacks schedule logging without awaiting it. Logging must not stall the SDK handshake, and even a synchronous logger exception must not escape from the callback.
+
+The reusable interface and integration rules are documented in [common-agent-lib's Copilot runtime](https://github.com/saga/common-agent-lib/tree/main/packages/copilot-agent-runtime); the library exposes callback types but intentionally does not import Studio's policy.
+
 ## Persistence, versions and XML validation
 
 Workspace and version state contain native XML and metadata, not a derived graph object. Workspace saves include the server-issued SHA-256 revision of the exact XML. A stale revision is rejected with HTTP 409. Version history stores full XML snapshots; legacy entries that have no native XML are skipped rather than regenerated from a lossy model.
