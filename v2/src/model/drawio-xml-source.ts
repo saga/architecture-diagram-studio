@@ -222,6 +222,19 @@ export function canEditInStudio(sourceXml: string, projectionXml: string, docume
   return true;
 }
 
+/** Carry theme provenance across server-side native XML edits such as Copilot operations. */
+export function preserveDrawioThemeMetadata(sourceXml: string, nextXml: string): string {
+  if (sourceXml === nextXml) return nextXml;
+  const source = parseRootSlice(sourceXml);
+  const next = parseRootSlice(nextXml);
+  if (!source || !next) return nextXml;
+  const cells = next.cells.map((cell) => {
+    const old = source.cellMap.get(cell.id);
+    return old ? mergeThemeMetadata(old, cell.raw) : cell.raw;
+  });
+  return nextXml.slice(0, next.start) + cells.join("") + nextXml.slice(next.end);
+}
+
 /**
  * Patch the authoritative XML by cell identity. The caller must first verify
  * canEditInStudio(source, currentProjection, currentDocument). This function retains
