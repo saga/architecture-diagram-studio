@@ -40,6 +40,9 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   const themeRef = useRef(theme);
+  const themeBackgroundRef = useRef<{ restore: boolean; background: string; restoreBackground: string | null }>({
+    restore: true, background: "#ffffff", restoreBackground: null
+  });
   themeRef.current = theme;
   documentRef.current = document;
   onDocumentChangeRef.current = onDocumentChange;
@@ -123,12 +126,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     // The Draw.io plugin bridge owns graph internals; window.editorUi is not a public API.
     const storedBackground = /\bstudioThemeOriginalBackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
     const explicitBackground = /\bbackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
-    if (nativeDocumentLoadedRef.current) {
+    themeBackgroundRef.current = {
+      restore: theme === "editorial",
+      background: palette.canvas,
+      restoreBackground: storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || null
+    };
+    if (nativeDocumentLoadedRef.current && bridgeReady) {
       iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
-        event: "studioSetBackground",
-        restore: theme === "editorial",
-        background: palette.canvas,
-        restoreBackground: storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || null
+        event: "studioSetBackground", ...themeBackgroundRef.current
       }), window.location.origin);
     }
 
@@ -140,7 +145,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       });
       onDocumentChangeRef.current(documentRef.current, themedXml);
     }
-  }, [theme, editorReady, iframeLoaded, xml]);
+  }, [theme, editorReady, iframeLoaded, xml, bridgeReady]);
 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
@@ -243,7 +248,10 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         const computed = appShell ? window.parent.getComputedStyle(appShell) : null;
         const canvas = computed?.getPropertyValue("--theme-canvas").trim() || "#ffffff";
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
-          event: "studioSetBackground", restore: themeRef.current === "editorial", background: canvas
+          event: "studioSetBackground",
+          ...themeBackgroundRef.current,
+          background: themeBackgroundRef.current.background || canvas,
+          restore: themeRef.current === "editorial"
         }), window.location.origin);
       }
       if (data.event === "init") {
