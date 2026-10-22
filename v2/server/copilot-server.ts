@@ -385,7 +385,7 @@ app.put("/api/workspace/config", async (req, res) => {
     const requestedDiagram = typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram.trim() : "";
     if (!requestedRoot || requestedRoot.length > 2048) throw new Error("The local workspace directory path cannot be empty");
     if (!requestedName) throw new Error("Workspace name cannot be empty");
-    if (!requestedDiagram || path.isAbsolute(requestedDiagram) || requestedDiagram.split(/[\\/]/).some((part) => part === "..") ||
+    if (!requestedDiagram || path.isAbsolute(requestedDiagram) || requestedDiagram.split(/[\\/]/).some((part: string) => part === "..") ||
         !/\.(?:drawio|dio|xml)$/i.test(requestedDiagram)) {
       throw new Error("Select an existing .drawio, .dio, or XML diagram inside the workspace");
     }
