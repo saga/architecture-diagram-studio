@@ -102,7 +102,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         });
         return {
           accepted: true, operationCount: resolved.operations.length, requiresClientExecution: true,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label })),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}) })),
           summary
         };
       }
