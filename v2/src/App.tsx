@@ -1333,7 +1333,7 @@ export default function App() {
               recordDiagnostic(result.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: result.requestId, cellId: result.cellId, path: result.path, error: result.error || null,
                 failedIndex: result.failedIndex ?? null, rollbackErrors: result.rollbackErrors ?? [],
-                batchResults: result.batchResults ?? null
+                batchRolledBack: result.batchRolledBack ?? null, batchResults: result.batchResults ?? null
               }, result.success && !(result.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={previewDocument ? null : cellEditRequest}
