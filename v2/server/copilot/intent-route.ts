@@ -98,7 +98,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}) }))
         });
         return {
           accepted: true, operationCount: resolved.operations.length, requiresClientExecution: true,
@@ -244,7 +244,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         };
         await deps.writeLog("turn.completed.with-native-edits", {
           sessionId, operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
-          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label })), usage: plan.usage
+          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}) })), usage: plan.usage
         });
         res.json(response);
         return;
