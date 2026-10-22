@@ -2,37 +2,51 @@
 
 ## Run
 
-Use Node.js 22.13 or later. From this directory, run npm install and npm run dev.
+Requires Node.js 22.13 or later. From `v2/` run:
 
-The pre-dev and pre-build scripts install and verify the pinned Draw.io web bundle (v32.0.2). Runtime assets are served locally; the app does not use the online embed.
+```sh
+npm install
+npm run dev
+```
 
-## Diagram model
+V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted embed. `npm run dev` starts both Vite and the loopback Copilot service.
 
-**Native Draw.io XML is the only diagram model.** The embedded Draw.io editor is the only canvas. V2 does not keep a DiagramDocument, import/export converter, semantic templates, custom layout engine, quality scorer, or proposal/preview graph pipeline.
+## One diagram model
 
-A project workspace is optional. Use **Open Draw.io** to open a standalone .drawio, .dio, or supported XML file. Where the browser supports local file access, edits can save to that file; otherwise use **Export**. A configured workspace provides server-side autosave and XML version history. Creating a new diagram never overwrites an existing file.
+The original native Draw.io `mxfile` XML is the only diagram model. The embedded Draw.io editor owns the canvas, cell selection, geometry, styles, connectors, pages, undo/redo and native editing. V2 has no parallel `DiagramDocument`, semantic graph, model-to-XML exporter, semantic layout engine or proposal-preview graph.
 
-## Copilot
+Opening, importing, autosaving, saving versions, restoring and exporting all keep the XML source intact. Operations on a cell must not reconstruct the rest of the document. Multiple pages, unknown cells, wrappers, custom shapes, HTML labels and vendor-specific attributes remain part of the source.
 
-The Copilot SDK service passes the active page's native cells and selected cell to the model. The model can call two tools:
+## Copilot native cell edits
 
-- select_diagram_element for focusing an existing cell.
-- propose_native_edits for a typed, allowlisted edit batch.
+The server passes the selected page's native cell IDs, labels and cell types to the Copilot SDK. The model may request two kinds of action:
 
-Supported operations are selection, label changes, fillColor/strokeColor/fontColor, move, resize, delete, and add_node_after (insert a vertex to the right of a target and connect it). Edits run through Draw.io's graph model; the browser waits for editor acknowledgement. The model cannot provide replacement XML or write project files. Unsupported or ambiguous operations leave the diagram unchanged.
+- `select_diagram_element` focuses an existing cell without changing the document.
+- `propose_native_edits` submits a typed batch of allowlisted operations.
 
-In **Settings**, choose the SDK model and reasoning effort. The browser does not hold provider credentials. Sign in with the GitHub Copilot CLI or configure a supported provider on the local runtime.
+Supported edits are select, rename, fill/stroke/font color, move, resize, delete and `add_node_after` (add a vertex to the right of a target and connect it). The server resolves exact IDs or unique exact labels and validates each operation. The browser applies the batch through the Draw.io bridge and waits for editor acknowledgement. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
 
-## Persistence and revisions
+## Persistence, versions and XML validation
 
-The server validates native XML, checks the expected SHA-256 revision on workspace saves, writes the exact XML, and records full-XML snapshots. Standalone files use native autosave/export and local recovery snapshots. Old version entries without native XML are not regenerated from an incomplete model.
+Workspace and version state contain native XML and metadata, not a derived graph object. Workspace saves include the server-issued SHA-256 revision of the exact XML. A stale revision is rejected with HTTP 409. Version history stores full XML snapshots; legacy entries that have no native XML are skipped rather than regenerated from a lossy model.
 
-The schema validator accepts native mxfile and mxGraphModel roots, multiple pages and supported compressed page payloads, while leaving unknown attributes, styles, wrapper elements and custom cells open for forward compatibility. DTD and custom entity declarations are rejected.
+The shared Zod schema validates native `mxfile`, bare `mxGraphModel`, supported compressed pages, geometry and shape-library formats. It intentionally leaves unknown attributes, styles, wrapper elements and custom cell types open. Malformed XML and DTD/custom entity declarations are rejected. Schema validation checks the source format; it does not require the file to fit a Studio-specific shape taxonomy.
 
-## Agent traces and token usage
+Standalone files can be opened without configuring a workspace. When browser file access is available, changes can save to that file; otherwise use **Export**. A configured project workspace adds server autosave and server-side version history. Creating a diagram never overwrites an existing file.
 
-Agent Traces shows browser events, SDK lifecycle, model calls and available usage details. Input/output/cached/reasoning tokens, provider cost and context-window occupancy appear only when the SDK/provider reports them. Missing usage values are not estimated. Local trace and history files may include diagrams and prompts, so treat them as project data.
+## Settings and Agent Traces
 
-## Architecture
+Settings contains the SDK model and reasoning effort. Provider credentials stay in the local runtime environment; they are not sent from the browser. Sign in with the GitHub Copilot CLI or configure a supported local provider before using Copilot.
 
-See [ARCHITECTURE-V2.md](../ARCHITECTURE-V2.md) and [ADR-0011](../docs/adr/0011-native-drawio-only-model.md). V1 remains in the sibling v1/ directory as a reference and is not imported by V2.
+Agent Traces shows application events, SDK lifecycle, model calls and any token/cost/context usage reported by the SDK or provider. Missing counters are not estimated. Context-window occupancy is a snapshot, not tokens consumed. Local logs and history may include project labels, prompts and diagram data, so treat them as project data.
+
+## Checks
+
+```sh
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e -- e2e/02-canvas.spec.ts
+```
+
+The V2 GitHub Actions workflow runs typecheck, unit tests, a production build with the pinned Draw.io bundle, and native canvas E2E checks. Check the result of the latest run before treating a commit as validated.
