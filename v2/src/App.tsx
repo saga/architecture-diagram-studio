@@ -856,6 +856,9 @@ export default function App() {
       setSelectedNodeId(next.nodes[0]?.id || null);
       setViewMode("drawio");
       commitDocument(next, "Imported native Draw.io XML from " + file.name, xml);
+      if (xmlDiagnostics.warnings.length) {
+        setLastAction("Imported " + file.name + " with " + xmlDiagnostics.warnings.length + " compatibility warning(s): " + xmlDiagnostics.warnings.slice(0, 2).join(" "));
+      }
       recordDiagnostic("drawio.import.completed", "Draw.io file parsed and imported", {
         durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length
       });
