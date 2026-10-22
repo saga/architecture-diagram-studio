@@ -1336,7 +1336,7 @@ Copilot 不能直接编写任意 XML 或项目文件。内部工具共享服务�
 |---|---|
 | 权威文档 | 完整原生 Draw.io XML |
 | 语义视图 | 派生、部分的 `DiagramDocument`，不作为持久化真源 |
-| C4 / Flow 布局 | ELK Layered 与 Dagre，配合共享约束和路由/质量逻辑 |
+| C4 / Flow 布局 | ELK Layered、Mr. Tree、Radial、Stress、Force 与 Dagre Layered；算法可选项受服务端配置 allowlist 约束 |
 | Sequence 布局 | 专用时序布局与路由 |
 | 渲染与手工编辑 | 本地固定版本的 Draw.io Web |
 | Draw.io 集成 | 同源 iframe 与受控桥接 |
