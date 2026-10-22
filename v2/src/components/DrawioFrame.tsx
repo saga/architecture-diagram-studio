@@ -265,9 +265,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       }
       if (data.event === "load") {
         nativeDocumentLoadedRef.current = true;
-        const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
         // Theme is presentation-only; do not modify Draw.io graph background on init.
-
       }
       if (data.event === "init") {
         recordDiagnostic("drawio.handshake.ready", "Draw.io embed API initialised; documents can be loaded safely", {
