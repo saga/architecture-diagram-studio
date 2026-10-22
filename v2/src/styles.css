@@ -1049,3 +1049,15 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
 .canvas-menu-group { display:contents; }
 
 .drawio-source-banner { flex: 0 0 auto; margin: 8px 10px 0; padding: 10px 12px; border: 1px solid #d9a441; border-radius: 6px; background: #fff8e8; color: #6d4b10; font-size: 12px; line-height: 1.55; }
+
+/* Native Draw.io property inspector */
+.native-inspector { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 12px; overflow: auto; }
+.native-inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.native-inspector-heading code { max-width: 58%; overflow: hidden; text-overflow: ellipsis; color: var(--theme-muted); font-size: 11px; }
+.native-inspector-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding-bottom: 10px; border-bottom: 1px solid var(--theme-border); }
+.native-inspector-group > summary { cursor: pointer; }
+.native-property-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--theme-secondary); font-size: 12px; }
+.native-property-field .text-field { width: 100%; min-width: 0; box-sizing: border-box; }
+.native-property-field textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.native-property-field input[readonly], .native-property-field textarea[readonly] { color: var(--theme-muted); background: var(--theme-soft); cursor: default; }
+.native-inspector .field-label { margin-bottom: 2px; }
