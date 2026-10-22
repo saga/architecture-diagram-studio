@@ -117,11 +117,13 @@ async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
 }
 let projectedSourceXml: string | null = null;
 let projectedSourceDocument: DiagramDocument | null = null;
+let projectedSourceIsValid = false;
 
 /** Rebuild the ephemeral semantic view from XML; never hydrate the view from persisted JSON. */
 function projectDocumentFromXml(xml: string): DiagramDocument {
   if (projectedSourceXml === xml && projectedSourceDocument) return projectedSourceDocument;
   const validation = validateDrawioXmlDocument(xml);
+  projectedSourceIsValid = validation.success;
   const firstPage = validation.success && validation.root.name === "mxfile"
     ? validation.root.children.find((child) => child.name === "diagram") : undefined;
   const title = firstPage?.attributes.name || "Draw.io diagram";
