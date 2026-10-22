@@ -370,8 +370,10 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     const old = previousRelations.get(id);
     const source = styleSource || (rawSource.includes("__messageSourceAnchor") ? old?.source || rawSource : rawSource);
     const target = styleTarget || (rawTarget.includes("__messageTargetAnchor") ? old?.target || rawTarget : rawTarget);
-    if (!previousNodes.has(source) && !importedNodeIds.has(source)) continue;
-    if (!previousNodes.has(target) && !importedNodeIds.has(target)) continue;
+    // XML is the source of truth: an edge is valid only when both endpoints are
+    // vertices projected from this page. Previous semantic state must not resurrect
+    // nodes that are absent from the imported XML.
+    if (!importedNodeIds.has(source) || !importedNodeIds.has(target)) continue;
 
     const geometry = directChild(cell, "mxGeometry");
     const pointElements = geometry ? directChildren(geometry, "Array")
