@@ -11,10 +11,10 @@ export interface DrawioXmlParseOptions {
 export function parseDrawioXml(xml: string, options: DrawioXmlParseOptions = {}): DrawioDomDocument {
   if (options.rejectDtd !== false) {
     const withoutSafeRegions = xml
-      .replace(/<!--[\\s\\S]*?-->/g, "")
-      .replace(/<!\\[CDATA\\[[\\s\\S]*?\\]\\]>/g, "")
-      .replace(/<\\?[\\s\\S]*?\\?>/g, "");
-    if (/<!\\s*(?:DOCTYPE|ENTITY)\\b/i.test(withoutSafeRegions)) {
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<!\\[CDATA\\[[\s\S]*?\\]\\]>/g, "")
+      .replace(/<\?[\s\S]*?\?>/g, "");
+    if (/<!\s*(?:DOCTYPE|ENTITY)\\b/i.test(withoutSafeRegions)) {
       throw new Error("DTD and custom entity declarations are not supported.");
     }
   }
