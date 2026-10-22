@@ -1,4 +1,4 @@
-import { Children, Fragment, isValidElement, useCallback, useEffect, useRef, useState } from "react";
+import { Children, Fragment, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
@@ -189,7 +189,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, [visibleDocument]);
   // The native XML is authoritative. The semantic XML is only a disposable projection.
-  const generatedDrawioXml = toDrawioXml(document);
+  const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
   const serverCommittedDocumentRef = useRef<{ document: DiagramDocument; workspaceId: string | null } | null>(null);
