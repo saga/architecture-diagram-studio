@@ -715,7 +715,7 @@ export default function App() {
   }
 
   const {
-    addSequenceFragment, changeNode
+    changeNode
   } = useDiagramEditing({
     document, selectedNode, selectedRelationId,
     setSelectedNodeId, setSelectedRelationId, setLastAction,
