@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
