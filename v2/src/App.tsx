@@ -732,10 +732,12 @@ setSelectedRelationId(null);
   }
 
   function exportDiagram() {
-    const filename = document.title.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
+    const sourceName = standaloneFileName || projectWorkspace?.primaryDiagram?.split("/").pop() || "architecture.drawio";
+    const filename = sourceName.replace(/\.(drawio|dio|xml)$/i, "").trim().toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
     setLastAction("Exported the native .drawio file");
-    recordDiagnostic("drawio.export.completed", "Exported a .drawio file", { xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length });
+    recordDiagnostic("drawio.export.completed", "Exported a .drawio file", { xmlLength: drawioXml.length, fileName: filename + ".drawio" });
   }
 
   async function openDrawioFile() {
@@ -756,15 +758,7 @@ setSelectedRelationId(null);
       const xml = await file.text();
       const diagnostics = getDrawioXmlDiagnostics(xml);
       if (diagnostics.issues.length) throw new Error(diagnostics.issues[0]);
-      if (!isDrawioXmlDocument(xml)) throw new Error("The selected file is not a supported Draw.io diagram.");
-      const empty: DiagramDocument = {
-        ...FIXTURES.c4(), id: newId("opened"), title: file.name.replace(/\.(drawio|dio|xml)$/i, ""),
-        renderTheme: "editorial", nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
-      };
-      const parsed = fromDrawioXml(xml, empty);
-      // Native Draw.io supports shapes and constructs outside our semantic projection.
-      // A valid file is still editable in the native canvas even when projection is empty.
-      const projected = parsed === empty ? empty : parsed;
+      if (!isDrawioXmlDocument(xml)) throw new Error("The selected file is not a valid Draw.io XML document.");
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         try {
           await persistDocumentNow(drawioXml, "Autosave before opening standalone Draw.io");
@@ -779,30 +773,35 @@ setSelectedRelationId(null);
         }
       }
       setWorkspaceContentReady(false);
-      setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
+      setStandaloneFileHandle(handle);
+      setStandaloneFileName(file.name);
       standaloneLastSavedXmlRef.current = xml;
-      setDocument(projected); setNativeXmlOverride(xml);
-setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
-      historyRef.current = [parsed]; historyIndexRef.current = 0;
-      setCanUndo(false); setCanRedo(false);
+      setNativeXmlOverride(xml);
+      setServerXmlAvailable(false);
       serverRevisionRef.current = null;
       setMessages([{ role: "assistant", id: Date.now(), text: "Opened a standalone Draw.io file. It is independent of the configured project workspace." }]);
-      setWorkspaceSetupOpen(false); setWorkspaceError("");
+      setWorkspaceSetupOpen(false);
+      setWorkspaceError("");
       setLastAction(handle ? "Opened " + file.name + " with local autosave enabled" : "Opened " + file.name + " as a standalone document; use Export to save changes");
-      recordDiagnostic("drawio.open.standalone", "Opened a Draw.io file independently of the project workspace", {
-        fileName: file.name, xmlLength: xml.length, fileBytes: file.size, hasLocalWriteAccess: Boolean(handle), semanticProjectionAvailable: parsed !== empty, durationMs: Date.now() - startedAt
+      recordDiagnostic("drawio.open.standalone", "Opened a standalone native Draw.io file", {
+        fileName: file.name, xmlLength: xml.length, fileBytes: file.size, pageCount: diagnostics.pageCount,
+        hasLocalWriteAccess: Boolean(handle), durationMs: Date.now() - startedAt
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setLastAction("Opening Draw.io failed: " + message);
-      recordDiagnostic("drawio.open.standalone.failed", "Could not open a standalone Draw.io file", { fileName: file.name, errorMessage: message }, "error");
+      recordDiagnostic("drawio.open.standalone.failed", "Could not open a standalone Draw.io file", {
+        fileName: file.name, errorMessage: message
+      }, "error");
     }
   }
 
   async function importDiagramFile(file: File | undefined) {
     if (!file) return;
     const startedAt = Date.now();
-    recordDiagnostic("drawio.import.started", "Draw.io import started", { fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown" });
+    recordDiagnostic("drawio.import.started", "Native Draw.io import started", {
+      fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown"
+    });
     try {
       const xml = await file.text();
       const xmlDiagnostics = getDrawioXmlDiagnostics(xml);
@@ -813,41 +812,26 @@ setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
         }, "error");
         return;
       }
-      if (xmlDiagnostics.warnings.length) {
-        const message = "Imported Draw.io with " + xmlDiagnostics.warnings.length + " compatibility warning(s): " + xmlDiagnostics.warnings.slice(0, 2).join(" ");
-        setLastAction(message);
-        recordDiagnostic("drawio.compatibility.warnings", message, {
-          fileName: file.name, pageCount: xmlDiagnostics.pageCount,
-          warningCount: xmlDiagnostics.warnings.length, warnings: xmlDiagnostics.warnings.slice(0, 20)
-        }, "warn");
-      }
       if (!isDrawioXmlDocument(xml)) {
         setLastAction("The selected file is not a supported Draw.io diagram; the active document was not changed.");
         return;
       }
-      // Import into a clean semantic base. Spreading the active document here leaked its
-      // previous diagram kind, layout profile and theme into the newly selected file.
-      const empty: DiagramDocument = {
-        ...FIXTURES.c4(),
-        id: newId("imported"),
-        title: file.name.replace(/\.(drawio|dio|xml)$/i, ""),
-        renderTheme: "editorial",
-        nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
-      };
-      const parsed = fromDrawioXml(xml, empty);
-      const next = parsed === empty ? empty : { ...parsed, title: empty.title };
-      setSelectedRelationId(null);
-      setSelectedNodeId(next.nodes[0]?.id || null);
-      commitDocument(next, "Imported native Draw.io XML from " + file.name, xml);
+      setNativeXmlOverride(xml);
+      setRevision((value) => value + 1);
+      if (standaloneFileName) standaloneLastSavedXmlRef.current = xml;
       if (xmlDiagnostics.warnings.length) {
         setLastAction("Imported " + file.name + " with " + xmlDiagnostics.warnings.length + " compatibility warning(s): " + xmlDiagnostics.warnings.slice(0, 2).join(" "));
+      } else {
+        setLastAction("Imported native Draw.io XML from " + file.name);
       }
-      recordDiagnostic("drawio.import.completed", "Draw.io file parsed and imported", {
-        durationMs: Date.now() - startedAt, nodeCount: next.nodes.length, relationCount: next.relations.length
+      recordDiagnostic("drawio.import.completed", "Native Draw.io XML imported without projection conversion", {
+        durationMs: Date.now() - startedAt, xmlLength: xml.length, pageCount: xmlDiagnostics.pageCount,
+        warningCount: xmlDiagnostics.warnings.length
       });
     } catch (error) {
       recordDiagnostic("drawio.import.failed", "Draw.io import failed", {
-        durationMs: Date.now() - startedAt, errorName: error instanceof Error ? error.name : typeof error,
+        durationMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
       setLastAction("Import failed: " + (error instanceof Error ? error.message : String(error)));
@@ -973,33 +957,24 @@ setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
   async function restoreVersion(versionId: string) {
     try {
       const response = await fetch("/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
-      const result = await response.json() as { error?: string; workspaceRevision?: string; state?: { document?: unknown; drawioXml?: unknown }; version?: { id?: string } };
-      const restoredState = result.state;
-      if (!response.ok || !restoredState || !isDiagramDocument(restoredState.document) || typeof restoredState.drawioXml !== "string") {
-        throw new Error(result.error || "Server-side version restore failed");
+      const result = await response.json() as { error?: string; workspaceRevision?: string; state?: { drawioXml?: unknown }; version?: { id?: string } };
+      const restoredXml = result.state?.drawioXml;
+      if (!response.ok || typeof restoredXml !== "string" || !isDrawioXmlDocument(restoredXml)) {
+        throw new Error(result.error || "Server-side native Draw.io version restore failed");
       }
-      const restored = restoredState.document as DiagramDocument;
-      const restoredXml = restoredState.drawioXml as string;
       serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
-      setDocument(restored);
       setNativeXmlOverride(restoredXml);
-setSelectedNodeId(restored.nodes[0]?.id || null);
-      setSelectedRelationId(null);
-      historyRef.current = [restored];
-      historyIndexRef.current = 0;
-      setCanUndo(false);
-      setCanRedo(false);
+      setServerXmlAvailable(true);
+      setWorkspaceContentReady(true);
       setRevision((value) => value + 1);
-      setLastAction("Restored the diagram and native Draw.io XML from server version history");
+      setLastAction("Restored native Draw.io XML from server version history");
       setVersionHistoryOpen(false);
-      recordDiagnostic("workspace.version.restored", "Restored the full server version snapshot", {
-        sourceVersionId: versionId, newVersionId: result.version?.id,
-        xmlLength: restoredXml.length, nodeCount: restored.nodes.length
+      recordDiagnostic("workspace.version.restored", "Restored the full native Draw.io XML snapshot", {
+        sourceVersionId: versionId, newVersionId: result.version?.id, xmlLength: restoredXml.length
       });
     } catch (error) {
-      recordDiagnostic("workspace.version.restore.failed", "Restoring the server version failed", {
-        sourceVersionId: versionId,
-        errorMessage: error instanceof Error ? error.message : String(error)
+      recordDiagnostic("workspace.version.restore.failed", "Restoring the native Draw.io version failed", {
+        sourceVersionId: versionId, errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
       setLastAction("Version restore failed: " + (error instanceof Error ? error.message : String(error)));
     }
