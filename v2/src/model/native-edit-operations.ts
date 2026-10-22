@@ -61,7 +61,7 @@ export interface NativeEditTarget {
 
 function plainNativeLabel(value: string): string {
   return value
-    .replace(/<br\\s*\\/?\\s*>/gi, " ")
+    .replace(/<br\s*\/?\s*>/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
@@ -69,15 +69,16 @@ function plainNativeLabel(value: string): string {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
-function parseNativeGraphModel(xml: string): Document {
+function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   const parsed = parseDrawioXml(xml);
   if (parsed.documentElement.nodeName === "mxGraphModel") return parsed;
   if (parsed.documentElement.nodeName !== "mxfile") return parsed;
-  const diagram = parsed.getElementsByTagName("diagram").item(0);
+  const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
+  const diagram = (pageId ? diagrams.find((page) => page.getAttribute("id") === pageId) : undefined) || diagrams[0];
   if (!diagram) return parsed;
   const model = diagram.getElementsByTagName("mxGraphModel").item(0);
   if (model) return model as unknown as Document;
@@ -88,7 +89,7 @@ function parseNativeGraphModel(xml: string): Document {
     if (nested.documentElement.nodeName === "mxGraphModel") return nested;
   }
   try {
-    const binary = atob(payload.replace(/\\s+/g, ""));
+    const binary = atob(payload.replace(/\s+/g, ""));
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     let inflated: Uint8Array | null = null;
     try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped legacy payload. */ }
@@ -97,7 +98,12 @@ function parseNativeGraphModel(xml: string): Document {
     }
     if (inflated) {
       const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
-      for (const candidate of [decoded, decodeURIComponent(decoded)]) {
+      const candidates = [decoded];
+      try {
+        const uriDecoded = decodeURIComponent(decoded);
+        if (uriDecoded !== decoded) candidates.push(uriDecoded);
+      } catch { /* A plain XML payload does not need URI decoding. */ }
+      for (const candidate of candidates) {
         try {
           const nested = parseDrawioXml(candidate);
           if (nested.documentElement.nodeName === "mxGraphModel") return nested;
@@ -109,20 +115,24 @@ function parseNativeGraphModel(xml: string): Document {
 }
 
 /** Read edit targets from native mxCells instead of the retired DiagramDocument projection. */
-export function extractNativeEditTargets(xml: string): NativeEditTarget[] {
-  const parsed = parseNativeGraphModel(xml);
+export function extractNativeEditTargets(xml: string, pageId?: string | null): NativeEditTarget[] {
+  const parsed = parseNativeGraphModel(xml, pageId);
   const cells = findDrawioElements(parsed, "mxCell");
   const result: NativeEditTarget[] = [];
   const seen = new Set<string>();
   for (const cell of cells) {
-    const id = cell.getAttribute("id") || "";
+    const wrapper = cell.parentElement;
+    const wrapperName = wrapper?.nodeName || "";
+    const wrappedId = wrapper && !["root", "mxGraphModel", "diagram", "mxfile"].includes(wrapperName)
+      ? wrapper.getAttribute("id")
+      : null;
+    const id = wrappedId || cell.getAttribute("id") || "";
     const vertex = cell.getAttribute("vertex") === "1";
     const edge = cell.getAttribute("edge") === "1";
     if (!id || seen.has(id) || (!vertex && !edge) || id === "0" || id === "1") continue;
     seen.add(id);
-    const wrapper = cell.parentElement;
-    const rawLabel = cell.getAttribute("value") || cell.getAttribute("label") ||
-      wrapper?.getAttribute("label") || wrapper?.getAttribute("value") || "";
+    const rawLabel = wrapper?.getAttribute("label") || wrapper?.getAttribute("value") ||
+      cell.getAttribute("value") || cell.getAttribute("label") || "";
     result.push({ id, name: plainNativeLabel(rawLabel) || id, cellType: vertex ? "vertex" : "edge" });
   }
   return result;
