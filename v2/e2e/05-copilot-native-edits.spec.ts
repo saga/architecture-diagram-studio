@@ -54,6 +54,7 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        outcome: "command_ready",
         commands: [],
         reply: "Renamed Database to Primary Database and changed its background to red.",
         nativeEdits: {
@@ -158,6 +159,7 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        outcome: "command_ready",
         commands: [],
         reply: "The edit is accepted; please confirm the preview before it is written to the canvas.",
         nativeEdits: {
@@ -235,6 +237,7 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        outcome: "command_ready",
         commands: [],
         reply: "Renamed API Service, moved Background Worker, removed Message Queue, and added bbb after Database.",
         nativeEdits: {
