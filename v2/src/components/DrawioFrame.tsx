@@ -289,35 +289,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   }, [cellEdit, editorReady]);
 
 
-  useEffect(() => {
-    if (!editorReady) return;
-    const editorWindow = iframeRef.current?.contentWindow as (Window & {
-      editorUi?: {
-        editor?: { graph?: {
-          getSelectionModel?: () => { addListener?: (name: string, listener: () => void) => void; removeListener?: (listener: () => void) => void };
-          getSelectionCells?: () => Array<{ id?: string; getId?: () => string }>;
-        } };
-        currentPage?: { id?: string; getId?: () => string };
-      };
-    }) | null;
-    const graph = editorWindow?.editorUi?.editor?.graph;
-    const selectionModel = graph?.getSelectionModel?.();
-    if (!graph || !selectionModel?.addListener) {
-      recordDiagnostic("drawio.selection.listener.unavailable", "The native Draw.io selection model was not available after initialization", { frameKey }, "warn");
-      return;
-    }
-    const onSelectionChanged = () => {
-      const selected = graph.getSelectionCells?.() ?? [];
-      const id = selected[0]?.getId?.() ?? selected[0]?.id ?? null;
-      const page = editorWindow?.editorUi?.currentPage;
-      const pageId = page?.getId?.() ?? page?.id ?? null;
-      onSelectionChangeRef.current(typeof id === "string" && id ? id : null, typeof pageId === "string" && pageId ? pageId : null);
-    };
-    selectionModel.addListener("change", onSelectionChanged);
-    onSelectionChanged();
-    recordDiagnostic("drawio.selection.listener.ready", "Attached to the native Draw.io selection model", { frameKey });
-    return () => selectionModel.removeListener?.(onSelectionChanged);
-  }, [editorReady, frameKey]);
+
 
   useLayoutEffect(() => {
     // Install the message listener in the commit phase before the iframe can finish loading
@@ -343,6 +315,11 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         });
       }
 
+      if (data.event === "studioSelectionChanged") {
+        const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
+        const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
+        onSelectionChangeRef.current(cellId, pageId);
+      }
       if (data.event === "configure") {
         recordDiagnostic("drawio.handshake.configure", "Draw.io requested configuration");
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
