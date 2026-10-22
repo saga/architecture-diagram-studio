@@ -1,5 +1,5 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import { requestAIIntentPlan } from "../intent/aiProvider";
+import { calculateDrawioXmlRevision, requestAIIntentPlan } from "../intent/aiProvider";
 import {
   describeNativeEditOperation,
   extractNativeEditTargets,
@@ -25,6 +25,8 @@ interface CopilotIntentOptions {
   copilotSessionId: string;
   selectedNativeCellId: string | null;
   selectedNativePageId: string | null;
+  getCurrentDiagramState?: () => { drawioXml: string; selectedNativeCellId: string | null; selectedNativePageId: string | null };
+  persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setChatInput: (value: string) => void;
@@ -32,14 +34,14 @@ interface CopilotIntentOptions {
   setCopilotSessionId: (id: string) => void;
   applyNativeCellEdit?: (cellId: string, path: string, value: string) => void;
   /** Executes one atomic batch in Draw.io and resolves only after editor acknowledgement. */
-  applyNativeCellEdits?: (edits: NativeCellEdit[]) => Promise<NativeEditExecution>;
+  applyNativeCellEdits?: (edits: NativeCellEdit[], pageId: string | null) => Promise<NativeEditExecution>;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, setWorkspaceSetupOpen, setMessages, setChatInput,
-    setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, persistWorkspaceDocument,
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
   } = options;
 
   return useCallback(async (promptOverride?: string) => {
@@ -60,32 +62,58 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         throw new Error("The Draw.io diagram has not finished loading; no Agent request was sent.");
       }
 
+      const requestState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+      const sourceXml = requestState.drawioXml;
+      const sourceSelectedCellId = requestState.selectedNativeCellId;
+      const sourcePageId = requestState.selectedNativePageId;
+      let documentRevision = await calculateDrawioXmlRevision(sourceXml);
+      if (!standaloneMode) {
+        if (!persistWorkspaceDocument) throw new Error("Workspace revision handling is unavailable; no Copilot request was sent.");
+        const saved = await persistWorkspaceDocument(sourceXml, "Before Copilot request");
+        if (typeof saved.workspaceRevision !== "string" || saved.workspaceRevision !== documentRevision) {
+          throw new Error("The current Draw.io XML was not confirmed as the workspace revision. Reload or retry before editing.");
+        }
+        documentRevision = saved.workspaceRevision;
+      }
+      const stateBeforeSend = getCurrentDiagramState?.() ?? { drawioXml: drawioXml, selectedNativeCellId, selectedNativePageId };
+      if (stateBeforeSend.drawioXml !== sourceXml || stateBeforeSend.selectedNativePageId !== sourcePageId ||
+          stateBeforeSend.selectedNativeCellId !== sourceSelectedCellId) {
+        throw new Error("The diagram, page, or selection changed before Copilot started. Send the request again against the current state.");
+      }
+
       let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
       try {
-        nativeTargets = extractNativeEditTargets(drawioXml, selectedNativePageId).slice(0, 200);
+        nativeTargets = extractNativeEditTargets(sourceXml, sourcePageId).slice(0, 200);
       } catch (error) {
         recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
           errorMessage: error instanceof Error ? error.message : String(error), xmlLength: drawioXml.length
         }, "warn");
       }
 
-      const nativePage = getNativeDiagramPageInfo(drawioXml, selectedNativePageId);
-      const activePageId = nativePage.id || selectedNativePageId;
-      const selectedTarget = nativeTargets.find((target) => target.id === selectedNativeCellId);
+      const nativePage = getNativeDiagramPageInfo(sourceXml, sourcePageId);
+      const activePageId = nativePage.id || sourcePageId;
+      const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const plan = await requestAIIntentPlan(
-        { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
+        { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
+          diagramXml: sourceXml, documentRevision },
         requestText,
         {
           kind: "drawio",
           title: nativePage.title || "Draw.io diagram",
           activePageId,
-          selectedCell: selectedNativeCellId ? {
-            cellId: selectedNativeCellId, pageId: activePageId,
-            label: selectedTarget?.name || selectedNativeCellId
+          selectedCell: sourceSelectedCellId ? {
+            cellId: sourceSelectedCellId, pageId: activePageId,
+            label: selectedTarget?.name || sourceSelectedCellId
           } : null,
           cells: nativeTargets
         }
       );
+
+      const stateAfterResponse = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+      if (stateAfterResponse.drawioXml !== sourceXml || stateAfterResponse.selectedNativePageId !== sourcePageId ||
+          (sourceSelectedCellId && stateAfterResponse.selectedNativeCellId !== sourceSelectedCellId)) {
+        throw new Error("The diagram, page, or selected target changed while Copilot was responding. No edit was sent to Draw.io; retry against the current state.");
+      }
 
       if (plan.sessionId && plan.sessionId !== copilotSessionId) {
         setCopilotSessionId(plan.sessionId);
@@ -105,10 +133,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
       if (plan.nativeEdits) {
         if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable; no change was applied.");
+        if (plan.nativeEdits.documentRevision !== documentRevision || plan.nativeEdits.pageId !== activePageId) {
+          throw new Error("The native edit plan is stale or targets another Draw.io page. No change was applied.");
+        }
         const operations = plan.nativeEdits.operations;
-        const cellPlan = toNativeCellEdits(operations, drawioXml, selectedNativePageId);
+        const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
-        const execution = await applyNativeCellEdits(cellPlan.edits);
+        const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId);
         const describeAt = (stepIndex: number) => {
           let cursor = 0;
           for (const operation of operations) {
@@ -154,6 +185,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const selection = plan.selection;
       if (selection) {
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
+        if ((selection.pageId ?? null) !== (activePageId ?? null)) throw new Error("The selection result targets a different Draw.io page; no selection changed.");
         applyNativeCellEdit(selection.cellId, "cell:select", selection.pageId || "");
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
@@ -192,7 +224,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     }
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, setWorkspaceSetupOpen, setMessages, setChatInput,
-    setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, persistWorkspaceDocument,
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
   ]);
 }
