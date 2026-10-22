@@ -9,7 +9,7 @@
 
 The seven-operation allowlist is deliberately narrower than Draw.io's native API and should remain so. The substantive problems were in state binding and completion semantics, not simply a short schema: server target resolution depended on the model-facing cell list, a request did not carry a verifiable source revision, move compilation used stale coordinates, and the UI could report success before native XML serialization and workspace persistence had completed.
 
-Those paths have now been tightened, and the browser now posts a correlated final execution/persistence acknowledgement to the server. The initial HTTP response is explicitly `command_ready`, not `applied`; the acknowledgement endpoint records a final `applied` or `failed` outcome. The remaining contract gap is that clarification, unsupported, stale-context and no-operation replies are not yet represented by one complete discriminated outcome union. Broader native operations also remain intentionally unexposed.
+Those paths have now been tightened. The API uses a discriminated outcome union for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context` and `failed`; the separate final acknowledgement returns `applied` or `failed`. Review-required batches stay server-side until the user confirms them against the same revision. The acknowledgement is bound to the request, resolved targets, serialized XML revision and immutable version ID. Broader native operations remain intentionally unexposed.
 
 ## Findings and code changes
 
@@ -39,9 +39,17 @@ Relevant code: `v2/src/model/native-edit-operations.ts`, `v2/plugins/studio-sele
 
 **Before:** the bridge acknowledged an in-memory graph mutation and the chat could immediately print success while XML serialization and workspace persistence were still asynchronous.
 
-**Changed:** for batch edits, the bridge waits for Draw.io's save/autosave XML event and returns the serialized XML with its acknowledgement. Workspace mode then waits for the revision-checked persistence call before resolving the Copilot edit as successful. The browser posts a second, correlated acknowledgement to `/api/copilot/intent/ack`; the server checks the saved workspace revision before recording the final outcome. A persistence error is reported separately from an editor rejection; it does not falsely claim that the edit was never applied. Late acknowledgements after the UI timeout still reach the server for audit but do not turn the chat message into a late success. The final server log is client-reported evidence from this local single-user UI, not independent proof suitable for a regulated audit trail.
+**Changed:** for batch edits, the bridge waits for Draw.io to serialize XML and returns that XML with its acknowledgement. Workspace mode waits for revision-checked persistence and captures the returned immutable version ID. The browser then posts a correlated acknowledgement to `/api/copilot/intent/ack`; the server resolves the claimed version ID from its version store and verifies that its XML hash equals the serialized revision. It records the resolved cell IDs/labels, editor acknowledgement, persistence status, XML revision, version ID and final outcome together. This is checked against the immutable version, not just the latest active revision, so a valid earlier operation is not discarded merely because a later user edit advances the workspace. The final server log remains client-reported execution evidence from a local single-user UI, not independent proof suitable for a regulated audit trail.
 
 Relevant code: `v2/src/components/DrawioFrame.tsx`, `v2/src/App.tsx`, `v2/src/hooks/useCopilotIntent.ts`.
+
+### P1 — Outcomes and destructive confirmation must be explicit
+
+**Changed:** `v2/src/intent/copilot-intent-outcome.ts` defines one discriminated outcome contract. The server returns `answered`, `selected`, `needs_clarification`, `unsupported`, `proposal_required`, `stale_context`, `failed` or `command_ready` as appropriate. An edit command is not considered applied until the separate final acknowledgement succeeds. If the model omits a terminal tool call, the server retries once and then returns a typed failure rather than treating free-form prose as a result. Deterministic target-resolution errors map to clarification/unsupported outcomes.
+
+Batches with two or more deletes or ten or more native operations are held as a 10-minute, single-use proposal. The UI offers an explicit confirmation action; the confirm endpoint validates the proposal ID, session/mode, latest XML hash, active page, workspace snapshot and every target again before it returns a new `command_ready` command. Multiple terminal tool calls in a single model turn fail closed.
+
+Relevant code: `v2/src/intent/copilot-intent-outcome.ts`, `v2/src/intent/aiProvider.ts`, `v2/server/copilot/intent-route.ts`, `v2/src/hooks/useCopilotIntent.ts`, `v2/src/components/WorkspacePages.tsx`.
 
 ### P1 — Standalone and workspace must not share an edit context by accident
 
@@ -95,15 +103,15 @@ The current seven operations should not be expanded with a generic `set_property
 | mxGraph mutation, rollback and serialization | Draw.io plugin | Appropriate; the server cannot call the in-iframe graph model directly |
 | Workspace optimistic save and immutable XML versions | Server | Server save path; Copilot waits for persistence before showing success |
 | Standalone file-system write | Browser File System Access API | Appropriate for a user-selected local file; never route it through workspace persistence |
-| Final native execution/persistence audit event | **Server API + browser acknowledgement** | Correlated acknowledgement endpoint now records applied/failed and revision data; route-level tests and a stronger trust model remain outstanding |
+| Final native execution/persistence outcome | **Server API + browser acknowledgement** | Correlated acknowledgement includes resolved targets, editor status, XML revision, immutable version ID and failure stage; client-reported status is not independent audit evidence |
 
 ### Follow-up architecture work
 
-1. The correlated acknowledgement endpoint is now implemented. Add route-level tests for success, native rejection, persistence failure, acknowledgement replay/expiry, and a workspace revision mismatch between save and acknowledgement.
-2. Complete the result union beyond `command_ready` / `applied` / `failed`: `stale_context`, `needs_clarification`, `unsupported` and non-edit replies should use explicit outcomes as well. This is still required by ADR-0010 section 7.
-3. Consider re-reading the actual active diagram file from disk when obtaining the workspace snapshot if V2 is expected to tolerate edits made by another process while it remains open. The current snapshot accessor validates the server's stored workspace state; it is not itself a guaranteed filesystem change detector.
-4. Add route-level tests for forged/mismatched XML revision, stale workspace revision before and after model latency, a duplicate label beyond the first 200 cells, page mismatch, edge-vs-vertex operation type checks, and standalone/workspace context isolation. The current unit and E2E tests are useful but do not yet cover the whole HTTP-to-SDK contract.
-5. Standalone execution receipts explicitly say persistence is not managed by the server. If product expectations require server-visible local-file save state, add a browser-owned save acknowledgement; do not imply that an editor serialization proves the user's local file was written.
+1. Route-level tests now cover typed no-mutation outcomes, source hash/page/selection mismatch, workspace changes during model latency, duplicate labels beyond the first 200 cells, standalone workspace isolation, review proposal confirmation/expiry, acknowledgement replay, expired receipts, immutable-version mismatch and conflicting terminal tools. A browser E2E test covers an explicit confirmation before bulk deletion; the final E2E run must still be green before declaring the full migration verified.
+2. The discriminated result contract is implemented for the current allowlist. Remaining work is to expand the integration matrix for all error branches and prove mode parity for equivalent successful edits, not to add another outcome vocabulary.
+3. The workspace snapshot accessor validates the server's stored workspace state, not changes written directly to disk by another process. If V2 must tolerate external file edits while open, add a filesystem-aware freshness check before issuing a command and document the trade-off between file I/O and latency.
+4. Keep the remaining operation coverage explicit: Chinese/English rename variants, all four move directions, connector routing, and unsupported alignment/grouping semantics are not all covered by current route/E2E tests. Do not expose alignment/grouping until the underlying native operation and rollback behavior are implemented.
+5. Standalone execution receipts explicitly say persistence is not managed by the server. This is intentional: a serialized XML event is not proof that a user-selected local file was written. If UI/product needs that guarantee, post a separate File System Access save result without treating it as a workspace version.
 
 ## ADR alignment matrix
 
@@ -111,8 +119,8 @@ The current seven operations should not be expanded with a generic `set_property
 | --- | --- |
 | ADR-0011: one native Draw.io model; no `DiagramDocument` editing round-trip | Aligned; keep it that way |
 | ADR-0012: typed revision-bound native operation plans, no raw XML replacement, no parallel graph model | Mostly aligned; current Copilot operations now carry a revision/page and the plugin operates on native mxCells |
-| ADR-0010 sections 1–6: unified server interpretation, validated revision/page, constrained bridge and explicit acknowledgement | Improved and largely aligned for the native-edit path; route-level coverage still needed |
-| ADR-0010 section 7: server-visible discriminated final outcome and complete audit of editor + persistence result | **Partially aligned**; server now receives a correlated final applied/failed acknowledgement, but the full outcome union and route-level tests are incomplete |
+| ADR-0010 sections 1–6: unified server interpretation, validated revision/page, constrained bridge, and explicit review gate | Implemented for the current native-edit allowlist; route/E2E verification continues |
+| ADR-0010 section 7: discriminated final outcome, resolved targets, editor acknowledgement, saved revision and immutable version | Implemented for workspace edits and typed no-mutation outcomes; verify the last code revision with CI before marking the migration complete |
 | ADR-0010 checklist: mode parity, broad operation examples (alignment/grouping/relation edits), failure and E2E coverage | **Not complete**; current allowlist is intentionally smaller and must be described as such |
 
 ## Verification status
