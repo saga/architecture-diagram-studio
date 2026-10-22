@@ -30,7 +30,7 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       .map((cell) => ({
         id: typeof cell.id === "string" ? cell.id : "",
         name: typeof cell.name === "string" ? cell.name.trim() : "",
-        cellType: node.cellType === "vertex" || cell.cellType === "edge" ? node.cellType : undefined
+        cellType: cell.cellType === "vertex" || cell.cellType === "edge" ? cell.cellType : undefined
       }))
       .filter((node) => node.id)
     : [];
@@ -48,7 +48,7 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       return { ok: false, error: `Operation ${index + 1}: label “${target}” is ambiguous (${matches.length} elements match). Use the exact cell id instead.` };
     }
     const cell = matches[0];
-    if (operation.op === "add_node_after" && node.cellType === "edge") {
+    if (operation.op === "add_node_after" && cell.cellType === "edge") {
       return { ok: false, error: `Operation ${index + 1}: “${target}” resolves to a connector; add_node_after requires a vertex cell.` };
     }
     resolved.push({ ...operation, target, cellId: cell.id, targetLabel: cell.name || cell.id });
