@@ -688,7 +688,15 @@ app.get("/api/workspace/diagram/active", async (req, res) => {
       res.status(404).json({ error: "This workspace has no saved primary diagram" }); return;
     }
     if (hasUnloadedPrimaryDiagramXml(state, workspace)) { res.status(409).json({ error: "The primary Draw.io XML has not been hydrated into the active workspace yet." }); return; }
-    res.json({ document: state.document, ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }), revision: typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null, updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null });
+    const projectionComplete = typeof state.drawioXml === "string" && isStudioProjectionCurrent(state.drawioXml, state.document);
+    res.json({
+      document: state.document,
+      ...(req.query.includeXml === "false" ? {} : { drawioXml: state.drawioXml }),
+      revision: typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null,
+      projectionComplete,
+      projectionWarning: projectionComplete ? null : "The authoritative Draw.io XML contains content outside the lossless semantic projection; semantic counts and quality are partial.",
+      updatedAt: state.updatedAt, workspaceId: workspace?.id ?? null, primaryDiagram: workspace?.primaryDiagram ?? null
+    });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 app.post("/api/workspace/diagram/proposals", async (req, res) => {
