@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
+import type { SessionEvent } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
 import type { AgentAppliedEditView, AgentProposalView } from "./diagram-tools";
 import {
@@ -38,6 +39,71 @@ const pendingAgentApplications = new Map<string, AgentAppliedEditView>();
 const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
 const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOperation[]; summary: string }>();
 const usedToolsBySession = new Map<string, Set<string>>();
+
+/** Per-model token usage emitted by one Copilot SDK model call. */
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  calls: number;
+  models: Record<string, { inputTokens: number; outputTokens: number }>;
+}
+
+function emptyTokenUsage(): TokenUsage {
+  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, calls: 0, models: {} };
+}
+
+function addTokenUsage(target: TokenUsage, raw: unknown): void {
+  const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const inputTokens = typeof data.inputTokens === "number" && Number.isFinite(data.inputTokens) ? Math.max(0, data.inputTokens) : 0;
+  const outputTokens = typeof data.outputTokens === "number" && Number.isFinite(data.outputTokens) ? Math.max(0, data.outputTokens) : 0;
+  const model = typeof data.model === "string" && data.model.trim() ? data.model.trim() : "unknown";
+  if (!inputTokens && !outputTokens) return;
+  target.inputTokens += inputTokens;
+  target.outputTokens += outputTokens;
+  target.totalTokens += inputTokens + outputTokens;
+  target.calls += 1;
+  const existing = target.models[model] || { inputTokens: 0, outputTokens: 0 };
+  existing.inputTokens += inputTokens;
+  existing.outputTokens += outputTokens;
+  target.models[model] = existing;
+}
+
+function mergeTokenUsage(target: TokenUsage, source: TokenUsage): void {
+  target.inputTokens += source.inputTokens;
+  target.outputTokens += source.outputTokens;
+  target.totalTokens += source.totalTokens;
+  target.calls += source.calls;
+  for (const [model, usage] of Object.entries(source.models)) {
+    const existing = target.models[model] || { inputTokens: 0, outputTokens: 0 };
+    existing.inputTokens += usage.inputTokens;
+    existing.outputTokens += usage.outputTokens;
+    target.models[model] = existing;
+  }
+}
+
+function tokenUsageForLog(usage: TokenUsage): TokenUsage | undefined {
+  return usage.calls > 0 ? usage : undefined;
+}
+
+async function sendWithTokenUsage(
+  turn: Parameters<Parameters<CopilotRuntime["withTurn"]>[1]>[0],
+  body: unknown,
+  timeoutMs: number,
+): Promise<{ message: SessionEvent | undefined; usage: TokenUsage }> {
+  const usage = emptyTokenUsage();
+  let off = () => undefined;
+  try {
+    off = turn.session.session.on("assistant.usage", (event) => {
+      addTokenUsage(usage, (event as SessionEvent & { data?: unknown }).data);
+    });
+    const message = await turn.send(body, timeoutMs);
+    return { message, usage };
+  } finally {
+    off();
+  }
+}
+
 /**
  * The select and native-edit tools must see the elements of the *current* request.
  * The SDK session survives across turns and its tool closures are created once, so the
@@ -86,10 +152,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     });
   }
 
-  /**
-   * Typed native edits: the server only authorizes and resolves them. The browser applies
-   * the returned operations through the Draw.io bridge, so no XML is regenerated here.
-   */
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
       description: "Submit one or more typed native Draw.io edits, including compound requests such as “select X and make its background red”. Supports select, set_label, set_style (fillColor, strokeColor, fontColor), move, resize and delete. The server validates the targets and style keys against the supplied diagram context and does not modify XML; the browser applies every operation as one atomic batch and rolls all of them back if any step fails. Use exact cell IDs or unique exact labels from the diagram context; do not guess.",
@@ -171,15 +233,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(400).json({ error: "Invalid diagram context or more than 200 nodes", sessionId });
       return;
     }
-    // A model id the runtime does not know is silently auto-routed to a catalog model, so the id is
-    // settled here — before the turn is logged or a session is opened — and the request carries the
-    // model that will actually run.
     const modelChoice = await deps.copilot.resolveModel(requestedModel);
     const model = modelChoice.model || requestedModel;
 
     const startedAt = Date.now();
     const requestId = randomUUID();
-    // Tools outlive one request; bind the active context so targeting never uses a stale snapshot.
     contextBySession.set(sessionId, context);
     const nodeNames = (context.nodes as Array<{ id?: unknown; name?: unknown }>).slice(0, 80).map((node) => ({ id: typeof node.id === "string" ? node.id : null, name: typeof node.name === "string" ? node.name.slice(0, 120) : null }));
     await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, nodeCount: (context.nodes as unknown[]).length, nodeNames });
@@ -196,7 +254,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           return {
             configRevisionId: latestConfig.revisionId,
             systemMessage: await buildSystemMessage(latestConfig, standalone),
-            // Never expose workspace-bound mutation tools to a standalone Draw.io session.
             tools: [
               createSelectDiagramElementTool(sessionId),
               createProposeNativeEditsTool(sessionId),
@@ -225,6 +282,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         usedToolsBySession.set(sessionId, new Set<string>());
+        const totalUsage = emptyTokenUsage();
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = standalone ? { mode: "standalone", workspace: null, snippets: [], diagram: context } : await deps.collectAgentWorkspaceContext();
         await deps.writeLog("turn.workspace-context.loaded", {
@@ -235,8 +293,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const firstTurnStartedAt = Date.now();
         const firstRequestPrompt = JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext });
         await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 1, timeoutMs: 50000, model: turn.session.model, promptLength: prompt.length, requestPrompt: firstRequestPrompt, standalone, toolCount: turn.session.prepared.tools.length });
-        const firstTurn = await turn.send({ prompt: firstRequestPrompt }, 50000);
-        await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt, responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn), responseText: assistantText(firstTurn) });
+        const firstTurnResult = await sendWithTokenUsage(turn, { prompt: firstRequestPrompt }, 50000);
+        mergeTokenUsage(totalUsage, firstTurnResult.usage);
+        const firstTurn = firstTurnResult.message;
+        await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt, responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn), responseText: assistantText(firstTurn), usage: tokenUsageForLog(firstTurnResult.usage) });
         let captured = pendingPlans.get(sessionId) || null;
         pendingPlans.delete(sessionId);
         let capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -254,8 +314,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           const retryStartedAt = Date.now();
           const retryPrompt = JSON.stringify({ request: standalone ? "Use propose_native_edits for element appearance (fill, stroke or font color), label, size, position or deletion changes, and select_diagram_element only for pure focus requests. Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For element appearance (color), label, position, size or deletion changes use propose_native_edits with every step in one call. For analysis, inspect the active diagram and evaluate quality. For one focused semantic change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context });
           await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 2, timeoutMs: 25000, reason: "first response did not invoke a tool", standalone, requestPrompt: retryPrompt });
-          const nudged = await turn.send({ prompt: retryPrompt }, 25000);
-          await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged), responseText: assistantText(nudged) });
+          const nudgedResult = await sendWithTokenUsage(turn, { prompt: retryPrompt }, 25000);
+          mergeTokenUsage(totalUsage, nudgedResult.usage);
+          const nudged = nudgedResult.message;
+          await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged), responseText: assistantText(nudged), usage: tokenUsageForLog(nudgedResult.usage) });
           captured = pendingPlans.get(sessionId) || null;
           pendingPlans.delete(sessionId);
           capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -269,18 +331,16 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
           modelText = assistantText(nudged) || modelText;
         }
-        return { captured, capturedProposal, capturedApplication, capturedSelection, capturedNativeEdits, modelText, usedToolNames: [...usedToolNames], session: turn.session };
+        return { captured, capturedProposal, capturedApplication, capturedSelection, capturedNativeEdits, modelText, usedToolNames: [...usedToolNames], session: turn.session, usage: tokenUsageForLog(totalUsage) };
       });
 
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
       const shared = {
         sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames
+        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames,
+        usage: plan.usage
       };
-      // Mutating outcomes are mutually exclusive, but a selection may accompany any of them.
-      // A server-applied revision outranks browser-side edits: once the server has produced a
-      // new XML revision, cell ids held by the browser are stale and a native batch would fail.
       if (plan.capturedApplication) {
         const application = plan.capturedApplication;
         const response = {
@@ -294,7 +354,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           sessionId, versionId: application.versionId, baseRevision: application.baseRevision,
           workspaceRevision: application.workspaceRevision, summary: application.summary, qualityScore: application.quality.score,
           selection: selection ?? null, discardedNativeEdits: Boolean(plan.capturedNativeEdits),
-          response: { applied: true, summary: application.summary, versionId: application.versionId, workspaceRevision: application.workspaceRevision }, toolsUsed: plan.usedToolNames
+          response: { applied: true, summary: application.summary, versionId: application.versionId, workspaceRevision: application.workspaceRevision }, toolsUsed: plan.usedToolNames, usage: plan.usage
         });
         res.json(response);
         return;
@@ -308,7 +368,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         };
         await deps.writeLog("turn.completed.with-native-edits", {
           sessionId, operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
-          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label })), usage: plan.usage
         });
         res.json(response);
         return;
@@ -323,7 +383,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           },
           ...shared
         };
-        await deps.writeLog("turn.completed.with-proposal", { sessionId, proposalId: proposal.proposalId, summary: proposal.summary, qualityScore: proposal.quality.score, selection: selection ?? null });
+        await deps.writeLog("turn.completed.with-proposal", { sessionId, proposalId: proposal.proposalId, summary: proposal.summary, qualityScore: proposal.quality.score, selection: selection ?? null, usage: plan.usage });
         res.json(response);
         return;
       }
@@ -335,25 +395,25 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       }
       if (resolved) {
         const response = { ...resolved, ...(selection ? { selection } : {}), ...shared };
-        await deps.writeLog("turn.completed", { sessionId, model: plan.session.model, durationMs: response.durationMs, response });
+        await deps.writeLog("turn.completed", { sessionId, model: plan.session.model, durationMs: response.durationMs, response, usage: plan.usage });
         res.json(response);
         return;
       }
       if (selection) {
         const response = { commands: [], reply: modelReply || "Selected diagram element: " + selection.label, selection, ...shared };
-        await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response });
+        await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response, usage: plan.usage });
         res.json(response);
         return;
       }
       if (plan.usedToolNames.length) {
-        await deps.writeLog("turn.completed.after-analysis-tools", { sessionId, model: plan.session.model, tools: plan.usedToolNames, modelText: modelText.slice(0, 2000) });
+        await deps.writeLog("turn.completed.after-analysis-tools", { sessionId, model: plan.session.model, tools: plan.usedToolNames, modelText: modelText.slice(0, 2000), usage: plan.usage });
         res.json({
           commands: [], reply: modelText.slice(0, 500) || "The requested analysis completed; the diagram is unchanged.",
           ...shared
         });
         return;
       }
-      await deps.writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000) });
+      await deps.writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000), usage: plan.usage });
       res.json({
         commands: [], reply: modelText.slice(0, 500) || "No actionable plan was produced and the diagram is unchanged. Try specifying a supported layout or semantic edit.",
         ...shared
@@ -372,7 +432,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     }
   });
 }
-
 
 function createSelectDiagramElementTool(sessionId: string) {
   return defineTool("select_diagram_element", {
