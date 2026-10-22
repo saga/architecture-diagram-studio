@@ -890,7 +890,12 @@ registerCopilotIntentRoute(app, {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
     if (!workspaceStateMatchesActiveDiagram(state, workspace) || typeof state.drawioXml !== "string") return null;
-    return { drawioXml: state.drawioXml, revision: workspaceRevision(state.drawioXml) };
+    const revision = workspaceRevision(state.drawioXml);
+    const versions = (await getDiagramVersions()).filter((version) =>
+      versionMatchesActiveDiagram(version, workspace) && workspaceRevision(version.drawioXml) === revision
+    );
+    const currentVersion = versions[versions.length - 1] ?? null;
+    return { drawioXml: state.drawioXml, revision, versionId: currentVersion?.id ?? null };
   },
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();
