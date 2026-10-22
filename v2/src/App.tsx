@@ -95,6 +95,8 @@ function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectH
 
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
 
+const EMPTY_DRAWIO_XML = '<mxfile host="localhost" agent="Architecture Diagram Studio V2"><diagram id="page-1" name="Page-1"><mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
+
 export default function App() {
   // The server-derived XML projection is authoritative; browser storage keeps preferences only.
   const [document, setDocument] = useState<DiagramDocument>(() => FIXTURES.c4());
@@ -263,17 +265,14 @@ export default function App() {
         });
         const result = await response.json() as {
           error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
-          document?: DiagramDocument; drawioXml?: string; workspaceRevision?: string;
+          drawioXml?: string; workspaceRevision?: string;
           version?: { id: string; createdAt: string; label: string };
         };
         serverActiveContextChanged = response.ok;
-        if (!response.ok || !result.workspace || !result.document || typeof result.drawioXml !== "string" || typeof result.workspaceRevision !== "string") {
+        if (!response.ok || !result.workspace || typeof result.drawioXml !== "string" || typeof result.workspaceRevision !== "string") {
           throw new Error(result.error || "Creating the Draw.io file failed");
         }
-        const nextWorkspace = result.workspace, nextDocument = result.document;
-        setDocument(nextDocument); setSelectedNodeId(null);
-        historyRef.current = [nextDocument]; historyIndexRef.current = 0;
-        setCanUndo(false); setCanRedo(false);
+        const nextWorkspace = result.workspace;
         setNativeXmlOverride(result.drawioXml);
         setProjectWorkspace(nextWorkspace); setStandaloneFileHandle(null); setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || []);
         setWorkspaceName(nextWorkspace.name); setWorkspaceRootPath(nextWorkspace.rootPath);
@@ -287,7 +286,7 @@ export default function App() {
         setWorkspaceLaunchMode("open"); setWorkspaceSetupOpen(false);
         recordDiagnostic("workspace.diagram.created", "Created a new Draw.io file and opened it", {
           workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram,
-          versionId: result.version?.id, nodeCount: nextDocument.nodes.length
+          versionId: result.version?.id, xmlLength: result.drawioXml.length
         });
         return;
       }
@@ -304,7 +303,7 @@ export default function App() {
       };
       if (!response.ok || !result.workspace) throw new Error(result.error || "Opening the Draw.io workspace failed");
       const nextWorkspace = result.workspace;
-      let nextDocument = document, nextXml: string | null = nativeXmlOverride;
+      let nextXml: string | null = nativeXmlOverride;
       const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
       const diagramChanged = projectWorkspace?.id === nextWorkspace.id && projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram;
       const diagramContextChanged = workspaceChanged || diagramChanged;
@@ -330,20 +329,9 @@ export default function App() {
             warningCount: xmlDiagnostics.warnings.length, warnings: xmlDiagnostics.warnings.slice(0, 20)
           }, "warn");
         }
-        const importBaseDocument = diagramContextChanged ? FIXTURES.c4() : document;
-        const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
-        // Valid native XML must open even when no cells can be represented by the partial
-        // semantic projection. Never leave a previous diagram or fixture in the semantic panel.
-        nextDocument = parsedDocument === importBaseDocument
-          ? { ...importBaseDocument, id: "drawio-xml-projection", title: targetDiagramPath.split("/").pop() || "Draw.io diagram", nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined }
-          : parsedDocument;
+
       } else if (workspaceChanged) {
-        nextDocument = await layoutSample(FIXTURES.c4()); nextXml = null;
-      }
-      if (nextDocument !== document) {
-        setDocument(nextDocument); setSelectedNodeId(nextDocument.nodes[0]?.id || null);
-        historyRef.current = [nextDocument]; historyIndexRef.current = 0;
-        setCanUndo(false); setCanRedo(false);
+        nextXml = EMPTY_DRAWIO_XML;
       }
       setNativeXmlOverride(nextXml);
       // Opening a file is an explicit refresh, so don't let a prior Copilot receipt suppress
