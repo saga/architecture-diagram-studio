@@ -19,7 +19,7 @@ export function useWorkspacePersistence(options: Options) {
       const baseRevision = serverRevisionRef.current;
       const response = await fetch("/api/workspace/document", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ document: snapshot, drawioXml: xml, label, baseRevision })
+        body: JSON.stringify({ drawioXml: xml, label, baseRevision })
       });
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
