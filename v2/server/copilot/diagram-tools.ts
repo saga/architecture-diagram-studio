@@ -25,7 +25,7 @@ export interface DiagramOperationInput {
     "add_sequence_fragment" | "update_sequence_fragment" | "delete_sequence_fragment";
   nodeId?: string; relationId?: string; sourceId?: string; targetId?: string;
   name?: string; role?: string; visualRole?: string; description?: string; technology?: string;
-  x?: number; y?: number; locked?: boolean; preferredSide?: string;
+  x?: number; y?: number; locked?: boolean; preferredSide?: string; afterNodeId?: string; connectFromId?: string;
   label?: string; kind?: string; routing?: string; dashed?: string;
   profile?: string; direction?: string; boundaryId?: string; boundaryName?: string; members?: string[];
   fragmentId?: string; fragmentKind?: string; startOrder?: number; endOrder?: number; participants?: string[];
@@ -79,7 +79,7 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
       }
     }),
     createTrackedTool("inspect_active_diagram",{
-      description:"Inspect the active semantic projection with bounded node, edge, boundary, layout, flow and sequence details. Always check projectionComplete before treating these counts as a complete inventory or attempting semantic edits.",
+      description:"Inspect the available diagram details. The node/edge lists can be partial when native Draw.io cells use unsupported structures; never treat counts as a complete inventory. When projectionComplete is false, focused append-only add_node/create_relation operations may still be used without relayout; existing-cell edits and layout changes require a complete projection or the native editor bridge.",
       parameters:{type:"object",properties:{},additionalProperties:false},
       handler:async()=>{
         const d=await active();
@@ -110,7 +110,7 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
       }
     }),
     createTrackedTool("apply_diagram_operation",{
-      description:"Apply one focused, explicit user-requested node, relation, layout, boundary or sequence-fragment operation directly. First inspect_active_diagram and supply its exact revision. The server rejects stale revisions, validates semantics, applies layout-quality gates when the operation uses semantic layout, and creates an immutable version before success. Do not use for analysis-only requests, hypotheticals, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use the proposal tools for those.",
+      description:"Apply one focused, explicit user-requested operation after inspecting the active diagram and supplying its exact revision. If projectionComplete is false, only append-only additions are allowed: use add_node with afterNodeId to place it after an existing node, and connectFromId to create an edge to the new node in the same operation. These additions must not trigger global relayout and must preserve all existing native XML cells. Existing-cell edits, layout changes, broad redesigns and destructive changes require a complete projection or a reviewable proposal. Stale revisions are rejected and successful workspace changes are versioned.",
       parameters:{
         type:"object",
         properties:{
@@ -119,7 +119,7 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
           nodeId:{type:"string"},relationId:{type:"string"},sourceId:{type:"string"},targetId:{type:"string"},
           name:{type:"string",maxLength:200},role:{type:"string",enum:["actor","source","entry","ui","domain","business","api","worker","data","storage","external","vendor","infra","decision","start","end","service"]},
           visualRole:{type:"string",enum:["primary","secondary","muted","external","highlight"]},description:{type:"string",maxLength:2000},technology:{type:"string",maxLength:200},
-          x:{type:"number",minimum:0,maximum:100000},y:{type:"number",minimum:0,maximum:100000},locked:{type:"boolean"},preferredSide:{type:"string",enum:["LEFT","RIGHT","TOP","BOTTOM"]},
+          x:{type:"number",minimum:0,maximum:100000},y:{type:"number",minimum:0,maximum:100000},locked:{type:"boolean"},preferredSide:{type:"string",enum:["LEFT","RIGHT","TOP","BOTTOM"]},afterNodeId:{type:"string"},connectFromId:{type:"string"},
           label:{type:"string",maxLength:500},kind:{type:"string",enum:["flow","call","return","async","event","dependency"]},
           routing:{type:"string",enum:["inherit","orthogonal","polyline","curved"]},dashed:{type:"string",enum:["inherit","solid","dashed"]},
           profile:{type:"string",maxLength:100},direction:{type:"string",enum:["RIGHT","DOWN"]},
