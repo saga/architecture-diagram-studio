@@ -113,7 +113,7 @@ function stripThemeMetadata(raw: string): string {
 function mergeThemeMetadata(sourceCell: string, nextCell: string): string {
   const sourceStyle = /\bstyle=(["'])([\s\S]*?)\1/.exec(sourceCell);
   const nextStyle = /\bstyle=(["'])([\s\S]*?)\1/.exec(nextCell);
-  if (!sourceStyle || !nextStyle || !/studioTheme(?:Original|Applied|Override)/.test(sourceStyle[2])) return nextCell;
+  if (!sourceStyle || !nextStyle) return nextCell;
   const parse = (raw: string) => new Map(raw.split(";").filter(Boolean).map((entry) => {
     const index = entry.indexOf("=");
     return index < 0 ? [entry, "1"] : [entry.slice(0, index), entry.slice(index + 1)];
@@ -130,13 +130,25 @@ function mergeThemeMetadata(sourceCell: string, nextCell: string): string {
       next.set(overrideKey, "1");
       continue;
     }
-    if (!source.has(appliedKey)) continue;
-    if ((next.get(key) ?? null) !== source.get(appliedKey)) {
-      next.set(overrideKey, "1");
+    const sourceValue = source.get(key) ?? null;
+    const nextValue = next.get(key) ?? null;
+    if (source.has(appliedKey)) {
+      if (nextValue !== source.get(appliedKey)) {
+        next.set(overrideKey, "1");
+        continue;
+      }
+      if (source.has(originalKey)) next.set(originalKey, source.get(originalKey)!);
+      next.set(appliedKey, source.get(appliedKey)!);
       continue;
     }
-    if (source.has(originalKey)) next.set(originalKey, source.get(originalKey)!);
-    next.set(appliedKey, source.get(appliedKey)!);
+    if (source.has(originalKey)) {
+      const originalValue = source.get(originalKey) === "__none__" ? null : source.get(originalKey)!;
+      if (nextValue !== originalValue) next.set(overrideKey, "1");
+      else next.set(originalKey, source.get(originalKey)!);
+      continue;
+    }
+    // Colour changes produced by the Studio properties panel or Copilot are explicit user intent.
+    if (sourceValue !== nextValue) next.set(overrideKey, "1");
   }
   const mergedStyle = [...next].map(([key, value]) => key + "=" + value).join(";") + ";";
   const escaped = mergedStyle.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
