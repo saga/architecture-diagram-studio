@@ -73,7 +73,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const activePageId = nativePage.id || selectedNativePageId;
       const selectedTarget = nativeTargets.find((target) => target.id === selectedNativeCellId);
       const plan = await requestAIIntentPlan(
-        { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
+        { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
         requestText,
         {
           kind: "drawio",
