@@ -138,8 +138,10 @@ export function useWorkspaceBootstrap(options: Options) {
           if (xmlDiagnostics.issues.length) throw new Error(xmlDiagnostics.issues[0]);
           const parsedDocument = fromDrawioXml(result.content, baseDocument);
           // A valid native document remains openable even when the partial semantic projection
-          // cannot represent any of its cells. The original XML remains authoritative.
-          const imported = parsedDocument === baseDocument ? baseDocument : parsedDocument;
+          // cannot represent any of its cells. Never show the fixture as if it came from that file.
+          const imported = parsedDocument === baseDocument
+            ? { ...baseDocument, id: "drawio-xml-projection", title: result.path.split("/").pop() || "Draw.io diagram", nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined }
+            : parsedDocument;
           if (!active) return;
           setDocument(imported); setNativeXmlOverride(result.content); setSelectedNodeId(imported.nodes[0]?.id || null);
           historyRef.current = [imported]; historyIndexRef.current = 0; setCanUndo(false); setCanRedo(false);
