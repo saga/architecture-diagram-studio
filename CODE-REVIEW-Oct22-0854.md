@@ -1,5 +1,7 @@
 # 代码复审：Draw.io XML 管线（HEAD `27040a7`）
 
+> **历史复审记录，不代表当前 HEAD。** 本报告的结论、行号和失败症状针对标题中记录的旧提交。后续修复和当前设计以最新源代码、ADR-0006/0008 及最新 CI 为准；不要把本文件中提及的 Studio/Freeform 双画布或旧 XML 缺陷直接当作现状。
+
 - 复审基线：`27040a7 test(schema): preserve unusual cell geometry with a warning`
 - 上一份报告：`DRAWIO-DIAGRAMS-CORPUS-COMPATIBILITY-REPORT.md`（基线 `ff0784b`）
 - 本次方法：重读改动文件 + **重跑 619 个真实文件** + 跑全量测试
