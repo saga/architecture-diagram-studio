@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIXTURES } from "./fixtures";
 import { toDrawioXml } from "../export/drawio";
-import { canEditInStudio, patchDrawioXml } from "./drawio-xml-source";
+import { canApplySemanticEdits, patchDrawioXml } from "./drawio-xml-source";
 
 function addOpaqueCell(xml: string): string {
   const opaque = '<mxCell id="native-custom-blob" value="custom metadata" style="shape=custom.foo;customKey=keep-me;" vertex="1" parent="1"><mxGeometry x="900" y="700" width="80" height="50" as="geometry"/></mxCell>';
@@ -14,7 +14,7 @@ describe("Draw.io XML is the authoritative source", () => {
     const source = toDrawioXml(document)
       .replace('host="app.diagrams.net"', 'host="app.diagrams.net" sourceCustomMetadata="preserve-me"')
       .replace('<mxGraphModel dx="1200"', '<mxGraphModel customModelFlag="preserve-model" dx="1200"');
-    expect(canEditInStudio(source, toDrawioXml(document), document)).toBe(true);
+    expect(canApplySemanticEdits(source, toDrawioXml(document), document)).toBe(true);
 
     const next = structuredClone(document);
     next.nodes[0].x += 40;
@@ -33,7 +33,7 @@ describe("Draw.io XML is the authoritative source", () => {
     };
     const legacyXml = '<?xml version="1.0"?><mxfile host="app.diagrams.net"><diagram id="legacy" name="Legacy"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
     const projection = toDrawioXml(document);
-    expect(canEditInStudio(legacyXml, projection, document)).toBe(true);
+    expect(canApplySemanticEdits(legacyXml, projection, document)).toBe(true);
     expect(patchDrawioXml(legacyXml, projection, document)).toContain("studioLayoutProfile=");
   });
 
@@ -43,14 +43,14 @@ describe("Draw.io XML is the authoritative source", () => {
     };
     const xml = '<mxfile><diagram id="page-1" name="Minimal"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
 
-    expect(canEditInStudio(xml, xml, document)).toBe(true);
+    expect(canApplySemanticEdits(xml, xml, document)).toBe(true);
     expect(patchDrawioXml(xml, xml, document)).not.toBeNull();
   });
 
   it("refuses Studio edits when the source contains an opaque cell", () => {
     const document = FIXTURES.c4();
     const source = addOpaqueCell(toDrawioXml(document));
-    expect(canEditInStudio(source, toDrawioXml(document), document)).toBe(false);
+    expect(canApplySemanticEdits(source, toDrawioXml(document), document)).toBe(false);
   });
 
   it("preserves opaque cells if a caller patches an XML source conservatively", () => {
@@ -72,7 +72,7 @@ describe("Draw.io XML is the authoritative source", () => {
     const secondPage = '<diagram id="second-page" name="Second page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>';
     const multiPage = singlePage.replace("</mxfile>", secondPage + "</mxfile>");
 
-    expect(canEditInStudio(multiPage, singlePage, document)).toBe(false);
+    expect(canApplySemanticEdits(multiPage, singlePage, document)).toBe(false);
     expect(patchDrawioXml(multiPage, singlePage, document)).toBeNull();
   });
 });
