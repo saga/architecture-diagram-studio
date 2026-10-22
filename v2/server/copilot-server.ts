@@ -1482,7 +1482,7 @@ registerCopilotIntentRoute(app, {
           throw new Error("Unsupported diagram operation.");
       }
 
-      if (next.kind === "sequence") next = normalizeSequenceDocument(next);
+      if (next.kind === "sequence") { next = normalizeSequenceDocument(next); requiresLayout = true; }
       else if (requiresLayout) {
         const config = await getStudioConfig();
         if (!layoutProfileEnabled(next, config)) throw new Error("The active layout profile is disabled.");
