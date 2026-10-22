@@ -1,0 +1,246 @@
+import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
+
+/**
+ * Shared contract for native Draw.io cell edits.
+ *
+ * The same operation list is produced by the Copilot agent, validated by the server and
+ * executed by the browser through the native bridge. Keeping one schema here prevents the
+ * model, the server and the client from drifting into separate vocabularies.
+ */
+export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
+export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
+
+/** The bridge batch caps at 50 steps; two geometry steps per move stay well inside it. */
+export const MAX_NATIVE_EDIT_OPERATIONS = 20;
+
+export type NativeEditOperation =
+  | { op: "select"; target: string }
+  | { op: "set_label"; target: string; label: string }
+  | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
+  | { op: "move"; target: string; dx: number; dy: number }
+  | { op: "resize"; target: string; width: number; height: number }
+  | { op: "delete"; target: string };
+
+/** An operation whose target label was resolved to a concrete Draw.io cell by the server. */
+export type ResolvedNativeEditOperation = NativeEditOperation & { cellId: string; label: string };
+
+export interface NativeCellEdit {
+  cellId: string;
+  path: string;
+  value: string;
+}
+
+export interface NativeBatchStepResult {
+  index: number;
+  cellId: string;
+  path: string;
+  value: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Outcome of one atomic bridge batch, as reported by the native editor. */
+export interface NativeEditExecution {
+  ok: boolean;
+  error?: string;
+  rolledBack: boolean;
+  steps: NativeBatchStepResult[];
+}
+
+export type NativeEditParseResult =
+  | { ok: true; operations: NativeEditOperation[] }
+  | { ok: false; error: string };
+
+const OPERATION_NAMES = ["select", "set_label", "set_style", "move", "resize", "delete"] as const;
+
+/**
+ * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
+ * inside a value such as “红色背景色”.
+ */
+const NAMED_COLORS: Record<string, string> = {
+  red: "#ff0000", blue: "#0000ff", green: "#008000", black: "#000000", white: "#ffffff",
+  orange: "#ffa500", purple: "#800080", gray: "#808080", grey: "#808080", yellow: "#ffff00",
+  pink: "#ffc0cb", brown: "#a52a2a", cyan: "#00ffff", teal: "#008080", navy: "#000080",
+  红色: "#ff0000", 红: "#ff0000", 蓝色: "#0000ff", 蓝: "#0000ff", 绿色: "#008000", 绿: "#008000",
+  黑色: "#000000", 黑: "#000000", 白色: "#ffffff", 白: "#ffffff", 橙色: "#ffa500", 橙: "#ffa500",
+  紫色: "#800080", 紫: "#800080", 灰色: "#808080", 灰: "#808080", 黄色: "#ffff00", 黄: "#ffff00",
+  粉色: "#ffc0cb", 粉: "#ffc0cb", 棕色: "#a52a2a", 棕: "#a52a2a", 青色: "#00ffff", 青: "#00ffff"
+};
+const NAMED_COLOR_KEYS = Object.keys(NAMED_COLORS).sort((left, right) => right.length - left.length);
+
+/** Normalizes `#f00`, `#FF0000`, `red` and `红色背景色` to a lowercase six-digit hex color. */
+export function normalizeNativeColor(value: string): string | null {
+  const raw = value.trim().toLowerCase();
+  if (!raw || raw.length > 40) return null;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(raw);
+  if (hex) {
+    const digits = hex[1];
+    return "#" + (digits.length === 3 ? digits.split("").map((digit) => digit + digit).join("") : digits);
+  }
+  if (NAMED_COLORS[raw]) return NAMED_COLORS[raw];
+  // Accept a named color embedded in a phrase such as “红色背景色” or “字色改成蓝色”.
+  const embedded = NAMED_COLOR_KEYS.find((key) => raw.includes(key));
+  return embedded ? NAMED_COLORS[embedded] : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function textField(source: Record<string, unknown>, field: string, maxLength: number): string {
+  const value = source[field];
+  if (typeof value !== "string") throw new Error(`Operation field “${field}” must be a string`);
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`Operation field “${field}” must not be empty`);
+  if (trimmed.length > maxLength) throw new Error(`Operation field “${field}” exceeds ${maxLength} characters`);
+  return trimmed;
+}
+
+function numericField(source: Record<string, unknown>, field: string, minimum: number, maximum: number): number {
+  const value = source[field];
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`Operation field “${field}” must be a finite number`);
+  if (value < minimum || value > maximum) throw new Error(`Operation field “${field}” must be between ${minimum} and ${maximum}`);
+  return value;
+}
+
+/**
+ * Validates an untrusted operation list from the model.
+ *
+ * Style keys are restricted here, not in the bridge: the bridge applies any `style:<key>`
+ * it receives, so an unvalidated key would let the model rewrite arbitrary Draw.io style.
+ */
+export function parseNativeEditOperations(input: unknown): NativeEditParseResult {
+  if (!Array.isArray(input)) return { ok: false, error: "operations must be an array" };
+  if (input.length === 0) return { ok: false, error: "operations must contain at least one operation" };
+  if (input.length > MAX_NATIVE_EDIT_OPERATIONS) {
+    return { ok: false, error: `operations must contain at most ${MAX_NATIVE_EDIT_OPERATIONS} operations` };
+  }
+  const operations: NativeEditOperation[] = [];
+  for (const [index, raw] of input.entries()) {
+    const position = index + 1;
+    try {
+      if (!isRecord(raw)) throw new Error("Operation must be an object");
+      const name = raw.op;
+      if (typeof name !== "string" || !OPERATION_NAMES.includes(name as (typeof OPERATION_NAMES)[number])) {
+        throw new Error(`Unsupported operation “${String(name)}”; expected one of ${OPERATION_NAMES.join(", ")}`);
+      }
+      const target = textField(raw, "target", 200);
+      switch (name) {
+        case "select":
+        case "delete":
+          operations.push({ op: name, target });
+          break;
+        case "set_label":
+          operations.push({ op: name, target, label: textField(raw, "label", 500) });
+          break;
+        case "set_style": {
+          const key = raw.key === undefined || raw.key === null ? "fillColor" : raw.key;
+          if (typeof key !== "string" || !NATIVE_EDIT_STYLE_KEYS.includes(key as NativeEditStyleKey)) {
+            throw new Error(`Style key must be one of ${NATIVE_EDIT_STYLE_KEYS.join(", ")}`);
+          }
+          const colorValue = raw.color;
+          if (typeof colorValue !== "string") throw new Error("Style color must be a string");
+          const color = normalizeNativeColor(colorValue);
+          if (!color) throw new Error(`Unsupported color “${colorValue}”`);
+          operations.push({ op: name, target, key: key as NativeEditStyleKey, color });
+          break;
+        }
+        case "move": {
+          const dx = numericField(raw, "dx", -10000, 10000);
+          const dy = numericField(raw, "dy", -10000, 10000);
+          if (dx === 0 && dy === 0) throw new Error("move requires a non-zero dx or dy");
+          operations.push({ op: name, target, dx, dy });
+          break;
+        }
+        case "resize":
+          operations.push({ op: name, target, width: numericField(raw, "width", 1, 10000), height: numericField(raw, "height", 1, 10000) });
+          break;
+        default:
+          throw new Error(`Unsupported operation “${name}”`);
+      }
+    } catch (error) {
+      return { ok: false, error: `Operation ${position}: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+  return { ok: true, operations };
+}
+
+/** One-line, user-facing description of a planned operation. */
+export function describeNativeEditOperation(operation: NativeEditOperation): string {
+  switch (operation.op) {
+    case "select": return `Select “${operation.target}”`;
+    case "set_label": return `Rename “${operation.target}” to “${operation.label}”`;
+    case "set_style": return `Set ${operation.key} of “${operation.target}” to ${operation.color}`;
+    case "move": return `Move “${operation.target}” by ${operation.dx}, ${operation.dy}`;
+    case "resize": return `Resize “${operation.target}” to ${operation.width} × ${operation.height}`;
+    case "delete": return `Delete “${operation.target}”`;
+  }
+}
+
+interface CellGeometry { x: number; y: number; width: number; height: number }
+
+function readCellGeometry(xml: string, cellId: string): CellGeometry | null {
+  const parsed = parseDrawioXml(xml);
+  for (const cell of findDrawioElements(parsed, "mxCell")) {
+    if (cell.getAttribute("id") !== cellId) continue;
+    const geometry = cell.getElementsByTagName("mxGeometry")[0];
+    if (!geometry) return null;
+    const value = (name: string) => {
+      const raw = geometry.getAttribute(name);
+      const parsedValue = raw === null ? Number.NaN : Number(raw);
+      return Number.isFinite(parsedValue) ? parsedValue : 0;
+    };
+    return { x: value("x"), y: value("y"), width: value("width"), height: value("height") };
+  }
+  return null;
+}
+
+export type NativeCellEditPlan =
+  | { ok: true; edits: NativeCellEdit[] }
+  | { ok: false; error: string };
+
+/**
+ * Converts resolved operations into the bridge's `cell:batch` steps.
+ *
+ * `move` is expressed as a delta by the model but the bridge needs absolute coordinates,
+ * so the current geometry is read from the authoritative XML the browser already holds.
+ */
+export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml: string): NativeCellEditPlan {
+  if (operations.length === 0) return { ok: false, error: "No native edit operations were supplied" };
+  if (operations.length > MAX_NATIVE_EDIT_OPERATIONS) return { ok: false, error: `At most ${MAX_NATIVE_EDIT_OPERATIONS} operations can be executed at once` };
+  const edits: NativeCellEdit[] = [];
+  for (const operation of operations) {
+    const cellId = operation.cellId;
+    if (typeof cellId !== "string" || !cellId.trim()) return { ok: false, error: "An operation is missing its resolved cell id" };
+    switch (operation.op) {
+      case "select":
+        edits.push({ cellId, path: "cell:select", value: "true" });
+        break;
+      case "delete":
+        edits.push({ cellId, path: "cell:delete", value: "true" });
+        break;
+      case "set_label":
+        edits.push({ cellId, path: "label", value: operation.label });
+        break;
+      case "set_style":
+        edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
+        break;
+      case "resize":
+        edits.push({ cellId, path: "geometry:size", value: operation.width + "," + operation.height });
+        break;
+      case "move": {
+        let geometry: CellGeometry | null;
+        try {
+          geometry = readCellGeometry(xml, cellId);
+        } catch (error) {
+          return { ok: false, error: "The authoritative Draw.io XML could not be read: " + (error instanceof Error ? error.message : String(error)) };
+        }
+        if (!geometry) return { ok: false, error: `Cell “${operation.label}” has no geometry to move` };
+        edits.push({ cellId, path: "geometry:x", value: String(geometry.x + operation.dx) });
+        edits.push({ cellId, path: "geometry:y", value: String(geometry.y + operation.dy) });
+        break;
+      }
+    }
+  }
+  return { ok: true, edits };
+}

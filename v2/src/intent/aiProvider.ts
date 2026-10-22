@@ -1,5 +1,6 @@
 import { recordDiagnostic } from "../diagnostics";
 import { isDiagramDocument, type DiagramDocument, type LayoutQualityReport } from "../model/types";
+import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
 
 export interface AIProviderConfig {
   /** Retained for persisted-settings compatibility; requests go to the same-origin Copilot SDK service. */
@@ -34,6 +35,8 @@ export interface AIIntentPlan {
   proposal?: { proposalId: string; baseRevision: string; document: DiagramDocument; summary: string; baseQuality: LayoutQualityReport; quality: LayoutQualityReport };
   application?: AppliedDiagramEdit;
   selection?: { cellId: string; pageId: string | null; label: string };
+  /** Typed native edits the browser must execute; the server never writes XML for these. */
+  nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; requiresClientExecution: boolean };
   model?: string;
   provider?: string;
   durationMs?: number;
@@ -96,6 +99,7 @@ function validatePlan(value: unknown): AIIntentPlan {
   const selection = rawSelection && typeof rawSelection.cellId === "string" && typeof rawSelection.label === "string"
     ? { cellId: rawSelection.cellId, pageId: typeof rawSelection.pageId === "string" ? rawSelection.pageId : null, label: rawSelection.label }
     : undefined;
+  const nativeEdits = parseNativeEditsPayload(item.nativeEdits);
   const rawApplication = item.application && typeof item.application === "object" ? item.application as Record<string, unknown> : null;
   const application = rawApplication?.applied === true && typeof rawApplication.versionId === "string" &&
     typeof rawApplication.baseRevision === "string" && typeof rawApplication.workspaceRevision === "string" &&
@@ -110,12 +114,38 @@ function validatePlan(value: unknown): AIIntentPlan {
     ...(proposal ? { proposal } : {}),
     ...(application ? { application } : {}),
     ...(selection ? { selection } : {}),
+    ...(nativeEdits ? { nativeEdits } : {}),
     reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
     ...(typeof item.model === "string" ? { model: item.model } : {}),
     ...(typeof item.provider === "string" ? { provider: item.provider } : {}),
     ...(typeof item.durationMs === "number" ? { durationMs: item.durationMs } : {}),
     ...(typeof item.reasoningEffort === "string" ? { reasoningEffort: item.reasoningEffort } : {}),
     ...(typeof item.sessionId === "string" ? { sessionId: item.sessionId } : {})
+  };
+}
+
+/**
+ * Native edits arrive already resolved to cell ids. The operations are re-validated here so a
+ * malformed or over-broad plan can never reach the bridge, whatever the server returned.
+ */
+function parseNativeEditsPayload(value: unknown): AIIntentPlan["nativeEdits"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const rawOperations = raw.operations;
+  if (!Array.isArray(rawOperations)) return undefined;
+  const parsed = parseNativeEditOperations(rawOperations);
+  if (!parsed.ok) throw new Error("The agent returned an invalid native edit plan: " + parsed.error);
+  const operations: ResolvedNativeEditOperation[] = parsed.operations.map((operation, index) => {
+    const source = rawOperations[index] as Record<string, unknown>;
+    const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
+    const label = typeof source.label === "string" ? source.label.trim() : "";
+    if (!cellId || !label) throw new Error("The agent returned a native edit without a resolved cell id");
+    return { ...operation, cellId, label };
+  });
+  return {
+    operations,
+    summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
+    requiresClientExecution: raw.requiresClientExecution === true
   };
 }
 

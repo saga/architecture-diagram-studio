@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
 import type { AgentAppliedEditView, AgentProposalView } from "./diagram-tools";
+import {
+  describeNativeEditOperation, MAX_NATIVE_EDIT_OPERATIONS, NATIVE_EDIT_STYLE_KEYS, parseNativeEditOperations,
+  type ResolvedNativeEditOperation
+} from "../../src/model/native-edit-operations";
+import { resolveNativeEditTargets } from "./native-edit-tool";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -31,21 +36,28 @@ const pendingPlans = new Map<string, PendingPlan>();
 const pendingAgentProposals = new Map<string, AgentProposalView>();
 const pendingAgentApplications = new Map<string, AgentAppliedEditView>();
 const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
+const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOperation[]; summary: string }>();
 const usedToolsBySession = new Map<string, Set<string>>();
+/**
+ * The select and native-edit tools must see the elements of the *current* request.
+ * The SDK session survives across turns and its tool closures are created once, so the
+ * per-request context is read from here instead of being captured at session build time.
+ */
+const contextBySession = new Map<string, unknown>();
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   async function buildSystemMessage(config: AgentPromptConfig, standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
     const workspaceContext = standalone
-      ? "Standalone Draw.io file mode: the supplied diagram context is the only target. No project workspace is active. Do not inspect, modify, or make claims about project files. You may select a uniquely identified diagram element using select_diagram_element, or return an allowlisted layout plan. Selection changes UI state and does not modify document content."
+      ? "Standalone Draw.io file mode: the supplied diagram context is the only target. No project workspace is active. Do not inspect, modify, or make claims about project files. You may select a uniquely identified diagram element, submit typed native edits, or return an allowlisted layout plan. Selection changes UI state and does not modify document content."
       : config.prompts.workspace
       .replaceAll("{{workspaceName}}", workspace?.name || "not configured")
       .replaceAll("{{rootPath}}", workspace?.rootPath || "not configured")
       .replaceAll("{{primaryDiagram}}", workspace?.primaryDiagram || "not selected");
     const supportedCommands = config.prompts.supportedCommands.replaceAll("{{commands}}", [...deps.allowedCommands].join("; "));
     const internalToolGuidance = standalone
-      ? "Standalone mode exposes select_diagram_element and propose_layout_plan. For requests to select/highlight/focus an element, call select_diagram_element with the exact unique node ID or label from the supplied diagram context. Selection is a UI action, not a document mutation; do not say nothing was committed. Use propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files."
-      : "IMPORTANT: This tool guidance supersedes any conflicting legacy prompt above, including instructions to use only propose_layout_plan or to avoid semantic operations. For requests to select, highlight or focus a diagram element, use select_diagram_element; this changes native canvas selection only and does not require a document commit or version. Use the registered internal diagram tools for inspection, quality evaluation, workspace-example search, semantic edits, templates and version history. For one focused node, relation, layout, boundary or sequence-fragment change explicitly requested by the user, inspect_active_diagram first and check projectionComplete. If it is false, do not use semantic edit or quality tools; explain that the projection is partial and the native Draw.io editor remains the safe path. Only when it is true, use apply_diagram_operation with its exact revision and stable IDs; this tool directly applies the change after server-side revision and semantic validation, applies layout-quality gates only when layout runs, and creates an immutable version. Do not use direct apply for analysis, hypothetical edits, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use a proposal tool and require explicit confirmation. Use propose_diagram_operation when the change needs preview/review and propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files. Mermaid import/conversion is not implemented.";
+      ? "Standalone mode exposes propose_native_edits, select_diagram_element and propose_layout_plan. For any change to an element's appearance (fill, stroke or font color), label, size, position or existence, call propose_native_edits with every step of the request as typed operations in a single call; the browser executes them atomically in the native editor and the server never edits XML. Use select_diagram_element only when the user asked to focus or highlight an element without changing it. Use propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files."
+      : "IMPORTANT: This tool guidance supersedes any conflicting legacy prompt above, including instructions to use only propose_layout_plan or to avoid semantic operations. For a change to an element's appearance (fillColor, strokeColor, fontColor), label, position, size or existence — including a request that combines selection with such a change — call propose_native_edits with every step as typed operations in a single call; the server validates the targets and styles, then the browser executes the batch atomically. apply_diagram_operation has no style fields, so never use it for colors. Use select_diagram_element only when the user asked to select, highlight or focus an element without changing it. Use the registered internal diagram tools for inspection, quality evaluation, workspace-example search, semantic edits, templates and version history. For one focused node, relation, layout, boundary or sequence-fragment change explicitly requested by the user, inspect_active_diagram first and check projectionComplete. If it is false, do not use semantic edit or quality tools; explain that the projection is partial and the native Draw.io editor remains the safe path. Only when it is true, use apply_diagram_operation with its exact revision and stable IDs; this tool directly applies the change after server-side revision and semantic validation, applies layout-quality gates only when layout runs, and creates an immutable version. Do not use direct apply for analysis, hypothetical edits, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use a proposal tool and require explicit confirmation. Use propose_diagram_operation when the change needs preview/review and propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files. Mermaid import/conversion is not implemented.";
     return [config.prompts.system, config.prompts.task, config.prompts.planTool, config.prompts.behavior, workspaceContext, supportedCommands, internalToolGuidance].filter(Boolean).join("\n\n");
   }
 
@@ -70,6 +82,67 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         await deps.writeLog("tool.propose_layout_plan.accepted", { sessionId, commands, reply: String(args.reply || "").slice(0, 500) });
         const latestConfig = await deps.getStudioConfig();
         return { accepted: true, commandCount: commands.length, note: latestConfig.prompts.toolResult };
+      }
+    });
+  }
+
+  /**
+   * Typed native edits: the server only authorizes and resolves them. The browser applies
+   * the returned operations through the Draw.io bridge, so no XML is regenerated here.
+   */
+  function createProposeNativeEditsTool(sessionId: string) {
+    return defineTool("propose_native_edits", {
+      description: "Submit one or more typed native Draw.io edits, including compound requests such as “select X and make its background red”. Supports select, set_label, set_style (fillColor, strokeColor, fontColor), move, resize and delete. The server validates the targets and style keys against the supplied diagram context and does not modify XML; the browser applies every operation as one atomic batch and rolls all of them back if any step fails. Use exact cell IDs or unique exact labels from the diagram context; do not guess.",
+      parameters: {
+        type: "object",
+        properties: {
+          operations: {
+            type: "array",
+            minItems: 1,
+            maxItems: MAX_NATIVE_EDIT_OPERATIONS,
+            items: {
+              type: "object",
+              properties: {
+                op: { type: "string", enum: ["select", "set_label", "set_style", "move", "resize", "delete"] },
+                target: { type: "string", minLength: 1, maxLength: 200 },
+                label: { type: "string", minLength: 1, maxLength: 500 },
+                key: { type: "string", enum: [...NATIVE_EDIT_STYLE_KEYS] },
+                color: { type: "string", minLength: 1, maxLength: 40 },
+                dx: { type: "number", minimum: -10000, maximum: 10000 },
+                dy: { type: "number", minimum: -10000, maximum: 10000 },
+                width: { type: "number", minimum: 1, maximum: 10000 },
+                height: { type: "number", minimum: 1, maximum: 10000 }
+              },
+              required: ["op", "target"],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ["operations"],
+        additionalProperties: false
+      },
+      handler: async (args: { operations?: unknown }) => {
+        const parsed = parseNativeEditOperations(args?.operations);
+        if (!parsed.ok) {
+          await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, error: parsed.error });
+          throw new Error(parsed.error);
+        }
+        const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
+        if (!resolved.ok) {
+          await deps.writeLog("tool.propose_native_edits.unresolved", { sessionId, operations: parsed.operations, error: resolved.error });
+          throw new Error(resolved.error);
+        }
+        const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
+        pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
+        await deps.writeLog("tool.propose_native_edits.accepted", {
+          sessionId, operationCount: resolved.operations.length,
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+        });
+        return {
+          accepted: true, operationCount: resolved.operations.length, requiresClientExecution: true,
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label })),
+          summary
+        };
       }
     });
   }
@@ -101,6 +174,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
     const startedAt = Date.now();
     const requestId = randomUUID();
+    // Tools outlive one request; bind the active context so targeting never uses a stale snapshot.
+    contextBySession.set(sessionId, context);
     const nodeNames = (context.nodes as Array<{ id?: unknown; name?: unknown }>).slice(0, 80).map((node) => ({ id: typeof node.id === "string" ? node.id : null, name: typeof node.name === "string" ? node.name.slice(0, 120) : null }));
     await deps.writeLog("request.received", { requestId, sessionId, model, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, nodeCount: (context.nodes as unknown[]).length, nodeNames });
     if (!standalone) await deps.persistSessionId(sessionId);
@@ -118,7 +193,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             systemMessage: await buildSystemMessage(latestConfig, standalone),
             // Never expose workspace-bound mutation tools to a standalone Draw.io session.
             tools: [
-              createSelectDiagramElementTool(sessionId, context),
+              createSelectDiagramElementTool(sessionId),
+              createProposeNativeEditsTool(sessionId),
               createProposeLayoutPlanTool(sessionId, latestConfig),
               ...(standalone ? [] : deps.createDiagramTools(
                 sessionId,
@@ -142,6 +218,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentProposals.delete(sessionId);
         pendingAgentApplications.delete(sessionId);
         pendingAgentSelections.delete(sessionId);
+        pendingNativeEdits.delete(sessionId);
         usedToolsBySession.set(sessionId, new Set<string>());
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = standalone ? { mode: "standalone", workspace: null, snippets: [], diagram: context } : await deps.collectAgentWorkspaceContext();
@@ -163,12 +240,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentApplications.delete(sessionId);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         pendingAgentSelections.delete(sessionId);
+        let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
+        pendingNativeEdits.delete(sessionId);
         let modelText = assistantText(firstTurn);
         let usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
-        if (!captured && !capturedProposal && !capturedApplication && !capturedSelection && usedToolNames.size === 0) {
+        if (!captured && !capturedProposal && !capturedApplication && !capturedSelection && !capturedNativeEdits && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryStartedAt = Date.now();
-          const retryPrompt = JSON.stringify({ request: standalone ? "Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context });
+          const retryPrompt = JSON.stringify({ request: standalone ? "Use propose_native_edits for element appearance (fill, stroke or font color), label, size, position or deletion changes, and select_diagram_element only for pure focus requests. Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For element appearance (color), label, position, size or deletion changes use propose_native_edits with every step in one call. For analysis, inspect the active diagram and evaluate quality. For one focused semantic change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context });
           await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 2, timeoutMs: 25000, reason: "first response did not invoke a tool", standalone, requestPrompt: retryPrompt });
           const nudged = await turn.send({ prompt: retryPrompt }, 25000);
           await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged), responseText: assistantText(nudged) });
@@ -180,33 +259,51 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           pendingAgentApplications.delete(sessionId);
           capturedSelection = pendingAgentSelections.get(sessionId) || null;
           pendingAgentSelections.delete(sessionId);
+          capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
+          pendingNativeEdits.delete(sessionId);
           usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
           modelText = assistantText(nudged) || modelText;
         }
-        return { captured, capturedProposal, capturedApplication, capturedSelection, modelText, usedToolNames: [...usedToolNames], session: turn.session };
+        return { captured, capturedProposal, capturedApplication, capturedSelection, capturedNativeEdits, modelText, usedToolNames: [...usedToolNames], session: turn.session };
       });
 
-      if (plan.capturedSelection) {
-        const selection = plan.capturedSelection;
-        const response = { commands: [], reply: "Selected diagram element: " + selection.label, selection, sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default", provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames };
-        await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response });
-        res.json(response);
-        return;
-      }
+      const modelReply = plan.modelText.trim().slice(0, 500);
+      const selection = plan.capturedSelection || undefined;
+      const shared = {
+        sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames
+      };
+      // Mutating outcomes are mutually exclusive, but a selection may accompany any of them.
+      // A server-applied revision outranks browser-side edits: once the server has produced a
+      // new XML revision, cell ids held by the browser are stale and a native batch would fail.
       if (plan.capturedApplication) {
         const application = plan.capturedApplication;
         const response = {
-          commands: [], reply: application.summary,
+          commands: [], reply: application.summary, selection,
           application: { applied: true, versionId: application.versionId, baseRevision: application.baseRevision,
             workspaceRevision: application.workspaceRevision, document: application.document,
             summary: application.summary, quality: application.quality },
-          sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-          provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames
+          ...shared
         };
         await deps.writeLog("turn.completed.with-applied-edit", {
           sessionId, versionId: application.versionId, baseRevision: application.baseRevision,
           workspaceRevision: application.workspaceRevision, summary: application.summary, qualityScore: application.quality.score,
+          selection: selection ?? null, discardedNativeEdits: Boolean(plan.capturedNativeEdits),
           response: { applied: true, summary: application.summary, versionId: application.versionId, workspaceRevision: application.workspaceRevision }, toolsUsed: plan.usedToolNames
+        });
+        res.json(response);
+        return;
+      }
+      if (plan.capturedNativeEdits) {
+        const nativeEdits = plan.capturedNativeEdits;
+        const response = {
+          commands: [], reply: modelReply || nativeEdits.summary, selection,
+          nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, requiresClientExecution: true },
+          ...shared
+        };
+        await deps.writeLog("turn.completed.with-native-edits", {
+          sessionId, operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
+          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
         });
         res.json(response);
         return;
@@ -214,15 +311,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       if (plan.capturedProposal) {
         const proposal = plan.capturedProposal;
         const response = {
-          commands: [], reply: proposal.summary,
+          commands: [], reply: proposal.summary, selection,
           proposal: {
             proposalId: proposal.proposalId, baseRevision: proposal.baseRevision, document: proposal.document,
             summary: proposal.summary, baseQuality: proposal.baseQuality, quality: proposal.quality
           },
-          sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-          provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
+          ...shared
         };
-        await deps.writeLog("turn.completed.with-proposal", { sessionId, proposalId: proposal.proposalId, summary: proposal.summary, qualityScore: proposal.quality.score });
+        await deps.writeLog("turn.completed.with-proposal", { sessionId, proposalId: proposal.proposalId, summary: proposal.summary, qualityScore: proposal.quality.score, selection: selection ?? null });
         res.json(response);
         return;
       }
@@ -232,30 +328,31 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         resolved = planFromText(modelText, deps.allowedCommands);
         if (resolved) await deps.writeLog("turn.plan.parsed-from-text", { sessionId, commandCount: resolved.commands.length });
       }
-      if (!resolved) {
-        if (plan.usedToolNames.length) {
-          await deps.writeLog("turn.completed.after-analysis-tools", { sessionId, model: plan.session.model, tools: plan.usedToolNames, modelText: modelText.slice(0, 2000) });
-          res.json({
-            commands: [], reply: modelText.slice(0, 500) || "The requested analysis completed; the diagram is unchanged.",
-            sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-            provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames
-          });
-          return;
-        }
-        await deps.writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000) });
+      if (resolved) {
+        const response = { ...resolved, ...(selection ? { selection } : {}), ...shared };
+        await deps.writeLog("turn.completed", { sessionId, model: plan.session.model, durationMs: response.durationMs, response });
+        res.json(response);
+        return;
+      }
+      if (selection) {
+        const response = { commands: [], reply: modelReply || "Selected diagram element: " + selection.label, selection, ...shared };
+        await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response });
+        res.json(response);
+        return;
+      }
+      if (plan.usedToolNames.length) {
+        await deps.writeLog("turn.completed.after-analysis-tools", { sessionId, model: plan.session.model, tools: plan.usedToolNames, modelText: modelText.slice(0, 2000) });
         res.json({
-          commands: [], reply: modelText.slice(0, 500) || "No actionable plan was produced and the diagram is unchanged. Try specifying a supported layout or semantic edit.",
-          sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-          provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
+          commands: [], reply: modelText.slice(0, 500) || "The requested analysis completed; the diagram is unchanged.",
+          ...shared
         });
         return;
       }
-      const response = {
-        ...resolved, sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
-        provider: "github-copilot-sdk", durationMs: Date.now() - startedAt
-      };
-      await deps.writeLog("turn.completed", { sessionId, model: plan.session.model, durationMs: response.durationMs, response });
-      res.json(response);
+      await deps.writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000) });
+      res.json({
+        commands: [], reply: modelText.slice(0, 500) || "No actionable plan was produced and the diagram is unchanged. Try specifying a supported layout or semantic edit.",
+        ...shared
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await deps.writeLog("turn.failed", {
@@ -269,7 +366,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 }
 
 
-function createSelectDiagramElementTool(sessionId: string, context: unknown) {
+function createSelectDiagramElementTool(sessionId: string) {
   return defineTool("select_diagram_element", {
     description: "Select and focus one existing element in the native Draw.io canvas. This is a UI selection action, not a diagram edit, so it does not create a version or require a commit. Use exact IDs or a unique exact label from the supplied diagram context; do not guess.",
     parameters: {
@@ -279,7 +376,8 @@ function createSelectDiagramElementTool(sessionId: string, context: unknown) {
       additionalProperties: false
     },
     handler: async (args: { target: string }) => {
-      const source = context && typeof context === "object" ? context as { nodes?: unknown; selectedNode?: unknown; pageId?: unknown } : {};
+      const current = contextBySession.get(sessionId);
+      const source = current && typeof current === "object" ? current as { nodes?: unknown; selectedNode?: unknown; pageId?: unknown } : {};
       const nodes = Array.isArray(source.nodes) ? source.nodes as Array<{ id?: unknown; name?: unknown }> : [];
       const target = args.target.trim();
       const matches = nodes.filter((node) =>

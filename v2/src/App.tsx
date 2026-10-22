@@ -110,6 +110,8 @@ export default function App() {
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
+  /** Resolves the awaited native-edit batch with the editor's acknowledgement. */
+  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
@@ -657,6 +659,24 @@ export default function App() {
     }
   }, [commitDocument, projectWorkspace?.id]);
 
+  const archiveNativeHistory = (label: string, requestId: number) => {
+    const fileKey = (standaloneFileName || "standalone").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const historyKey = "architecture-diagram-studio:v2:standalone-history:" + fileKey;
+    try {
+      const existing = JSON.parse(window.localStorage.getItem(historyKey) || "[]") as Array<{ id: string; createdAt: string; label: string; xml: string }>;
+      existing.push({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), label, xml: drawioXml });
+      window.localStorage.setItem(historyKey, JSON.stringify(existing.slice(-100)));
+      recordDiagnostic("copilot.standalone.history.snapshot", "Archived the current standalone Draw.io XML before a Copilot mutation", {
+        historyKey, snapshotCount: Math.min(existing.length, 100), xmlLength: drawioXml.length, requestId
+      });
+    } catch (error) {
+      recordDiagnostic("copilot.standalone.history.snapshot.failed", "Could not archive a local pre-edit XML snapshot", {
+        historyKey, errorMessage: error instanceof Error ? error.message : String(error), requestId
+      }, "error");
+      throw new Error("Copilot edit cancelled because a local history snapshot could not be saved: " + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+
   const sendIntent = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
@@ -664,25 +684,38 @@ export default function App() {
     onAppliedEdit: applyCopilotEdit,
     applyNativeCellEdit: (cellId, path, value) => {
       const requestId = ++cellEditRequestSequenceRef.current;
-      const fileKey = (standaloneFileName || "standalone").replace(/[^a-zA-Z0-9._-]/g, "_");
-      const historyKey = "architecture-diagram-studio:v2:standalone-history:" + fileKey;
-      try {
-        const existing = JSON.parse(window.localStorage.getItem(historyKey) || "[]") as Array<{ id: string; createdAt: string; label: string; xml: string }>;
-        existing.push({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), label: "Before Copilot: " + path + " on " + cellId, xml: drawioXml });
-        window.localStorage.setItem(historyKey, JSON.stringify(existing.slice(-100)));
-        recordDiagnostic("copilot.standalone.history.snapshot", "Archived the current standalone Draw.io XML before a Copilot mutation", {
-          historyKey, snapshotCount: Math.min(existing.length, 100), xmlLength: drawioXml.length, requestId
-        });
-      } catch (error) {
-        recordDiagnostic("copilot.standalone.history.snapshot.failed", "Could not archive a local pre-edit XML snapshot", {
-          historyKey, errorMessage: error instanceof Error ? error.message : String(error), requestId
-        }, "error");
-        throw new Error("Copilot edit cancelled because a local history snapshot could not be saved: " + (error instanceof Error ? error.message : String(error)));
-      }
+      // Selection is UI state, not a document mutation: it must not consume a history slot.
+      if (path !== "cell:select") archiveNativeHistory("Before Copilot: " + path + " on " + cellId, requestId);
       recordDiagnostic("copilot.standalone.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
         cellId, path, requestId, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
       });
       setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+    },
+    applyNativeCellEdits: (edits) => {
+      if (!edits.length) return Promise.resolve({ ok: false, error: "No native edits were supplied", rolledBack: false, steps: [] });
+      const requestId = ++cellEditRequestSequenceRef.current;
+      archiveNativeHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
+      return new Promise((resolve) => {
+        nativeEditResolversRef.current.set(requestId, (result) => {
+          resolve({
+            ok: result.success,
+            error: result.error,
+            rolledBack: result.success ? false : result.batchRolledBack !== false,
+            steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error }))
+          });
+        });
+        recordDiagnostic("copilot.native-edits.dispatch", "Dispatching an atomic Copilot native edit batch to the active Draw.io editor", {
+          requestId, editCount: edits.length, edits, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+        });
+        setCellEditRequest({ cellId: "__batch__", pageId: selectedNativePageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
+        window.setTimeout(() => {
+          const pending = nativeEditResolversRef.current.get(requestId);
+          if (!pending) return;
+          nativeEditResolversRef.current.delete(requestId);
+          recordDiagnostic("copilot.native-edits.timeout", "The native Draw.io editor did not acknowledge a Copilot batch", { requestId, editCount: edits.length }, "error");
+          resolve({ ok: false, error: "The native editor did not acknowledge the batch within 30 seconds.", rolledBack: false, steps: [] });
+        }, 30_000);
+      });
     }
   });
 
@@ -1322,6 +1355,11 @@ export default function App() {
           {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
                       <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme}
             onNativeEditResult={(result) => {
+              const resolver = result.requestId === null ? undefined : nativeEditResolversRef.current.get(result.requestId);
+              if (resolver && result.requestId !== null) {
+                nativeEditResolversRef.current.delete(result.requestId);
+                resolver(result);
+              }
               const status = result.success ? "Native Draw.io accepted " + (result.path || "edit") + (result.cellId === "__batch__" ? " batch" : "") + "." : "Native Draw.io edit failed: " + (result.error || "Unknown error");
               setLastAction(status);
               if (result.batchResults?.length) {

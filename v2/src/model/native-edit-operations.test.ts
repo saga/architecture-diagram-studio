@@ -1,0 +1,146 @@
+import { describe, expect, it } from "vitest";
+import {
+  describeNativeEditOperation,
+  MAX_NATIVE_EDIT_OPERATIONS,
+  normalizeNativeColor,
+  parseNativeEditOperations,
+  toNativeCellEdits,
+  type ResolvedNativeEditOperation
+} from "./native-edit-operations";
+
+const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="db" value="Database" style="rounded=1;fillColor=#ffffff;" vertex="1" parent="1">
+    <mxGeometry x="120" y="80" width="160" height="60" as="geometry"/>
+  </mxCell>
+</root></mxGraphModel></diagram></mxfile>`;
+
+describe("normalizeNativeColor", () => {
+  it("expands short hex and lowercases long hex", () => {
+    expect(normalizeNativeColor("#f00")).toBe("#ff0000");
+    expect(normalizeNativeColor("#FF0000")).toBe("#ff0000");
+    expect(normalizeNativeColor(" #0a0B0c ")).toBe("#0a0b0c");
+  });
+
+  it("maps English and Chinese color names", () => {
+    expect(normalizeNativeColor("red")).toBe("#ff0000");
+    expect(normalizeNativeColor("红色")).toBe("#ff0000");
+    expect(normalizeNativeColor("绿色")).toBe("#008000");
+  });
+
+  it("accepts a color name embedded in a phrase", () => {
+    expect(normalizeNativeColor("红色背景色")).toBe("#ff0000");
+  });
+
+  it("rejects unsupported values", () => {
+    expect(normalizeNativeColor("chartreuse")).toBeNull();
+    expect(normalizeNativeColor("rgb(255,0,0)")).toBeNull();
+    expect(normalizeNativeColor("")).toBeNull();
+  });
+});
+
+describe("parseNativeEditOperations", () => {
+  it("accepts a compound select + recolor request", () => {
+    const parsed = parseNativeEditOperations([
+      { op: "select", target: "Database" },
+      { op: "set_style", target: "Database", color: "红色背景色" }
+    ]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.operations).toEqual([
+      { op: "select", target: "Database" },
+      { op: "set_style", target: "Database", key: "fillColor", color: "#ff0000" }
+    ]);
+  });
+
+  it("keeps an explicit whitelisted style key", () => {
+    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", key: "strokeColor", color: "#0f0" }]);
+    expect(parsed.ok && parsed.operations[0]).toEqual({ op: "set_style", target: "db", key: "strokeColor", color: "#00ff00" });
+  });
+
+  it("rejects style keys outside the whitelist", () => {
+    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", key: "opacity", color: "red" }]);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error).toContain("Style key");
+  });
+
+  it("rejects an unsupported color", () => {
+    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", color: "chartreuse" }]);
+    expect(parsed.ok).toBe(false);
+  });
+
+  it("rejects zero-distance moves and out-of-range geometry", () => {
+    expect(parseNativeEditOperations([{ op: "move", target: "db", dx: 0, dy: 0 }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{ op: "resize", target: "db", width: 0, height: 10 }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{ op: "resize", target: "db", width: 10, height: 20000 }]).ok).toBe(false);
+  });
+
+  it("rejects unknown operations, empty lists and oversized batches", () => {
+    expect(parseNativeEditOperations([{ op: "recolor", target: "db" }]).ok).toBe(false);
+    expect(parseNativeEditOperations([]).ok).toBe(false);
+    expect(parseNativeEditOperations("select db").ok).toBe(false);
+    const tooMany = Array.from({ length: MAX_NATIVE_EDIT_OPERATIONS + 1 }, () => ({ op: "select", target: "db" }));
+    const parsed = parseNativeEditOperations(tooMany);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error).toContain(String(MAX_NATIVE_EDIT_OPERATIONS));
+  });
+
+  it("rejects empty and oversized targets", () => {
+    expect(parseNativeEditOperations([{ op: "select", target: "   " }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{ op: "select", target: "x".repeat(201) }]).ok).toBe(false);
+  });
+
+  it("reports the failing operation position", () => {
+    const parsed = parseNativeEditOperations([{ op: "select", target: "db" }, { op: "set_label", target: "db" }]);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error.startsWith("Operation 2:")).toBe(true);
+  });
+});
+
+describe("toNativeCellEdits", () => {
+  it("maps operations onto bridge paths", () => {
+    const operations: ResolvedNativeEditOperation[] = [
+      { op: "select", target: "Database", cellId: "db", label: "Database" },
+      { op: "set_style", target: "Database", cellId: "db", label: "Database", key: "fillColor", color: "#ff0000" }
+    ];
+    const plan = toNativeCellEdits(operations, XML);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.edits).toEqual([
+      { cellId: "db", path: "cell:select", value: "true" },
+      { cellId: "db", path: "style:fillColor", value: "#ff0000" }
+    ]);
+  });
+
+  it("turns a move delta into absolute coordinates from the authoritative XML", () => {
+    const plan = toNativeCellEdits([{ op: "move", target: "Database", cellId: "db", label: "Database", dx: -20, dy: 15 }], XML);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.edits).toEqual([
+      { cellId: "db", path: "geometry:x", value: "100" },
+      { cellId: "db", path: "geometry:y", value: "95" }
+    ]);
+  });
+
+  it("fails when the cell is missing from the XML", () => {
+    const plan = toNativeCellEdits([{ op: "move", target: "Gone", cellId: "gone", label: "Gone", dx: 1, dy: 1 }], XML);
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.error).toContain("Gone");
+  });
+
+  it("rejects an empty plan", () => {
+    expect(toNativeCellEdits([], XML).ok).toBe(false);
+  });
+});
+
+describe("describeNativeEditOperation", () => {
+  it("describes each operation for the chat transcript", () => {
+    expect(describeNativeEditOperation({ op: "set_style", target: "db", key: "fillColor", color: "#ff0000" }))
+      .toBe("Set fillColor of “db” to #ff0000");
+    expect(describeNativeEditOperation({ op: "select", target: "db" })).toBe("Select “db”");
+  });
+});

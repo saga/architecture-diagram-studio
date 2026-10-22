@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { requestAIIntentPlan, type AppliedDiagramEdit } from "../intent/aiProvider";
 import type { DiagramDocument, DiagramNode } from "../model/types";
+import { describeNativeEditOperation, toNativeCellEdits, type NativeCellEdit, type NativeEditExecution } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
@@ -30,13 +31,16 @@ interface CopilotIntentOptions {
   setPreviewSummary: (summary: string) => void;
   onAppliedEdit: (application: AppliedDiagramEdit) => void;
   applyNativeCellEdit?: (cellId: string, path: string, value: string) => void;
+  /** Executes one atomic bridge batch and resolves with the editor's per-step acknowledgement. */
+  applyNativeCellEdits?: (edits: NativeCellEdit[]) => Promise<NativeEditExecution>;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
-    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit
+    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit,
+    applyNativeCellEdit, applyNativeCellEdits
   } = options;
 
   return useCallback(async (promptOverride?: string) => {
@@ -50,7 +54,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       nodeCount: document.nodes.length, relationCount: document.relations.length,
       selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
       userRequest: text, inputLength: text.length,
-      executionCapabilities: standaloneMode ? ["allowlisted global layout plans only", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "reviewable proposals", "allowlisted layout plans"]
+      executionCapabilities: standaloneMode ? ["typed native edits", "element selection", "allowlisted global layout plans", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "typed native edits", "reviewable proposals", "allowlisted layout plans"]
     });
     setMessages((items) => [...items, { role: "user", id: Date.now(), text }]);
     if (!promptOverride) setChatInput("");
@@ -59,17 +63,14 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       if (!workspaceContentReady && !standaloneMode) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
       // Standalone edits operate on the authoritative Draw.io XML and are applied by
       // the native editor bridge, which marks the editor dirty and requests serialization.
+      // Only two unambiguous single-instruction forms keep a local fast path; every other
+      // phrasing goes to the agent, which owns the operation vocabulary.
       if (standaloneMode && applyNativeCellEdit) {
         const parsed = new DOMParser().parseFromString(drawioXml, "application/xml");
         if (parsed.querySelector("parsererror")) throw new Error("The authoritative Draw.io XML could not be parsed; no edit was applied.");
         const normalized = text.trim();
-        const move = normalized.match(/(?:move|将|把)?\s*[“"']?(.+?)[”"']?\s*(向上移动|上移|向下移动|下移|向左移动|左移|向右移动|右移|move up|move down|move left|move right|up|down|left|right)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i);
-        const rename = normalized.match(/(?:rename|change|set|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\s*[“"']?(.+?)[”"']?$/i);
-        const resize = normalized.match(/(?:resize|set size|调整大小|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:resize to|尺寸改为|大小改为)\s*(\d+(?:\.\d+)?)\s*[x×,]\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?$/i);
+        const rename = normalized.match(/(?:rename|重命名|改名|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|rename to)\s*[“"']?(.+?)[”"']?$/i);
         const remove = normalized.match(/^(?:delete|remove|删除|移除)\s*[“"']?(.+?)[”"']?\s*(?:element|node|节点|元素)?[。.!！]?$/i);
-        const endpoint = normalized.match(/^(?:change|set|修改|更改)\s+(?:relation|connector|edge|连线|关系)\s+[“"']?(.+?)[”"']?\s+(source|target|起点|终点)\s+(?:to|为|改为)\s+[“"']?(.+?)[”"']?$/i);
-        const relationRename = normalized.match(/^(?:rename|重命名|修改)\s+(?:relation|connector|edge|连线|关系)\s+[“"']?(.+?)[”"']?\s+(?:to|为|改为)\s+[“"']?(.+?)[”"']?$/i);
-        const recolor = normalized.match(/(?:change|set|make|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\s*(?:to|为|改成|设置为)?\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\s*$/i);
         const selectionLayout = normalized.match(/^(?:align|对齐)\s+(?:selected\s+)?(?:cells?\s+)?(left|right|top|bottom|center|middle|左对齐|右对齐|顶部对齐|底部对齐|水平居中|垂直居中)\s*$/i)
           || normalized.match(/^(?:将|把)?(?:选中)?(?:元素|节点|图形)?\s*(左对齐|右对齐|顶部对齐|底部对齐|水平居中|垂直居中)\s*$/i)
           || normalized.match(/^(?:distribute|均匀分布|平均分布)\s+(?:selected\s+)?(?:cells?\s+)?(horizontally|vertically|horizontal|vertical|水平|垂直)\s*$/i)
@@ -107,92 +108,24 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           return (cell.getAttribute("value") || cell.getAttribute("label") || owner?.getAttribute("label") || owner?.getAttribute("value") || "")
             .replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
         };
-        const targetName = (endpoint?.[1] || relationRename?.[1] || move?.[1] || rename?.[1] || recolor?.[1] || resize?.[1] || remove?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
-        if (normalized.includes(";") || normalized.includes("；")) {
-          const statements = normalized.split(/[;；]/).map((part) => part.trim()).filter(Boolean);
-          if (statements.length < 2 || statements.length > 50) throw new Error("A multi-step request must contain between 2 and 50 semicolon-separated operations.");
-          const operations: Array<{ cellId: string; path: string; value: string }> = [];
-          const summaries: string[] = [];
-          for (const statement of statements) {
-            const r = statement.match(/^(?:rename|重命名|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\s*[“"']?(.+?)[”"']?$/i);
-            const z = statement.match(/^(?:resize|set size|调整大小|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:resize to|尺寸改为|大小改为)\s*(\d+(?:\.\d+)?)\s*[x×,]\s*(\d+(?:\.\d+)?)(?:\s*(?:px|pixels?|像素))?$/i);
-            const d = statement.match(/^(?:delete|remove|删除|移除)\s*[“"']?(.+?)[”"']?\s*(?:element|node|节点|元素)?[。.!！]?$/i);
-            const target = (r?.[1] || z?.[1] || d?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "");
-            if (!target) throw new Error("Unsupported batch step: “" + statement + "”. Use rename, resize, or delete steps separated by semicolons.");
-            const candidates = cells.filter((item) => labelOf(item).localeCompare(target, undefined, { sensitivity: "accent" }) === 0 && item.getAttribute("vertex") !== "0");
-            if (candidates.length !== 1 || !candidates[0].getAttribute("id")) throw new Error(candidates.length ? "Batch target is ambiguous: “" + target + "”." : "Batch target not found: “" + target + "”. No changes were applied.");
-            const item = candidates[0];
-            if (r) {
-              const value = r[2].trim().replace(/^[“"']|[”"']$/g, "");
-              if (!value || value.length > 500) throw new Error("Invalid new label in batch step: “" + statement + "”.");
-              operations.push({ cellId: item.getAttribute("id")!, path: "label", value });
-              summaries.push("rename “" + target + "” to “" + value + "”");
-            } else if (z) {
-              const width = Number(z[2]), height = Number(z[3]);
-              if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Invalid size in batch step: “" + statement + "”.");
-              operations.push({ cellId: item.getAttribute("id")!, path: "geometry:size", value: width + "," + height });
-              summaries.push("resize “" + target + "” to " + width + " × " + height);
-            } else {
-              operations.push({ cellId: item.getAttribute("id")!, path: "cell:delete", value: "true" });
-              summaries.push("delete “" + target + "”");
-            }
-          }
-          recordDiagnostic("copilot.standalone.native-batch.validated", "Validated an atomic multi-step Draw.io edit batch", {
-            operationCount: operations.length, operations, request: text, xmlLength: drawioXml.length
-          });
-          applyNativeCellEdit("__batch__", "cell:batch", JSON.stringify(operations));
-          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
-            text: "Submitted an atomic batch (" + summaries.join("; ") + "). Draw.io applies the steps in order and restores the original cell state if any step fails; check Agent traces for the acknowledgement." }]);
-          return;
-        }
-        if (endpoint || relationRename || move || rename || recolor || resize || remove) {
-          const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && ((endpoint || relationRename || recolor || remove) || cell.getAttribute("edge") !== "1"));
+        const targetName = (rename?.[1] || remove?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
+        if (rename || remove) {
+          const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0");
           if (matches.length !== 1) throw new Error(matches.length ? "The label “" + targetName + "” is ambiguous (" + matches.length + " matching cells). Select a specific element or use a unique label." : "Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
           const cell = matches[0];
           const id = cell.getAttribute("id");
-          const geometry = cell.getElementsByTagName("mxGeometry")[0];
           if (!id) throw new Error("The target element has no stable Draw.io cell ID.");
           let path = "", value = "", summary = "";
-          if (endpoint) {
-            if (cell.getAttribute("edge") !== "1") throw new Error("The target is not a connector.");
-            const endpointLabel = endpoint[3].trim().replace(/^[“"']|[”"']$/g, "");
-            const endpointMatches = cells.filter((candidate) => labelOf(candidate).localeCompare(endpointLabel, undefined, { sensitivity: "accent" }) === 0 && candidate.getAttribute("vertex") === "1");
-            if (endpointMatches.length !== 1 || !endpointMatches[0].getAttribute("id")) throw new Error("Connector endpoint label is missing or ambiguous: “" + endpointLabel + "”.");
-            path = "cell:" + (/source|起点/i.test(endpoint[2]) ? "source" : "target");
-            value = endpointMatches[0].getAttribute("id")!;
-            summary = "Reconnect “" + targetName + "” " + endpoint[2] + " to “" + endpointLabel + "”";
-          } else if (relationRename) {
-            if (cell.getAttribute("edge") !== "1") throw new Error("The target is not a connector.");
-            const newLabel = relationRename[2].trim().replace(/^[“"']|[”"']$/g, "");
-            if (!newLabel || newLabel.length > 500) throw new Error("The connector label must contain 1–500 characters.");
-            path = "label"; value = newLabel; summary = "Rename connector “" + targetName + "” to “" + newLabel + "”";
-          } else if (remove) {
+          if (remove) {
             path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";
-          } else if (resize) {
-            const width = Number(resize[2]), height = Number(resize[3]);
-            if (!geometry || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Width and height must be between 1 and 10000 pixels.");
-            path = "geometry:size"; value = width + "," + height; summary = "Resize “" + targetName + "” to " + width + " × " + height + " px";
-          } else if (move) {
-            const direction = move[2].toLowerCase(), delta = Number(move[3]);
-            if (!Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("Move distance must be between 0 and 10000 pixels.");
-            const axis = direction.includes("left") || direction.includes("右") || direction.includes("左") ? "x" : "y";
-            const sign = direction.includes("up") || direction.includes("上") || direction.includes("left") || direction.includes("左") ? -1 : 1;
-            const raw = geometry?.getAttribute(axis), coordinate = raw === null || raw === undefined ? NaN : Number(raw);
-            if (!geometry || !Number.isFinite(coordinate)) throw new Error("The target element has no explicit " + axis.toUpperCase() + " coordinate.");
-            path = "geometry:" + axis; value = String(coordinate + sign * delta);
-            summary = "Move “" + targetName + "” " + direction + " " + delta + " px";
-          } else if (rename) {
-            const newName = rename[2].trim().replace(/^[“"']|[”"']$/g, "");
+          } else {
+            const newName = rename![2].trim().replace(/^[“"']|[”"']$/g, "");
             if (!newName || newName.length > 500) throw new Error("The new label must contain 1–500 characters.");
             path = "label"; value = newName; summary = "Rename “" + targetName + "” to “" + newName + "”";
-          } else if (recolor) {
-            const property = recolor[0].toLowerCase();
-            const colorProperty = /stroke|border|边框/.test(property) ? "strokeColor" : "fillColor";
-            const rawColor = recolor[2].toLowerCase();
-            const colorMap: Record<string, string> = { red: "#ff0000", blue: "#0000ff", green: "#008000", black: "#000000", white: "#ffffff", orange: "#ffa500", purple: "#800080", "灰色": "#808080", "红色": "#ff0000", "蓝色": "#0000ff", "绿色": "#008000", "黑色": "#000000", "白色": "#ffffff", "橙色": "#ffa500", "紫色": "#800080" };
-            path = "style:" + colorProperty; value = colorMap[rawColor] || rawColor; summary = "Set " + colorProperty + " of “" + targetName + "” to " + value;
           }
-          recordDiagnostic("copilot.standalone.native-edit.validated", "Validated a standalone native Draw.io edit against the authoritative XML", { cellId: id, targetName, operation: endpoint ? "reconnect" : relationRename ? "rename-connector" : remove ? "delete" : resize ? "resize" : move ? "move" : rename ? "rename" : "recolor", path, value, xmlLength: drawioXml.length });
+          recordDiagnostic("copilot.standalone.native-edit.validated", "Validated a standalone native Draw.io edit against the authoritative XML", {
+            cellId: id, targetName, operation: remove ? "delete" : "rename", path, value, xmlLength: drawioXml.length
+          });
           applyNativeCellEdit(id, path, value);
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: summary + ". The native editor has been asked to apply the change and autosave; check Agent traces for the editor acknowledgement." }]);
           return;
@@ -207,7 +140,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           standaloneMode, inputLength: text.length, userRequest: text, diagramTitle: document.title,
           nodeCount: Math.min(document.nodes.length, 80), relationCount: document.relations.length,
           selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
-          executionCapabilities: standaloneMode ? ["allowlisted global layout plans only", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "reviewable proposals", "allowlisted layout plans"]
+          executionCapabilities: standaloneMode ? ["typed native edits", "element selection", "allowlisted global layout plans", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "typed native edits", "reviewable proposals", "allowlisted layout plans"]
         });
         const plan = await requestAIIntentPlan(
           { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
@@ -223,17 +156,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", plan.sessionId); } catch { /* Session remains active in memory. */ }
         }
         modelReply = plan.reply;
-        if (plan.selection) {
-          recordDiagnostic("copilot.selection.resolved", "Copilot resolved a native Draw.io cell selection", { cellId: plan.selection.cellId, pageId: plan.selection.pageId, label: plan.selection.label, standaloneMode });
-          if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
-          applyNativeCellEdit(plan.selection.cellId, "cell:select", plan.selection.pageId || "");
-          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "Selected “" + plan.selection!.label + "” on the diagram. No document change or commit was needed." }]);
-          return;
-        }
         recordDiagnostic("copilot.agent.response", "Received a structured result from the Copilot SDK agent", {
           sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
-          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: plan.application ? "apply_diagram_operation" : plan.proposal ? "propose_diagram_operation" : "propose_layout_plan",
-          commandCount: plan.commands.length, hasProposal: Boolean(plan.proposal), hasAppliedEdit: Boolean(plan.application), replyLength: plan.reply.length
+          reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs,
+          toolUsed: plan.application ? "apply_diagram_operation" : plan.nativeEdits ? "propose_native_edits" : plan.proposal ? "propose_diagram_operation" : plan.selection ? "select_diagram_element" : "propose_layout_plan",
+          commandCount: plan.commands.length, nativeEditCount: plan.nativeEdits?.operations.length ?? 0,
+          hasProposal: Boolean(plan.proposal), hasAppliedEdit: Boolean(plan.application), hasSelection: Boolean(plan.selection), replyLength: plan.reply.length
         });
         if (plan.application) {
           const application = plan.application;
@@ -248,6 +176,54 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             versionId: application.versionId, baseRevision: application.baseRevision, workspaceRevision: application.workspaceRevision,
             nodeCount: application.document.nodes.length, relationCount: application.document.relations.length, qualityScore: application.quality.score
           });
+          return;
+        }
+        if (plan.nativeEdits) {
+          const operations = plan.nativeEdits.operations;
+          if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable; no change was applied.");
+          const cellPlan = toNativeCellEdits(operations, drawioXml);
+          if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
+          const execution = await applyNativeCellEdits(cellPlan.edits);
+          const describeAt = (stepIndex: number) => {
+            let cursor = 0;
+            for (const operation of operations) {
+              const width = operation.op === "move" ? 2 : 1;
+              if (stepIndex < cursor + width) return describeNativeEditOperation(operation);
+              cursor += width;
+            }
+            return "step " + (stepIndex + 1);
+          };
+          const prefix = modelReply && modelReply !== plan.nativeEdits.summary ? modelReply + " " : "";
+          const failedStep = execution.steps.find((step) => !step.success);
+          if (execution.ok) {
+            recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
+              operationCount: operations.length, steps: execution.steps.length,
+              operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+            });
+            setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
+              text: prefix + "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
+                operations.map(describeNativeEditOperation).join("; ") + ". Autosave persists the XML; no server revision was created." }]);
+          } else {
+            const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
+            recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
+              operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
+              rolledBack: execution.rolledBack,
+              operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+            }, "error");
+            setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
+              text: prefix + "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). " +
+                (execution.rolledBack
+                  ? "The batch is atomic, so every step was rolled back."
+                  : "The native editor did not confirm a rollback; reload the diagram before continuing.") }]);
+          }
+          return;
+        }
+        if (plan.selection) {
+          recordDiagnostic("copilot.selection.resolved", "Copilot resolved a native Draw.io cell selection", { cellId: plan.selection.cellId, pageId: plan.selection.pageId, label: plan.selection.label, standaloneMode });
+          if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
+          applyNativeCellEdit(plan.selection.cellId, "cell:select", plan.selection.pageId || "");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
+            text: "Selected “" + plan.selection!.label + "”. The selection is a UI state only: the diagram itself is unchanged." }]);
           return;
         }
         if (plan.proposal) {
@@ -315,6 +291,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit,
+    applyNativeCellEdits
   ]);
 }
