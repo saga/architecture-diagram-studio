@@ -70,6 +70,35 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const endpoint = normalized.match(/^(?:change|set|修改|更改)\s+(?:relation|connector|edge|连线|关系)\s+[“"']?(.+?)[”"']?\s+(source|target|起点|终点)\s+(?:to|为|改为)\s+[“"']?(.+?)[”"']?$/i);
         const relationRename = normalized.match(/^(?:rename|重命名|修改)\s+(?:relation|connector|edge|连线|关系)\s+[“"']?(.+?)[”"']?\s+(?:to|为|改为)\s+[“"']?(.+?)[”"']?$/i);
         const recolor = normalized.match(/(?:change|set|make|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\s*(?:to|为|改成|设置为)?\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\s*$/i);
+        const selectionLayout = normalized.match(/^(?:align|对齐)\s+(?:selected\s+)?(?:cells?\s+)?(left|right|top|bottom|center|middle|左对齐|右对齐|顶部对齐|底部对齐|水平居中|垂直居中)\s*$/i)
+          || normalized.match(/^(?:distribute|均匀分布|平均分布)\s+(?:selected\s+)?(?:cells?\s+)?(horizontally|vertically|horizontal|vertical|水平|垂直)\s*$/i);
+        const groupSelection = /^(?:group|组合|编组)\s*(?:selected\s+)?(?:cells?|elements?|nodes?|元素|节点)?\s*$/i.test(normalized);
+        const ungroupSelection = /^(?:ungroup|取消组合|解组)\s*(?:selected\s+)?(?:cells?|elements?|nodes?|元素|节点)?\s*$/i.test(normalized);
+        if (selectionLayout || groupSelection || ungroupSelection) {
+          let path = "";
+          let summary = "";
+          if (groupSelection) { path = "cell:group"; summary = "Group the selected Draw.io cells"; }
+          else if (ungroupSelection) { path = "cell:ungroup"; summary = "Ungroup the selected Draw.io group"; }
+          else {
+            const mode = selectionLayout![1].toLowerCase();
+            if (/left|左对齐/.test(mode)) path = "cell:align:left";
+            else if (/right|右对齐/.test(mode)) path = "cell:align:right";
+            else if (/top|顶部/.test(mode)) path = "cell:align:top";
+            else if (/bottom|底部/.test(mode)) path = "cell:align:bottom";
+            else if (/center|水平居中/.test(mode)) path = "cell:align:center";
+            else if (/middle|垂直居中/.test(mode)) path = "cell:align:middle";
+            else if (/horizontal|horizontally|水平/.test(mode)) path = "cell:distribute:horizontal";
+            else path = "cell:distribute:vertical";
+            summary = "Apply native Draw.io selection operation: " + path.slice("cell:".length);
+          }
+          recordDiagnostic("copilot.standalone.selection-operation.validated", "Validated a native Draw.io multi-selection operation", {
+            operation: path, selectedCellId: "__selection__", request: text, xmlLength: drawioXml.length
+          });
+          applyNativeCellEdit("__selection__", path, "true");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
+            text: summary + ". The native editor will validate the current selection and report the result in Agent traces." }]);
+          return;
+        }
         const cells = Array.from(parsed.getElementsByTagName("mxCell"));
         const labelOf = (cell: Element) => {
           const owner = cell.parentElement;
