@@ -992,7 +992,7 @@ app.put("/api/workspace/document", async (req, res) => {
       const state = await getWorkspaceState();
       const workspace = await getProjectWorkspace();
       const allVersions = await getDiagramVersions();
-      const activeStateMatches = state.workspaceId === workspace?.id && (state.diagramPath === undefined || state.diagramPath === (workspace?.primaryDiagram ?? null));
+      const activeStateMatches = state.workspaceId === workspace?.id && state.diagramPath === (workspace?.primaryDiagram ?? null);
       const workspaceVersions = allVersions.filter((version) => versionMatchesActiveDiagram(version, workspace));
       // A null revision is valid only for a genuinely empty initial state. If the configured
       // workspace changed while an older XML document is still in memory, null === null must
