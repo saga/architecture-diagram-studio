@@ -100,10 +100,25 @@ function hasValidBundle() {
   }
 }
 
+function installSelectionBridge(directory) {
+  const pluginSource = path.join(ROOT, "plugins", "studio-selection-plugin.js");
+  if (!fs.existsSync(pluginSource)) throw new Error("Missing local Draw.io selection bridge: " + pluginSource);
+  fs.copyFileSync(pluginSource, path.join(directory, "studio-selection-plugin.js"));
+  const indexHtmlPath = path.join(directory, "index.html");
+  let indexHtml = fs.readFileSync(indexHtmlPath, "utf8");
+  if (!indexHtml.includes('<script src="studio-selection-plugin.js"></script>')) {
+    const mainScript = /(<script\s+src=["']js\/main\.js["'][^>]*>\s*<\/script>)/i;
+    if (!mainScript.test(indexHtml)) throw new Error("Could not locate js/main.js in Draw.io index.html to install the selection bridge.");
+    indexHtml = indexHtml.replace(mainScript, '$1\n<script src="studio-selection-plugin.js"></script>');
+    fs.writeFileSync(indexHtmlPath, indexHtml);
+  }
+}
+
 async function main() {
   const startedAt = Date.now();
   log("Bundle validation started: version=" + VERSION + ", destination=" + DEST);
   if (hasValidBundle()) {
+    installSelectionBridge(DEST);
     const manifest = JSON.parse(fs.readFileSync(path.join(DEST, "studio-bundle.json"), "utf8"));
     const entry = fs.statSync(path.join(DEST, "index.html"));
     log("Bundle cache hit: version=" + manifest.version + ", sha256=" + manifest.sha256 +
@@ -139,20 +154,7 @@ async function main() {
     extractedBytes += entry.data.length;
   }
 
-  // Add a first-party plugin to bridge native Draw.io selection events to the host.
-  // Draw.io intentionally does not expose editorUi on window and its embed protocol has no
-  // selection event, so the plugin is loaded from this same-origin, pinned local bundle.
-  const pluginSource = path.join(ROOT, "plugins", "studio-selection-plugin.js");
-  if (!fs.existsSync(pluginSource)) throw new Error("Missing local Draw.io selection bridge: " + pluginSource);
-  fs.copyFileSync(pluginSource, path.join(temp, "studio-selection-plugin.js"));
-  const indexHtmlPath = path.join(temp, "index.html");
-  let indexHtml = fs.readFileSync(indexHtmlPath, "utf8");
-  if (!indexHtml.includes('<script src="studio-selection-plugin.js"></script>')) {
-    const mainScript = /(<script\s+src=["']js\/main\.js["'][^>]*>\s*<\/script>)/i;
-    if (!mainScript.test(indexHtml)) throw new Error("Could not locate js/main.js in Draw.io index.html to install the selection bridge.");
-    indexHtml = indexHtml.replace(mainScript, '$1\n<script src="studio-selection-plugin.js"></script>');
-    fs.writeFileSync(indexHtmlPath, indexHtml);
-  }
+  installSelectionBridge(temp);
 
   fs.writeFileSync(path.join(temp, ".version"), VERSION + "\n");
   fs.writeFileSync(path.join(temp, "studio-bundle.json"), JSON.stringify({ version: VERSION, sha256: SHA256 }, null, 2) + "\n");
