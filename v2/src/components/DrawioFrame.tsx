@@ -215,8 +215,11 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         } else if (path.startsWith("geometry:") && cell.geometry) {
           const key = path.slice("geometry:".length);
           const geometry = cell.geometry.clone();
-          if (key === "relative") geometry.relative = value === "1" || value.toLowerCase() === "true";
-          else if (["x", "y", "width", "height"].includes(key)) {
+          if (key === "relative") {
+            const normalized = value.toLowerCase();
+            if (!["1", "0", "true", "false"].includes(normalized)) throw new Error("relative must be 1/0 or true/false");
+            geometry.relative = normalized === "1" || normalized === "true";
+          } else if (["x", "y", "width", "height"].includes(key)) {
             const numeric = Number(value);
             if (!Number.isFinite(numeric)) throw new Error("Geometry must be numeric");
             (geometry as unknown as Record<string, unknown>)[key] = numeric;
@@ -229,8 +232,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
             if (value && !terminal) throw new Error("No cell exists with id " + value);
             model.setTerminal(cell, terminal, key === "source");
           } else if (key === "parent") {
+            if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be reparented");
             const parent = model.getCell(value);
             if (!parent) throw new Error("No parent cell exists with id " + value);
+            let ancestor = parent;
+            while (ancestor) {
+              if (ancestor === cell) throw new Error("A cell cannot be moved into itself or one of its descendants");
+              ancestor = ancestor.parent;
+            }
             model.add(parent, cell, model.getChildCount(parent));
           }
         } else if (path.startsWith("valueAttr:")) {
