@@ -1,7 +1,4 @@
-import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { DiagramDocument, DiagramRenderTheme } from "../src/model/types";
-import { normalizeRenderTheme } from "../src/design/render-spec";
 
 export function normalizeNewDrawioFileName(input: string): string {
   const trimmed = input.trim();
@@ -20,16 +17,16 @@ export function normalizeNewDrawioFileName(input: string): string {
   return fileName;
 }
 
-/** Create a valid empty architecture document; the workspace remains the containing folder. */
-export function createEmptyDrawioDocument(fileName: string, theme?: DiagramRenderTheme | string): DiagramDocument {
+function xmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Create an empty native Draw.io file directly; no intermediate semantic graph is involved. */
+export function createEmptyDrawioXml(fileName: string): string {
   const title = path.basename(fileName, path.extname(fileName)).replace(/[-_]+/g, " ").trim() || "Untitled diagram";
-  return {
-    schemaVersion: 2, id: randomUUID(), title, kind: "c4", variant: "container", theme: "studio-editorial",
-    renderTheme: normalizeRenderTheme(theme),
-    nodes: [], relations: [], boundaries: [],
-    layout: {
-      profile: "elk-layered", direction: "RIGHT", routing: "orthogonal",
-      nodeSpacing: 52, layerSpacing: 104, boundaryPadding: 32, externalSide: "RIGHT", storageSide: "BOTTOM"
-    }
-  };
+  return '<mxfile host="app.diagrams.net" agent="Architecture Diagram Studio V2">' +
+    '<diagram id="page-1" name="' + xmlAttribute(title) + '">' +
+    '<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800" math="0" shadow="0">' +
+    '<root><mxCell id="0"/><mxCell id="1" parent="0"/></root>' +
+    '</mxGraphModel></diagram></mxfile>';
 }
