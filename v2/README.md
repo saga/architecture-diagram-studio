@@ -4,9 +4,9 @@
 
 A project workspace is optional and represents a project directory, not a diagram. Use **Open Draw.io** to open any local `.drawio`, `.dio`, or `.xml` file as a standalone document; when the browser supports the File System Access API, edits autosave to the selected file. Browsers without direct file-write access can still open the file, but use **Export** to save edits. Copilot can analyze the standalone diagram and propose supported layout-intent changes without reading or modifying the configured project workspace; workspace-only semantic Agent tools remain unavailable in standalone mode. Standalone files do not require workspace scanning. Use **New Draw.io** when you want a diagram tracked in a configured project workspace; autosave and version history are scoped to that workspace diagram. Creating a new diagram never overwrites an existing file.
 
-## Rendering parity
+## Native Draw.io editor
 
-Studio SVG and Freeform's native Draw.io renderer share `src/design/render-spec.ts` for the font hierarchy, node shapes and accent strips, sequence lifelines and activation bars, fragments, relation labels, arrow metrics, and theme palettes. The active document's `renderTheme` is serialized to Draw.io so switching themes affects both views. Draw.io import records non-default fill, stroke, font, shape, radius, dash, arrow and label-background overrides on the semantic model; export writes those overrides back rather than recolouring them from the node role alone. The parity regression suite renders SVG and XML from the same fixture and checks their shared geometry and style contract; run it with `npm test -- src/render-parity.test.ts`.
+The embedded native Draw.io editor is the only diagram canvas. The separate Studio SVG canvas and Studio/Freeform mode switch have been removed to avoid maintaining two competing editing experiences. The application keeps native Draw.io XML as the authoritative diagram source; semantic properties, layout operations, Copilot previews, theme changes and workspace versioning must preserve that XML and must not silently replace unsupported cells, styles, labels, pages or hierarchy. Draw.io import records supported style overrides on the semantic projection and patches changes back into the native XML only when the round-trip is safe.
 
 
 V2 is an independent implementation. The previous implementation is preserved under the sibling V1 directory; V2 must not import code from V1.
@@ -28,8 +28,8 @@ The pre-dev and pre-build hooks install a pinned Draw.io web bundle (v32.0.2, SH
 - DiagramDocument V2 semantic model.
 - A modular layout-engine registry: ELK Layered / Mr. Tree / Radial / Stress / Force and Dagre Layered are selectable independently from layout direction. ELK Layered retains C4 semantic ranks and flowchart lanes; Dagre provides a lightweight directed-graph alternative. Both support horizontal (left-to-right) and vertical (top-to-bottom) layouts. Sequence diagrams use their dedicated participant/timeline layout rather than generic graph engines.
 - Deterministic sequence layout with call/return-derived activation bars, multi-variant route scoring, routing repair and node locks.
-- Studio Editorial visual system, functional canvas zoom, draggable nodes, and nearest-free-position snapping when a drag would overlap another node.
-- Local Draw.io iframe mode, native editable XML export, and import of plain or compressed Draw.io XML (including Studio semantic metadata). Native XML is kept separately after Draw.io edits so the next model sync does not immediately overwrite unmodeled native styles.
+- Native Draw.io editing as the sole canvas, with semantic properties and layout controls around the editor.
+- Embedded native Draw.io editor, native editable XML export, and import of plain or compressed Draw.io XML (including Studio semantic metadata). Native XML is kept separately after Draw.io edits so the next model sync does not immediately overwrite unmodeled native styles.
 - Local intent commands for line style, routing, external placement, storage placement, layout direction and lock clearing; individual relations also expose label, direction, routing and dashed/solid controls.
 - Reviewable intent previews (apply/discard), 50-step in-session undo/redo, server-authoritative document persistence with runtime schema validation, deterministic route-variant scoring, hard layout checks, and regression tests.
 
