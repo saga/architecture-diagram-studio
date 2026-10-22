@@ -27,6 +27,12 @@ Supporting all diagram types must not mean rebuilding mxGraph's data model insid
 
 The shared Zod validation module is `v2/src/model/drawio-xml-schema.ts`. It validates native XML roots (`mxfile`, legacy `mxGraphModel`) and the distinct `mxlibrary` root, including page payload decoding. The schema deliberately uses open attribute maps and preserves unknown child elements: custom shape names, arbitrary style IDs, user-object wrapper names and extension metadata are part of Draw.io's extensible format, not a finite enum. Standalone `.drawio.svg`, `.drawio.png`, HTML viewer exports and PDF containers require container-specific extraction before their embedded XML can be validated; they are not themselves native `mxfile` XML inputs to this validator.
 
+### Zod validation contract
+
+The validator is implemented in `v2/src/model/drawio-xml-schema.ts` and is shared by browser import and server persistence. It covers `mxfile`, one or more `diagram` pages, inline and compressed/raw-DEFLATE page payloads, bare `mxGraphModel`, the root cell inventory, `mxCell`, `mxGeometry`, points/rectangles/arrays, `defs/def`, UserObject/custom wrappers, and the separate `mxlibrary` library format.
+
+The upstream Draw.io implementation inspected for this decision is the codec/page machinery, not a closed shape catalogue: [mxCellCodec](https://github.com/jgraph/drawio/blob/17b367b91dbab91804f852645788d7ffb46dcb79/src/main/webapp/mxgraph/src/io/mxCellCodec.js), [mxModelCodec](https://github.com/jgraph/drawio/blob/17b367b91dbab91804f852645788d7ffb46dcb79/src/main/webapp/mxgraph/src/io/mxModelCodec.js), [Pages.js](https://github.com/jgraph/drawio/blob/17b367b91dbab91804f852645788d7ffb46dcb79/src/main/webapp/js/diagramly/Pages.js), and [StorageFile.js](https://github.com/jgraph/drawio/blob/17b367b91dbab91804f852645788d7ffb46dcb79/src/main/webapp/js/diagramly/StorageFile.js). Zod validates structural invariants but intentionally leaves custom shapes, style keys, XML attributes, user-object metadata and extension elements open. DTD/custom entity declarations are rejected.
+
 ## Consequences
 
 - We do not introduce `SemanticDocument | NativeDocument` as two competing persistent document sources.
