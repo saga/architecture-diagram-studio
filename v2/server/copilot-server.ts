@@ -448,7 +448,7 @@ app.get("/api/workspace/configuration", async (_req, res) => {
   const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
     (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error)
   );
-  res.json({ config, revisions: parseConfigHistory(contents).length, hasRuntimeSettings: true });
+  res.json({ config, revisions: parseConfigHistory(contents).length });
 });
 
 app.get("/api/workspace/configuration/history", async (_req, res) => {
