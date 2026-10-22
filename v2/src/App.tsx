@@ -15,7 +15,7 @@ import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
@@ -431,7 +431,7 @@ export default function App() {
     }
   };
 
-  const sendIntent = useCopilotIntent({
+  const { sendIntent, confirmProposal } = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
     getCurrentDiagramState: () => latestDiagramStateRef.current,
@@ -1080,6 +1080,7 @@ export default function App() {
             page="copilot"
             messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
             sendIntent={() => void sendIntent()}
+             confirmProposal={(proposalId) => void confirmProposal(proposalId)}
              aiModel={aiModel} setAiModel={setAiModel}
             reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
              saveAISettings={saveAISettings} clearAISettings={clearAISettings}
@@ -1105,6 +1106,7 @@ export default function App() {
           setChatInput={setChatInput}
           chatBusy={chatBusy}
           sendIntent={() => void sendIntent()}
+             confirmProposal={(proposalId) => void confirmProposal(proposalId)}
              aiModel={aiModel} setAiModel={setAiModel}
           reasoningEffort={reasoningEffort}
           setReasoningEffort={setReasoningEffort}
