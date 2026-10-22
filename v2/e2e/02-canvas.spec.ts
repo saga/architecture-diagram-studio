@@ -85,12 +85,12 @@ test.describe("原生画布", () => {
     await expect(inspector).toBeVisible();
     await expect(inspector.locator(".native-inspector-heading")).toContainText("Element properties");
     // The inspector reads the native XML, not the semantic projection.
-    await expect(inspector.locator(".native-property-field", { hasText: /^(Value|Label)$/ }).locator("textarea")).toHaveValue("Database");
+    await expect(inspector.locator(".native-property-field textarea").first()).toHaveValue("Database");
 
     // Editing through the inspector has to reach the same file the canvas autosaves into.
     const before = cellX(await readWorkspaceXml(workspace), "database");
     expect(before).not.toBeNull();
-    const xField = inspector.locator(".native-property-field", { hasText: /^x$/ }).locator("input");
+    const xField = inspector.locator('.native-inspector-group').filter({ hasText: "Geometry" }).locator('label.native-property-field:has(span:text-is("x")) input');
     await xField.fill(String(before! + 40));
     await xField.press("Tab");
     await expect
