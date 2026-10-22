@@ -88,16 +88,29 @@ function validateResponse(value: unknown): AIIntentResponse {
       return { outcome: "unsupported", reply: reply || "This operation is not supported by the current native-edit allowlist.", ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 1000) } : {}), ...metadata };
     case "answered":
       return { outcome: "answered", reply: reply || "No diagram change was requested.", ...metadata };
-    case "applied":
+    case "applied": {
       if (typeof item.requestId !== "string" || !item.requestId.trim() ||
           typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||
-          !(typeof item.versionId === "string" || item.versionId === null)) {
-        throw new Error("The applied outcome requires requestId, documentRevision, and versionId (null only for standalone mode)");
+          !(typeof item.versionId === "string" || item.versionId === null) ||
+          item.editorAcknowledged !== true ||
+          typeof item.persistenceStatus !== "string" || !item.persistenceStatus.trim() ||
+          !Array.isArray(item.resolvedTargets) ||
+          item.resolvedTargets.some((target) => !target || typeof target !== "object" ||
+            typeof (target as { cellId?: unknown }).cellId !== "string" ||
+            typeof (target as { label?: unknown }).label !== "string")) {
+        throw new Error("The applied outcome requires requestId, documentRevision, versionId, editor acknowledgement, persistence status, and resolved targets");
       }
-      return { outcome: "applied", reply: reply || "The diagram change was applied.", requestId: item.requestId, documentRevision: item.documentRevision,
+      return {
+        outcome: "applied", reply: reply || "The diagram change was applied.",
+        requestId: item.requestId, documentRevision: item.documentRevision,
         ...(typeof item.persistedRevision === "string" || item.persistedRevision === null ? { persistedRevision: item.persistedRevision as string | null } : {}),
         versionId: item.versionId as string | null,
-        ...metadata };
+        editorAcknowledged: true,
+        persistenceStatus: item.persistenceStatus,
+        resolvedTargets: item.resolvedTargets as Array<{ cellId: string; label: string }>,
+        ...metadata
+      };
+    }
   }
 }
 
