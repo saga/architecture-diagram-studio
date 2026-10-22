@@ -50,16 +50,16 @@ export function roleFromStyle(style: string): NodeRole {
 
   const normalized = style.toLowerCase();
   const shape = style.match(/(?:^|;)shape=([^;]+)/i)?.[1]?.toLowerCase() || "";
-  if (shape.includes("umllifeline") || shape.includes("umlactor") || shape === "actor" ||
-      /(?:^|;)shape=actor(?:;|$)/i.test(style)) return "actor";
+  if (shape.includes("lifeline") || shape.includes("actor") || shape === "actor") return "actor";
   if (shape.includes("cloud")) return "external";
+  if (shape.includes("swimlane")) return "business";
   if (shape.includes("flowchart.start") || /(?:^|;)shape=start(?:;|$)/i.test(style)) return "start";
   if (shape.includes("flowchart.end") || /(?:^|;)shape=end(?:;|$)/i.test(style)) return "end";
   if (shape.includes("rhombus") || shape.includes("decision") || normalized.includes("rhombus")) return "decision";
   if (shape.includes("database") || shape.includes("cylinder") || shape.includes("datastore") ||
       normalized.includes("database") || normalized.includes("cylinder")) return "storage";
   if (shape === "table" || shape.includes("entityrelation") || shape.includes("umlclass") ||
-      shape.includes("document") || shape.includes("parallelogram") || shape.includes("note")) return "data";
+      shape.includes("document") || shape.includes("parallelogram") || shape.includes("note") || shape.includes("data")) return "data";
   if (shape.includes("process") || shape.includes("hexagon") || normalized.includes("ellipse") || normalized.includes("arcsize=50")) return "service";
   return "domain";
 }
