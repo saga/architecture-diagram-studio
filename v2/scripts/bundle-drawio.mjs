@@ -9,7 +9,7 @@ import { ProxyAgent } from "undici";
 
 const VERSION = "v32.0.2";
 const SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
-const URL = "https://github.com/jgraph/drawio/releases/download/v32.0.2/draw.war";
+const DRAWIO_ARCHIVE_URL = "https://github.com/jgraph/drawio/releases/download/v32.0.2/draw.war";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEST = path.join(ROOT, "public", "drawio");
 const STAMP = path.join(DEST, ".version");
@@ -74,9 +74,9 @@ async function loadWar() {
         ...(ca ? { proxyTls: { ca }, requestTls: { ca } } : {})
       })
     : undefined;
-  if (proxyUrl) log("HTTPS proxy configured: " + new URL(proxyUrl).origin);
-  log("GET " + URL);
-  const response = await fetch(URL, dispatcher ? { dispatcher } : undefined);
+  if (proxyUrl) log("HTTPS proxy configured: " + new globalThis.URL(proxyUrl).origin);
+  log("GET " + DRAWIO_ARCHIVE_URL);
+  const response = await fetch(DRAWIO_ARCHIVE_URL, dispatcher ? { dispatcher } : undefined);
   log("Download response: status=" + response.status + " " + response.statusText +
       ", content-length=" + (response.headers.get("content-length") || "unknown"));
   if (!response.ok) throw new Error("Download failed with HTTP " + response.status + " " + response.statusText +
