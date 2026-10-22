@@ -20,11 +20,9 @@
   },
   "dependencies": {
     "@ant-design/x": "^2.9.0",
-    "@dagrejs/dagre": "^1.1.5",
     "@github/copilot-sdk": "^1.0.17",
     "@xmldom/xmldom": "^0.9.12",
     "antd": "^6.6.5",
-    "elkjs": "^0.10.0",
     "express": "^5.2.1",
     "fflate": "^0.8.2",
     "react": "^19.1.0",
