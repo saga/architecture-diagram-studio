@@ -57,6 +57,11 @@
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
       var selectionOperation = String(request.path || "");
+      var requestedPage = request.pageId;
+      var activePage = currentPageId();
+      if (requestedPage && activePage && requestedPage !== activePage) {
+        throw new Error("The active Draw.io page changed before the edit");
+      }
       if (request.cellId === "__batch__" && selectionOperation === "cell:batch") {
         var operations;
         try { operations = JSON.parse(String(request.value || "[]")); } catch (_) { throw new Error("Batch edit payload is not valid JSON"); }
