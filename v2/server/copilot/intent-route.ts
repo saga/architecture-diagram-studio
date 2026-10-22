@@ -39,7 +39,67 @@ const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOpera
  */
 const contextBySession = new Map<string, unknown>();
 
+interface PendingNativeExecutionAck {
+  requestId: string;
+  sessionId: string;
+  standalone: boolean;
+  documentRevision: string;
+  operationCount: number;
+  summary: string;
+  createdAt: number;
+}
+const pendingNativeExecutionAcks = new Map<string, PendingNativeExecutionAck>();
+
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
+  app.post("/api/copilot/intent/ack", async (req, res) => {
+    const requestId = typeof req.body?.requestId === "string" ? req.body.requestId : "";
+    const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
+    const pending = pendingNativeExecutionAcks.get(requestId);
+    if (!pending) {
+      res.status(404).json({ outcome: "stale_context", error: "The execution acknowledgement is unknown or expired." });
+      return;
+    }
+    if (pending.sessionId !== sessionId || req.body?.standalone !== pending.standalone ||
+        req.body?.documentRevision !== pending.documentRevision) {
+      await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "request_context_mismatch" });
+      res.status(409).json({ outcome: "stale_context", error: "The acknowledgement does not match the original Copilot request." });
+      return;
+    }
+    const outcome = req.body?.outcome === "applied" ? "applied" : req.body?.outcome === "failed" ? "failed" : null;
+    const editorAcknowledged = req.body?.editorAcknowledged === true;
+    const serializedXmlRevision = typeof req.body?.serializedXmlRevision === "string" ? req.body.serializedXmlRevision : null;
+    const persistenceStatus = typeof req.body?.persistenceStatus === "string" ? req.body.persistenceStatus : "not_attempted";
+    const persistedRevision = typeof req.body?.persistedRevision === "string" ? req.body.persistedRevision : null;
+    const failureStage = req.body?.failureStage === "editor" || req.body?.failureStage === "persistence" ? req.body.failureStage : null;
+    const errorMessage = typeof req.body?.error === "string" ? req.body.error.slice(0, 1000) : null;
+    if (!outcome || (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision))) {
+      res.status(400).json({ outcome: "failed", error: "A final native-edit outcome requires a valid status and editor acknowledgement." });
+      return;
+    }
+    if (outcome === "applied" && !pending.standalone) {
+      const authoritative = await deps.getWorkspaceDiagramSnapshot();
+      if (persistenceStatus !== "saved" || !persistedRevision ||
+          persistedRevision !== serializedXmlRevision || !authoritative ||
+          authoritative.revision !== persistedRevision) {
+        await deps.writeLog("turn.native-edit.ack-rejected", {
+          requestId, sessionId, reason: "workspace_persistence_revision_mismatch",
+          serializedXmlRevision, persistedRevision, currentWorkspaceRevision: authoritative?.revision ?? null
+        });
+        pendingNativeExecutionAcks.delete(requestId);
+        res.status(409).json({ outcome: "stale_context", error: "The workspace's saved revision no longer matches the acknowledged native XML.", documentRevision: authoritative?.revision ?? null });
+        return;
+      }
+    }
+    await deps.writeLog("turn.native-edit.final-outcome", {
+      requestId, sessionId, standalone: pending.standalone,
+      baseDocumentRevision: pending.documentRevision,
+      operationCount: pending.operationCount, summary: pending.summary,
+      outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision,
+      failureStage, error: errorMessage
+    });
+    pendingNativeExecutionAcks.delete(requestId);
+    res.json({ outcome, requestId, documentRevision: serializedXmlRevision, persistedRevision });
+  });
   async function buildSystemMessage(standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
     const workspaceContext = standalone
@@ -194,6 +254,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
     const startedAt = Date.now();
     const requestId = randomUUID();
+    const expiredBefore = Date.now() - 10 * 60_000;
+    for (const [id, pending] of pendingNativeExecutionAcks) {
+      if (pending.createdAt < expiredBefore) {
+        pendingNativeExecutionAcks.delete(id);
+        await deps.writeLog("turn.native-edit.ack-expired", { requestId: id, sessionId: pending.sessionId, ageMs: Date.now() - pending.createdAt });
+      }
+    }
     const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.name.slice(0, 120), cellType: cell.cellType }));
     await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, cellCount: (context.cells as unknown[]).length, cells });
     if (!standalone) await deps.persistSessionId(sessionId);
@@ -307,10 +374,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       };
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
+        pendingNativeExecutionAcks.set(requestId, {
+          requestId, sessionId, standalone, documentRevision,
+          operationCount: nativeEdits.operations.length, summary: nativeEdits.summary, createdAt: Date.now()
+        });
         const response = {
-          // The browser shows the deterministic operation summary after acknowledgement. Do not pass model-generated preview/confirmation claims into the success message.
+          // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
           commands: [], reply: nativeEdits.summary, selection,
-          nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision },
+          nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
           ...shared
         };
         await deps.writeLog("turn.completed.with-native-edits", {
