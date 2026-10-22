@@ -48,7 +48,7 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
         nativeEdits: {
           operations: [
             { op: "select", target: "Database", cellId, targetLabel: "Database" },
-            { op: "set_style", target: "Database", cellId, label: "Database", key: "fillColor", color: "#ff0000" }
+            { op: "set_style", target: "Database", cellId, targetLabel: "Database", key: "fillColor", color: "#ff0000" }
           ],
           summary: "Select “Database”; Set fillColor of “Database” to #ff0000",
           requiresClientExecution: true
