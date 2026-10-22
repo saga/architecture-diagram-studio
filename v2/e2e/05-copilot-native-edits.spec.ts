@@ -39,6 +39,9 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
   });
 
   let seenPrompt = "";
+  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
+  }));
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       prompt?: unknown; documentRevision?: unknown;
@@ -60,6 +63,7 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
             { op: "set_style", target: "Database", cellId, targetLabel: "Database", key: "fillColor", color: "#ff0000" }
           ],
           summary: "Select “Database”; Rename “Database” to “Primary Database”; Set fillColor of “Database” to #ff0000",
+          requestId: "11111111-1111-4111-8111-111111111111",
           pageId,
           documentRevision
         },
@@ -139,6 +143,9 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
   expect(observedCellId).toBeTruthy();
 
   let seenPrompt = "";
+  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
+  }));
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       prompt?: unknown; documentRevision?: unknown;
@@ -158,6 +165,7 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
             { op: "add_node_after", target: observedCellId, cellId: observedCellId, targetLabel: "Database", newLabel: "bbb" }
           ],
           summary: "Add “bbb” after “Database” and connect it",
+          requestId: "22222222-2222-4222-8222-222222222222",
           pageId,
           documentRevision
         },
@@ -212,6 +220,9 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
   await waitForNativeEditor(page);
 
   let seenPrompt = "";
+  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
+  }));
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       prompt?: unknown; documentRevision?: unknown;
@@ -234,6 +245,7 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
             { op: "add_node_after", target: "Database", cellId: "database", targetLabel: "Database", newLabel: "bbb" }
           ],
           summary: "Rename API Service; move Background Worker; delete Message Queue; add bbb after Database and connect it",
+          requestId: "33333333-3333-4333-8333-333333333333",
           pageId,
           documentRevision
         },
