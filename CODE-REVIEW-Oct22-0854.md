@@ -469,3 +469,7 @@ git clone --depth 1 -b dev https://github.com/jgraph/drawio-diagrams /tmp/dd
 又发现一处旧状态污染：当当前 XML cell 的 ID 与上一份语义投影相同，导入器此前优先沿用 `previous.role` / `previous.visualRole`，即使 XML 已明确写入新的 `studioRole` 或 `studioVisualRole`。这会导致 Draw.io XML 中的显式语义变更被旧缓存覆盖。
 
 已调整为：当前 XML 明确包含 Studio 语义标记时，以该标记为准；只有原生 cell 缺少这些标记时，才使用旧投影作为兼容性回退。新增同 ID 节点从 service 改为 storage/highlight 的回归用例。测试尚未实际执行。
+
+## 16. 复审继续：切换导入文件时清除旧时序图分类
+
+发现 `fromDrawioXml()` 会把 `previous.kind === "sequence"` 当作当前页面的时序图证据，并在非时序页面导入后继续保留旧的 `sequence` 数据。这是另一个跨文档状态泄漏。现在只依据当前 XML 页中的原生时序结构/Studio 时序标记识别 sequence；如果上一份投影是 sequence、当前页没有时序标记，则回退到 C4 分类并清除旧 sequence 数据。新增对应回归用例。尚未执行测试。
