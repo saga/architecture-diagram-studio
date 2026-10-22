@@ -50,7 +50,10 @@
     }
 
     function editCell(request) {
-      var cell = model.getCell(request.cellId);
+      // Draw.io can replace the active graph model when loading a new document.
+      // Resolve it per request rather than retaining the model from plugin startup.
+      var activeModel = typeof graph.getModel === "function" ? graph.getModel() : model;
+      var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
       var requestedPage = request.pageId;
       var activePage = currentPageId();
@@ -59,7 +62,7 @@
       }
       var path = String(request.path || "");
       var value = String(request.value == null ? "" : request.value);
-      model.beginUpdate();
+      activeModel.beginUpdate();
       try {
         if (path === "label") {
           var current = cell.value;
@@ -67,13 +70,13 @@
             var next = current.cloneNode(true);
             var labelKey = next.hasAttribute("label") ? "label" : "value";
             next.setAttribute(labelKey, updateLabelMarkup(next.getAttribute(labelKey) || "", value));
-            model.setValue(cell, next);
-          } else model.setValue(cell, updateLabelMarkup(current, value));
+            activeModel.setValue(cell, next);
+          } else activeModel.setValue(cell, updateLabelMarkup(current, value));
         } else if (path === "style") {
-          model.setStyle(cell, value);
+          activeModel.setStyle(cell, value);
         } else if (path.indexOf("style:") === 0) {
           var key = path.slice(6);
-          var styles = String(model.getStyle(cell) || "").split(";").filter(Boolean);
+          var styles = String(activeModel.getStyle(cell) || "").split(";").filter(Boolean);
           var found = false;
           var normalized = value.toLowerCase();
           var remove = value === "" || normalized === "0" || normalized === "false";
@@ -86,7 +89,7 @@
             return remove ? "" : flag ? key : key + "=" + value;
           }).filter(Boolean);
           if (!found && !remove) nextStyles.push(flag ? key : key + "=" + value);
-          model.setStyle(cell, nextStyles.join(";") + (nextStyles.length ? ";" : ""));
+          activeModel.setStyle(cell, nextStyles.join(";") + (nextStyles.length ? ";" : ""));
         } else if (path.indexOf("point:") === 0 && cell.geometry) {
           var parts = path.split(":");
           var index = Number(parts[1]);
@@ -102,7 +105,7 @@
           if (!points[index]) throw new Error("Connector control point no longer exists");
           points[index][axis] = numeric;
           geometry.points = points;
-          model.setGeometry(cell, geometry);
+          activeModel.setGeometry(cell, geometry);
         } else if (path.indexOf("geometry:") === 0 && cell.geometry) {
           var geometryKey = path.slice(9);
           var nextGeometry = cell.geometry.clone();
@@ -115,30 +118,30 @@
             if (!Number.isFinite(numberValue)) throw new Error("Geometry must be numeric");
             nextGeometry[geometryKey] = numberValue;
           } else throw new Error("Unsupported geometry property: " + geometryKey);
-          model.setGeometry(cell, nextGeometry);
+          activeModel.setGeometry(cell, nextGeometry);
         } else if (path.indexOf("cell:") === 0) {
           var cellKey = path.slice(5);
           if (["visible", "collapsed", "connectable"].indexOf(cellKey) >= 0) {
             var cellBool = value.toLowerCase();
             if (["1", "0", "true", "false"].indexOf(cellBool) < 0) throw new Error(cellKey + " must be 1/0 or true/false");
             var enabled = cellBool === "1" || cellBool === "true";
-            if (cellKey === "visible") model.setVisible(cell, enabled);
-            else if (cellKey === "collapsed") model.setCollapsed(cell, enabled);
-            else model.setConnectable(cell, enabled);
+            if (cellKey === "visible") activeModel.setVisible(cell, enabled);
+            else if (cellKey === "collapsed") activeModel.setCollapsed(cell, enabled);
+            else activeModel.setConnectable(cell, enabled);
           } else if (cellKey === "source" || cellKey === "target") {
-            var terminal = value ? model.getCell(value) : null;
+            var terminal = value ? activeModel.getCell(value) : null;
             if (value && !terminal) throw new Error("No cell exists with id " + value);
-            model.setTerminal(cell, terminal, cellKey === "source");
+            activeModel.setTerminal(cell, terminal, cellKey === "source");
           } else if (cellKey === "parent") {
             if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be reparented");
-            var parent = model.getCell(value);
+            var parent = activeModel.getCell(value);
             if (!parent) throw new Error("No parent cell exists with id " + value);
             var ancestor = parent;
             while (ancestor) {
               if (ancestor === cell) throw new Error("A cell cannot be moved into itself or one of its descendants");
               ancestor = ancestor.parent;
             }
-            model.add(parent, cell, model.getChildCount(parent));
+            activeModel.add(parent, cell, activeModel.getChildCount(parent));
           } else throw new Error("Unsupported cell property: " + cellKey);
         } else if (path.indexOf("valueAttr:") === 0) {
           var attrKey = path.slice(10);
@@ -148,10 +151,10 @@
           }
           var attrNext = attrValue.cloneNode(true);
           if (value === "") attrNext.removeAttribute(attrKey); else attrNext.setAttribute(attrKey, value);
-          model.setValue(cell, attrNext);
+          activeModel.setValue(cell, attrNext);
         } else throw new Error("Unsupported Draw.io property path: " + path);
       } finally {
-        model.endUpdate();
+        activeModel.endUpdate();
       }
       if (typeof graph.refresh === "function") graph.refresh();
     }
