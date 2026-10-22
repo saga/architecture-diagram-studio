@@ -15,19 +15,82 @@ function attribute(raw: string, name: string): string | null {
   return match?.[2] ?? null;
 }
 
+function tagEnd(source: string, start: number): number {
+  let quote = "";
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote) quote = "";
+      continue;
+    }
+    if (character === "\"" || character === "'") quote = character;
+    else if (character === ">") return index;
+  }
+  return -1;
+}
+
+function hasTagBoundary(source: string, index: number, nameLength: number): boolean {
+  const next = source[index + nameLength];
+  return next === undefined || next === ">" || next === "/" || /\s/.test(next);
+}
+
+/** Scan direct mxCell children without confusing a slash or `>` inside a quoted attribute with tag syntax. */
+function scanMxCells(inner: string): string[] | null {
+  const cells: string[] = [];
+  let cursor = 0;
+  while (cursor < inner.length) {
+    while (cursor < inner.length && /\s/.test(inner[cursor])) cursor += 1;
+    if (cursor === inner.length) break;
+    if (!inner.startsWith("<mxCell", cursor) || !hasTagBoundary(inner, cursor, 7)) return null;
+
+    const openingEnd = tagEnd(inner, cursor);
+    if (openingEnd < 0) return null;
+    const opening = inner.slice(cursor, openingEnd + 1);
+    const selfClosing = opening.slice(0, -1).trimEnd().endsWith("/");
+    let cellEnd = openingEnd + 1;
+    if (!selfClosing) {
+      const closingStart = inner.indexOf("</mxCell", cellEnd);
+      if (closingStart < 0 || !hasTagBoundary(inner, closingStart, 8)) return null;
+      const closingEnd = tagEnd(inner, closingStart);
+      if (closingEnd < 0) return null;
+      cellEnd = closingEnd + 1;
+    }
+    cells.push(inner.slice(cursor, cellEnd));
+    cursor = cellEnd;
+  }
+  return cells;
+}
+
 function parseRootSlice(xml: string): RootSlice | null {
-  const rootMatches = [...xml.matchAll(/<root\b[^>]*>([\s\S]*?)<\/root>/g)];
-  if (rootMatches.length !== 1) return null;
+  const roots: Array<{ contentStart: number; closeStart: number }> = [];
+  let searchFrom = 0;
+  while (searchFrom < xml.length) {
+    const openStart = xml.indexOf("<root", searchFrom);
+    if (openStart < 0) break;
+    if (!hasTagBoundary(xml, openStart, 5)) {
+      searchFrom = openStart + 5;
+      continue;
+    }
+    const openEnd = tagEnd(xml, openStart);
+    if (openEnd < 0) return null;
+    const closeStart = xml.indexOf("</root", openEnd + 1);
+    if (closeStart < 0 || !hasTagBoundary(xml, closeStart, 6)) return null;
+    const closeEnd = tagEnd(xml, closeStart);
+    if (closeEnd < 0) return null;
+    roots.push({ contentStart: openEnd + 1, closeStart });
+    searchFrom = closeEnd + 1;
+  }
+  if (roots.length !== 1) return null;
 
   const mxfile = /<mxfile\b/.test(xml);
   const modelCount = (xml.match(/<mxGraphModel\b/g) || []).length;
   const pageCount = (xml.match(/<diagram\b/g) || []).length;
   if (mxfile ? pageCount !== 1 || modelCount !== 1 : modelCount !== 1 || pageCount !== 0) return null;
 
-  const match = rootMatches[0];
-  const inner = match[1];
-  const rawCells = inner.match(/<mxCell\b[^>]*(?:\/>|>[\s\S]*?<\/mxCell>)/g) || [];
-  if (inner.replace(/<mxCell\b[^>]*(?:\/>|>[\s\S]*?<\/mxCell>)/g, "").trim()) return null;
+  const root = roots[0];
+  const inner = xml.slice(root.contentStart, root.closeStart);
+  const rawCells = scanMxCells(inner);
+  if (!rawCells) return null;
 
   const parsedCells: Array<{ id: string; raw: string }> = [];
   const cellMap = new Map<string, string>();
@@ -38,10 +101,7 @@ function parseRootSlice(xml: string): RootSlice | null {
     parsedCells.push({ id, raw });
   }
   if (!cellMap.has("0") || !cellMap.has("1")) return null;
-
-  const rootOpenEnd = match[0].indexOf(">") + 1;
-  const start = (match.index ?? 0) + rootOpenEnd;
-  return { start, end: start + inner.length, inner, cellMap, cells: parsedCells };
+  return { start: root.contentStart, end: root.closeStart, inner, cellMap, cells: parsedCells };
 }
 
 function styleOf(raw: string): string {

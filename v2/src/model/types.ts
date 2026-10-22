@@ -50,6 +50,8 @@ export interface RelationVisualStyle {
 export interface DiagramNode {
   id: string;
   name: string;
+  /** Native Draw.io parent cell ID; x/y remain absolute canvas coordinates in Studio. */
+  parentId?: string;
   description?: string;
   technology?: string;
   role: NodeRole;
@@ -208,6 +210,7 @@ export function isDiagramDocument(value: unknown): value is DiagramDocument {
 
   const validNodes = valueRecord.nodes.every((node) => isRecord(node) &&
     typeof node.id === "string" && typeof node.name === "string" &&
+    (node.parentId === undefined || typeof node.parentId === "string") &&
     typeof node.role === "string" && typeof node.visualRole === "string" &&
     ["x", "y", "width", "height"].every((key) => typeof node[key] === "number"));
   const validRelations = valueRecord.relations.every((relation) => isRecord(relation) &&

@@ -217,6 +217,26 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const wrapperByCell = new Map(cellEntries.map((entry) => [entry.cell, entry.wrapper]));
   const cellId = (cell: Element) => idByCell.get(cell) || cell.getAttribute("id") || "";
   const currentCellIds = new Set(cells.map(cellId));
+  const cellById = new Map(cellEntries.map((entry) => [entry.id, entry.cell]));
+  const absolutePosition = (cell: Element): Point => {
+    const geometry = directChild(cell, "mxGeometry");
+    let x = Number(geometry?.getAttribute("x") || 0);
+    let y = Number(geometry?.getAttribute("y") || 0);
+    let parentId = cell.getAttribute("parent") || "";
+    const visited = new Set<string>([cellId(cell)]);
+    while (parentId && parentId !== "0" && parentId !== "1" && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = cellById.get(parentId);
+      if (!parent) break;
+      const parentGeometry = directChild(parent, "mxGeometry");
+      if (parentGeometry) {
+        x += Number(parentGeometry.getAttribute("x") || 0);
+        y += Number(parentGeometry.getAttribute("y") || 0);
+      }
+      parentId = parent.getAttribute("parent") || "";
+    }
+    return { x, y };
+  };
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const previousRelations = new Map(previous.relations.map((relation) => [relation.id, relation]));
   const nodes: DiagramNode[] = [];
@@ -259,20 +279,26 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
         }
         continue;
       }
-      const geometry = directChild(cell, "mxGeometry");
       const old = previousNodes.get(id);
+      // Empty structural/decoration cells stay in the authoritative XML but are not
+      // projected into visible Studio nodes as misleading "New node" placeholders.
+      if (!value && !old) continue;
+      const geometry = directChild(cell, "mxGeometry");
       if (!geometry) continue;
-      const x = Number(geometry.getAttribute("x") || 0);
-      const y = Number(geometry.getAttribute("y") || 0);
+      const position = absolutePosition(cell);
+      const x = position.x;
+      const y = position.y;
       const width = Number(geometry.getAttribute("width") || 180);
       const height = Number(geometry.getAttribute("height") || 78);
+      const nativeParentId = cell.getAttribute("parent") || "";
       const positionChanged = Boolean(old && (Math.abs(old.x - x) > 1 || Math.abs(old.y - y) > 1));
       const role = old?.role || roleFromStyle(style);
       const visualRole = old?.visualRole || visualRoleFromStyle(style);
       const importedStyle = nodeVisualStyleFromDrawio(style, role, visualRole, previous.renderTheme || "editorial");
       nodes.push({
         ...(old || { id, name: value || "New node", role, visualRole, width: 180, height: 78, x: 0, y: 0, layoutHints: {} }),
-        name: value || (old ? old.name : "New node"),
+        name: value || old!.name,
+        parentId: nativeParentId && nativeParentId !== "0" && nativeParentId !== "1" ? nativeParentId : undefined,
         x, y, width, height,
         layoutHints: {
           ...((old && old.layoutHints) || {}),
@@ -280,7 +306,12 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
         },
         visualStyle: importedStyle
       });
-    } else if (cell.getAttribute("edge") === "1") {
+    }
+  }
+
+  // Resolve edges only after all vertices (including later-in-XML endpoints) are indexed.
+  for (const cell of cells) {
+    if (cell.getAttribute("edge") !== "1") continue;
       if (id.endsWith("__lifeline")) continue;
       const rawSource = cell.getAttribute("source") || "";
       const rawTarget = cell.getAttribute("target") || "";
@@ -323,7 +354,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
         points,
         visualStyle: importedRelationStyle
       });
-    }
+    
   }
   if (nodes.length === 0) return previous;
   const relationList = relations.length ? relations : previous.relations.filter((relation) => nodes.some((node) => node.id === relation.source) && nodes.some((node) => node.id === relation.target));

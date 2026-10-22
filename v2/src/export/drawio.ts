@@ -24,10 +24,14 @@ function pointXml(points: Point[]): string {
   if (points.length === 0) return "";
   return "<Array as=\"points\">" + points.map((p) => "<mxPoint x=\"" + Math.round(p.x) + "\" y=\"" + Math.round(p.y) + "\"/>").join("") + "</Array>";
 }
-function vertexXml(node: DiagramNode, theme: string): string {
+function vertexXml(node: DiagramNode, theme: string, doc: DiagramDocument): string {
+  const parent = node.parentId ? doc.nodes.find((candidate) => candidate.id === node.parentId) : undefined;
+  const parentId = parent ? node.parentId! : "1";
+  const x = parent ? node.x - parent.x : node.x;
+  const y = parent ? node.y - parent.y : node.y;
   return "<mxCell id=\"" + esc(node.id) + "\" value=\"" + esc(htmlLabel(node, theme)) + "\" style=\"" +
-    esc(mxNodeStyle(node, theme)) + "\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"" + Math.round(node.x) +
-    "\" y=\"" + Math.round(node.y) + "\" width=\"" + Math.round(node.width) + "\" height=\"" +
+    esc(mxNodeStyle(node, theme)) + "\" vertex=\"1\" parent=\"" + esc(parentId) + "\"><mxGeometry x=\"" + Math.round(x) +
+    "\" y=\"" + Math.round(y) + "\" width=\"" + Math.round(node.width) + "\" height=\"" +
     Math.round(node.height) + "\" as=\"geometry\"/></mxCell>";
 }
 function accentXml(node: DiagramNode, theme: string): string {
@@ -162,7 +166,7 @@ export function toDrawioXml(doc: DiagramDocument): string {
   const support = sequenceSupport(doc, theme);
   const cells = "<mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>" +
     doc.boundaries.map((boundary) => boundaryXml(doc, boundary, theme)).join("") +
-    doc.nodes.map((node) => vertexXml(node, theme) + accentXml(node, theme)).join("") + support.vertices +
+    doc.nodes.map((node) => vertexXml(node, theme, doc) + accentXml(node, theme)).join("") + support.vertices +
     (doc.kind === "sequence" ? support.edges : doc.relations.map((relation) => edgeXml(relation, doc.layout.routing, doc, theme)).join(""));
   const maxX = Math.max(1200, ...doc.nodes.map((n) => n.x + n.width + 120));
   const maxY = Math.max(doc.kind === "sequence" ? 800 : 700,
