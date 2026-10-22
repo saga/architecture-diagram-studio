@@ -40,6 +40,15 @@
       });
     };
 
+    function updateLabelMarkup(source, value) {
+      if (typeof source !== "string" || !/<[a-z][^>]*>/i.test(source)) return value;
+      var parsed = new DOMParser().parseFromString(source, "text/html");
+      var container = parsed.body.firstElementChild;
+      if (!container) return value;
+      container.textContent = value;
+      return container.outerHTML;
+    }
+
     function editCell(request) {
       var cell = model.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
@@ -56,9 +65,10 @@
           var current = cell.value;
           if (current && typeof current === "object" && current.nodeType === 1) {
             var next = current.cloneNode(true);
-            next.setAttribute(next.hasAttribute("label") ? "label" : "value", value);
+            var labelKey = next.hasAttribute("label") ? "label" : "value";
+            next.setAttribute(labelKey, updateLabelMarkup(next.getAttribute(labelKey) || "", value));
             model.setValue(cell, next);
-          } else model.setValue(cell, value);
+          } else model.setValue(cell, updateLabelMarkup(current, value));
         } else if (path === "style") {
           model.setStyle(cell, value);
         } else if (path.indexOf("style:") === 0) {
