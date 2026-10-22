@@ -23,9 +23,9 @@ function normalize(value: string): string {
  * browser silently editing the wrong cell.
  */
 export function resolveNativeEditTargets(context: unknown, operations: NativeEditOperation[]): NativeEditResolution {
-  const source = context && typeof context === "object" ? context as { nodes?: unknown } : {};
-  const nodes = Array.isArray(source.nodes)
-    ? source.nodes
+  const source = context && typeof context === "object" ? context as { cells?: unknown } : {};
+  const cells = Array.isArray(source.cells)
+    ? source.cells
       .filter((node): node is NativeEditContextNode => Boolean(node) && typeof node === "object")
       .map((node) => ({
         id: typeof node.id === "string" ? node.id : "",
@@ -34,15 +34,15 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       }))
       .filter((node) => node.id)
     : [];
-  if (nodes.length === 0) return { ok: false, error: "The request did not include any diagram elements to target" };
+  if (cells.length === 0) return { ok: false, error: "The request did not include any diagram elements to target" };
 
   const resolved: ResolvedNativeEditOperation[] = [];
   for (const [index, operation] of operations.entries()) {
     const target = operation.target.trim();
-    const byId = nodes.filter((node) => node.id === target);
+    const byId = cells.filter((node) => node.id === target);
     const matches = byId.length ? byId : nodes.filter((node) => node.name && normalize(node.name) === normalize(target));
     if (matches.length === 0) {
-      return { ok: false, error: `Operation ${index + 1}: native Draw.io cell “${target}” was not found among the ${nodes.length} cells indexed on the active page. Use an exact cell id or exact label from the supplied diagram context.` };
+      return { ok: false, error: `Operation ${index + 1}: native Draw.io cell “${target}” was not found among the ${cells.length} cells indexed on the active page. Use an exact cell id or exact label from the supplied diagram context.` };
     }
     if (matches.length > 1) {
       return { ok: false, error: `Operation ${index + 1}: label “${target}” is ambiguous (${matches.length} elements match). Use the exact cell id instead.` };
