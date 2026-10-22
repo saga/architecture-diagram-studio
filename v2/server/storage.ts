@@ -16,6 +16,17 @@ export async function writeJsonAtomic(file: string, value: unknown): Promise<voi
 export function matchesWorkspaceRevision(baseRevision: string | null | undefined, currentRevision: string | null): boolean {
   return baseRevision !== undefined && baseRevision === currentRevision;
 }
+/** Prevent a null revision from authorizing a stale save across workspace switches. */
+export function isWorkspaceSaveContextCompatible(
+  activeStateMatches: boolean,
+  workspaceHasPrimaryDiagram: boolean,
+  storedXmlExists: boolean,
+  baseRevision: string | null | undefined
+): boolean {
+  if (activeStateMatches) return true;
+  return !workspaceHasPrimaryDiagram && !storedXmlExists && baseRevision === null;
+}
+
 export function workspaceRevision(_document: unknown, drawioXml: string | null): string {
   // A revision tracks the single authoritative source. The semantic projection is a cache
   // derived from that source, so it cannot independently create or invalidate revisions.
