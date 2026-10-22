@@ -71,11 +71,6 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
 export type WorkspacePage = "diagram" | "copilot" | "traces" | "settings";
 type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
 
-/**
- * Bookkeeping events that fire constantly and never explain what the agent did.
- * They stay one click away behind "Show low-level events"; warnings and errors are
- * never treated as low-level, so a broken handshake is still visible by default.
- */
 const LOW_LEVEL_EVENT_PREFIXES = ["drawio.message.", "drawio.bundle.check.", "drawio.handshake.", "ui.theme."];
 const LOW_LEVEL_EVENTS = new Set([
   "app.started",
@@ -83,7 +78,6 @@ const LOW_LEVEL_EVENTS = new Set([
   "navigation.opened",
   "models.empty",
   "trace.refreshed",
-  "diagram.relation.selected",
   "drawio.iframe.loaded",
   "drawio.bridge.ready",
   "drawio.plugin.bridge.ready",
@@ -92,14 +86,11 @@ const LOW_LEVEL_EVENTS = new Set([
 
 function isLowLevelTrace(entry: DiagnosticEntry): boolean {
   if (entry.level === "error" || entry.level === "warn") return false;
-  // Server-side runtime logs carry no human message; the endpoint copies the event id into
-  // `message`, which is exactly the row that used to read the same thing twice.
   if (entry.message === entry.event) return true;
   if (LOW_LEVEL_EVENTS.has(entry.event)) return true;
   return LOW_LEVEL_EVENT_PREFIXES.some((prefix) => entry.event.startsWith(prefix));
 }
 
-/** Server logs have no prose, so fall back to the first meaningful detail instead of repeating the event id. */
 function traceTitle(entry: DiagnosticEntry): string {
   if (entry.message && entry.message !== entry.event) return entry.message;
   for (const key of ["errorMessage", "error", "note", "reason", "message"]) {
@@ -109,9 +100,23 @@ function traceTitle(entry: DiagnosticEntry): string {
   return entry.event;
 }
 
+function traceTokenUsage(entry: DiagnosticEntry): { input: number; output: number; total: number; calls: number } | null {
+  const raw = entry.details.usage;
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const input = typeof value.inputTokens === "number" ? value.inputTokens : 0;
+  const output = typeof value.outputTokens === "number" ? value.outputTokens : 0;
+  const total = typeof value.totalTokens === "number" ? value.totalTokens : input + output;
+  const calls = typeof value.calls === "number" ? value.calls : 1;
+  return total > 0 || input > 0 || output > 0 ? { input, output, total, calls } : null;
+}
+
+function formatTokenCount(value: number): string {
+  return Number.isFinite(value) ? Math.round(value).toLocaleString("en-US") : "0";
+}
+
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
-/** Which side of the model routing the server process is on, as reported by /api/copilot/models. */
 type ModelRouting = {
   mode?: "byok" | "github";
   host?: string | null;
@@ -151,15 +156,10 @@ interface Props {
   onLayoutProfilesChanged: (profiles: string[]) => void;
 }
 
-/** Ant Design Button adapter retaining existing semantic HTML button attributes. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
 }
 
-/**
- * Numeric timestamps keep every row on the same font: the locale format renders CJK date text
- * ("2026年10月22日") that falls back to a different family than the Latin event text around it.
- */
 function formattedTime(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return timestamp;
@@ -179,8 +179,6 @@ export default function WorkspacePages(props: Props) {
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
   const [showLowLevel, setShowLowLevel] = useState(false);
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
-  // Filled from /api/copilot/models; an empty list until then, because the runtime — not the browser —
-  // decides which model ids exist.
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsMessage, setModelsMessage] = useState("");
@@ -214,8 +212,6 @@ export default function WorkspacePages(props: Props) {
           .map((model) => ({ value: model.id!, label: model.label || model.name || model.id! }));
         if (!cancelled && options.length) {
           const merged = [...options];
-          // The runtime default is whatever this server is actually configured with — a custom
-          // provider model, or the Copilot catalog default. It is never a hard-coded id.
           const runtimeDefault = payload.defaultModel?.trim();
           if (runtimeDefault && !merged.some((item) => item.value === runtimeDefault)) {
             merged.unshift({ value: runtimeDefault, label: runtimeDefault + " (runtime default)" });
@@ -305,18 +301,18 @@ export default function WorkspacePages(props: Props) {
           <div className="trace-list">
             {filteredTraces.length ? [...filteredTraces].reverse().map((entry) => {
               const title = traceTitle(entry);
+              const usage = traceTokenUsage(entry);
               return (
               <article className={"trace-entry trace-" + entry.level} key={entry.id}>
                 <div className="trace-entry-rail"><span /></div>
                 <div className="trace-entry-content">
                   <div className="trace-entry-row">
                     <span className={"trace-level level-" + entry.level}>{entry.level.toUpperCase()}</span>
-                    {/* The message is the human sentence for this event; the raw event id only shows up
-                        when no sentence exists, and otherwise stays in the expanded details. */}
                     <span
                       className={"trace-entry-message" + (title === entry.event ? " is-event" : "")}
                       title={title === entry.event ? title : title + " · " + entry.event}
                     >{title}</span>
+                    {usage && <code title={`Token usage · ${usage.calls} model call${usage.calls === 1 ? "" : "s"}`}>tokens {formatTokenCount(usage.input)} in / {formatTokenCount(usage.output)} out</code>}
                     <time dateTime={entry.timestamp}>{formattedTime(entry.timestamp)}</time>
                     <button
                       type="button"
@@ -329,6 +325,7 @@ export default function WorkspacePages(props: Props) {
                   </div>
                   {expandedTraceId === entry.id && <div className="trace-entry-details-content">
                         <div className="trace-entry-meta"><span>Event</span><code>{entry.event}</code><span>Level</span><code>{entry.level}</code></div>
+                        {usage && <div className="trace-entry-meta"><span>Tokens in</span><code>{formatTokenCount(usage.input)}</code><span>Tokens out</span><code>{formatTokenCount(usage.output)}</code><span>Total</span><code>{formatTokenCount(usage.total)}</code><span>Model calls</span><code>{usage.calls}</code></div>}
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
@@ -368,16 +365,7 @@ export default function WorkspacePages(props: Props) {
             <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>GitHub Copilot SDK / Agent Runtime</h2><p>Server-side Copilot CLI runtime using the signed-in GitHub Copilot identity</p></div></div>
             <div className="settings-status-line"><span className={"settings-status-dot " + (aiModel.trim() ? "status-ready" : "status-unknown")} /><strong>{aiModel.trim() ? "Agent mode configured" : "Using local rules"}</strong></div>
             <label className="settings-field">Default model
-              <Select
-                showSearch
-                optionFilterProp="label"
-                value={aiModel || undefined}
-                options={modelOptions}
-                loading={modelsLoading}
-                onChange={(value) => setAiModel(value)}
-                placeholder="Select a model (leave empty for local rules)"
-                style={{ width: "100%" }}
-              />
+              <Select showSearch optionFilterProp="label" value={aiModel || undefined} options={modelOptions} loading={modelsLoading} onChange={(value) => setAiModel(value)} placeholder="Select a model (leave empty for local rules)" style={{ width: "100%" }} />
             </label>
             <p className="settings-description">{modelsMessage || "Options come from the local Copilot SDK; the server's configured model is used when nothing is selected."}</p>
             {modelRouting && (
