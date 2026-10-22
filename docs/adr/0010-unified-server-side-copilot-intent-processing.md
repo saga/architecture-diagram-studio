@@ -103,15 +103,17 @@ Audit logs must distinguish model interpretation, tool invocation, validation, n
 
 ## Implementation and verification checklist
 
+See [Native Copilot / Draw.io Capability Audit](../NATIVE-COPILOT-CAPABILITY-AUDIT.md) for the current implementation status, operation gaps and verification caveats.
+
 This ADR records the required architecture; it does not assert that the migration is already implemented or tested. Mark each item complete only with code and regression-test evidence.
 
 - [ ] Remove natural-language regex parsing and direct intent decisions from frontend Copilot hooks/components.
-- [ ] Route standalone and workspace requests through the same server intent endpoint and orchestration.
-- [ ] Add validated request fields for native selected cell/page and document revision/hash.
-- [ ] Implement allowlisted native-cell operations through the server-to-Draw.io bridge, with explicit acknowledgement and returned XML/save state.
-- [ ] Ensure workspace XML mutation is loss-preserving, revision-checked, server-validated and versioned.
-- [ ] Normalize conflicting legacy prompts and make tool schemas/descriptions consistent with mode capabilities.
-- [ ] Return the discriminated outcome contract; do not report success before execution and required persistence acknowledgements.
+- [x] Route standalone and workspace requests through the same server intent endpoint and orchestration.
+- [x] Add validated request fields for native selected cell/page and document revision/hash.
+- [x] Implement allowlisted native-cell operations through the server-to-Draw.io bridge, with explicit editor acknowledgement and returned XML/save state; workspace mode waits for the revision-checked save.
+- [x] Ensure workspace XML mutation is loss-preserving, revision-checked, server-validated and versioned.
+- [x] Normalize conflicting legacy prompts and make tool schemas/descriptions consistent with mode capabilities.
+- [ ] Return the full discriminated outcome contract; the native-edit path now returns `command_ready` and a correlated `applied`/`failed` acknowledgement, but clarification, unsupported, stale-context and ordinary-reply outcomes are not yet a complete union.
 - [ ] Add tests for Chinese and English rename variants; selected-cell move up/down/left/right by numeric delta; resize; delete; selection alignment/grouping; duplicate/missing labels; no selection; stale selection/revision; unsupported/incomplete semantic projection; malformed XML; native-editor failure; save failure; and prompt/tool-call failure.
 - [ ] Add integration tests proving the same intent resolves consistently in workspace and standalone modes while using their respective adapters.
 - [ ] Verify that no frontend regex or local-rules path still interprets natural-language edit requests.
