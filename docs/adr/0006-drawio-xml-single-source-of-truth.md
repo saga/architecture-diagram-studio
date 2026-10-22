@@ -23,6 +23,10 @@ Supporting all diagram types must not mean rebuilding mxGraph's data model insid
 7. Copilot must not author arbitrary XML text. Native-document AI editing, when enabled, uses typed, allowlisted cell operations (for example, set text, move/resize cell, update approved style keys, add/delete edge, add page) applied by server code to the authoritative XML, with revision checks and an immutable version snapshot. Raw XML remains untrusted input and is never directly executed.
 8. Multi-page, unknown and custom cells are retained even when the current semantic projection cannot display or understand them. A partial projection must not be mistaken for a complete inventory of the file.
 
+## XML schema boundary
+
+The shared Zod validation module is `v2/src/model/drawio-xml-schema.ts`. It validates native XML roots (`mxfile`, legacy `mxGraphModel`) and the distinct `mxlibrary` root, including page payload decoding. The schema deliberately uses open attribute maps and preserves unknown child elements: custom shape names, arbitrary style IDs, user-object wrapper names and extension metadata are part of Draw.io's extensible format, not a finite enum. Standalone `.drawio.svg`, `.drawio.png`, HTML viewer exports and PDF containers require container-specific extraction before their embedded XML can be validated; they are not themselves native `mxfile` XML inputs to this validator.
+
 ## Consequences
 
 - We do not introduce `SemanticDocument | NativeDocument` as two competing persistent document sources.
