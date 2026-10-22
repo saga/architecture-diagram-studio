@@ -27,6 +27,16 @@ describe("Draw.io XML is the authoritative source", () => {
     expect(patched).not.toContain("native-custom-blob");
   });
 
+  it("allows legacy Studio XML to adopt layout metadata on its default layer", () => {
+    const document = {
+      ...FIXTURES.c4(), nodes: [], relations: [], boundaries: [], sequence: undefined
+    };
+    const legacyXml = '<?xml version="1.0"?><mxfile host="app.diagrams.net"><diagram id="legacy" name="Legacy"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
+    const projection = toDrawioXml(document);
+    expect(canEditInStudio(legacyXml, projection, document)).toBe(true);
+    expect(patchDrawioXml(legacyXml, projection, document)).toContain("studioLayoutProfile=");
+  });
+
   it("allows editing the minimum XML document with two self-closing root cells", () => {
     const document = {
       ...FIXTURES.c4(), nodes: [], relations: [], boundaries: [], sequence: undefined
