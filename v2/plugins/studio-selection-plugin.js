@@ -78,9 +78,31 @@
           }
         }
         collect(activeModel.getRoot());
-        // Root and default-layer cells are not editable operation targets. Snapshotting them
-        // can make a rollback appear to fail because Draw.io rejects unrelated root/layer setters.
-        var snapshots = allCells.filter(function (item) { return item && item.id !== "0" && item.id !== "1"; }).map(function (item) {
+        var affectedIds = Object.create(null);
+        function markCellTree(cell) {
+          if (!cell || cell.id === "0" || cell.id === "1" || affectedIds[cell.id]) return;
+          affectedIds[cell.id] = true;
+          var childCount = activeModel.getChildCount(cell);
+          for (var childIndex = 0; childIndex < childCount; childIndex++) {
+            markCellTree(activeModel.getChildAt(cell, childIndex));
+          }
+        }
+        operations.forEach(function (operation) {
+          if (!operation || typeof operation.cellId !== "string") return;
+          if (operation.cellId !== "0" && operation.cellId !== "1") affectedIds[operation.cellId] = true;
+          if (operation.path === "cell:delete") markCellTree(activeModel.getCell(operation.cellId));
+        });
+        // Deleting a vertex can also remove its connected edges. Include only those edges
+        // that a requested delete may affect; unrelated cells never participate in rollback.
+        allCells.forEach(function (item) {
+          if (item && item.edge &&
+              ((item.source && affectedIds[item.source.id]) || (item.target && affectedIds[item.target.id]))) {
+            affectedIds[item.id] = true;
+          }
+        });
+        var snapshots = allCells.filter(function (item) {
+          return item && item.id !== "0" && item.id !== "1" && affectedIds[item.id];
+        }).map(function (item) {
           return { cell: item, value: item.value && typeof item.value.cloneNode === "function" ? item.value.cloneNode(true) : item.value,
             style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
             index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
