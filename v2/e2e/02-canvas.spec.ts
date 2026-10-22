@@ -18,8 +18,16 @@ function cellX(xml: string, fragment: string): number | null {
   const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\function cellX(xml: string, fragment: string): number | null {
   const cell = new RegExp('id="([^"]*' + fragment + '[^"]*)"').exec(xml);
   if (!cell) return null;
+  const id = cell[1].replace(/[.*+?^$()|[\]\\{}]/g, "\\function cellX(xml: string, fragment: string): number | null {
+  const cell = new RegExp('id="([^"]*' + fragment + '[^"]*)"').exec(xml);
+  if (!cell) return null;
   const geometry = new RegExp('id="' + cell[1] + '"[^>]*>\\s*<mxGeometry x="([-\\d.]+)"').exec(xml);
   return geometry ? Number(geometry[1]) : null;
+}");
+  // Draw.io may reorder mxGeometry attributes on save, so x must not be assumed first.
+  const geometry = new RegExp('id="' + id + '"[\\s\\S]*?<mxGeometry\\b([^>]*)>').exec(xml);
+  const x = geometry ? /\\bx="([-\\d.]+)"/.exec(geometry[1]) : null;
+  return x ? Number(x[1]) : null;
 }");
   const cells = Array.from(xml.matchAll(/<mxCell\\b([^>]*)>([\\s\\S]*?)<\\/mxCell>/g));
   const cell = cells.find((match) => new RegExp('\\\\bid="[^"]*' + escaped + '[^"]*"').test(match[1]));
