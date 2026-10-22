@@ -88,7 +88,7 @@ ADR: [0004 — Versioned Studio configuration in JSONL](../docs/adr/0004-version
 
 ## Server-authoritative diagram operations
 
-Deterministic diagram operations run through the HTTP server so the UI and the Studio's internal Copilot Agent workflow share the same implementation. These routes and SDK tools are internal server capabilities, not externally registered MCP tools. Focused edits explicitly requested by the user can be applied directly by Copilot after inspecting the active revision; the server rejects stale revisions, validates the applicable XML/semantic contract, and creates an immutable version before returning success. Semantic layout-quality gates apply to operations that use semantic layout. Broad or ambiguous changes continue through a reviewable proposal and explicit confirmation. The server currently provides:
+Deterministic diagram operations run through the HTTP server so the UI and the Studio's internal Copilot Agent workflow share the same implementation. These routes and SDK tools are internal server capabilities, not externally registered MCP tools. Focused edits explicitly requested by the user can be applied directly by Copilot after inspecting the active revision; the server rejects stale revisions, validates the applicable XML/semantic contract, and creates an immutable version before returning success. Semantic layout-quality gates apply only when the operation actually runs semantic layout. Broad or ambiguous changes continue through a reviewable proposal and explicit confirmation. The server currently provides:
 
 - `POST /api/workspace/layout`: Dagre/ELK layout, route generation, and overlap repair.
 - `POST /api/workspace/diagram/quality`: layout quality scoring.
