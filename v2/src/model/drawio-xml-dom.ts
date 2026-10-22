@@ -29,8 +29,8 @@ export function parseDrawioXml(xml: string, options: DrawioXmlParseOptions = {})
 }
 
 /** XMLSerializer is the only serializer for DOM-backed XML mutations. */
-export function serializeDrawioXml(document: DrawioDomDocument): string {
-  return new XMLSerializer().serializeToString(document as unknown as Parameters<InstanceType<typeof XMLSerializer>["serializeToString"]>[0]);
+export function serializeDrawioXml(node: Node): string {
+  return new XMLSerializer().serializeToString(node as unknown as Parameters<InstanceType<typeof XMLSerializer>["serializeToString"]>[0]);
 }
 
 export function encodeDrawioXmlAttribute(value: string): string {
