@@ -232,6 +232,9 @@ export default function App() {
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
   const studioEditingSafe = canEditInStudio(drawioXml, generatedDrawioXml, document);
+  const previewDrawioXml = previewDocument && studioEditingSafe
+    ? patchDrawioXml(drawioXml, toDrawioXml(previewDocument), document)
+    : null;
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
@@ -1268,8 +1271,9 @@ export default function App() {
         </div>
 
         <div className="canvas-stage native-mode">
-          {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram is preserved as native Draw.io XML. Its cells, styles, labels, pages or hierarchy cannot all be represented safely by the Studio projection, so semantic editing and automatic layout are disabled to prevent data loss. Use the native Draw.io editor; the full XML remains the saved source of truth.</div>}
-                      <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
+          {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram contains native Draw.io structure that cannot be safely represented by the semantic projection. The original XML remains authoritative; semantic layout and structural operations are disabled to prevent data loss.</div>}
+          {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
+                      <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme} onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span></div></div>
       </main>
