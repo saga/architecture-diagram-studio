@@ -132,7 +132,7 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   return parsed;
 }
 
-/** Read edit targets from native mxCells directly from native mxCells. */
+/** Read editable targets directly from native mxCells. */
 export function extractNativeEditTargets(xml: string, pageId?: string | null): NativeEditTarget[] {
   const parsed = parseNativeGraphModel(xml, pageId);
   const cells = findDrawioElements(parsed, "mxCell");
@@ -288,8 +288,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation): str
 
 interface CellGeometry { x: number; y: number; width: number; height: number }
 
-function readCellGeometry(xml: string, cellId: string): CellGeometry | null {
-  const parsed = parseDrawioXml(xml);
+function readCellGeometry(xml: string, cellId: string, pageId?: string | null): CellGeometry | null {
+  const parsed = parseNativeGraphModel(xml, pageId);
   for (const cell of findDrawioElements(parsed, "mxCell")) {
     if (cell.getAttribute("id") !== cellId) continue;
     const geometry = cell.getElementsByTagName("mxGeometry")[0];
@@ -314,7 +314,7 @@ export type NativeCellEditPlan =
  * `move` is expressed as a delta by the model but the bridge needs absolute coordinates,
  * so the current geometry is read from the authoritative XML the browser already holds.
  */
-export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml: string): NativeCellEditPlan {
+export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml: string, pageId?: string | null): NativeCellEditPlan {
   if (operations.length === 0) return { ok: false, error: "No native edit operations were supplied" };
   if (operations.length > MAX_NATIVE_EDIT_OPERATIONS) return { ok: false, error: `At most ${MAX_NATIVE_EDIT_OPERATIONS} operations can be executed at once` };
   const edits: NativeCellEdit[] = [];
@@ -343,7 +343,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
       case "move": {
         let geometry: CellGeometry | null;
         try {
-          geometry = readCellGeometry(xml, cellId);
+          geometry = readCellGeometry(xml, cellId, pageId);
         } catch (error) {
           return { ok: false, error: "The authoritative Draw.io XML could not be read: " + (error instanceof Error ? error.message : String(error)) };
         }
