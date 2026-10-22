@@ -1,7 +1,6 @@
 /**
- * Draw.io XML remains the single source of truth. Theme-managed cell colours keep
- * their original values in ignored Studio metadata so switching to Editorial is lossless.
- * A colour differing from the last theme-applied value is treated as a user override.
+ * The application theme controls editor chrome and graph background only.
+ * Cell styles are user-authored diagram data and must never be recoloured by a UI theme.
  */
 export interface DrawioThemePalette {
   canvas: string;
@@ -63,90 +62,6 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
     #geDiagramContainer, .geDiagramContainer { color: ${secondary} !important; }
     .geHint, .geToolbarHint { color: ${muted} !important; }
   `;
-}
-
-type ThemeName = "editorial" | "youth" | "warm" | "midnight";
-const COLOR_KEYS = ["fillColor", "strokeColor", "fontColor", "startFillColor", "endFillColor"] as const;
-const ORIGINAL_PREFIX = "studioThemeOriginal";
-const APPLIED_PREFIX = "studioThemeApplied";
-const OVERRIDE_PREFIX = "studioThemeOverride";
-
-function styleEntries(style: string): Map<string, string> {
-  return new Map(style.split(";").filter(Boolean).map((entry) => {
-    const index = entry.indexOf("=");
-    return index < 0 ? [entry, "1"] : [entry.slice(0, index), entry.slice(index + 1)];
-  }));
-}
-function setStyleValue(style: Map<string, string>, key: string, value: string | null) {
-  if (value === null) style.delete(key); else style.set(key, value);
-}
-function styleString(style: Map<string, string>): string {
-  return [...style].map(([key, value]) => key + "=" + value).join(";") + ";";
-}
-function decodeXmlAttribute(value: string): string {
-  return value.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-}
-function encodeXmlAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function themedColor(key: typeof COLOR_KEYS[number], edge: boolean, palette: DrawioThemePalette): string {
-  if (key === "fontColor") return palette.text;
-  if (key === "fillColor" || key === "startFillColor" || key === "endFillColor") return edge ? palette.canvas : palette.soft;
-  return edge ? palette.accent : palette.border;
-}
-
-/**
- * Applies theme colours to uncompressed native mxGraphModel cell styles.
- * Original values and last-applied values are stored as ignored style keys. If
- * a user/property/Copilot edit changes a managed colour, that colour becomes an
- * explicit override and is never recoloured by subsequent theme changes.
- */
-export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: DrawioThemePalette): string {
-  if (!/<mxGraphModel\b/.test(xml) || /<diagram\b[^>]*>\s*[A-Za-z0-9+/]{80,}={0,2}\s*<\/diagram>/i.test(xml)) return xml;
-  const color = (value: string) => safeColor(value) ?? value;
-  return xml.replace(/<mxCell\b[^<>]*>/g, (cellTag) => {
-    const attr = /\bstyle=(["\'])([\s\S]*?)\1/.exec(cellTag);
-    const edge = /\bedge=(["\'])1\1/.test(cellTag);
-    const vertex = /\bvertex=(["\'])1\1/.test(cellTag);
-    if (!attr && (!edge && !vertex || theme === "editorial")) return cellTag;
-    const rawStyle = attr ? decodeXmlAttribute(attr[2]) : "";
-    const values = styleEntries(rawStyle);
-    let changed = !attr;
-    for (const key of COLOR_KEYS) {
-      const originalKey = ORIGINAL_PREFIX + key[0].toUpperCase() + key.slice(1);
-      const appliedKey = APPLIED_PREFIX + key[0].toUpperCase() + key.slice(1);
-      const overrideKey = OVERRIDE_PREFIX + key[0].toUpperCase() + key.slice(1);
-      const current = values.get(key) ?? null;
-      const previousApplied = values.get(appliedKey) ?? null;
-      const originalStored = values.has(originalKey);
-      const overridden = values.get(overrideKey) === "1" ||
-        (previousApplied !== null && current !== previousApplied);
-      if (overridden) {
-        if (values.get(overrideKey) !== "1") { values.set(overrideKey, "1"); changed = true; }
-        values.delete(originalKey); values.delete(appliedKey);
-        continue;
-      }
-      if (theme === "editorial") {
-        if (originalStored) {
-          setStyleValue(values, key, values.get(originalKey) === "__none__" ? null : values.get(originalKey)!);
-          values.delete(originalKey); values.delete(appliedKey); changed = true;
-        }
-        continue;
-      }
-      if (!originalStored) {
-        values.set(originalKey, current ?? "__none__");
-        changed = true;
-      }
-      const next = color(themedColor(key, edge, palette));
-      if (current !== next) { values.set(key, next); changed = true; }
-      if (previousApplied !== next) { values.set(appliedKey, next); changed = true; }
-    }
-    if (!changed) return cellTag;
-    const replacement = encodeXmlAttribute(styleString(values));
-    if (!attr) return cellTag.slice(0, -1) + ' style="' + replacement + '">';
-    if (!attr) return cellTag.slice(0, -1) + ' style="' + replacement + '">';
-    return cellTag.slice(0, attr.index) + 'style="' + replacement + '"' + cellTag.slice(attr.index + attr[0].length);
-  });
 }
 
 /** Reversible background theme adapter; explicit user changes are preserved as overrides. */
