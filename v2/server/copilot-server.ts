@@ -159,6 +159,28 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
     workspaceState = { ...stored, document: stored.document ?? null };
   }
 
+  if (typeof workspaceState.drawioXml !== "string") {
+    const activeWorkspace = await getProjectWorkspace();
+    if (activeWorkspace?.primaryDiagram && /\.(?:drawio|dio|xml)$/i.test(activeWorkspace.primaryDiagram)) {
+      try {
+        const { absolutePath } = await resolveWorkspaceFile(activeWorkspace.primaryDiagram);
+        const sourceXml = await readFile(absolutePath, "utf8");
+        const validSource = validateDrawioXmlDocument(sourceXml).success;
+        workspaceState = {
+          ...workspaceState, workspaceId: activeWorkspace.id, diagramPath: activeWorkspace.primaryDiagram,
+          drawioXml: sourceXml, document: validSource ? projectDocumentFromXml(sourceXml) : null
+        };
+        // Import the existing file into the source store without replacing its XML.
+        await persistWorkspaceState(workspaceState);
+        if (validSource) return workspaceState;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        // A newly configured path may not exist yet; keep it uninitialized instead of
+        // reconstructing a file from a stale semantic cache.
+      }
+    }
+  }
+
   const xml = workspaceState.drawioXml;
   if (typeof xml === "string" && validateDrawioXmlDocument(xml).success) {
     workspaceState = { ...workspaceState, document: projectDocumentFromXml(xml) };
