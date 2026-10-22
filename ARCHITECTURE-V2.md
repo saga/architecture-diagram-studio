@@ -128,7 +128,16 @@ interface DiagramDocument {
   nodes: DiagramNode[];
   relations: DiagramRelation[];
   boundaries: DiagramBoundary[];
-  layout: LayoutState;
+  layout: {
+    profile: string;
+    direction: "RIGHT" | "DOWN";
+    routing: "orthogonal" | "polyline" | "curved";
+    nodeSpacing: number;
+    layerSpacing: number;
+    boundaryPadding: number;
+    externalSide: "LEFT" | "RIGHT";
+    storageSide: "BOTTOM" | "RIGHT";
+  };
   flow?: { primaryPath: string[] };
   sequence?: { participants: string[]; fragments?: SequenceFragment[] };
 }
