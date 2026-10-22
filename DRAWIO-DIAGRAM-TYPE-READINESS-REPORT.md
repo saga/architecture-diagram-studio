@@ -1,10 +1,9 @@
 # 支持 draw.io 全部图形：架构可行性评审
 
 - 评审对象：`v2/`（React 19 + Vite + antd 6 + 本地 bundled draw.io v32.0.2）
-- 评审方式：改造前只读代码分析；后续实现由 ADR-0006 与本轮提交跟踪。
-- 结论文件位置：仓库根目录
-- 对照基线：`ARCHITECTURE-V2.md`（2026-10-20）
-- 当前决策：`docs/adr/0006-drawio-xml-single-source-of-truth.md`；本文第 3 节及第 9 节的路径/行号主要用来描述改造前问题。
+- 评审方式：**改造前的历史只读分析，不是当前代码复审，也不是当前实施清单。**
+- 对照基线：`ARCHITECTURE-V2.md`（2026-10-20 的旧版本）
+- 当前决策：以 `docs/adr/0006-drawio-xml-single-source-of-truth.md` 和 `docs/adr/0008-native-drawio-is-the-only-diagram-canvas.md` 为准。本文中关于语义模型为真源、Studio SVG 画布、旧文件路径/行号和未实现能力的描述均属于历史状态，不应作为当前架构事实。
 
 ---
 
@@ -289,7 +288,7 @@ kind: { enum: ["flow","call","return","async","event","dependency"] }
 
 而且明确禁止模型触碰原生 XML（`diagram-tools.ts:74`）：
 
-> Draw.io XML is an editable output format; DiagramDocument is the semantic source of truth. … **Never synthesize raw XML or invent unsupported mxGraph style IDs.**
+> **旧版约束（已被 ADR-0006 取代）**：Draw.io XML is an editable output format; DiagramDocument is the semantic source of truth. … **Never synthesize raw XML or invent unsupported mxGraph style IDs.**
 
 这条约束本身是对的（安全），但它同时意味着：**AI 在原生轨上完全无能为力**。要支持"帮我把这个类图的继承关系补全"，必须先给 AI 一套能操作 cell 的抽象。
 
