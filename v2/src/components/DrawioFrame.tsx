@@ -270,10 +270,13 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null, xmlLengthBefore: pending?.beforeXml.length ?? null
           });
-          // Programmatic graph-model edits do not always trigger Draw.io's autosave event.
-          // Ask the native editor to serialize the current XML through its standard save protocol.
-          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "save" }), window.location.origin);
-          recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId, cellId: data.cellId, property: data.path });
+          // "save" is an editor-to-host event, not a supported host action. Request native XML
+          // serialization through the documented export action so programmatic mutations can be
+          // acknowledged even when they do not trigger autosave.
+          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+          recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", {
+            requestId, cellId: data.cellId, property: data.path, protocolAction: "export", format: "xml"
+          });
         } else {
           const errorMessage = typeof data.error === "string" ? data.error : "Unknown property edit error";
           onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage,
@@ -312,7 +315,9 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
         setStartupError("Draw.io error: " + message);
         recordDiagnostic("drawio.editor.error", "The Draw.io editor reported an error", { message }, "error");
       }
-      if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
+      const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
+      const exportSerialization = data.event === "export" && data.format === "xml" && pendingSerialization;
+      if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
           if (!isDrawioXmlDocument(data.xml)) {
@@ -328,7 +333,7 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
               changed ? "Native Draw.io serialization confirmed XML changed after the acknowledged edit" : "Native Draw.io serialized XML but no XML difference from the edit baseline was observed",
               { requestId, cellId: pending.cellId, property: pending.path, value: pending.value,
                 durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
-                xmlChanged: changed, saveEvent: data.event });
+                xmlChanged: changed, saveEvent: data.event, serializedByExport: exportSerialization });
             if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
