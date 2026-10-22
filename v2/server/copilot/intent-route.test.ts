@@ -143,6 +143,37 @@ function proposingCopilot() {
   };
 }
 
+function conflictingCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
+        const editTool = tools.find((candidate) => candidate.name === "propose_native_edits");
+        const outcomeTool = tools.find((candidate) => candidate.name === "report_intent_outcome");
+        if (!editTool?.handler || !outcomeTool?.handler) throw new Error("Required terminal tools were not registered");
+        await editTool.handler({ operations: [{ op: "set_label", target: "Database", label: "Data Store" }] });
+        await outcomeTool.handler({ outcome: "answered", reply: "No edit is required." });
+        return { message: { data: { content: "Conflicting terminal actions." } }, modelCallUsages: [] };
+      }
+    })
+  };
+}
+
 function seedAck(store: NativeExecutionAcknowledgements, overrides: Record<string, unknown> = {}) {
   const entry = {
     requestId: "11111111-1111-4111-8111-111111111111",
@@ -179,6 +210,15 @@ function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string,
 }
 
 describe("Copilot intent route result and revision contract", () => {
+  it("fails closed when the model calls more than one terminal tool in the same turn", async () => {
+    const harness = await createServer({ copilot: conflictingCopilot() });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(502);
+    expect(body.outcome).toBe("failed");
+    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(true);
+  });
+
   it("returns stale_context when the source hash does not match the XML", async () => {
     const harness = await createServer();
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ documentRevision: "forged-revision" }));
