@@ -111,7 +111,6 @@ export default function App() {
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
-  useEffect(() => { setCellEditRequest(null); }, [previewDocument, activePage, projectWorkspace?.id]);
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
@@ -190,6 +189,7 @@ export default function App() {
   const serverRevisionRef = useRef<string | null>(null);
   const serverCommittedDocumentRef = useRef<{ document: DiagramDocument; workspaceId: string | null } | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
+  useEffect(() => { setCellEditRequest(null); }, [previewDocument, activePage, projectWorkspace?.id]);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
