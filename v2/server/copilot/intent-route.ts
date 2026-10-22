@@ -384,7 +384,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const sessionId = typeof req.body?.sessionId === "string" && /^[a-zA-Z0-9._:-]{8,128}$/.test(req.body.sessionId)
       ? req.body.sessionId
       : randomUUID();
-    const config = await deps.getStudioConfig();
+    let config: AgentPromptConfig;
+    try {
+      config = await deps.getStudioConfig();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await deps.writeLog("request.validation.failed", { sessionId, reason: "configuration_unavailable", errorMessage: message });
+      res.status(502).json({ outcome: "failed", reply: "Copilot configuration could not be loaded. No diagram changes were made.", error: message.slice(0, 1000), sessionId });
+      return;
+    }
     const requestedModel = typeof req.body?.model === "string" && req.body.model.trim()
       ? req.body.model.trim().slice(0, 100)
       : (config.model || deps.defaultModel);
@@ -458,14 +466,30 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       cells: visibleCells
     };
     if (!standalone) {
-      const authoritative = await deps.getWorkspaceDiagramSnapshot();
+      let authoritative: { drawioXml: string; revision: string } | null;
+      try {
+        authoritative = await deps.getWorkspaceDiagramSnapshot();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await deps.writeLog("request.validation.failed", { sessionId, reason: "workspace_snapshot_unavailable", errorMessage: message });
+        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace revision. No edit was dispatched.", error: message.slice(0, 1000), sessionId });
+        return;
+      }
       if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
         await deps.writeLog("request.validation.failed", { sessionId, reason: "stale_workspace_revision", requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
         res.status(409).json({ outcome: "stale_context", reply: "The workspace diagram is not saved at the revision shown in the editor. Save or reload, then retry.", error: "The workspace diagram changed or has not been saved to this revision.", documentRevision: authoritative?.revision ?? null, sessionId });
         return;
       }
     }
-    const modelChoice = await deps.copilot.resolveModel(requestedModel);
+    let modelChoice: Awaited<ReturnType<CopilotRuntime["resolveModel"]>>;
+    try {
+      modelChoice = await deps.copilot.resolveModel(requestedModel);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await deps.writeLog("turn.failed", { sessionId, requestedModel, standalone, errorMessage: message, stage: "model_resolution" });
+      res.status(502).json({ outcome: "failed", reply: "Copilot could not resolve a model for this request. No edit was dispatched.", error: message.slice(0, 1000), sessionId });
+      return;
+    }
     const model = modelChoice.model || requestedModel;
 
     const startedAt = Date.now();
@@ -482,7 +506,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     }
     const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.name.slice(0, 120), cellType: cell.cellType }));
     await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, cellCount: (context.cells as unknown[]).length, cells });
-    if (!standalone) await deps.persistSessionId(sessionId);
+    try {
+      if (!standalone) await deps.persistSessionId(sessionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await deps.writeLog("turn.failed", { requestId, sessionId, standalone, stage: "session_persistence", errorMessage: message });
+      res.status(502).json({ outcome: "failed", reply: "The Copilot session could not be saved. No edit was dispatched.", error: message.slice(0, 1000), requestId, sessionId });
+      return;
+    }
     try {
       await deps.writeLog("request.session.acquire.started", { requestId, sessionId, model, standalone });
       const acquireStartedAt = Date.now();
