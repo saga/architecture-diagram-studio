@@ -1,15 +1,58 @@
 import { inflateSync, unzlibSync } from "fflate";
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { validateDrawioXmlDocument } from "../model/drawio-xml-schema";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, NodeVisualStyle, RelationVisualStyle, Point, SequenceFragment } from "../model/types";
 import { diagramPalette, nodeVisualDefaults, relationVisualDefaults } from "../design/render-spec";
 
+function decodeHtmlEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity: string) => {
+    const key = entity.toLowerCase();
+    if (key === "amp") return "&";
+    if (key === "lt") return "<";
+    if (key === "gt") return ">";
+    if (key === "quot") return '"';
+    if (key === "apos") return "'";
+    if (key === "nbsp") return "\u00a0";
+    try {
+      const codePoint = key.startsWith("#x") ? Number.parseInt(key.slice(2), 16) : Number.parseInt(key.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    } catch { return match; }
+  });
+}
 function plainLabel(value: string): string {
-  const container = document.createElement("div");
-  container.innerHTML = value;
-  // Studio-exported labels contain title, technology and description in separate divs.
-  // Editing a Draw.io node should update its title without concatenating those fields.
-  const firstBlock = container.querySelector("div");
-  const text = firstBlock ? (firstBlock.textContent || firstBlock.innerText || "") : (container.textContent || container.innerText || value);
-  return text.replace(/\s+/g, " ").trim();
+  // Do not depend on document.createElement: the same importer also derives the server's
+  // transient semantic view from XML. Draw.io cell values may contain HTML fragments.
+  const block = /<div\b[^>]*>\s*<div\b[^>]*>([\s\S]*?)<\/div>/i.exec(value)
+    || /<div\b[^>]*>([\s\S]*?)<\/div>/i.exec(value);
+  const html = block?.[1] || value;
+  return decodeHtmlEntities(html.replace(/<br\s*\/?\s*>/gi, " ").replace(/<[^>]*>/g, " "))
+    .replace(/\s+/g, " ").trim();
+}
+function directChild(element: Element, name: string): Element | null {
+  for (let index = 0; index < element.childNodes.length; index += 1) {
+    const child = element.childNodes.item(index);
+    if (child?.nodeType === 1 && (child as Element).nodeName === name) return child as Element;
+  }
+  return null;
+}
+function directChildren(element: Element, name: string): Element[] {
+  const values: Element[] = [];
+  for (let index = 0; index < element.childNodes.length; index += 1) {
+    const child = element.childNodes.item(index);
+    if (child?.nodeType === 1 && (child as Element).nodeName === name) values.push(child as Element);
+  }
+  return values;
+}
+function descendants(element: Element, name: string): Element[] {
+  const values: Element[] = [];
+  for (let index = 0; index < element.childNodes.length; index += 1) {
+    const child = element.childNodes.item(index);
+    if (!child || child.nodeType !== 1) continue;
+    const descendant = child as Element;
+    if (descendant.nodeName === name) values.push(descendant);
+    values.push(...descendants(descendant, name));
+  }
+  return values;
 }
 function roleFromStyle(style: string): NodeRole {
   const explicit = style.match(/(?:^|;)studioRole=([^;]+)/)?.[1];
@@ -111,64 +154,65 @@ export function relationVisualStyleFromDrawio(style: string, kind: DiagramRelati
   return Object.keys(result).length ? result : undefined;
 }
 function parseDrawioXml(xml: string): XMLDocument | null {
-  const parser = new DOMParser();
+  if (!validateDrawioXmlDocument(xml).success) return null;
   const parse = (source: string): XMLDocument | null => {
-    const result = parser.parseFromString(source, "application/xml");
-    return result.querySelector("parsererror") ? null : result;
+    const errors: string[] = [];
+    try {
+      const parser = new DOMParser({ locator: false, onError: (level, message) => { if (level !== "warning") errors.push(message); } });
+      const result = parser.parseFromString(source, "application/xml");
+      return errors.length || !result.documentElement ? null : result;
+    } catch { return null; }
   };
 
   const parsed = parse(xml);
   if (!parsed) return null;
-  if (parsed.documentElement.localName === "mxGraphModel") return parsed;
+  if (parsed.documentElement.nodeName === "mxGraphModel") return parsed;
 
-  // A multi-page mxfile is a single document, but the semantic projection is deliberately
-  // limited to the first page. The untouched full mxfile remains the persistence source.
-  // Never query all page roots together: identical cell IDs across pages are legal.
-  const diagram = parsed.documentElement.localName === "mxfile"
-    ? Array.from(parsed.documentElement.children).find((child) => child.localName === "diagram")
-    : null;
+  // Project only the first page, but never merge cell IDs from different pages. The
+  // untouched complete mxfile remains the only document source and stays in persistence.
+  const diagram = directChildren(parsed.documentElement, "diagram")[0];
   if (!diagram) return null;
-  const embeddedModel = Array.from(diagram.children).find((child) => child.localName === "mxGraphModel");
+  const embeddedModel = directChild(diagram, "mxGraphModel");
   if (embeddedModel) return parse(new XMLSerializer().serializeToString(embeddedModel));
 
-  // Draw.io may store the page as a compressed, base64-encoded payload.
   const payload = diagram.textContent?.trim();
   if (!payload) return null;
   if (payload.startsWith("<")) {
     const nested = parse(payload);
-    if (nested?.documentElement.localName === "mxGraphModel") return nested;
+    if (nested?.documentElement.nodeName === "mxGraphModel") return nested;
   }
 
   try {
     const binary = atob(payload.replace(/\s+/g, ""));
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     let inflated: Uint8Array | null = null;
-    try { inflated = inflateSync(bytes); } catch { /* Try zlib-wrapped data below. */ }
+    try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped payload for legacy files. */ }
     if (!inflated) {
-      try { inflated = unzlibSync(bytes); } catch { /* Unsupported compression or malformed payload. */ }
+      try { inflated = unzlibSync(bytes); } catch { /* Invalid or unsupported compressed payload. */ }
     }
     if (!inflated) return null;
-
     const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
     const candidates = [decoded];
     try {
       const uriDecoded = decodeURIComponent(decoded);
       if (uriDecoded !== decoded) candidates.push(uriDecoded);
-    } catch { /* The decoded content may already be plain XML. */ }
+    } catch { /* A few older files contain direct XML text. */ }
     for (const candidate of candidates) {
       const nested = parse(candidate);
-      if (nested?.documentElement.localName === "mxGraphModel") return nested;
+      if (nested?.documentElement.nodeName === "mxGraphModel") return nested;
     }
-  } catch {
-    return null;
-  }
+  } catch { return null; }
   return null;
 }
 
 export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDocument {
   const parsed = parseDrawioXml(xml);
   if (!parsed) return previous;
-  const cells = Array.from(parsed.querySelectorAll("mxGraphModel root mxCell"));
+  const root = directChild(parsed.documentElement, "root");
+  const cells = root ? descendants(root, "mxCell").filter((cell) => {
+    // Avoid accidentally folding cell-like extensions into the diagram model.
+    return true;
+  }) : [];
   const currentCellIds = new Set(cells.map((cell) => cell.getAttribute("id") || ""));
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const previousRelations = new Map(previous.relations.map((relation) => [relation.id, relation]));
@@ -211,7 +255,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
         }
         continue;
       }
-      const geometry = cell.querySelector(":scope > mxGeometry");
+      const geometry = directChild(cell, "mxGeometry");
       const old = previousNodes.get(id);
       if (!geometry) continue;
       const x = Number(geometry.getAttribute("x") || 0);
@@ -244,7 +288,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       if (!previousNodes.has(source) && !nodes.some((node) => node.id === source)) continue;
       if (!previousNodes.has(target) && !nodes.some((node) => node.id === target)) continue;
       const geometry = cell.querySelector(":scope > mxGeometry");
-      const pointElements = geometry ? Array.from(geometry.querySelectorAll("Array[as='points'] mxPoint")) : [];
+      const pointElements = geometry ? directChildren(geometry, "Array").filter((array) => array.getAttribute("as") === "points").flatMap((array) => directChildren(array, "mxPoint")) : [];
       const points: Point[] = pointElements.map((point) => ({ x: Number(point.getAttribute("x") || 0), y: Number(point.getAttribute("y") || 0) }));
       const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
       const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\d+)(?:;|$)/)?.[1];
