@@ -43,7 +43,6 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
-  const lastThemeAppliedRef = useRef("");
 
   useEffect(() => {
     let active = true;
@@ -128,15 +127,11 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     // For uncompressed XML pages, persist the corresponding mxGraphModel background
     // attribute without touching cell styles. Compressed pages use the graph API above.
     const themedXml = applyDrawioThemeBackground(xml, palette.canvas);
-    const appliedKey = theme + ":" + palette.canvas;
     if (editorReady && themedXml !== xml) {
-      lastThemeAppliedRef.current = appliedKey;
       recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
         theme, background: palette.canvas, xmlChanged: true
       });
       onDocumentChangeRef.current(documentRef.current, themedXml);
-    } else {
-      lastThemeAppliedRef.current = appliedKey;
     }
   }, [theme, editorReady, iframeLoaded, xml]);
 
