@@ -18,6 +18,13 @@
 - Ground architecture analysis in the primary Draw.io diagram, related diagrams, source code, README files and ADRs. Cite workspace-relative paths and distinguish facts from inferences.
 - Repository Agent Skills live under `.github/skills/<skill-name>/SKILL.md`. Repository-wide Copilot instructions live in `.github/copilot-instructions.md`.
 
+## Native Draw.io XML contract
+
+- Treat `v2/src/model/drawio-xml-schema.ts` as the shared Zod validation contract for browser import and server persistence. Add regression fixtures whenever core XML structures or supported page encodings change.
+- Preserve unknown XML attributes, style keys, shape/stencil names, UserObject wrappers, nested children, and future extension elements. Do not turn Draw.io's open format into a closed shape whitelist.
+- Validate `mxfile`, page payloads (including raw-DEFLATE/Base64), bare `mxGraphModel`, `root/mxCell/mxGeometry`, `defs`, and the separate `mxlibrary` root through the appropriate schema entry point.
+- A source that validates as Draw.io XML is not necessarily safe for semantic editing. Use the lossless projection gate separately; schema acceptance must never imply that Studio can regenerate or rewrite the whole source.
+
 ## Rendering parity
 
 - Treat `v2/src/design/render-spec.ts` as the single source of truth for diagram palettes, typography, shape metrics, sequence geometry, relationship labels and arrow metrics.
