@@ -248,22 +248,35 @@ export function preserveDrawioThemeMetadata(sourceXml: string, nextXml: string):
  * canApplySemanticEdits(source, currentProjection, currentDocument). This function retains
  * the source XML outside <root>, and preserves the order and bytes of unchanged cells.
  */
-export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, previousDocument: DiagramDocument): string | null {
+export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, previousDocument: DiagramDocument, previousProjectionXml?: string): string | null {
   const source = parseRootSlice(sourceXml);
+  const previous = previousProjectionXml ? parseRootSlice(previousProjectionXml) : null;
   const next = parseRootSlice(nextProjectionXml);
-  if (!source || !next) return null;
+  if (!source || !next || (previousProjectionXml && !previous)) return null;
 
   const managedIds = managedCellIds(previousDocument);
   const nextIds = new Set(next.cells.map((cell) => cell.id));
   const merged: string[] = [];
   for (const old of source.cells) {
-    if (old.id === "0" || old.id === "1") {
-      merged.push(next.cellMap.get(old.id) || old.raw);
+    const replacement = next.cellMap.get(old.id);
+    const previousCell = previous?.cellMap.get(old.id);
+    // An unchanged semantic cell must stay byte-for-byte native XML. This is what lets
+    // append-only edits coexist with native attributes/style keys unknown to Studio.
+    const unchangedInProjection = Boolean(previousCell && replacement &&
+      stripThemeMetadata(previousCell) === stripThemeMetadata(replacement));
+    if (old.id === "0") {
+      merged.push(old.raw);
       continue;
     }
-    const replacement = next.cellMap.get(old.id);
-    if (replacement !== undefined) merged.push(mergeThemeMetadata(old.raw, replacement));
-    else if (!(managedIds.has(old.id) || isStudioManagedCell(old.id, old.raw))) merged.push(old.raw);
+    if (old.id === "1") {
+      merged.push(unchangedInProjection ? old.raw : (replacement ? mergeThemeMetadata(old.raw, replacement) : old.raw));
+      continue;
+    }
+    if (replacement !== undefined) {
+      merged.push(unchangedInProjection ? old.raw : mergeThemeMetadata(old.raw, replacement));
+    } else if (!(managedIds.has(old.id) || isStudioManagedCell(old.id, old.raw))) {
+      merged.push(old.raw);
+    }
   }
 
   const included = new Set(source.cells.filter((cell) => nextIds.has(cell.id)).map((cell) => cell.id));
