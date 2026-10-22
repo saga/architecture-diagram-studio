@@ -111,6 +111,18 @@ describe("Draw.io style import parity", () => {
     expect(imported.relations).toEqual([]);
   });
 
+  it("prefers explicit semantic metadata in the current XML over stale projection state", () => {
+    const previous = FIXTURES.c4();
+    const existing = previous.nodes[0];
+    const xml = '<mxfile><diagram id="page-1" name="Updated"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="' + existing.id + '" value="Updated node" style="shape=cylinder;studioRole=storage;studioVisualRole=highlight;" vertex="1" parent="1"><mxGeometry x="240" y="120" width="100" height="60" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, previous);
+    expect(imported.nodes).toHaveLength(1);
+    expect(imported.nodes[0]).toMatchObject({ id: existing.id, role: "storage", visualRole: "highlight", name: "Updated node" });
+  });
+
   it("maps common Draw.io shapes to coarse semantic roles", () => {
     expect(roleFromStyle("shape=umlActor;")).toBe("actor");
     expect(roleFromStyle("shape=cloud;")).toBe("external");
