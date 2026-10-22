@@ -63,7 +63,7 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
   });
 
   await page.getByRole("tab", { name: "Copilot" }).click();
-  const input = page.locator('textarea[placeholder^="Describe the layout change"]');
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
   await input.fill("选中 Database 并改成红色背景");
   await input.press("Enter");
 
