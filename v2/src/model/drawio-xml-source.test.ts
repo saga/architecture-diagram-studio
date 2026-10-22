@@ -27,6 +27,16 @@ describe("Draw.io XML is the authoritative source", () => {
     expect(patched).not.toContain("native-custom-blob");
   });
 
+  it("allows editing the minimum XML document with two self-closing root cells", () => {
+    const document = {
+      ...FIXTURES.c4(), nodes: [], relations: [], boundaries: [], sequence: undefined
+    };
+    const xml = '<mxfile><diagram id="page-1" name="Minimal"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
+
+    expect(canEditInStudio(xml, xml, document)).toBe(true);
+    expect(patchDrawioXml(xml, xml, document)).not.toBeNull();
+  });
+
   it("refuses Studio edits when the source contains an opaque cell", () => {
     const document = FIXTURES.c4();
     const source = addOpaqueCell(toDrawioXml(document));

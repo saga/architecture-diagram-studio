@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nodeVisualStyleFromDrawio, relationVisualStyleFromDrawio } from "./drawio";
 import { diagramPalette } from "../design/render-spec";
 import { fromDrawioXml } from "./drawio";
+import { toDrawioXml } from "../export/drawio";
 import { FIXTURES } from "../model/fixtures";
 import type { DiagramDocument } from "../model/types";
 
@@ -58,6 +59,32 @@ describe("Draw.io style import parity", () => {
     const imported = fromDrawioXml(xml, base);
     expect(imported.nodes).toHaveLength(1);
     expect(imported.nodes[0]).toMatchObject({ id: "user-object-7", name: "Wrapped service", x: 45, y: 70, width: 180, height: 80 });
+  });
+
+  it("imports edges before endpoints, resolves nested absolute coordinates, and omits blank structural cells", () => {
+    const base: DiagramDocument = {
+      ...FIXTURES.c4(), id: "native-structure", title: "Native structure",
+      nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+    };
+    const xml = '<mxfile><diagram id="page-1" name="Native structure"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="edge-1" value="contains" edge="1" parent="1" source="child" target="peer"><mxGeometry relative="1" as="geometry"/></mxCell>' +
+      '<mxCell id="container" value="Container" vertex="1" parent="1"><mxGeometry x="400" y="300" width="200" height="100" as="geometry"/></mxCell>' +
+      '<mxCell id="child" value="Child" vertex="1" parent="container"><mxGeometry x="10" y="20" width="80" height="40" as="geometry"/></mxCell>' +
+      '<mxCell id="peer" value="Peer" vertex="1" parent="1"><mxGeometry x="700" y="300" width="80" height="40" as="geometry"/></mxCell>' +
+      '<mxCell id="blank-separator" value="" style="text;strokeColor=none;" vertex="1" parent="container"><mxGeometry x="0" y="45" width="150" height="1" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+
+    const imported = fromDrawioXml(xml, base);
+    expect(imported.relations).toHaveLength(1);
+    expect(imported.relations[0]).toMatchObject({ id: "edge-1", source: "child", target: "peer" });
+    expect(imported.nodes.find((node) => node.id === "child")).toMatchObject({
+      x: 410, y: 320, parentId: "container"
+    });
+    expect(imported.nodes.some((node) => node.id === "blank-separator")).toBe(false);
+    expect(imported.nodes.some((node) => node.name === "New node")).toBe(false);
+    const exported = toDrawioXml(imported);
+    expect(exported).toContain('parent="container"><mxGeometry x="10" y="20"');
   });
 
   it("doesn't freeze the generated theme defaults as custom overrides", () => {
