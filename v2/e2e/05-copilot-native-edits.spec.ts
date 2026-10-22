@@ -253,7 +253,7 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
     return x === "785" && y === "260" && clientX === "60" && connected &&
       !/\bid="queue"/.test(xml) && !/\bid="api-queue"/.test(xml) && !/\bid="queue-worker"/.test(xml) &&
       xml.includes('nativeCustom="preserve-me"') && xml.includes('vendorCellFlag="opaque-client"') &&
-      xml.includes('agent="Architecture Diagram Studio E2E"') &&
+      xml.includes('pageWidth="1200"') && xml.includes('pageScale="1"') &&
       xml.includes('<diagram id="page-1" name="E2E diagram"') &&
       xml.includes('value="Database"');
   }, { timeout: 20_000 }).toBe(true);
