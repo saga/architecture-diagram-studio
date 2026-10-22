@@ -73,7 +73,7 @@ export interface SequenceMessageGeometry {
 }
 
 /**
- * Canonical message geometry shared by the Studio SVG renderer and Draw.io
+ * Canonical sequence message geometry shared by layout, quality checks and Draw.io XML generation
  * XML exporter. Keeping this here prevents the two renderers from disagreeing
  * about message order, activation-bar endpoints, and self-call loops.
  */
