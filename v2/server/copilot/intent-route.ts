@@ -91,6 +91,7 @@ interface IntentDependencies {
   getStudioConfig(): Promise<AgentPromptConfig>;
   getProjectWorkspace(): Promise<ProjectWorkspace | null>;
   getWorkspaceDiagramSnapshot(): Promise<{ drawioXml: string; revision: string; versionId?: string | null } | null>;
+  getWorkspaceVersionSnapshot(versionId: string): Promise<{ drawioXml: string; revision: string; versionId: string } | null>;
   collectAgentWorkspaceContext(): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
   acknowledgements?: NativeExecutionAcknowledgements;
@@ -277,22 +278,23 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       return;
     }
     if (outcome === "applied" && !pending.standalone) {
-      let authoritative: { drawioXml: string; revision: string; versionId?: string | null } | null;
+      let savedVersion: { drawioXml: string; revision: string; versionId: string } | null;
       try {
-        authoritative = await deps.getWorkspaceDiagramSnapshot();
+        savedVersion = versionId ? await deps.getWorkspaceVersionSnapshot(versionId) : null;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await deps.writeLog("turn.native-edit.ack-verification-failed", { requestId, sessionId, errorMessage: message });
-        res.status(502).json({ outcome: "failed", reply: "The edit result was received, but the server could not verify the saved workspace revision. Retry the acknowledgement.", error: message.slice(0, 1000), requestId });
+        await deps.writeLog("turn.native-edit.ack-verification-failed", { requestId, sessionId, versionId, errorMessage: message });
+        res.status(502).json({ outcome: "failed", reply: "The edit result was received, but the server could not verify its immutable version. Retry the acknowledgement.", error: message.slice(0, 1000), requestId });
         return;
       }
       if (persistenceStatus !== "saved" || !persistedRevision || !versionId ||
-          persistedRevision !== serializedXmlRevision || !authoritative ||
-          authoritative.revision !== persistedRevision || authoritative.versionId !== versionId) {
-        const responseBody = { outcome: "stale_context", reply: "The saved workspace revision or version no longer matches this edit.", error: "The workspace's saved XML revision and immutable version ID must both match the browser acknowledgement.", documentRevision: authoritative?.revision ?? null, versionId: authoritative?.versionId ?? null };
+          persistedRevision !== serializedXmlRevision || !savedVersion ||
+          savedVersion.versionId !== versionId || savedVersion.revision !== serializedXmlRevision) {
+        const responseBody = { outcome: "stale_context", reply: "The saved XML revision does not match its immutable version.", error: "The claimed immutable workspace version does not contain the acknowledged XML revision.", documentRevision: savedVersion?.revision ?? null, versionId: savedVersion?.versionId ?? null };
         await deps.writeLog("turn.native-edit.ack-rejected", {
-          requestId, sessionId, reason: "workspace_persistence_revision_mismatch",
-          serializedXmlRevision, persistedRevision, currentWorkspaceRevision: authoritative?.revision ?? null
+          requestId, sessionId, reason: "workspace_version_revision_mismatch",
+          serializedXmlRevision, persistedRevision, claimedVersionId: versionId,
+          savedVersionRevision: savedVersion?.revision ?? null, savedVersionId: savedVersion?.versionId ?? null
         });
         acknowledgements.complete(requestId, { fingerprint, status: 409, body: responseBody, completedAt: Date.now() });
         res.status(409).json(responseBody);
