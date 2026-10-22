@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
 type PropertyEdit = (cellId: string, path: string, value: string) => void;
-interface Props { xml: string; cellId: string | null; onEdit: PropertyEdit; }
+interface Props { xml: string; cellId: string | null; pageId: string | null; onEdit: PropertyEdit; }
 
 interface CellProperties {
   wrapper: Element | null;
@@ -13,7 +13,7 @@ interface CellProperties {
   points: Array<{ x: string; y: string }>;
   nestedGeometry: Array<{ name: string; attributes: Array<[string, string]> }>;
 }
-function readCellProperties(xml: string, cellId: string): CellProperties | null {
+function readCellProperties(xml: string, cellId: string, pageId: string | null): CellProperties | null {
   try {
     const parsed = new DOMParser().parseFromString(xml, "application/xml");
     if (parsed.querySelector("parsererror")) return null;
@@ -21,7 +21,9 @@ function readCellProperties(xml: string, cellId: string): CellProperties | null 
     const models: Element[] = [];
     if (root.localName === "mxGraphModel") models.push(root);
     else if (root.localName === "mxfile") {
-      for (const page of Array.from(root.children).filter((element) => element.localName === "diagram")) {
+      const pages = Array.from(root.children).filter((element) => element.localName === "diagram");
+      const activePages = pageId ? pages.filter((page) => page.getAttribute("id") === pageId) : pages;
+      for (const page of activePages.length ? activePages : pages) {
         const inlineModel = Array.from(page.children).find((element) => element.localName === "mxGraphModel");
         if (inlineModel) {
           models.push(inlineModel);
@@ -85,8 +87,8 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
 }
 
 /** Reads properties from the authoritative native Draw.io XML, not the lossy semantic projection. */
-export default function NativeSelectionInspector({ xml, cellId, onEdit }: Props) {
-  const properties = useMemo(() => cellId ? readCellProperties(xml, cellId) : null, [xml, cellId]);
+export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }: Props) {
+  const properties = useMemo(() => cellId ? readCellProperties(xml, cellId, pageId) : null, [xml, cellId, pageId]);
   if (!cellId) return <div className="empty-inspector">Select an element or connector in the Draw.io canvas to inspect its native properties.</div>;
   if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> is not present in the current XML projection. Its native XML remains unchanged.</div>;
 
