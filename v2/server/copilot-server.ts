@@ -72,7 +72,7 @@ function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
     }
     if (inString) {
       if (escaped) escaped = false;
-      else if (ch === "\\\\") escaped = true;
+      else if (ch === "\\") escaped = true;
       else if (ch === '"') inString = false;
       continue;
     }
@@ -107,7 +107,7 @@ async function getStudioConfig(): Promise<StudioConfig> {
     studioConfig = {
       ...DEFAULT_STUDIO_CONFIG,
       revisionId: typeof parsed.revisionId === "string" ? parsed.revisionId :
-        "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\\D/g, "") : String(i)),
+        "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\D/g, "") : String(i)),
       model: typeof parsed.model === "string" ? parsed.model : DEFAULT_STUDIO_CONFIG.model,
       reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : DEFAULT_STUDIO_CONFIG.updatedAt,
@@ -133,7 +133,7 @@ async function adoptConfiguredModel(config: StudioConfig): Promise<StudioConfig>
 
 async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
-  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\\n", "utf8");
+  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", "utf8");
   studioConfig = config;
 }
 let projectWorkspace: ProjectWorkspace | null | undefined;
