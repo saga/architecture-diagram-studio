@@ -6,12 +6,11 @@ interface Options {
   drawioXml: string; serverHydrated: boolean; workspaceContentReady: boolean;
   projectWorkspace: Workspace; copilotSessionId: string; messages: ChatMessage[];
   saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>;
-  serverCommittedDocumentRef: MutableRefObject<unknown | null>;
   setLastAction: (message: string) => void; onDiagnostic: Diagnostic;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
 export function useWorkspacePersistence(options: Options) {
-  const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic } = options;
+  const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const persistDocumentNow = useCallback((xml: string, label = "Autosave"): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
@@ -42,7 +41,6 @@ export function useWorkspacePersistence(options: Options) {
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     // The native Draw.io XML is the complete document. Save it directly without comparing a model projection.
-    serverCommittedDocumentRef.current = null;
     const timer = window.setTimeout(() => {
       void persistDocumentNow(drawioXml, saveLabelRef.current).catch((error: unknown) => {
         onDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
@@ -51,7 +49,7 @@ export function useWorkspacePersistence(options: Options) {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, serverCommittedDocumentRef, onDiagnostic]);
+  }, [drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, onDiagnostic]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     fetch("/api/workspace/chat", {
