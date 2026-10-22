@@ -48,6 +48,9 @@ async function createServer(options: {
     getStudioConfig: async () => ({ revisionId: "test-config", model: "test-model", reasoningEffort: "max" }),
     getProjectWorkspace: async () => ({ id: "ws-1", name: "Test", rootPath: "/tmp", primaryDiagram: "test.drawio" }),
     getWorkspaceDiagramSnapshot: snapshot,
+    getWorkspaceVersionSnapshot: async (versionId) => versionId === "version-1"
+      ? { drawioXml: XML, revision: workspaceRevision(XML), versionId }
+      : null,
     collectAgentWorkspaceContext: async () => ({}),
     persistSessionId,
     acknowledgements
@@ -443,7 +446,22 @@ describe("Copilot native-edit acknowledgement route", () => {
     }));
     expect(response.status).toBe(409);
     expect(body.outcome).toBe("stale_context");
+    expect(body.versionId).toBeNull();
+  });
+
+  it("accepts an immutable save acknowledgement if a later edit has advanced the active workspace", async () => {
+    const store = new NativeExecutionAcknowledgements();
+    const pending = seedAck(store);
+    const laterXml = XML.replace('value="Database"', 'value="Database later"');
+    const harness = await createServer({
+      acknowledgements: store,
+      snapshot: async () => ({ drawioXml: laterXml, revision: workspaceRevision(laterXml), versionId: "version-2" })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", appliedAck(pending));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("applied");
     expect(body.versionId).toBe("version-1");
+    expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
   it("records editor failures without misreporting them as applied", async () => {
