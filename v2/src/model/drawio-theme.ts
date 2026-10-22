@@ -25,9 +25,9 @@ function safeColor(value: string): string | null {
 export function applyDrawioThemeBackground(xml: string, background: string): string {
   const color = safeColor(background);
   if (!color) return xml;
-  return xml.replace(/<mxGraphModel\b([^<>]*?)>/g, (tag, attributes: string) => {
-    const withoutBackground = attributes.replace(/\s+background=(["'])[^"']*\1/i, "");
-    return '<mxGraphModel' + withoutBackground + ' background="' + color + '">';
+  return xml.replace(/<mxGraphModel\b([^<>]*?)(\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
+    const withoutBackground = attributes.replace(/\s+background=(["'])[^"']*\1/i, "").replace(/\s+$/, "");
+    return '<mxGraphModel' + withoutBackground + ' background="' + color + '"' + selfClosing + '>';
   });
 }
 
