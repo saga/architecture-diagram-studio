@@ -483,6 +483,9 @@ export default function App() {
         return;
       }
     }
+    // Draw.io can emit autosave after initialization or UI-only operations. Do not
+    // create a revision/history entry unless the authoritative XML actually changed.
+    if (nextXml === drawioXml) return;
     nextSaveLabelRef.current = action;
     setPreviewDocument(null);
     setPreviewSummary("");
