@@ -433,7 +433,7 @@ export default function WorkspacePages(props: Props) {
           <section className="settings-card settings-logs-card">
             <div className="settings-card-heading"><div className="settings-card-icon">⌘</div><div><h2>Terminal output and diagnostics</h2><p>Browser events → Vite dev terminal → local trace page</p></div></div>
             <p className="settings-description"><code>npm run dev</code> starts Vite and the Copilot SDK agent service together. Browser diagnostics never store full prompts, credentials, or raw XML; the server-side Copilot audit log keeps user requests, diagram context summaries, and tool events. Treat the local audit log as data that may contain sensitive project details.</p>
-            <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] receivedAt=… level=info event=layout.run.completed durationMs=…</code></div>
+            <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] receivedAt=… level=info event=drawio.document.saved xmlLength=…</code></div>
             <div className="settings-card-actions"><span className="settings-trace-count">{traceEntries.length} local events · {errorCount} errors</span></div>
           </section>
         </div>
