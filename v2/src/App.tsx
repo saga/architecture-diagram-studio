@@ -180,6 +180,9 @@ export default function App() {
   const [isLayoutting, setIsLayoutting] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
   const openExistingFileRef = useRef<HTMLInputElement>(null);
+  const [standaloneFileHandle, setStandaloneFileHandle] = useState<FileSystemFileHandle | null>(null);
+  const [standaloneFileName, setStandaloneFileName] = useState<string | null>(null);
+  const standaloneLastSavedXmlRef = useRef<string | null>(null);
 
   const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
@@ -417,6 +420,29 @@ export default function App() {
     };
   }, []);
 
+
+  useEffect(() => {
+    if (!standaloneFileHandle || !standaloneFileName || !drawioXml || drawioXml === standaloneLastSavedXmlRef.current) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const writable = await standaloneFileHandle.createWritable();
+          await writable.write(drawioXml);
+          await writable.close();
+          if (cancelled) return;
+          standaloneLastSavedXmlRef.current = drawioXml;
+          setLastAction("Saved " + standaloneFileName);
+          recordDiagnostic("drawio.standalone.autosaved", "Standalone Draw.io XML saved directly to the opened local file", { fileName: standaloneFileName, xmlLength: drawioXml.length });
+        } catch (error) {
+          if (cancelled) return;
+          setLastAction("Autosave failed for " + standaloneFileName + ": " + (error instanceof Error ? error.message : String(error)) + ". Use Export to save a copy.");
+          recordDiagnostic("drawio.standalone.autosave.failed", "Could not write the standalone Draw.io file", { fileName: standaloneFileName, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
+        }
+      })();
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [drawioXml, standaloneFileHandle, standaloneFileName]);
 
   useEffect(() => {
     try {
@@ -818,6 +844,55 @@ export default function App() {
     recordDiagnostic("drawio.export.completed", "Exported a .drawio file", { xmlLength: drawioXml.length, nodeCount: document.nodes.length, relationCount: document.relations.length });
   }
 
+  async function openDrawioFile() {
+    const picker = (window as Window & { showOpenFilePicker?: (options?: { types?: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker;
+    if (!picker) { openExistingFileRef.current?.click(); return; }
+    try {
+      const [handle] = await picker({ types: [{ description: "Draw.io diagrams", accept: { "application/xml": [".drawio", ".dio", ".xml"] } }] });
+      if (handle) await openStandaloneDiagram(await handle.getFile(), handle);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setLastAction("Could not open the selected Draw.io file: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  async function openStandaloneDiagram(file: File, handle: FileSystemFileHandle | null = null) {
+    const startedAt = Date.now();
+    try {
+      const xml = await file.text();
+      const diagnostics = getDrawioXmlDiagnostics(xml);
+      if (diagnostics.issues.length) throw new Error(diagnostics.issues[0]);
+      if (!isDrawioXmlDocument(xml)) throw new Error("The selected file is not a supported Draw.io diagram.");
+      const empty: DiagramDocument = {
+        ...FIXTURES.c4(), id: newId("opened"), title: file.name.replace(/\.(drawio|dio|xml)$/i, ""),
+        renderTheme: uiTheme, nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+      };
+      const parsed = fromDrawioXml(xml, empty);
+      if (parsed === empty) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
+      setWorkspaceContentReady(false);
+      setServerDocumentAvailable(false);
+      setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
+      standaloneLastSavedXmlRef.current = xml;
+      setDocument(parsed); setNativeXmlOverride(xml);
+      setPreviewDocument(null); setPreviewSummary(""); setPendingAgentProposalId(null);
+      setSelectedNodeId(parsed.nodes[0]?.id || null); setSelectedRelationId(null);
+      setViewMode("drawio");
+      historyRef.current = [parsed]; historyIndexRef.current = 0;
+      setCanUndo(false); setCanRedo(false);
+      serverRevisionRef.current = null; serverCommittedDocumentRef.current = null;
+      setMessages([{ role: "assistant", id: Date.now(), text: "Opened a standalone Draw.io file. It is independent of the configured project workspace." }]);
+      setWorkspaceSetupOpen(false); setWorkspaceError("");
+      setLastAction(handle ? "Opened " + file.name + " with local autosave enabled" : "Opened " + file.name + " as a standalone document; use Export to save changes");
+      recordDiagnostic("drawio.open.standalone", "Opened a Draw.io file independently of the project workspace", {
+        fileName: file.name, xmlLength: xml.length, fileBytes: file.size, hasLocalWriteAccess: Boolean(handle), durationMs: Date.now() - startedAt
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLastAction("Opening Draw.io failed: " + message);
+      recordDiagnostic("drawio.open.standalone.failed", "Could not open a standalone Draw.io file", { fileName: file.name, errorMessage: message }, "error");
+    }
+  }
+
   async function importDiagramFile(file: File | undefined) {
     if (!file) return;
     const startedAt = Date.now();
@@ -1112,7 +1187,7 @@ export default function App() {
             <option value="midnight">Midnight</option>
           </UiSelect>
         </label>
-        <UiButton type="button" className="button button-secondary" onClick={() => openExistingFileRef.current?.click()}>Open Draw.io</UiButton>
+        <UiButton type="button" className="button button-secondary" onClick={() => void openDrawioFile()}>Open Draw.io</UiButton>
         <UiButton type="button" className="button button-secondary" onClick={() => {
           setWorkspaceLaunchMode("create"); setWorkspaceError("");
           if (projectWorkspace) {
@@ -1122,46 +1197,10 @@ export default function App() {
           setWorkspaceSetupOpen(true);
         }}>New Draw.io</UiButton>
         <UiInput ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
-        <input ref={openExistingFileRef} className="file-input-hidden" type="file" accept=".drawio,.dio,.xml,application/xml,text/xml" onChange={async (event) => {
-          const input = event.currentTarget;
-          const file = input.files?.[0];
-          input.value = "";
-          if (!file) return;
-          setWorkspaceLaunchMode("open");
-          setWorkspaceError("");
-          if (projectWorkspace) {
-            setWorkspaceName(projectWorkspace.name);
-            setWorkspaceRootPath(projectWorkspace.rootPath);
-          }
-          // Browsers intentionally hide absolute paths. Match by filename, then verify bytes
-          // against the server-side candidate before switching the active diagram. Otherwise
-          // an unrelated same-named file could silently open and overwrite another diagram.
-          const matches = workspaceFiles.filter((item) => item.name === file.name && item.kind === "diagram" && /\.(drawio|dio|xml)$/i.test(item.path));
-          if (matches.length === 1) {
-            try {
-              const [pickedXml, response] = await Promise.all([
-                file.text(),
-                fetch("/api/workspace/files/content?path=" + encodeURIComponent(matches[0].path))
-              ]);
-              const payload = await response.json() as { content?: string; error?: string };
-              if (!response.ok || typeof payload.content !== "string") throw new Error(payload.error || "Could not verify the selected workspace file.");
-              if (payload.content !== pickedXml) {
-                setWorkspaceError("The selected file does not match the scanned workspace file with that name. Open the file from the correct workspace directory, or use Import to load it as a separate document.");
-                setWorkspaceSetupOpen(true);
-                return;
-              }
-              setWorkspacePrimaryDiagram(matches[0].path);
-              void saveProjectWorkspace(matches[0].path, "open");
-            } catch (error) {
-              setWorkspaceError(error instanceof Error ? error.message : String(error));
-              setWorkspaceSetupOpen(true);
-            }
-          } else {
-            setWorkspaceError(matches.length > 1
-              ? "More than one workspace diagram has this filename. Use the workspace file list to select the exact path."
-              : "This file is not in the scanned project workspace. Open its containing workspace first, or use Import to load it as a separate document.");
-            setWorkspaceSetupOpen(true);
-          }
+        <input ref={openExistingFileRef} className="file-input-hidden" type="file" accept=".drawio,.dio,.xml,application/xml,text/xml" onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (file) void openStandaloneDiagram(file);
         }} />
         {activePage === "studio" ? <div className="topbar-actions">
           <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
