@@ -1235,7 +1235,7 @@ export default function App() {
 
       <aside className="right-panel">
         <div className="right-tabs" role="tablist" aria-label="Inspector panel">
-          {([["properties", "Properties"], ["quality", "Quality"], ["copilot", "Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
+          {([["properties", "Properties"], ["copilot", "Copilot"]] as Array<[typeof rightPanelTab, string]>).map(([tab, label]) =>
             <button key={tab} type="button" role="tab" aria-selected={rightPanelTab === tab}
               className={"right-tab" + (rightPanelTab === tab ? " active" : "")}
               onClick={() => setRightPanelTab(tab)}>{label}</button>
