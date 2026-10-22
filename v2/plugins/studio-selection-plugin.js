@@ -111,7 +111,8 @@
           activeModel.setGeometry(cell, geometry);
         } else if (path === "cell:delete") {
           if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be deleted");
-          if (typeof activeGraph.removeCells === "function") activeGraph.removeCells([cell], true);\n          else activeModel.remove(cell);
+          if (typeof activeGraph.removeCells === "function") activeGraph.removeCells([cell], true);
+          else activeModel.remove(cell);
         } else if (path.indexOf("geometry:") === 0 && cell.geometry) {
           var geometryKey = path.slice(9);
           var nextGeometry = cell.geometry.clone();
@@ -142,6 +143,8 @@
           } else if (cellKey === "source" || cellKey === "target") {
             var terminal = value ? activeModel.getCell(value) : null;
             if (value && !terminal) throw new Error("No cell exists with id " + value);
+            if (terminal && terminal.edge) throw new Error("A connector endpoint must be a vertex, not another connector");
+            if (terminal && (!terminal.geometry || !terminal.vertex)) throw new Error("A connector endpoint must be a connectable vertex");
             activeModel.setTerminal(cell, terminal, cellKey === "source");
           } else if (cellKey === "parent") {
             if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be reparented");
