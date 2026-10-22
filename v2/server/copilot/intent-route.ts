@@ -4,10 +4,11 @@ import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import {
-  describeNativeEditOperation, MAX_NATIVE_EDIT_OPERATIONS, NATIVE_EDIT_STYLE_KEYS, parseNativeEditOperations,
+  describeNativeEditOperation, MAX_NATIVE_EDIT_OPERATIONS, parseNativeEditOperations,
   type ResolvedNativeEditOperation
 } from "../../src/model/native-edit-operations";
 import { resolveNativeEditTargets } from "./native-edit-tool";
+import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -63,81 +64,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             type: "array",
             minItems: 1,
             maxItems: MAX_NATIVE_EDIT_OPERATIONS,
-            items: {
-              oneOf: [
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["select"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Exact native cell ID or unique exact visible label." }
-                  },
-                  required: ["op", "target"],
-                  additionalProperties: false
-                },
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["set_label"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Exact native cell ID or unique exact visible label." },
-                    label: { type: "string", minLength: 1, maxLength: 500, description: "Required replacement label." }
-                  },
-                  required: ["op", "target", "label"],
-                  additionalProperties: false
-                },
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["set_style"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Exact native cell ID or unique exact visible label." },
-                    key: { type: "string", enum: [...NATIVE_EDIT_STYLE_KEYS] },
-                    color: { type: "string", minLength: 1, maxLength: 40, description: "Required color value, such as #ff0000 or 红色." }
-                  },
-                  required: ["op", "target", "color"],
-                  additionalProperties: false
-                },
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["move"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Exact native cell ID or unique exact visible label." },
-                    dx: { type: "number", minimum: -10000, maximum: 10000, description: "Required horizontal delta." },
-                    dy: { type: "number", minimum: -10000, maximum: 10000, description: "Required vertical delta." }
-                  },
-                  required: ["op", "target", "dx", "dy"],
-                  additionalProperties: false
-                },
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["resize"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Exact native cell ID or unique exact visible label." },
-                    width: { type: "number", minimum: 1, maximum: 10000, description: "Required width." },
-                    height: { type: "number", minimum: 1, maximum: 10000, description: "Required height." }
-                  },
-                  required: ["op", "target", "width", "height"],
-                  additionalProperties: false
-                },
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["delete"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Exact native cell ID or unique exact visible label." }
-                  },
-                  required: ["op", "target"],
-                  additionalProperties: false
-                },
-                {
-                  type: "object",
-                  properties: {
-                    op: { type: "string", enum: ["add_node_after"] },
-                    target: { type: "string", minLength: 1, maxLength: 200, description: "Required exact cell ID or unique exact visible label of a vertex." },
-                    newLabel: { type: "string", minLength: 1, maxLength: 500, description: "REQUIRED: visible label for the newly created node. Example: newLabel: \"bbb\". Do not omit it or use label instead." }
-                  },
-                  required: ["op", "target", "newLabel"],
-                  additionalProperties: false
-                }
-              ]
-            }
+            items: NATIVE_EDIT_OPERATION_ITEM_SCHEMA,
           }
         },
         required: ["operations"],
