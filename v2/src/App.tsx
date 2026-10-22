@@ -179,6 +179,7 @@ export default function App() {
   const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
   const [isLayoutting, setIsLayoutting] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
+  const openExistingFileRef = useRef<HTMLInputElement>(null);
 
   const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
@@ -1100,14 +1101,7 @@ export default function App() {
             <option value="midnight">Midnight</option>
           </UiSelect>
         </label>
-        <UiButton type="button" className="button button-secondary" onClick={() => {
-          setWorkspaceLaunchMode("open"); setWorkspaceError("");
-          if (projectWorkspace) {
-            setWorkspaceName(projectWorkspace.name); setWorkspaceRootPath(projectWorkspace.rootPath);
-            setWorkspacePrimaryDiagram(projectWorkspace.primaryDiagram || "");
-          }
-          setWorkspaceSetupOpen(true);
-        }}>Open Draw.io</UiButton>
+        <UiButton type="button" className="button button-secondary" onClick={() => openExistingFileRef.current?.click()}>Open Draw.io</UiButton>
         <UiButton type="button" className="button button-secondary" onClick={() => {
           setWorkspaceLaunchMode("create"); setWorkspaceError("");
           if (projectWorkspace) {
@@ -1117,6 +1111,30 @@ export default function App() {
           setWorkspaceSetupOpen(true);
         }}>New Draw.io</UiButton>
         <UiInput ref={importFileRef} className="file-input-hidden" type="file" accept=".drawio,.xml,application/xml,text/xml" onChange={(event) => void importDiagramFile(event.target.files?.[0])} />
+        <input ref={openExistingFileRef} className="file-input-hidden" type="file" accept=".drawio,.dio,.xml,application/xml,text/xml" onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          setWorkspaceLaunchMode("open");
+          setWorkspaceError("");
+          if (projectWorkspace) {
+            setWorkspaceName(projectWorkspace.name);
+            setWorkspaceRootPath(projectWorkspace.rootPath);
+          }
+          // Browsers intentionally hide absolute paths. Match the picked filename against
+          // the server-scanned workspace inventory so opening never silently imports a file
+          // and then autosaves it over whichever diagram happened to be active.
+          const matches = workspaceFiles.filter((item) => item.name === file.name && item.kind === "diagram" && /\.(drawio|dio|xml)$/i.test(item.path));
+          if (matches.length === 1) {
+            setWorkspacePrimaryDiagram(matches[0].path);
+            setWorkspaceSetupOpen(true);
+          } else {
+            setWorkspaceError(matches.length > 1
+              ? "More than one workspace diagram has this filename. Verify the directory and select the exact path from the list."
+              : "This file is not in the scanned project workspace. Verify its containing directory first; browser security does not expose its absolute path.");
+            setWorkspaceSetupOpen(true);
+          }
+          event.currentTarget.value = "";
+        }} />
         {activePage === "studio" ? <div className="topbar-actions">
           <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
           <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
