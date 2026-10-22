@@ -1,4 +1,4 @@
-import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { findDrawioElements, parseDrawioXml, serializeDrawioXml } from "./drawio-xml-dom";
 
 /**
  * The application theme is presentation-only. Draw.io XML remains the user's document
@@ -21,18 +21,14 @@ function safeColor(value: string): string | null {
 }
 
 function parseXml(xml: string): Document | null {
-  const errors: string[] = [];
-  const parsed = new DOMParser({
-    onError: (level, message) => { if (level !== "warning") errors.push(message); }
-  }).parseFromString(xml, "application/xml");
-  return errors.length || !parsed.documentElement ? null : parsed as unknown as Document;
+  try { return parseDrawioXml(xml); } catch { return null; }
 }
 
 /** Read the saved background without editing or normalizing the authoritative XML. */
 export function readDrawioModelBackground(xml: string): string | null {
   const parsed = parseXml(xml);
   if (!parsed) return null;
-  const models = parsed.getElementsByTagName("mxGraphModel");
+  const models = findDrawioElements(parsed, "mxGraphModel");
   if (!models.length) return null;
   const background = models.item(0)?.getAttribute("background");
   return background && safeColor(background) ? background : null;
@@ -56,7 +52,7 @@ export function applyDrawioThemeBackground(xml: string, background: string): str
       changed = true;
     }
   }
-  return changed ? new XMLSerializer().serializeToString(parsed) : xml;
+  return changed ? serializeDrawioXml(parsed) : xml;
 }
 
 /** CSS injected into the same-origin native editor iframe; it does not rewrite cell styles. */
