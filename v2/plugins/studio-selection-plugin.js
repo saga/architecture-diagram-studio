@@ -126,8 +126,12 @@
               activeModel.setValue(item, snapshot.value);
               activeModel.setStyle(item, snapshot.style);
               if (snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
-              activeModel.setTerminal(item, snapshot.source || null, true);
-              activeModel.setTerminal(item, snapshot.target || null, false);
+              // Only edge cells own terminals. Calling setTerminal on a vertex can throw
+              // in Draw.io and falsely report that the whole rollback failed.
+              if (item.edge) {
+                activeModel.setTerminal(item, snapshot.source || null, true);
+                activeModel.setTerminal(item, snapshot.target || null, false);
+              }
               if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
               if (typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
               if (typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
