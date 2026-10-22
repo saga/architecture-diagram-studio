@@ -12,7 +12,7 @@ The workspace must provide consistent project context to diagram analysis withou
 
 Do not ship or register a standalone MCP server for Studio workspace or diagram capabilities. The stdio server and VS Code MCP configuration are removed. Workspace retrieval, diagram inspection, quality evaluation, example search, governed edit proposals, templates, semantic diffs and version operations are internal capabilities of the Studio server registered through the GitHub Copilot SDK.
 
-Keep the repository Agent Skill at `.github/skills/architecture-workspace/SKILL.md` as workflow documentation. It requires Agents to ground analysis in the configured workspace, inspect the primary diagram and related source, distinguish evidence from assumptions, and require user approval for mutations. It must not instruct users to start an MCP process.
+Keep the repository Agent Skill at `.github/skills/architecture-workspace/SKILL.md` as workflow documentation. It requires Agents to ground analysis in the configured workspace, inspect the primary diagram and related source, and distinguish evidence from assumptions. Focused changes explicitly requested by the user may be applied directly after inspecting the active revision; broad, ambiguous or destructive mutations require explicit confirmation. It must not instruct users to start an MCP process.
 
 Workspace path validation, file-size limits, semantic validation, revision checks, quality gates and version snapshots are enforced by server code, not by model prompts.
 
