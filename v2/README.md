@@ -6,7 +6,7 @@ A project workspace is optional and represents a project directory, not a diagra
 
 ## Native Draw.io editor
 
-The embedded native Draw.io editor is the only diagram canvas. The separate Studio SVG canvas and Studio/Freeform mode switch have been removed to avoid maintaining two competing editing experiences. The application keeps native Draw.io XML as the authoritative diagram source; semantic properties, layout operations, Copilot previews, theme changes and workspace versioning must preserve that XML and must not silently replace unsupported cells, styles, labels, pages or hierarchy. Draw.io import records supported style overrides on the semantic projection and patches changes back into the native XML only when the round-trip is safe.
+The embedded native Draw.io editor is the only diagram canvas. The separate Studio SVG canvas and Studio/Freeform mode switch have been removed to avoid maintaining two competing editing experiences. The application keeps native Draw.io XML as the authoritative diagram source; semantic properties, layout operations, Copilot previews, theme changes and workspace versioning must preserve the complete document. Theme changes may update only the graph background and its reserved reversible-theme metadata; they must not recolour cell styles or replace unsupported cells, labels, pages or hierarchy. Draw.io import records supported style overrides on the semantic projection and patches changes back into the native XML only when the round-trip is safe.
 
 
 V2 is an independent implementation. The previous implementation is preserved under the sibling V1 directory; V2 must not import code from V1.
