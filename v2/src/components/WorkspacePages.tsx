@@ -81,6 +81,9 @@ const LOW_LEVEL_EVENTS = new Set([
   "app.started",
   "workspace.hydrated",
   "navigation.opened",
+  "models.empty",
+  "trace.refreshed",
+  "diagram.relation.selected",
   "drawio.iframe.loaded",
   "drawio.bridge.ready",
   "drawio.plugin.bridge.ready",
@@ -89,8 +92,21 @@ const LOW_LEVEL_EVENTS = new Set([
 
 function isLowLevelTrace(entry: DiagnosticEntry): boolean {
   if (entry.level === "error" || entry.level === "warn") return false;
+  // Server-side runtime logs carry no human message; the endpoint copies the event id into
+  // `message`, which is exactly the row that used to read the same thing twice.
+  if (entry.message === entry.event) return true;
   if (LOW_LEVEL_EVENTS.has(entry.event)) return true;
   return LOW_LEVEL_EVENT_PREFIXES.some((prefix) => entry.event.startsWith(prefix));
+}
+
+/** Server logs have no prose, so fall back to the first meaningful detail instead of repeating the event id. */
+function traceTitle(entry: DiagnosticEntry): string {
+  if (entry.message && entry.message !== entry.event) return entry.message;
+  for (const key of ["errorMessage", "error", "note", "reason", "message"]) {
+    const value = entry.details[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 240);
+  }
+  return entry.event;
 }
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
@@ -264,14 +280,16 @@ export default function WorkspacePages(props: Props) {
           </div>
 
           <div className="trace-list">
-            {filteredTraces.length ? [...filteredTraces].reverse().map((entry) => (
+            {filteredTraces.length ? [...filteredTraces].reverse().map((entry) => {
+              const title = traceTitle(entry);
+              return (
               <article className={"trace-entry trace-" + entry.level} key={entry.id}>
                 <div className="trace-entry-rail"><span /></div>
                 <div className="trace-entry-content">
                   <div className="trace-entry-row">
                     <span className={"trace-level level-" + entry.level}>{entry.level.toUpperCase()}</span>
-                    <span className="trace-entry-message" title={entry.message}>{entry.message}</span>
-                    <code>{entry.event}</code>
+                    <span className={"trace-entry-message" + (title === entry.event ? " is-event" : "")} title={title}>{title}</span>
+                    {title !== entry.event && <code>{entry.event}</code>}
                     <time>{formattedTime(entry.timestamp)}</time>
                     <button
                       type="button"
@@ -300,7 +318,8 @@ export default function WorkspacePages(props: Props) {
                       </div>}
                 </div>
               </article>
-            )) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Copilot turns, layout runs, saves and errors appear here automatically. Low-level Draw.io handshake noise stays hidden until you ask for it.</p>{traceFilter !== "all" && <UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton>}</div>}
+              );
+            }) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Copilot turns, layout runs, saves and errors appear here automatically. Low-level Draw.io handshake noise stays hidden until you ask for it.</p>{traceFilter !== "all" && <UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton>}</div>}
           </div>
         </div>
       </main>

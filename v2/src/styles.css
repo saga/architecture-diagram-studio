@@ -312,6 +312,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .trace-level { border-radius: 4px; padding: 3px 5px; font: 7px ui-monospace, monospace; letter-spacing: .4px; background: #edf6f1; color: #48856e; }
 .level-error { background: #fff0f0; color: #b64d4d; } .level-warn { background: #fff5e5; color: #a97736; } .level-debug { background: #eff1f5; color: #7b8797; }
 .trace-entry-message { flex: 1 1 auto; min-width: 0; color: #3f4d61; font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trace-entry-message.is-event { color: #5f6e82; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .trace-entry-details { margin: 11px 0 0; max-height: 320px; overflow: auto; padding: 13px; border: 1px solid #e6eaf0; border-radius: 7px; background: #fbfcfe; color: #53647b; font: 10px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .trace-empty { display: flex; flex-direction: column; align-items: center; padding: 78px 20px; text-align: center; color: #8b97a7; }
 .trace-empty-icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #e0e5ee; border-radius: 14px; background: #fff; color: #7588bd; font-size: 24px; }
@@ -541,6 +542,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .workspace-page .settings-description,
 .app-shell .workspace-page .gemini-message-text { color: var(--theme-secondary); }
 .app-shell .workspace-page .trace-entry-message { color: var(--theme-text); }
+.app-shell .workspace-page .trace-entry-message.is-event { color: var(--theme-secondary); }
 .app-shell .workspace-page .settings-card,
 .app-shell .workspace-page .gemini-chat { background: var(--theme-panel); color: var(--theme-text); border-color: var(--theme-border); }
 .app-shell .workspace-page .settings-field,
@@ -941,8 +943,8 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .topbar-actions { gap: 6px; }
 .app-shell .button,
 .app-shell .toolbar-button { padding: 7px 10px; }
-.trace-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
-.trace-toolbar > span { text-align: left; }
+.trace-toolbar { flex-wrap: wrap; gap: 8px 14px; }
+.trace-noise-toggle { margin-left: auto; }
 @media (max-width: 1480px) {
   .app-shell { grid-template-columns: 220px minmax(420px, 1fr) 360px; }
 }
