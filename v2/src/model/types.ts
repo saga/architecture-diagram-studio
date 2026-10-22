@@ -108,7 +108,7 @@ export interface DiagramDocument {
   kind: DiagramKind;
   variant?: "context" | "container" | "component";
   theme: "studio-editorial";
-  /** Rendering theme for both Studio SVG and the native Draw.io file. */
+  /** Style theme for newly generated diagrams and explicit semantic style operations; not the workspace UI theme. */
   renderTheme?: DiagramRenderTheme;
   nodes: DiagramNode[];
   relations: DiagramRelation[];
