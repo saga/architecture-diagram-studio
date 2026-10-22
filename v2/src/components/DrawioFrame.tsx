@@ -1,6 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DiagramDocument } from "../model/types";
-import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
@@ -11,10 +9,9 @@ const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 interface Props {
-  document: DiagramDocument;
   onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; failedIndex?: number | null; rollbackErrors?: Array<{ cellId: string; error: string }>; batchRolledBack?: boolean | null }) => void;
   xml: string;
-  onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
+  onDocumentChange: (nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
   cellEdit: CellPropertyEdit | null;
   theme: string;
@@ -34,9 +31,8 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-export default function DrawioFrame({ document, xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props) {
+export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const documentRef = useRef(document);
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onNativeEditResultRef = useRef(onNativeEditResult);
@@ -50,7 +46,6 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     restore: true, background: "#ffffff", restoreBackground: null
   });
   themeRef.current = theme;
-  documentRef.current = document;
   onDocumentChangeRef.current = onDocumentChange;
   onSelectionChangeRef.current = onSelectionChange;
   onNativeEditResultRef.current = onNativeEditResult;
@@ -169,14 +164,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       lastSent.current = xml;
       setStartupError(null);
       recordDiagnostic("drawio.document.load.sent", "Sent the document to native Draw.io", {
-        xmlLength: xml.length, nodeCount: document.nodes.length, relationCount: document.relations.length
+        xmlLength: xml.length
       });
     } catch (error) {
       setStartupError("Could not send the document to Draw.io: " + (error instanceof Error ? error.message : String(error)));
       recordDiagnostic("drawio.document.load.failed", "Sending the document to Draw.io failed",
         { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
     }
-  }, [editorReady, xml, document.nodes.length, document.relations.length]);
+  }, [editorReady, xml]);
 
 
   useEffect(() => {
@@ -291,16 +286,11 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         if (data.xml === lastSent.current) return;
         lastSent.current = data.xml;
         try {
-          const currentDocument = documentRef.current;
           if (!isDrawioXmlDocument(data.xml)) {
             setStartupError("Draw.io returned an invalid XML document. The previous saved source was preserved.");
             recordDiagnostic("drawio.document.xml.invalid", "Rejected a malformed native Draw.io XML payload", { event: data.event, xmlLength: data.xml.length }, "error");
             return;
           }
-          // The XML is authoritative even when its cells cannot be mapped into the partial
-          // Studio projection. In that case keep the old projection and persist the complete XML.
-          const next = fromDrawioXml(data.xml, currentDocument);
-          const projection = next === currentDocument ? currentDocument : next;
           const pendingSaves = Array.from(pendingSaveConfirmationsRef.current.entries());
           for (const [requestId, pending] of pendingSaves) {
             const changed = data.xml !== pending.beforeXml;
@@ -312,14 +302,13 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
           recordDiagnostic("drawio.document.saved", "Native Draw.io XML autosave captured as the authoritative source", {
-            event: data.event, xmlLength: data.xml.length, projectionMapped: next !== currentDocument,
-            nodeCount: projection.nodes.length, relationCount: projection.relations.length
+            event: data.event, xmlLength: data.xml.length
           });
-          onDocumentChangeRef.current(projection, data.xml);
+          onDocumentChangeRef.current(data.xml);
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
-          setStartupError("Could not parse the Draw.io autosave payload; the semantic projection is not synced yet. See the agent trace for details.");
+          setStartupError("Could not accept the Draw.io autosave payload. See Agent traces for details.");
         }
       }
     }
