@@ -172,6 +172,26 @@
       }
     });
 
+    var savedBackground = null;
+    window.addEventListener("message", function (event) {
+      if (event.source !== window.parent || event.origin !== window.location.origin) return;
+      var message = event.data;
+      if (typeof message === "string") {
+        try { message = JSON.parse(message); } catch (_) { return; }
+      }
+      if (!message || message.event !== "studioSetBackground") return;
+      if (message.restore === true) {
+        var restoreBackground = typeof message.restoreBackground === "string" ? message.restoreBackground : null;
+        graph.background = restoreBackground || savedBackground || graph.background;
+        savedBackground = null;
+      } else if (typeof message.background === "string") {
+        if (savedBackground === null) savedBackground = graph.background;
+        graph.background = message.background;
+      }
+      if (graph.view && typeof graph.view.validateBackground === "function") graph.view.validateBackground();
+      if (typeof graph.refresh === "function") graph.refresh();
+    });
+
     graph.getSelectionModel().addListener("change", publishSelection);
     if (typeof ui.addListener === "function") ui.addListener("pageSelected", publishSelection);
     if (typeof model.addListener === "function") model.addListener("change", publishSelection);
