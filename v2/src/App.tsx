@@ -1244,7 +1244,7 @@ export default function App() {
                 });
               }} />
           ) : (
-            <DrawioFrame document={document} xml={drawioXml} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
+            <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
           )}
           {viewMode === "studio" && <div className="zoom-indicator">
             <UiButton type="button" className="zoom-control" aria-label="Zoom out" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</UiButton>
