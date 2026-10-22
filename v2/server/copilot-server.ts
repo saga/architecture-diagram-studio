@@ -21,7 +21,7 @@ import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKe
 import { createDiagramAgentTools, type AgentAppliedEditView, type AgentProposalView, type DiagramOperationInput } from "./copilot/diagram-tools";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
-import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
+import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
@@ -980,7 +980,7 @@ app.put("/api/workspace/document", async (req, res) => {
       // A null revision is valid only for a genuinely empty initial state. If the configured
       // workspace changed while an older XML document is still in memory, null === null must
       // not authorize writing that stale document into the new workspace's primary diagram.
-      if (!activeStateMatches && (Boolean(workspace?.primaryDiagram) || typeof state.drawioXml === "string" || typeof baseRevision === "string")) {
+      if (!isWorkspaceSaveContextCompatible(activeStateMatches, Boolean(workspace?.primaryDiagram), typeof state.drawioXml === "string", baseRevision)) {
         return { status: 409 as const, error: "The active workspace or primary diagram changed. Reload the current Draw.io XML before saving.", workspaceRevision: null };
       }
       const currentRevision = activeStateMatches && isDiagramDocument(state.document) && typeof state.drawioXml === "string" ? workspaceRevision(state.document, state.drawioXml) : null;
