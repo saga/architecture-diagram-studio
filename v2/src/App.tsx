@@ -1,16 +1,11 @@
-import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Children, isValidElement, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { hasStackedGeometry, isDiagramDocument } from "./model/types";
-import type { DiagramDocument, DiagramKind } from "./model/types";
-import { FIXTURES } from "./model/fixtures";
-import { LAYOUT_PROFILES } from "./layout/profiles";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
-import { downloadText, toDrawioXml } from "./export/drawio";
-import { fromDrawioXml } from "./import/drawio";
-import { canApplySemanticEdits, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
+import { downloadText } from "./export/drawio";
+import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
 import DrawioFrame, { DRAWIO_VERSION } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
@@ -18,8 +13,6 @@ import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
-import { useDiagramEditing } from "./hooks/useDiagramEditing";
-import { requestServerLayout, layoutSample } from "./api/diagram-operations";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
@@ -99,13 +92,10 @@ const EMPTY_DRAWIO_XML = '<mxfile host="localhost" agent="Architecture Diagram S
 
 export default function App() {
   // The server-derived XML projection is authoritative; browser storage keeps preferences only.
-  const [document, setDocument] = useState<DiagramDocument>(() => FIXTURES.c4());
   useEffect(() => {
     // Clean up the previous application's persisted semantic cache after switching to XML-only storage.
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:document"); } catch { /* Storage may be disabled. */ }
   }, []);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
-  const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
@@ -114,7 +104,6 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
-  const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [activePage, setActivePage] = useState<WorkspacePage>("diagram");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
@@ -168,28 +157,15 @@ export default function App() {
   const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
   const [versionEntries, setVersionEntries] = useState<VersionSummary[]>([]);
   const [revision, setRevision] = useState(1);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const historyRef = useRef<DiagramDocument[]>([document]);
-  const historyIndexRef = useRef(0);
-  /** Guards the auto-heal effect so the repair runs at most once per page load. */
-  const geometryHealRef = useRef(false);
-  /** Latest document, readable from effects that must not re-subscribe on every edit. */
-  const documentRef = useRef(document);
-  documentRef.current = document;
   const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
   const [nativeEditorReady, setNativeEditorReady] = useState(false);
-  const [isLayoutting, setIsLayoutting] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
   const openExistingFileRef = useRef<HTMLInputElement>(null);
   const [standaloneFileHandle, setStandaloneFileHandle] = useState<FileSystemFileHandle | null>(null);
   const [standaloneFileName, setStandaloneFileName] = useState<string | null>(null);
   const standaloneLastSavedXmlRef = useRef<string | null>(null);
 
-  const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
-  const selectedRelation = document.relations.find((relation) => relation.id === selectedRelationId) || null;
   // The native XML is authoritative. The semantic XML is only a disposable projection.
-  const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
@@ -206,11 +182,10 @@ export default function App() {
   useEffect(() => {
     let active = true;
     void fetch("/api/workspace/configuration")
-      .then(async (response) => { if (!response.ok) throw new Error("Could not read the Studio configuration"); return response.json() as Promise<{ config?: { layoutProfiles?: string[]; model?: string; reasoningEffort?: "high" | "max" }; revisions?: number; hasRuntimeSettings?: boolean }>; })
+      .then(async (response) => { if (!response.ok) throw new Error("Could not read the Studio configuration"); return response.json() as Promise<{ config?: { model?: string; reasoningEffort?: "high" | "max" }; revisions?: number; hasRuntimeSettings?: boolean }>; })
       .then(async (payload) => {
         if (!active || !payload.config) return;
-        if (Array.isArray(payload.config.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles);
-        // Migrate the previous browser-only model preference into the authoritative server JSONL config
+                // Migrate the previous browser-only model preference into the authoritative server JSONL config
         // once. The model is only sent when the browser holds an explicit choice; otherwise the server
         // keeps its own configured model, which is the one the Copilot runtime can actually serve.
         if (!payload.hasRuntimeSettings) {
@@ -230,8 +205,7 @@ export default function App() {
   }, []);
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("Autosave");
-  const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
-  const semanticEditingSafe = canApplySemanticEdits(drawioXml, generatedDrawioXml, document);
+  const drawioXml = nativeXmlOverride ?? EMPTY_DRAWIO_XML;
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setNativeXmlOverride, setCopilotSessionId, setMessages,
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
@@ -397,7 +371,7 @@ export default function App() {
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
     recordDiagnostic("app.started", "V2 workspace started", {
-      diagramKind: document.kind, nodeCount: document.nodes.length, relationCount: document.relations.length
+      diagramKind: "drawio", xmlLength: drawioXml.length
     });
     return () => {
       window.removeEventListener("studio:diagnostic", refreshTraces);
@@ -950,7 +924,7 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><strong>{projectWorkspace?.primaryDiagram || document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
+        <div className="document-breadcrumb"><strong>{projectWorkspace?.primaryDiagram || standaloneFileName || "Draw.io diagram"}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
           {([["diagram", "Diagram"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
@@ -1064,7 +1038,7 @@ export default function App() {
             aiApiKey={aiApiKey} setAiApiKey={setAiApiKey} saveAISettings={saveAISettings} clearAISettings={clearAISettings}
             traceEntries={traceEntries} refreshTraces={refreshTraceHistory}
             drawioStatus={drawioStatus} drawioStatusMessage={drawioStatusMessage}
-            checkDrawioStatus={() => void checkDrawioStatus()} onLayoutProfilesChanged={setEnabledLayoutProfiles}
+             checkDrawioStatus={() => void checkDrawioStatus()}
           />
         </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
@@ -1099,7 +1073,6 @@ export default function App() {
           drawioStatus={drawioStatus}
           drawioStatusMessage={drawioStatusMessage}
           checkDrawioStatus={() => void checkDrawioStatus()}
-          onLayoutProfilesChanged={setEnabledLayoutProfiles}
         />
       )}
     </Layout>
