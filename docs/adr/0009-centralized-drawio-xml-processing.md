@@ -1,8 +1,12 @@
 # ADR-0009: Centralized Draw.io XML Processing
 
-- Status: Accepted
+- Status: Partially superseded by ADR-0011; shared parsing, validation and security principles remain applicable
 - Date: 2026-10-22
 - Related: [ADR-0006 — Draw.io XML as the Single Source of Truth](./0006-drawio-xml-single-source-of-truth.md), [ADR-0007 — Unified Theme Adapter for Native Draw.io](./0007-unified-theme-adapter-for-native-drawio.md)
+
+## Compatibility with ADR-0011
+
+ADR-0011 supersedes this ADR wherever it calls for `DiagramDocument` projection, a source-preserving mutation/patcher API in `drawio-xml-source.ts`, or semantic-model round trips. Current V2 uses the shared parser and schema for native XML inspection and validation, while mutations are executed through Draw.io's native graph/editor bridge. Do not recreate the removed importer/exporter or a parallel source-patching subsystem merely to satisfy the historical implementation notes below.
 
 ## Context
 
