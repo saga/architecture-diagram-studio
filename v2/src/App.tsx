@@ -537,7 +537,7 @@ export default function App() {
     } else if (document.renderTheme !== uiTheme) {
       setUiTheme(document.renderTheme);
     }
-  }, [serverHydrated, document, nativeXmlOverride, uiTheme, replaceDocument, studioEditingSafe]);
+  }, [serverHydrated, document, nativeXmlOverride, replaceDocument, studioEditingSafe]);
 
   /**
    * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
