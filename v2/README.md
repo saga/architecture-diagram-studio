@@ -69,19 +69,15 @@ Browser diagnostics are sent to the local server and persisted as application ev
 
 The native iframe waits for the Draw.io embed API's `init` event before sending the XML document. The iframe's browser `load` event alone does not mean the editor API is ready. If initialization does not finish, the editor shows a timeout with a retry action. In the **配置** page, use **检查本地 Draw.io** to verify `/drawio/studio-bundle.json` and `/drawio/index.html`; then review `drawio.handshake.*` and `drawio.init.timeout` entries in Agent 轨迹 alongside the terminal output.
 
-## Interface themes and canvas interaction
+## Interface themes and native editor interaction
 
-The header's theme selector switches among **经典编辑室**, **青春鲜艳**, **暖色纸感**, and **午夜深色**. The selection is stored locally in the browser.
+The header's theme selector switches among **经典编辑室**, **青春鲜艳**, **暖色纸感**, and **午夜深色**. The selection is stored locally in the browser. The theme adapter changes the native editor chrome and graph background only; it does not recolour existing cell styles.
 
-In Studio mode, drag a node to move it; drag an empty part of the canvas to pan. Connectors have a wider invisible hit area: click one to highlight it and focus the corresponding relationship in the inspector. Sequence messages attach to participant lifelines or to the active-call bar when a participant is executing a nested request.
+The embedded Draw.io editor owns selection, dragging, panning, connector editing, undo/redo, and native shape-specific interactions. The right-side Properties panel reads the selected cell from the native editor and exposes supported editable fields; unsupported or structurally sensitive attributes remain visible as read-only values. Layout algorithms operate separately on the derived semantic projection and must not run automatically when a file is opened.
 
 The native Draw.io iframe starts with the shape sidebar, Format panel, and floating windows hidden using the supported `sidebar=0`, `format=0`, and `windows=0` URL options. Users can still use Draw.io's menus to open panels when needed.
 
-The main-lane flow layout keeps primary workflow steps aligned, places exception steps near the segment they branch from, and centres labels inside decision diamonds. Wide flowcharts are top-aligned in the canvas rather than vertically centred in excess whitespace.
-
-### Draw.io render lab
-
-Run the V2 app and open `/drawio-lab` (for example, `http://localhost:5174/drawio-lab`) to compare the Studio SVG renderer with the actual bundled Draw.io embed side by side. Switch between the sequence, C4, and flowchart fixtures; inspect the exact XML sent to Draw.io; and reset a fixture to reproduce rendering differences. The sequence renderer and XML exporter share message geometry from `src/layout/sequence.ts`, including self-call waypoints.
+The main-lane flow layout keeps primary workflow steps aligned, places exception steps near the segment they branch from, and centres labels inside decision diamonds. Wide flowcharts are top-aligned in the native canvas rather than vertically centred in excess whitespace.
 
 
 ## Versioned Studio configuration
