@@ -102,9 +102,6 @@ export default function App() {
     // Clean up the previous application's persisted semantic cache after switching to XML-only storage.
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:document"); } catch { /* Storage may be disabled. */ }
   }, []);
-  const [previewDocument, setPreviewDocument] = useState<DiagramDocument | null>(null);
-  const [pendingAgentProposalId, setPendingAgentProposalId] = useState<string | null>(null);
-  const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
@@ -187,7 +184,6 @@ export default function App() {
   const [standaloneFileName, setStandaloneFileName] = useState<string | null>(null);
   const standaloneLastSavedXmlRef = useRef<string | null>(null);
 
-  const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
   const selectedRelation = document.relations.find((relation) => relation.id === selectedRelationId) || null;
   // The native XML is authoritative. The semantic XML is only a disposable projection.
@@ -195,7 +191,7 @@ export default function App() {
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
-  useEffect(() => { setCellEditRequest(null); }, [previewDocument, activePage, projectWorkspace?.id]);
+  useEffect(() => { setCellEditRequest(null); }, [activePage, projectWorkspace?.id]);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
@@ -234,9 +230,6 @@ export default function App() {
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
   const semanticEditingSafe = canApplySemanticEdits(drawioXml, generatedDrawioXml, document);
-  const previewDrawioXml = previewDocument && semanticEditingSafe
-    ? patchDrawioXml(drawioXml, toDrawioXml(previewDocument), document)
-    : null;
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
@@ -497,9 +490,7 @@ export default function App() {
     // create a revision/history entry unless the authoritative XML actually changed.
     if (nextXml === drawioXml) return;
     nextSaveLabelRef.current = action;
-    setPreviewDocument(null);
-    setPreviewSummary("");
-    setNativeXmlOverride(nextXml);
+setNativeXmlOverride(nextXml);
     const nextHistory = [...historyRef.current.slice(0, historyIndexRef.current + 1), next].slice(-50);
     historyRef.current = nextHistory;
     historyIndexRef.current = nextHistory.length - 1;
@@ -573,9 +564,7 @@ export default function App() {
     if (!restoredXml) { setLastAction("Undo was refused because the native XML could not be patched safely."); return; }
     setSelectedRelationId(null);
     historyIndexRef.current -= 1;
-    setPreviewDocument(null);
-    setPreviewSummary("");
-    setNativeXmlOverride(restoredXml);
+setNativeXmlOverride(restoredXml);
     setDocument(previous);
     setSelectedNodeId((current) => previous.nodes.some((node) => node.id === current) ? current : previous.nodes[0]?.id || null);
     setCanUndo(historyIndexRef.current > 0);
@@ -595,9 +584,7 @@ export default function App() {
     if (!restoredXml) { setLastAction("Redo was refused because the native XML could not be patched safely."); return; }
     setSelectedRelationId(null);
     historyIndexRef.current += 1;
-    setPreviewDocument(null);
-    setPreviewSummary("");
-    setNativeXmlOverride(restoredXml);
+setNativeXmlOverride(restoredXml);
     setDocument(next);
     setSelectedNodeId((current) => next.nodes.some((node) => node.id === current) ? current : next.nodes[0]?.id || null);
     setCanUndo(historyIndexRef.current > 0);
@@ -611,9 +598,7 @@ export default function App() {
 
   function changeKind(kind: DiagramKind) {
     if (!semanticEditingSafe) { setLastAction("Create a new diagram before switching semantic diagram types; this native XML is preserved unchanged."); return; }
-    setPreviewDocument(null);
-    setPreviewSummary("");
-    setSelectedRelationId(null);
+setSelectedRelationId(null);
     const label = "Switched to " + (kind === "c4" ? "C4 diagram" : kind === "sequence" ? "sequence diagram" : "flowchart");
     // Fixtures carry no coordinates, so the layout has to exist before the first paint; committing the
     // raw fixture first is what used to stack every node on one spot until "Auto layout" was pressed.
@@ -758,44 +743,6 @@ export default function App() {
     })();
   }
 
-  async function acceptPreview() {
-    if (!previewDocument) return;
-    const proposalId = pendingAgentProposalId;
-    const summary = previewSummary || "Layout preview applied";
-    if (proposalId) {
-      try {
-        const response = await fetch("/api/workspace/diagram/apply-proposal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ proposalId, confirmed: true }) });
-        const payload = await response.json() as { error?: string; document?: unknown; workspaceRevision?: string; version?: { id?: string; drawioXml?: unknown } };
-        if (!response.ok || !isDiagramDocument(payload.document)) throw new Error(payload.error || "The Agent proposal could not be applied");
-        const preservedXml = typeof payload.version?.drawioXml === "string" ? payload.version.drawioXml : undefined;
-        serverRevisionRef.current = typeof payload.workspaceRevision === "string" ? payload.workspaceRevision : null;
-        setPendingAgentProposalId(null);
-        commitDocument(payload.document, summary + " (confirmed)", preservedXml);
-        setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "The reviewed proposal was applied and versioned by the Studio server." }]);
-        recordDiagnostic("copilot.preview.applied", "User confirmed and applied the revision-bound Agent proposal", { proposalId, versionId: payload.version?.id, documentId: payload.document.id });
-      } catch (error) {
-        setLastAction("Proposal not applied: " + (error instanceof Error ? error.message : String(error)));
-        recordDiagnostic("copilot.preview.apply.failed", "The Agent proposal could not be applied; the current document was preserved", { proposalId, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
-      }
-      return;
-    }
-    const next = previewDocument;
-    commitDocument(next, summary + " (applied)");
-    recordDiagnostic("copilot.preview.applied", "User applied the layout preview", {
-      diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length
-    });
-    setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: "Preview applied; the document has been updated." }]);
-  }
-
-  function discardPreview() {
-    if (!previewDocument) return;
-    setPreviewDocument(null);
-    setPreviewSummary("");
-    setPendingAgentProposalId(null);
-    setLastAction("Preview discarded; document unchanged");
-    recordDiagnostic("copilot.preview.discarded", "User discarded the layout preview; document unchanged");
-  }
-
   function exportDiagram() {
     const filename = document.title.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
@@ -847,8 +794,7 @@ export default function App() {
       setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
       standaloneLastSavedXmlRef.current = xml;
       setDocument(projected); setNativeXmlOverride(xml);
-      setPreviewDocument(null); setPreviewSummary(""); setPendingAgentProposalId(null);
-      setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
+setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
       historyRef.current = [parsed]; historyIndexRef.current = 0;
       setCanUndo(false); setCanRedo(false);
       serverRevisionRef.current = null;
@@ -1049,9 +995,7 @@ export default function App() {
       serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
       setDocument(restored);
       setNativeXmlOverride(restoredXml);
-      setPreviewDocument(null);
-      setPreviewSummary("");
-      setSelectedNodeId(restored.nodes[0]?.id || null);
+setSelectedNodeId(restored.nodes[0]?.id || null);
       setSelectedRelationId(null);
       historyRef.current = [restored];
       historyIndexRef.current = 0;
@@ -1245,13 +1189,10 @@ export default function App() {
         }} />
         <div className="topbar-actions">
           {activePage === "diagram" && <>
-          <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
-          <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
-          <UiButton className="button button-quiet" title="Reload the built-in sample" disabled={!semanticEditingSafe} onClick={resetDiagram}>Reset</UiButton>
-          <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
-          <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
-          <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
-          {standaloneFileName && <UiButton className="button button-secondary" title="Browse, compare and restore local Draw.io XML snapshots" onClick={openStandaloneHistory}>Local history</UiButton>}
+            <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
+            <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram}><span className="button-icon">↓</span>Export</UiButton>
+            <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
+            {standaloneFileName && <UiButton className="button button-secondary" title="Browse and restore local Draw.io XML snapshots" onClick={openStandaloneHistory}>Local history</UiButton>}
           </>}
         </div>
       </header>
@@ -1263,61 +1204,18 @@ export default function App() {
           <b>{projectWorkspace.name}</b>
           <UiButton type="button" className="workspace-switch" onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</UiButton>
         </div>}
-        <div className="side-section">
-          <UiButton disabled={!semanticEditingSafe} className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
-            <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 architecture</b></span>
-          </UiButton>
-          <UiButton disabled={!semanticEditingSafe} className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
-            <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>Process flow</b></span>
-          </UiButton>
-          <UiButton disabled={!semanticEditingSafe} className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
-            <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>Sequence diagram</b></span>
-          </UiButton>
-        </div>
+
 
       </aside>
       <div className="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the left sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("left", event)} />
 
       <main className="main-panel">
         <div className="canvas-toolbar">
-          <div className="canvas-title">{visibleDocument.title}{previewDocument && <span className="preview-pill">PREVIEW</span>}</div>
-          <div className="canvas-tools">
-            {previewDocument && <div className="preview-toolbar-actions">
-              <UiButton type="button" className="preview-discard" onClick={discardPreview}>Discard preview</UiButton>
-              <UiButton type="button" className="preview-accept" onClick={acceptPreview}>Apply changes</UiButton>
-            </div>}
-            
-            <label className="layout-profile-control" title="Choose the auto-layout algorithm">
-              <span>Algorithm</span>
-              <UiSelect className="text-field" aria-label="Auto-layout algorithm" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
-                disabled={!semanticEditingSafe || isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
-                onChange={(event) => {
-                  const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
-                  void runLayout(next);
-                }}>
-                {LAYOUT_PROFILES.filter((profile) => enabledLayoutProfiles.includes(profile.value) || profile.value === document.layout.profile).map((profile) => <option key={profile.value} value={profile.value} disabled={!enabledLayoutProfiles.includes(profile.value)}>{profile.label}{enabledLayoutProfiles.includes(profile.value) ? "" : " (disabled, current document setting kept)"}</option>)}
-              </UiSelect>
-            </label>
-            <label className="layout-profile-control" title="Set the diagram's main direction">
-              <span>Direction</span>
-              <UiSelect className="text-field" aria-label="Layout direction" value={document.layout.direction}
-                disabled={isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
-                onChange={(event) => {
-                  const next = { ...document, layout: { ...document.layout, direction: event.target.value as DiagramDocument["layout"]["direction"] } };
-                  void runLayout(next);
-                }}>
-                <option value="RIGHT">Left → right</option>
-                <option value="DOWN">Top → bottom</option>
-              </UiSelect>
-            </label>
-            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={!semanticEditingSafe || isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
-            
-          </div>
+          <div className="canvas-title">Draw.io diagram</div>
         </div>
 
         <div className="canvas-stage">
-          {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
-                      <DrawioFrame xml={previewDrawioXml ?? drawioXml} theme={uiTheme}
+                      <DrawioFrame xml={drawioXml} theme={uiTheme}
             onNativeEditResult={(result) => {
               const resolver = result.requestId === null ? undefined : nativeEditResolversRef.current.get(result.requestId);
               if (resolver && result.requestId !== null) {
@@ -1340,14 +1238,13 @@ export default function App() {
                 batchRolledBack: result.batchRolledBack ?? null, batchResults: result.batchResults ?? null
               }, result.success && !(result.rollbackErrors?.length) ? "info" : "error");
             }}
-            onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={previewDocument ? null : cellEditRequest}
+            onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
-            onDocumentChange={previewDocument ? () => {} : (nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
+            onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
           <span className="status-native" title={nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake"}>{nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"}</span>
-          <span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span>
         </div></div>
       </main>
       <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
@@ -1362,10 +1259,9 @@ export default function App() {
         </div>
         {rightPanelTab === "copilot" && <div className="right-copilot-panel">
           <WorkspacePages
-            page="copilot" document={document} previewDocument={previewDocument} previewSummary={previewSummary}
+            page="copilot"
             messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
-            sendIntent={() => void sendIntent()} acceptPreview={acceptPreview} discardPreview={discardPreview}
-            openDiagram={() => { setRightPanelTab("properties"); }}
+            sendIntent={() => void sendIntent()}
             aiBaseUrl={aiBaseUrl} setAiBaseUrl={setAiBaseUrl} aiModel={aiModel} setAiModel={setAiModel}
             reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
             aiApiKey={aiApiKey} setAiApiKey={setAiApiKey} saveAISettings={saveAISettings} clearAISettings={clearAISettings}
@@ -1375,44 +1271,10 @@ export default function App() {
           />
         </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
-          {previewDocument ? <div className="empty-inspector">Properties are read-only while a Copilot proposal is being previewed. Apply or discard the preview first.</div> : selectedNativeCellId ? <NativeSelectionInspector xml={drawioXml} cellId={selectedNativeCellId} pageId={selectedNativePageId}
+          {selectedNativeCellId ? <NativeSelectionInspector xml={drawioXml} cellId={selectedNativeCellId} pageId={selectedNativePageId}
             onEdit={(cellId, path, value, pageId) => setCellEditRequest({
               cellId, pageId, path, value, requestId: ++cellEditRequestSequenceRef.current
-            })} /> : <>
-          {selectedRelation && (
-            <div className="inspector-form selected-relation-inspector">
-              <div className="field-label">Selected relation</div>
-              <div className="selected-relation-summary">
-                <strong>{document.nodes.find((node) => node.id === selectedRelation.source)?.name || selectedRelation.source}</strong>
-                <span className="relation-arrow">→</span>
-                <strong>{document.nodes.find((node) => node.id === selectedRelation.target)?.name || selectedRelation.target}</strong>
-              </div>
-              <p className="graph-action-hint">Edit the label by double-clicking it on the diagram. Drag either endpoint handle to reconnect it. Right-click the relation for type, routing, line style, reversal and deletion. Ask Copilot from that same menu for semantic or multi-step changes.</p>
-            </div>
-          )}
-          {selectedNode && !selectedRelation ? (
-            <div className="inspector-form">
-              <div className="field-label">Technology / platform</div><UiInput key={selectedNode.id + ":" + (selectedNode.technology || "")} className="text-field" defaultValue={selectedNode.technology || ""} placeholder="e.g. Java / Spring" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.technology || "")) changeNode({ technology: event.currentTarget.value }); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-              <div className="field-label">Description</div><UiTextArea key={selectedNode.id + ":" + (selectedNode.description || "")} className="text-field text-area" defaultValue={selectedNode.description || ""} placeholder="What this component is responsible for…" onBlur={(event) => { if (event.currentTarget.value !== (selectedNode.description || "")) changeNode({ description: event.currentTarget.value }); }} rows={2} />
-              <div className="connected-relations">
-                <div className="field-label">Connected relations · {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).length}</div>
-                {document.relations.filter((relation) => relation.source === selectedNode.id || relation.target === selectedNode.id).map((relation) => (
-                  <button type="button" className={"connected-relation-link" + (selectedRelationId === relation.id ? " active" : "")}
-                    key={relation.id} onClick={() => selectRelation(relation.id)}>
-                    <span className="connected-relation-direction">
-                      <span>{document.nodes.find((node) => node.id === relation.source)?.name || relation.source}</span>
-                      <span className="relation-arrow">→</span>
-                      <span>{document.nodes.find((node) => node.id === relation.target)?.name || relation.target}</span>
-                    </span>
-                    <span className="connected-relation-label">{relation.label || "Double-click line to add a label"}</span>
-                  </button>
-                ))}
-                {document.relations.every((relation) => relation.source !== selectedNode.id && relation.target !== selectedNode.id) && <div className="empty-relations">No relations yet. Drag from a connection point on this node to another node.</div>}
-              </div>
-              <p className="graph-action-hint">Rename the node by double-clicking its title. Use the node's right-click menu to connect, duplicate, change its semantic role, lock its position, delete it or ask Copilot to edit it.</p>
-            </div>
-          ) : !selectedRelation ? <div className="empty-inspector">Select a node or relation on the canvas to inspect it.</div> : null}
-          </>}
+            })} /> : <div className="empty-inspector">Select a cell in the native Draw.io canvas to inspect or edit its properties.</div>}
         </section>}
       </aside>
         </>
@@ -1420,17 +1282,11 @@ export default function App() {
       {activePage !== "diagram" && (
         <WorkspacePages
           page={activePage}
-          document={document}
-          previewDocument={previewDocument}
-          previewSummary={previewSummary}
           messages={messages}
           chatInput={chatInput}
           setChatInput={setChatInput}
           chatBusy={chatBusy}
           sendIntent={() => void sendIntent()}
-          acceptPreview={acceptPreview}
-          discardPreview={discardPreview}
-          openDiagram={() => { openPage("diagram"); }}
           aiBaseUrl={aiBaseUrl}
           setAiBaseUrl={setAiBaseUrl}
           aiModel={aiModel}
