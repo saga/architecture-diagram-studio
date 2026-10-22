@@ -224,6 +224,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const requestId = typeof body.requestId === "string" ? body.requestId : "";
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
     const fingerprint = acknowledgementFingerprint(body);
+    const expired = acknowledgements.expire(Date.now(), ACK_TTL_MS);
+    for (const id of expired) await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
     const priorReceipt = acknowledgements.getReceipt(requestId);
     if (priorReceipt) {
       if (priorReceipt.fingerprint !== fingerprint) {
@@ -233,8 +235,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(priorReceipt.status).json(priorReceipt.body);
       return;
     }
-    const expired = acknowledgements.expire(Date.now(), ACK_TTL_MS);
-    for (const id of expired) await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
     const pending = acknowledgements.getPending(requestId);
     if (!pending) {
       res.status(404).json({ outcome: "stale_context", reply: "This edit request is unknown or expired.", error: "The execution acknowledgement is unknown or expired." });
