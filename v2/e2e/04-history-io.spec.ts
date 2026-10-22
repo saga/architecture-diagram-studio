@@ -67,4 +67,55 @@ test.describe("版本历史与文件交换", () => {
       .poll(async () => (await readWorkspaceXml(workspace)).includes("Edge Gateway"), { timeout: 30_000, intervals: [500] })
       .toBe(true);
   });
+
+  test("服务端拒绝格式错误的原生 XML，且不改动文件和 revision", async ({ request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
+    const before = await readWorkspaceXml(workspace);
+
+    const invalid = await request.put("/api/workspace/document", {
+      data: {
+        drawioXml: '<mxfile><diagram id="broken">',
+        label: "Invalid XML must not persist",
+        baseRevision: state.workspaceRevision
+      }
+    });
+    expect(invalid.status()).toBe(400);
+    expect(await readWorkspaceXml(workspace)).toBe(before);
+
+    const afterResponse = await request.get("/api/workspace/state");
+    expect(afterResponse.ok()).toBe(true);
+    const after = await afterResponse.json() as { drawioXml: string; workspaceRevision: string };
+    expect(after.drawioXml).toBe(state.drawioXml);
+    expect(after.workspaceRevision).toBe(state.workspaceRevision);
+  });
+
+  test("服务端拒绝过期 revision，且不覆盖更新后的 XML", async ({ request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
+
+    const latestXml = state.drawioXml.replace('value="Database"', 'value="Primary Database"');
+    expect(latestXml).not.toBe(state.drawioXml);
+    const latestSave = await request.put("/api/workspace/document", {
+      data: { drawioXml: latestXml, label: "Current revision", baseRevision: state.workspaceRevision }
+    });
+    expect(latestSave.status(), await latestSave.text()).toBe(200);
+    const savedRevision = (await latestSave.json() as { workspaceRevision: string }).workspaceRevision;
+
+    const staleXml = state.drawioXml.replace('value="Database"', 'value="Stale overwrite"');
+    const staleSave = await request.put("/api/workspace/document", {
+      data: { drawioXml: staleXml, label: "Stale revision must not persist", baseRevision: state.workspaceRevision }
+    });
+    expect(staleSave.status()).toBe(409);
+
+    expect(await readWorkspaceXml(workspace)).toBe(latestXml);
+    const afterResponse = await request.get("/api/workspace/state");
+    expect(afterResponse.ok()).toBe(true);
+    const after = await afterResponse.json() as { drawioXml: string; workspaceRevision: string };
+    expect(after.drawioXml).toBe(latestXml);
+    expect(after.workspaceRevision).toBe(savedRevision);
+  });
+
 });
