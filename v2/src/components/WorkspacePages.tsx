@@ -71,11 +71,6 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
 export type WorkspacePage = "diagram" | "copilot" | "traces" | "settings";
 type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
 
-/**
- * Bookkeeping events that fire constantly and never explain what the agent did.
- * They stay one click away behind "Show low-level events"; warnings and errors are
- * never treated as low-level, so a broken handshake is still visible by default.
- */
 const LOW_LEVEL_EVENT_PREFIXES = ["drawio.message.", "drawio.bundle.check.", "drawio.handshake.", "ui.theme."];
 const LOW_LEVEL_EVENTS = new Set([
   "app.started",
@@ -83,7 +78,6 @@ const LOW_LEVEL_EVENTS = new Set([
   "navigation.opened",
   "models.empty",
   "trace.refreshed",
-  "diagram.relation.selected",
   "drawio.iframe.loaded",
   "drawio.bridge.ready",
   "drawio.plugin.bridge.ready",
@@ -92,14 +86,11 @@ const LOW_LEVEL_EVENTS = new Set([
 
 function isLowLevelTrace(entry: DiagnosticEntry): boolean {
   if (entry.level === "error" || entry.level === "warn") return false;
-  // Server-side runtime logs carry no human message; the endpoint copies the event id into
-  // `message`, which is exactly the row that used to read the same thing twice.
   if (entry.message === entry.event) return true;
   if (LOW_LEVEL_EVENTS.has(entry.event)) return true;
   return LOW_LEVEL_EVENT_PREFIXES.some((prefix) => entry.event.startsWith(prefix));
 }
 
-/** Server logs have no prose, so fall back to the first meaningful detail instead of repeating the event id. */
 function traceTitle(entry: DiagnosticEntry): string {
   if (entry.message && entry.message !== entry.event) return entry.message;
   for (const key of ["errorMessage", "error", "note", "reason", "message"]) {
@@ -109,9 +100,72 @@ function traceTitle(entry: DiagnosticEntry): string {
   return entry.event;
 }
 
+type TraceTokenUsage = {
+  input: number | null;
+  output: number | null;
+  total: number | null;
+  calls: number | null;
+  cachedInput: number | null;
+  cacheWrite: number | null;
+  reasoning: number | null;
+  premiumRequestCost: number | null;
+  totalNanoAiu: number | null;
+  contextTokens: number | null;
+  contextLimit: number | null;
+  contextPercent: number | null;
+};
+
+function traceTokenUsage(entry: DiagnosticEntry): TraceTokenUsage | null {
+  const raw = entry.details.usage;
+  const value = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const modelCalls = Array.isArray(entry.details.modelCallUsages) ? entry.details.modelCallUsages : [];
+  const read = (source: Record<string, unknown>, key: string): number | null =>
+    typeof source[key] === "number" && Number.isFinite(source[key]) && (source[key] as number) >= 0
+      ? source[key] as number : null;
+  const sumModelField = (key: string): number | null => {
+    const byModel = value.byModel;
+    if (!byModel || typeof byModel !== "object") return null;
+    let total = 0, found = false;
+    for (const item of Object.values(byModel as Record<string, unknown>)) {
+      if (item && typeof item === "object") {
+        const amount = read(item as Record<string, unknown>, key);
+        if (amount !== null) { total += amount; found = true; }
+      }
+    }
+    return found ? total : null;
+  };
+  const input = read(value, "inputTokens") ?? sumModelField("inputTokens");
+  const output = read(value, "outputTokens") ?? sumModelField("outputTokens");
+  const total = read(value, "totalTokens") ?? (input !== null && output !== null ? input + output : null);
+  const calls = read(value, "modelCalls") ?? read(value, "calls") ?? (modelCalls.length ? modelCalls.length : null);
+  const context = entry.details.contextUsage && typeof entry.details.contextUsage === "object"
+    ? entry.details.contextUsage as Record<string, unknown> : {};
+  const result: TraceTokenUsage = {
+    input, output, total, calls,
+    cachedInput: read(value, "cachedInputTokens"),
+    cacheWrite: read(value, "cacheWriteTokens"),
+    reasoning: read(value, "reasoningTokens"),
+    premiumRequestCost: read(value, "premiumRequestCost"),
+    totalNanoAiu: read(value, "totalNanoAiu"),
+    contextTokens: read(context, "currentTokens"),
+    contextLimit: read(context, "tokenLimit"),
+    contextPercent: read(context, "percent")
+  };
+  const hasUsage = [result.input, result.output, result.total, result.cachedInput, result.cacheWrite,
+    result.reasoning, result.premiumRequestCost, result.totalNanoAiu].some((item) => item !== null);
+  return hasUsage ? result : null;
+}
+
+function formatTokenCount(value: number): string {
+  return Number.isFinite(value) ? Math.round(value).toLocaleString("en-US") : "0";
+}
+
+function formatUsageAmount(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 6 }) : "—";
+}
+
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
-/** Which side of the model routing the server process is on, as reported by /api/copilot/models. */
 type ModelRouting = {
   mode?: "byok" | "github";
   host?: string | null;
@@ -151,15 +205,10 @@ interface Props {
   onLayoutProfilesChanged: (profiles: string[]) => void;
 }
 
-/** Ant Design Button adapter retaining existing semantic HTML button attributes. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
 }
 
-/**
- * Numeric timestamps keep every row on the same font: the locale format renders CJK date text
- * ("2026年10月22日") that falls back to a different family than the Latin event text around it.
- */
 function formattedTime(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return timestamp;
@@ -179,8 +228,6 @@ export default function WorkspacePages(props: Props) {
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
   const [showLowLevel, setShowLowLevel] = useState(false);
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
-  // Filled from /api/copilot/models; an empty list until then, because the runtime — not the browser —
-  // decides which model ids exist.
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsMessage, setModelsMessage] = useState("");
@@ -194,6 +241,32 @@ export default function WorkspacePages(props: Props) {
     return entry.event.toLowerCase().includes(traceFilter);
   }), [traceEntries, significantTraces, showLowLevel, traceFilter]);
   const errorCount = traceEntries.filter((entry) => entry.level === "error").length;
+  const traceUsageSummary = useMemo(() => {
+    const modelCallEntries = traceEntries.filter((entry) => entry.event === "turn.model-call.completed");
+    let input = 0, output = 0, total = 0, cachedInput = 0, reasoning = 0, premiumRequestCost = 0, totalNanoAiu = 0;
+    let hasInput = false, hasOutput = false, hasTotal = false, hasCachedInput = false, hasReasoning = false, hasPremiumCost = false, hasAiu = false;
+    let calls = 0, hasCalls = false, measuredEntries = 0;
+    for (const entry of modelCallEntries) {
+      const usage = traceTokenUsage(entry);
+      if (!usage) continue;
+      measuredEntries++;
+      if (usage.input !== null) { input += usage.input; hasInput = true; }
+      if (usage.output !== null) { output += usage.output; hasOutput = true; }
+      if (usage.total !== null) { total += usage.total; hasTotal = true; }
+      if (usage.cachedInput !== null) { cachedInput += usage.cachedInput; hasCachedInput = true; }
+      if (usage.reasoning !== null) { reasoning += usage.reasoning; hasReasoning = true; }
+      if (usage.premiumRequestCost !== null) { premiumRequestCost += usage.premiumRequestCost; hasPremiumCost = true; }
+      if (usage.totalNanoAiu !== null) { totalNanoAiu += usage.totalNanoAiu; hasAiu = true; }
+      if (usage.calls !== null) { calls += usage.calls; hasCalls = true; }
+    }
+    if (!measuredEntries) return null;
+    return {
+      input: hasInput ? input : null, output: hasOutput ? output : null, total: hasTotal ? total : null,
+      cachedInput: hasCachedInput ? cachedInput : null, reasoning: hasReasoning ? reasoning : null,
+      premiumRequestCost: hasPremiumCost ? premiumRequestCost : null, totalNanoAiu: hasAiu ? totalNanoAiu : null,
+      calls: hasCalls ? calls : null, entries: measuredEntries, totalEntries: modelCallEntries.length
+    };
+  }, [traceEntries]);
 
   useEffect(() => {
     if (page === "copilot") chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -214,8 +287,6 @@ export default function WorkspacePages(props: Props) {
           .map((model) => ({ value: model.id!, label: model.label || model.name || model.id! }));
         if (!cancelled && options.length) {
           const merged = [...options];
-          // The runtime default is whatever this server is actually configured with — a custom
-          // provider model, or the Copilot catalog default. It is never a hard-coded id.
           const runtimeDefault = payload.defaultModel?.trim();
           if (runtimeDefault && !merged.some((item) => item.value === runtimeDefault)) {
             merged.unshift({ value: runtimeDefault, label: runtimeDefault + " (runtime default)" });
@@ -302,21 +373,34 @@ export default function WorkspacePages(props: Props) {
             </button>
           </div>
 
+          {traceUsageSummary && <div className="trace-usage-summary">
+            <strong>Usage in loaded model-call records</strong>
+            {traceUsageSummary.input !== null && <span>Input {formatTokenCount(traceUsageSummary.input)}</span>}
+            {traceUsageSummary.output !== null && <span>Output {formatTokenCount(traceUsageSummary.output)}</span>}
+            {traceUsageSummary.total !== null && <span>Total {formatTokenCount(traceUsageSummary.total)}</span>}
+            {traceUsageSummary.cachedInput !== null && <span>Cached input {formatTokenCount(traceUsageSummary.cachedInput)}</span>}
+            {traceUsageSummary.reasoning !== null && <span>Reasoning {formatTokenCount(traceUsageSummary.reasoning)}</span>}
+            {traceUsageSummary.premiumRequestCost !== null && <span>Premium request cost {formatUsageAmount(traceUsageSummary.premiumRequestCost)}</span>}
+            {traceUsageSummary.totalNanoAiu !== null && <span>nano-AIU {formatUsageAmount(traceUsageSummary.totalNanoAiu)}</span>}
+            {traceUsageSummary.calls !== null && <span>{formatTokenCount(traceUsageSummary.calls)} model calls</span>}
+            <span>{traceUsageSummary.entries} usage records / {traceUsageSummary.totalEntries} model-call records</span>
+          </div>}
+
           <div className="trace-list">
             {filteredTraces.length ? [...filteredTraces].reverse().map((entry) => {
               const title = traceTitle(entry);
+              const usage = traceTokenUsage(entry);
               return (
               <article className={"trace-entry trace-" + entry.level} key={entry.id}>
                 <div className="trace-entry-rail"><span /></div>
                 <div className="trace-entry-content">
                   <div className="trace-entry-row">
                     <span className={"trace-level level-" + entry.level}>{entry.level.toUpperCase()}</span>
-                    {/* The message is the human sentence for this event; the raw event id only shows up
-                        when no sentence exists, and otherwise stays in the expanded details. */}
                     <span
                       className={"trace-entry-message" + (title === entry.event ? " is-event" : "")}
                       title={title === entry.event ? title : title + " · " + entry.event}
                     >{title}</span>
+                    {usage && <code title="Reported by the model provider; absent metrics are not estimated">{usage.input !== null || usage.output !== null ? `tokens ${usage.input === null ? "—" : formatTokenCount(usage.input)} in / ${usage.output === null ? "—" : formatTokenCount(usage.output)} out` : "usage recorded"}</code>}
                     <time dateTime={entry.timestamp}>{formattedTime(entry.timestamp)}</time>
                     <button
                       type="button"
@@ -329,6 +413,20 @@ export default function WorkspacePages(props: Props) {
                   </div>
                   {expandedTraceId === entry.id && <div className="trace-entry-details-content">
                         <div className="trace-entry-meta"><span>Event</span><code>{entry.event}</code><span>Level</span><code>{entry.level}</code></div>
+                        {usage && <div className="trace-entry-meta trace-usage-details">
+                          {usage.input !== null && <><span>Input tokens</span><code>{formatTokenCount(usage.input)}</code></>}
+                          {usage.output !== null && <><span>Output tokens</span><code>{formatTokenCount(usage.output)}</code></>}
+                          {usage.total !== null && <><span>Total tokens</span><code>{formatTokenCount(usage.total)}</code></>}
+                          {usage.calls !== null && <><span>Model calls</span><code>{usage.calls}</code></>}
+                          {usage.cachedInput !== null && <><span>Cached input</span><code>{formatTokenCount(usage.cachedInput)}</code></>}
+                          {usage.cacheWrite !== null && <><span>Cache write</span><code>{formatTokenCount(usage.cacheWrite)}</code></>}
+                          {usage.reasoning !== null && <><span>Reasoning tokens</span><code>{formatTokenCount(usage.reasoning)}</code></>}
+                          {usage.premiumRequestCost !== null && <><span>Premium request cost</span><code>{formatUsageAmount(usage.premiumRequestCost)}</code></>}
+                          {usage.totalNanoAiu !== null && <><span>Total nano-AIU</span><code>{formatUsageAmount(usage.totalNanoAiu)}</code></>}
+                          {usage.contextTokens !== null && <><span>Context tokens</span><code>{formatTokenCount(usage.contextTokens)}</code></>}
+                          {usage.contextLimit !== null && <><span>Context limit</span><code>{formatTokenCount(usage.contextLimit)}</code></>}
+                          {usage.contextPercent !== null && <><span>Context usage</span><code>{usage.contextPercent}%</code></>}
+                        </div>}
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
@@ -368,16 +466,7 @@ export default function WorkspacePages(props: Props) {
             <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>GitHub Copilot SDK / Agent Runtime</h2><p>Server-side Copilot CLI runtime using the signed-in GitHub Copilot identity</p></div></div>
             <div className="settings-status-line"><span className={"settings-status-dot " + (aiModel.trim() ? "status-ready" : "status-unknown")} /><strong>{aiModel.trim() ? "Agent mode configured" : "Using local rules"}</strong></div>
             <label className="settings-field">Default model
-              <Select
-                showSearch
-                optionFilterProp="label"
-                value={aiModel || undefined}
-                options={modelOptions}
-                loading={modelsLoading}
-                onChange={(value) => setAiModel(value)}
-                placeholder="Select a model (leave empty for local rules)"
-                style={{ width: "100%" }}
-              />
+              <Select showSearch optionFilterProp="label" value={aiModel || undefined} options={modelOptions} loading={modelsLoading} onChange={(value) => setAiModel(value)} placeholder="Select a model (leave empty for local rules)" style={{ width: "100%" }} />
             </label>
             <p className="settings-description">{modelsMessage || "Options come from the local Copilot SDK; the server's configured model is used when nothing is selected."}</p>
             {modelRouting && (

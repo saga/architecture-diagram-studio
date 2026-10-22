@@ -1077,3 +1077,32 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
 .native-property-field textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .native-property-field input[readonly], .native-property-field textarea[readonly] { color: var(--theme-muted); background: var(--theme-soft); cursor: default; }
 .native-inspector .field-label { margin-bottom: 2px; }
+
+
+/* Token metrics remain compact in the trace timeline; details expand with the event. */
+.trace-usage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 13px;
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--theme-border, #e2e6ed);
+  border-radius: 8px;
+  background: var(--theme-panel, #fff);
+  color: var(--theme-secondary, #536276);
+  font-size: 10px;
+}
+.trace-usage-summary strong {
+  color: var(--theme-text, #344256);
+  font-weight: 650;
+  margin-right: 4px;
+}
+.trace-usage-summary span {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trace-usage-details {
+  margin-top: 10px;
+  row-gap: 8px;
+}
