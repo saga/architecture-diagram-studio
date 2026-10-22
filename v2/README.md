@@ -15,7 +15,7 @@ V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted
 
 The original native Draw.io `mxfile` XML is the only diagram model. The embedded Draw.io editor owns the canvas, cell selection, geometry, styles, connectors, pages, undo/redo and native editing. V2 has no parallel `DiagramDocument`, semantic graph, model-to-XML exporter, semantic layout engine or proposal-preview graph.
 
-Opening, importing, autosaving, saving versions, restoring and exporting all keep the XML source intact. Operations on a cell must not reconstruct the rest of the document. Multiple pages, unknown cells, wrappers, custom shapes, HTML labels and vendor-specific attributes remain part of the source.
+Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. Editing happens inside the Draw.io graph; its serializer may normalize XML formatting or attribute order after a mutation. V2 never rebuilds a document from a reduced model, and supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
 
 ## Copilot native cell edits
 
