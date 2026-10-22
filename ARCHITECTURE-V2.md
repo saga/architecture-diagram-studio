@@ -112,76 +112,53 @@ flowchart TD
 
 `DiagramDocument` 只为应用已支持的语义操作提供方便的视图。它不是 Draw.io XML 的完整表示，不得成为保存、版本、导出或工作区写入的权威数据。任何无法被该模型无损表示的 cell、parent 层级、page、style key、HTML 标签和自定义属性都必须保留在原始 XML 中。
 
-## 4.1 顶层结构
+## 4.1 当前语义投影结构
+
+当前权威类型定义是 `v2/src/model/types.ts`。下面是与代码一致的精简结构；新增字段必须先更新该类型、运行时校验和相关测试。此投影不包含原生 XML 无法表达的完整信息，也不包含版本历史。
 
 ```ts
-interface DiagramDocumentV2 {
+interface DiagramDocument {
   schemaVersion: 2;
   id: string;
   title: string;
-
-  kind: 'c4' | 'sequence' | 'flowchart';
-  variant?: 'context' | 'container' | 'component';
-
-  theme: ThemeId;
-  design: DesignIntent;
-  nodes: DiagramNodeV2[];
-  relations: DiagramRelationV2[];
-
-  boundaries?: DiagramBoundaryV2[];
-  sequence?: SequenceDiagramV2;
-  flow?: FlowDiagramV2;
-
-  layout: LayoutStateV2;
-  history?: DiagramRevision[];
+  kind: "c4" | "flowchart" | "sequence";
+  variant?: "context" | "container" | "component";
+  theme: "studio-editorial";
+  renderTheme?: "editorial" | "youth" | "warm" | "midnight";
+  nodes: DiagramNode[];
+  relations: DiagramRelation[];
+  boundaries: DiagramBoundary[];
+  layout: LayoutState;
+  flow?: { primaryPath: string[] };
+  sequence?: { participants: string[]; fragments?: SequenceFragment[] };
 }
 ```
 
-## 4.2 节点增加语义角色
+`workspace.json` 与版本文件持久化完整 Draw.io XML；语义投影在服务端从 XML 派生。
 
-不能只知道 `type=external`，还要知道它在布局中的角色。
+## 4.2 当前节点语义
+
+当前节点类型使用 `name` 而非 `label`，并通过 `role`、`visualRole`、`layoutHints` 和 `visualStyle` 表达布局/样式语义。以下为当前字段的精简示意，完整类型以 `v2/src/model/types.ts` 为准：
 
 ```ts
-interface DiagramNodeV2 {
+interface DiagramNode {
   id: string;
-  type: string;
-  label: string;
+  name: string;
+  parentId?: string;
   description?: string;
   technology?: string;
-
-  semanticRole?:
-    | 'actor'
-    | 'entry'
-    | 'ui'
-    | 'domain'
-    | 'business'
-    | 'api'
-    | 'worker'
-    | 'data'
-    | 'storage'
-    | 'external'
-    | 'vendor'
-    | 'infra';
-
-  visualRole?:
-    | 'primary'
-    | 'secondary'
-    | 'muted'
-    | 'external'
-    | 'highlight';
-
-  groupId?: string;
-  layoutHints?: NodeLayoutHints;
+  role: NodeRole;
+  visualRole: VisualRole;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  layoutHints?: LayoutHints;
+  visualStyle?: NodeVisualStyle;
 }
 ```
 
-这样 AI 才能理解：
-
-> “把所有 external 放右边”
-
-不是简单执行 `x += 500`，而是把 `semanticRole=external` 加入布局约束，再重新计算整个图。
-
----
+例如，“把 external 放右边”应先识别 `role`，再由布局引擎结合关系和锁定约束计算位置，而不是对每个节点机械地增加固定的 x 坐标。该操作只有在完整 XML 可安全投影并 patch 时才可执行。
 
 # 5. Design System：把 taste 写进代码
 
