@@ -846,17 +846,16 @@ app.get("/api/workspace/state", async (_req, res) => {
 });
 
 app.put("/api/workspace/document", async (req, res) => {
-  const document = req.body?.document;
   const drawioXml = req.body?.drawioXml;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
   const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : req.body?.baseRevision === null ? null : undefined;
-  if (!isDiagramDocument(document) || typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000 || !isDrawioXmlEnvelope(drawioXml)) {
-    res.status(400).json({ error: "Invalid Draw.io XML envelope, invalid projection metadata, or the XML exceeds 20 MB" });
+  if (typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000 || !isDrawioXmlEnvelope(drawioXml)) {
+    res.status(400).json({ error: "Invalid Draw.io XML document or the XML exceeds 20 MB" });
     return;
   }
-  // Draw.io XML is canonical. Semantic/layout validation is not a persistence gate:
-  // valid native stencils, arbitrary cells and large diagrams must save even when the
-  // partial Studio projection cannot validate every cell.
+  // The server ignores any client-side semantic cache. Rebuild a transient view from the
+  // validated XML so callers cannot persist a divergent DiagramDocument alongside it.
+  const document = projectDocumentFromXml(drawioXml);
   try {
     const result = await withDataWrite(async () => {
       const state = await getWorkspaceState();
