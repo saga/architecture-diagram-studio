@@ -330,7 +330,7 @@ export class CopilotRuntime {
   /** Sends one prompt; if the CLI died under it, rebuilds the session once and replays the same prompt. */
   private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number): Promise<{ session: RuntimeSession; message: SessionEvent | undefined }> {
     try {
-      const pending = session.session.sendAndWait(body as SendBody, timeoutMs);
+      const pending = session.session.sendAndWait(body as SendBody, timeoutMs > 0 ? timeoutMs + 1_000 : timeoutMs);
       let watchdog: NodeJS.Timeout | undefined;
       let message: SessionEvent | undefined;
       try {
