@@ -1,5 +1,7 @@
 # 以 Draw.io XML 为唯一真源的架构改造报告
 
+> **历史架构评估，不是当前实施清单。** 本文保留了改造前的代码路径、行号和候选方案。当前决策已由 ADR-0006（XML 唯一真源）、ADR-0008（原生 Draw.io 唯一画布）及当前 `v2/README.md` 取代；文中有关 `DiagramCanvas`、双渲染器、待新增模块和旧 ADR 冲突的描述不应被理解为当前缺陷或现行要求。
+
 > 对象：`architecture-diagram-studio` V2（`v2/`，约 9.4k 行 TS/TSX）
 > 目标：把"支持 Draw.io 全部图形"这件事做实，并把全系统的**唯一真源**统一为 **`.drawio` XML（mxfile）**——不再有 `DiagramDocument` 与原生 XML 两套源，不再有"语义轨 / 原生轨"双轨设计。
 > 状态：实施前评审基线；后续决策见 `docs/adr/0006-drawio-xml-single-source-of-truth.md`。代码已开始按 XML 单一真源改造；本报告中的分阶段路线是计划，不表示所有阶段均已完成。
