@@ -292,10 +292,12 @@ function createSelectDiagramElementTool(sessionId: string) {
       const source = current && typeof current === "object" ? current as { cells?: unknown; selectedCell?: { pageId?: unknown } | null; activePageId?: unknown } : {};
       const cells = Array.isArray(source.cells) ? source.cells as Array<{ id?: unknown; name?: unknown }> : [];
       const target = args.target.trim();
-      const matches = cells.filter((node) =>
-        (typeof node.id === "string" && node.id === target) ||
-        (typeof node.name === "string" && node.name.trim().toLocaleLowerCase() === target.toLocaleLowerCase())
-      );
+      const exactIdMatches = cells.filter((cell) => typeof cell.id === "string" && cell.id === target);
+      const matches = exactIdMatches.length
+        ? exactIdMatches
+        : cells.filter((cell) =>
+            typeof cell.name === "string" && cell.name.trim().toLocaleLowerCase() === target.toLocaleLowerCase()
+          );
       if (matches.length !== 1 || typeof matches[0]?.id !== "string") {
         throw new Error(matches.length > 1 ? "The element label is ambiguous; provide its exact cell ID." : "The element was not found in the supplied diagram context. No selection changed.");
       }
