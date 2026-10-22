@@ -677,7 +677,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const xml = patchedXml, now = new Date().toISOString();
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
       const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await persistDiagramVersions(diagramVersions);
-      if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
+      if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true }); await writeTextAtomic(target.absolutePath, xml); }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: laidOut, drawioXml: xml, updatedAt: now }; await persistWorkspaceState(workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
       return { status: 200 as const, version, document: laidOut, revision: workspaceRevision(laidOut, xml), workspaceRevision: workspaceRevision(laidOut, xml), quality: evaluateLayout(laidOut) };
@@ -774,7 +774,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
       diagramVersions = retainRecentVersions([...versions, version]);
       await persistDiagramVersions(diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
-        const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
+        const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true });
         await writeTextAtomic(absolutePath, xml);
       }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: proposal.document, drawioXml: xml, updatedAt: version.createdAt };
@@ -1027,7 +1027,7 @@ app.put("/api/workspace/document", async (req, res) => {
         diagramVersions = retainRecentVersions([...allVersions, version]);
         await persistDiagramVersions(diagramVersions);
         if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
-          const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
+          const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true });
           await writeTextAtomic(absolutePath, drawioXml);
           await writeLog("workspace.primary-diagram.saved", { workspaceId: workspace.id, path: workspace.primaryDiagram, xmlLength: drawioXml.length, versionId: version.id });
         }
@@ -1175,7 +1175,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       diagramVersions = retainRecentVersions([...versions, version]);
       await persistDiagramVersions(diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
-        const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram);
+        const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true });
         await writeTextAtomic(absolutePath, version.drawioXml);
       }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
