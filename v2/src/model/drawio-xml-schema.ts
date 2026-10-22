@@ -192,6 +192,9 @@ export const MxRootSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.
   const inventory = cellsFromRoot(element);
   const seenIds = new Map<string, number>();
   for (const entry of inventory) {
+    if (entry.wrapper.name !== "mxCell" && childNodesNamed(entry.wrapper, "mxCell").length !== 1) {
+      issue(ctx, "A cell wrapper must contain exactly one direct mxCell", ["children", entry.index]);
+    }
     const id = effectiveCellId(entry.wrapper);
     if (id) {
       const previous = seenIds.get(id);
@@ -353,6 +356,14 @@ function parseXmlTree(xml: string): DrawioXmlElement {
 }
 
 function decodeCompressedPage(payload: string): string {
+  const trimmed = payload.trim();
+  if (trimmed.startsWith("<")) {
+    const root = parseXmlTree(trimmed);
+    if (root.name !== "mxGraphModel") throw new Error("The plaintext diagram page must contain mxGraphModel.");
+    const validated = MxGraphModelSchema.safeParse(root);
+    if (!validated.success) throw new Error(issuesAsStrings(validated.error.issues).slice(0, 5).join("; "));
+    return trimmed;
+  }
   const compact = payload.replace(/\s+/g, "");
   const binary = atob(compact);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
