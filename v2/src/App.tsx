@@ -1305,7 +1305,7 @@ export default function App() {
         </div>
       </header>
 
-      {activePage === "diagram" ? (
+      <div className={"diagram-workspace" + (activePage === "diagram" ? "" : " is-hidden")}>
         <>
       <aside className="left-panel">
         {projectWorkspace && <div className="workspace-card" title={projectWorkspace.rootPath}>
@@ -1463,8 +1463,10 @@ export default function App() {
           ) : !selectedRelation ? <div className="empty-inspector">Select a node or relation on the canvas to inspect it.</div> : null}
           </>}
         </section>}
-      </aside>        </>
-      ) : (
+      </aside>
+        </>
+      </div>
+      {activePage !== "diagram" && (
         <WorkspacePages
           page={activePage}
           document={document}

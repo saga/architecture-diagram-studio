@@ -42,6 +42,33 @@ test.describe("工作区导航与外观", () => {
     await expect(nav.getByRole("button", { name: "Diagram" })).toHaveAttribute("aria-current", "page");
   });
 
+  test("切换到 Agent traces 再返回，原生 Draw.io 不重新加载", async ({ page }) => {
+    const nav = page.locator('nav[aria-label="Workspace pages"]');
+    const frame = nativeFrameHandle(page);
+    const marker = "keep-alive-" + Date.now();
+    await frame.evaluate((value) => {
+      (window as unknown as { __studioKeepAlive?: string }).__studioKeepAlive = value;
+    }, marker);
+
+    let drawioDocumentLoads = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/drawio/index.html")) drawioDocumentLoads += 1;
+    });
+
+    await nav.getByRole("button", { name: "Agent traces" }).click();
+    await expect(page.locator(".traces-workspace")).toBeVisible();
+    await nav.getByRole("button", { name: "Diagram" }).click();
+    await expect(page.locator(".canvas-stage")).toBeVisible();
+    await expect.poll(async () => (await page.locator('iframe[title="Native Draw.io editor"]').boundingBox())?.width ?? 0).toBeGreaterThan(0);
+
+    // If the iframe were remounted, the browsing context (and this marker) would be gone
+    // and the editor would need to run the embed handshake again.
+    const kept = await frame.evaluate(() => (window as unknown as { __studioKeepAlive?: string }).__studioKeepAlive);
+    expect(kept).toBe(marker);
+    expect(drawioDocumentLoads).toBe(0);
+    await expect(page.locator(".status-native")).toContainText("Native editor ready");
+  });
+
   test("切换主题会同步到原生画布背景，并在刷新后保留", async ({ page }) => {
     const frame = nativeFrameHandle(page);
     const canvasBackground = () => frame.evaluate(() => getComputedStyle(document.body).backgroundColor);

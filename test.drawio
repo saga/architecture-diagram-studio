@@ -1,10 +1,10 @@
 <mxfile host="localhost" agent="Architecture Diagram Studio V2">
   <diagram id="556557f1-b2a8-49c4-a826-bc45d2fee23c" name="test">
-    <mxGraphModel dx="816" dy="635" grid="1" gridSize="4" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="700" math="0" shadow="0">
+    <mxGraphModel dx="975" dy="656" grid="1" gridSize="4" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="700" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" style="studioLayoutProfile=elk-layered;studioLayoutDirection=RIGHT;studioLayoutRouting=orthogonal;studioNodeSpacing=52;studioLayerSpacing=104;studioBoundaryPadding=32;studioExternalSide=RIGHT;studioStorageSide=BOTTOM;" />
-        <mxCell id="MRDE1TfU6mpqhOhdJKLE-1" parent="1" style="whiteSpace=wrap;html=1;" value="xxx" vertex="1">
+        <mxCell id="MRDE1TfU6mpqhOhdJKLE-1" parent="1" style="whiteSpace=wrap;html=1;fillColor=#ff0000;" value="xxx" vertex="1">
           <mxGeometry height="60" width="120" x="360" y="300" as="geometry" />
         </mxCell>
       </root>

@@ -984,6 +984,10 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
    and the widths live in --left-w / --right-w so the grid stays declarative.
    ------------------------------------------------------------------------- */
 .app-shell { grid-template-columns: var(--left-w, 240px) 5px minmax(320px, 1fr) 5px var(--right-w, 380px); }
+/* Keep the native editor mounted across workspace pages so Draw.io does not reload.
+   `display: contents` lets the panes participate in the app grid without a wrapper box. */
+.diagram-workspace { display: contents; }
+.diagram-workspace.is-hidden { display: none; }
 .panel-resizer { position: relative; z-index: 6; cursor: col-resize; background: transparent; touch-action: none; }
 .panel-resizer:before { content: ""; position: absolute; inset: 0 -3px; }
 .panel-resizer:after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: var(--theme-border); transition: background .12s, width .12s; }
