@@ -110,6 +110,39 @@ function stripThemeMetadata(raw: string): string {
   );
 }
 
+function mergeThemeMetadata(sourceCell: string, nextCell: string): string {
+  const sourceStyle = /\\bstyle=(["'])([\\s\\S]*?)\\1/.exec(sourceCell);
+  const nextStyle = /\\bstyle=(["'])([\\s\\S]*?)\\1/.exec(nextCell);
+  if (!sourceStyle || !nextStyle || !/studioTheme(?:Original|Applied|Override)/.test(sourceStyle[2])) return nextCell;
+  const parse = (raw: string) => new Map(raw.split(";").filter(Boolean).map((entry) => {
+    const index = entry.indexOf("=");
+    return index < 0 ? [entry, "1"] : [entry.slice(0, index), entry.slice(index + 1)];
+  }));
+  const source = parse(sourceStyle[2]);
+  const next = parse(nextStyle[2]);
+  const keys = ["fillColor", "strokeColor", "fontColor", "startFillColor", "endFillColor"];
+  for (const key of keys) {
+    const suffix = key[0].toUpperCase() + key.slice(1);
+    const originalKey = "studioThemeOriginal" + suffix;
+    const appliedKey = "studioThemeApplied" + suffix;
+    const overrideKey = "studioThemeOverride" + suffix;
+    if (source.get(overrideKey) === "1") {
+      next.set(overrideKey, "1");
+      continue;
+    }
+    if (!source.has(appliedKey)) continue;
+    if ((next.get(key) ?? null) !== source.get(appliedKey)) {
+      next.set(overrideKey, "1");
+      continue;
+    }
+    if (source.has(originalKey)) next.set(originalKey, source.get(originalKey)!);
+    next.set(appliedKey, source.get(appliedKey)!);
+  }
+  const mergedStyle = [...next].map(([key, value]) => key + "=" + value).join(";") + ";";
+  const escaped = mergedStyle.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return nextCell.slice(0, nextStyle.index) + 'style="' + escaped + '"' + nextCell.slice(nextStyle.index + nextStyle[0].length);
+}
+
 function styleOf(raw: string): string {
   return attribute(raw, "style") || "";
 }
@@ -195,7 +228,7 @@ export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, pre
       continue;
     }
     const replacement = next.cellMap.get(old.id);
-    if (replacement !== undefined) merged.push(replacement);
+    if (replacement !== undefined) merged.push(mergeThemeMetadata(old.raw, replacement));
     else if (!(managedIds.has(old.id) || isStudioManagedCell(old.id, old.raw))) merged.push(old.raw);
   }
 
