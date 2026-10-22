@@ -52,7 +52,7 @@ function segmentIntersectsRect(a: Point, b: Point, rect: Rect): boolean {
   return tMin < tMax && tMax > 0 && tMin < 1;
 }
 
-/** Uses the same canonical sequence geometry as the SVG and Draw.io renderers. */
+/** Uses the same canonical sequence geometry as layout and Draw.io XML generation. */
 function pathFor(doc: DiagramDocument, id: string): Point[] {
   const edge = doc.relations.find((relation) => relation.id === id);
   if (!edge) return [];
