@@ -381,10 +381,12 @@ export class CopilotRuntime {
       // exposes only Studio-owned custom tools, so approve each tool invocation once;
       // no ambient shell/filesystem tools are enabled by this session configuration.
       onPermissionRequest: async (request) => {
-        await this.options.log("permission.request", {
+        // Permission callbacks must never depend on log storage completing. A slow disk/log
+        // sink here blocks the SDK's permission handshake and can stall sendAndWait.
+        void Promise.resolve(this.options.log("permission.request", {
           kind: request.kind,
           decision: "approve-once"
-        });
+        })).catch(() => undefined);
         return { kind: "approve-once" };
       }
     };
@@ -399,7 +401,13 @@ export class CopilotRuntime {
       resumed = await this.withClient("resumeSession", (client) => client.resumeSession(sdkSessionId, base));
       await this.options.log("session.resumed", { conversationId: request.conversationId, sdkSessionId });
     } catch (error) {
-      await this.options.log("session.resume.unavailable", { conversationId: request.conversationId, sdkSessionId, error: messageOf(error) });
+      const message = messageOf(error);
+      await this.options.log("session.resume.failed", { conversationId: request.conversationId, sdkSessionId, error: message });
+      // Only recreate a missing session. Auth, quota, transport and SDK errors must remain
+      // visible; silently creating a new session can discard conversation history.
+      if (!/session not found|no such session|unknown session|does not exist|has been deleted/i.test(message)) {
+        throw error;
+      }
     }
 
     let session = resumed;
