@@ -10,6 +10,8 @@ import { LAYOUT_PROFILES, resolveLayoutProfile } from "../src/layout/profiles";
 import { evaluateLayout } from "../src/layout/quality";
 import { normalizeSequenceDocument } from "../src/layout/sequence";
 import { toDrawioXml } from "../src/export/drawio";
+import { fromDrawioXml } from "../src/import/drawio";
+import { FIXTURES } from "../src/model/fixtures";
 import { isDrawioXmlEnvelope, isStudioProjectionCurrent, patchStudioDocumentXml } from "./drawio-xml-source";
 import { createEmptyDrawioDocument, normalizeNewDrawioFileName } from "./diagram-file";
 import { randomUUID } from "node:crypto";
@@ -97,8 +99,12 @@ async function getStudioConfig(): Promise<StudioConfig> {
 }
 async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> { await mkdir(DATA_DIR, { recursive: true }); await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", "utf8"); studioConfig = config; }
 let projectWorkspace: ProjectWorkspace | null | undefined;
+/** Runtime version view includes a projection derived from XML; only XML is serialized to disk. */
 type DiagramVersion = { id: string; workspaceId?: string; diagramPath?: string | null; createdAt: string; label: string; document: unknown; drawioXml: string };
+/** Runtime workspace view. The document field is derived in memory and omitted from workspace.json. */
 type WorkspaceState = { workspaceId?: string; diagramPath?: string | null; document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
+type StoredDiagramVersion = Omit<DiagramVersion, "document"> & { document?: unknown; drawioXml?: string };
+type StoredWorkspaceState = Omit<WorkspaceState, "document"> & { document?: unknown | null };
 const withDataWrite = createSerializedWriteQueue();
 let workspaceState: WorkspaceState | null = null;
 let diagramVersions: DiagramVersion[] | null = null;
@@ -107,8 +113,65 @@ async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(file, "utf8")) as T; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback; throw error; }
 }
+let projectedSourceXml: string | null = null;
+let projectedSourceDocument: DiagramDocument | null = null;
+
+/** Rebuild the ephemeral semantic view from XML; never hydrate the view from persisted JSON. */
+function projectDocumentFromXml(xml: string): DiagramDocument {
+  if (projectedSourceXml === xml && projectedSourceDocument) return projectedSourceDocument;
+  const emptyProjection: DiagramDocument = {
+    ...FIXTURES.c4(), id: "drawio-xml-projection", title: "Draw.io diagram",
+    nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+  };
+  const parsed = validateDrawioXmlDocument(xml).success ? fromDrawioXml(xml, emptyProjection) : emptyProjection;
+  projectedSourceXml = xml;
+  projectedSourceDocument = parsed;
+  return parsed;
+}
+
+async function persistWorkspaceState(state: WorkspaceState | null = workspaceState): Promise<void> {
+  if (!state) return;
+  const persisted = { ...state } as Partial<WorkspaceState>;
+  delete persisted.document;
+  await writeJsonAtomic(WORKSPACE_FILE, persisted);
+}
+
+async function persistDiagramVersions(versions: DiagramVersion[] = diagramVersions || []): Promise<void> {
+  const persisted: StoredDiagramVersion[] = versions.map((version) => {
+    const item = { ...version } as Partial<DiagramVersion>;
+    delete item.document;
+    return item as StoredDiagramVersion;
+  });
+  await writeJsonAtomic(VERSIONS_FILE, persisted);
+}
+
 async function getWorkspaceState(): Promise<WorkspaceState> {
-  if (!workspaceState) workspaceState = await readJsonFile<WorkspaceState>(WORKSPACE_FILE, { document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null });
+  if (!workspaceState) {
+    const stored = await readJsonFile<StoredWorkspaceState>(WORKSPACE_FILE, {
+      drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null
+    });
+    workspaceState = { ...stored, document: null };
+  }
+
+  const xml = workspaceState.drawioXml;
+  if (typeof xml === "string" && validateDrawioXmlDocument(xml).success) {
+    workspaceState = { ...workspaceState, document: projectDocumentFromXml(xml) };
+    return workspaceState;
+  }
+
+  // One-time migration for a previous Studio-only workspace with no native file selected.
+  // Never use a cached projection to replace an external primary diagram.
+  if (typeof workspaceState.drawioXml !== "string" && isDiagramDocument(workspaceState.document)) {
+    const configuredWorkspace = await getProjectWorkspace();
+    if (!configuredWorkspace?.primaryDiagram) {
+      const xmlFromLegacyStudio = toDrawioXml(workspaceState.document);
+      workspaceState = { ...workspaceState, drawioXml: xmlFromLegacyStudio, document: projectDocumentFromXml(xmlFromLegacyStudio) };
+      await persistWorkspaceState(workspaceState);
+      return workspaceState;
+    }
+  }
+
+  workspaceState = { ...workspaceState, document: null };
   return workspaceState;
 }
 const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
