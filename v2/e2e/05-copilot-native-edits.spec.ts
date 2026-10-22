@@ -93,7 +93,7 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
 });
 
 
-test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并连接", async ({ page, request }) => {
+test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增并连接", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   const stateResponse = await request.get("/api/workspace/state");
   expect(stateResponse.ok()).toBe(true);
