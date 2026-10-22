@@ -30,20 +30,21 @@ interface PendingPlan { commands: string[]; reply: string; }
 const pendingPlans = new Map<string, PendingPlan>();
 const pendingAgentProposals = new Map<string, AgentProposalView>();
 const pendingAgentApplications = new Map<string, AgentAppliedEditView>();
+const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
 const usedToolsBySession = new Map<string, Set<string>>();
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   async function buildSystemMessage(config: AgentPromptConfig, standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
     const workspaceContext = standalone
-      ? "Standalone Draw.io file mode: the supplied diagram context is the only target. No project workspace is active. Do not inspect, modify, or make claims about project files. Only return an allowlisted layout plan or answer about the supplied diagram."
+      ? "Standalone Draw.io file mode: the supplied diagram context is the only target. No project workspace is active. Do not inspect, modify, or make claims about project files. You may select a uniquely identified diagram element using select_diagram_element, or return an allowlisted layout plan. Selection changes UI state and does not modify document content."
       : config.prompts.workspace
       .replaceAll("{{workspaceName}}", workspace?.name || "not configured")
       .replaceAll("{{rootPath}}", workspace?.rootPath || "not configured")
       .replaceAll("{{primaryDiagram}}", workspace?.primaryDiagram || "not selected");
     const supportedCommands = config.prompts.supportedCommands.replaceAll("{{commands}}", [...deps.allowedCommands].join("; "));
     const internalToolGuidance = standalone
-      ? "Standalone mode exposes only propose_layout_plan. Use it only for exact allowlisted global layout commands; otherwise answer based solely on the supplied diagram context. Do not invoke workspace tools, propose semantic edits, or claim to have changed the diagram. The user can review and apply supported layout previews in the local UI. Never write raw Draw.io XML or workspace files."
+      ? "Standalone mode exposes select_diagram_element and propose_layout_plan. For requests to select/highlight/focus an element, call select_diagram_element with the exact unique node ID or label from the supplied diagram context. Selection is a UI action, not a document mutation; do not say nothing was committed. Use propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files."
       : "IMPORTANT: This tool guidance supersedes any conflicting legacy prompt above, including instructions to use only propose_layout_plan or to avoid semantic operations. Use the registered internal diagram tools for inspection, quality evaluation, workspace-example search, semantic edits, templates and version history. For one focused node, relation, layout, boundary or sequence-fragment change explicitly requested by the user, inspect_active_diagram first and check projectionComplete. If it is false, do not use semantic edit or quality tools; explain that the projection is partial and the native Draw.io editor remains the safe path. Only when it is true, use apply_diagram_operation with its exact revision and stable IDs; this tool directly applies the change after server-side revision and semantic validation, applies layout-quality gates only when layout runs, and creates an immutable version. Do not use direct apply for analysis, hypothetical edits, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use a proposal tool and require explicit confirmation. Use propose_diagram_operation when the change needs preview/review and propose_layout_plan only for exact allowlisted global layout commands. Never write raw Draw.io XML or workspace files. Mermaid import/conversion is not implemented.";
     return [config.prompts.system, config.prompts.task, config.prompts.planTool, config.prompts.behavior, workspaceContext, supportedCommands, internalToolGuidance].filter(Boolean).join("\n\n");
   }
@@ -117,6 +118,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             systemMessage: await buildSystemMessage(latestConfig, standalone),
             // Never expose workspace-bound mutation tools to a standalone Draw.io session.
             tools: [
+              createSelectDiagramElementTool(sessionId, context),
               createProposeLayoutPlanTool(sessionId, latestConfig),
               ...(standalone ? [] : deps.createDiagramTools(
                 sessionId,
@@ -139,6 +141,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingPlans.delete(sessionId);
         pendingAgentProposals.delete(sessionId);
         pendingAgentApplications.delete(sessionId);
+        pendingAgentSelections.delete(sessionId);
         usedToolsBySession.set(sessionId, new Set<string>());
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = standalone ? { mode: "standalone", workspace: null, snippets: [], diagram: context } : await deps.collectAgentWorkspaceContext();
@@ -158,9 +161,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentProposals.delete(sessionId);
         let capturedApplication = pendingAgentApplications.get(sessionId) || null;
         pendingAgentApplications.delete(sessionId);
+        let capturedSelection = pendingAgentSelections.get(sessionId) || null;
+        pendingAgentSelections.delete(sessionId);
         let modelText = assistantText(firstTurn);
         let usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
-        if (!captured && !capturedProposal && !capturedApplication && usedToolNames.size === 0) {
+        if (!captured && !capturedProposal && !capturedApplication && !capturedSelection && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryStartedAt = Date.now();
           const retryPrompt = JSON.stringify({ request: standalone ? "Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context });
@@ -173,12 +178,21 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           pendingAgentProposals.delete(sessionId);
           capturedApplication = pendingAgentApplications.get(sessionId) || null;
           pendingAgentApplications.delete(sessionId);
+          capturedSelection = pendingAgentSelections.get(sessionId) || null;
+          pendingAgentSelections.delete(sessionId);
           usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
           modelText = assistantText(nudged) || modelText;
         }
-        return { captured, capturedProposal, capturedApplication, modelText, usedToolNames: [...usedToolNames], session: turn.session };
+        return { captured, capturedProposal, capturedApplication, capturedSelection, modelText, usedToolNames: [...usedToolNames], session: turn.session };
       });
 
+      if (plan.capturedSelection) {
+        const selection = plan.capturedSelection;
+        const response = { commands: [], reply: "Selected diagram element: " + selection.label, selection, sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default", provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames };
+        await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response });
+        res.json(response);
+        return;
+      }
       if (plan.capturedApplication) {
         const application = plan.capturedApplication;
         const response = {
@@ -250,6 +264,34 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         errorMessage: message, errorStack: error instanceof Error ? error.stack : null
       });
       res.status(502).json({ error: describeCopilotFailure(message), sessionId });
+    }
+  });
+}
+
+
+function createSelectDiagramElementTool(sessionId: string, context: unknown) {
+  return defineTool("select_diagram_element", {
+    description: "Select and focus one existing element in the native Draw.io canvas. This is a UI selection action, not a diagram edit, so it does not create a version or require a commit. Use exact IDs or a unique exact label from the supplied diagram context; do not guess.",
+    parameters: {
+      type: "object",
+      properties: { target: { type: "string", minLength: 1, maxLength: 200 } },
+      required: ["target"],
+      additionalProperties: false
+    },
+    handler: async (args: { target: string }) => {
+      const source = context && typeof context === "object" ? context as { nodes?: unknown; selectedNode?: unknown; pageId?: unknown } : {};
+      const nodes = Array.isArray(source.nodes) ? source.nodes as Array<{ id?: unknown; name?: unknown }> : [];
+      const target = args.target.trim();
+      const matches = nodes.filter((node) =>
+        (typeof node.id === "string" && node.id === target) ||
+        (typeof node.name === "string" && node.name.trim().toLocaleLowerCase() === target.toLocaleLowerCase())
+      );
+      if (matches.length !== 1 || typeof matches[0]?.id !== "string") {
+        throw new Error(matches.length > 1 ? "The element label is ambiguous; provide its exact cell ID." : "The element was not found in the supplied diagram context. No selection changed.");
+      }
+      const selected = { cellId: matches[0].id, pageId: typeof source.pageId === "string" ? source.pageId : null, label: typeof matches[0].name === "string" ? matches[0].name : matches[0].id };
+      pendingAgentSelections.set(sessionId, selected);
+      return { selected: true, ...selected, documentChanged: false };
     }
   });
 }
