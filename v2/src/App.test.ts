@@ -9,7 +9,8 @@ describe("native Draw.io Copilot contract", () => {
       nativeEdits: {
         operations: [{ op: "add_node_after", target: "Database", cellId: "db", targetLabel: "Database", newLabel: "Audit Service" }],
         summary: "Add an audit service after Database",
-        requiresClientExecution: true
+        pageId: "p1",
+        documentRevision: "revision-1"
       },
       model: "stub-model"
     }));
@@ -24,7 +25,8 @@ describe("native Draw.io Copilot contract", () => {
       nativeEdits: {
         operations: [{ op: "set_label", target: "Database", label: "Store" }],
         summary: "Rename",
-        requiresClientExecution: true
+        pageId: "p1",
+        documentRevision: "revision-1"
       }
     }))).toThrow("resolved cell id");
   });
@@ -38,7 +40,8 @@ describe("native Draw.io Copilot contract", () => {
           targetLabel: "Database", label: "Data Store"
         }],
         summary: "Rename Database to Data Store",
-        requiresClientExecution: true
+        pageId: "p1",
+        documentRevision: "revision-1"
       }
     }));
     expect(response.nativeEdits?.operations[0]).toMatchObject({
