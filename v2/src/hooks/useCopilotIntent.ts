@@ -160,6 +160,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           text,
           {
             kind: "drawio", title: nativePage.title || "Draw.io diagram",
+            activePageId: nativePage.id || selectedNativePageId,
             selectedCell: selectedNativeCellId ? {
               cellId: selectedNativeCellId, pageId: nativePage.id || selectedNativePageId,
               label: selectedNativeTarget?.name || selectedNativeCellId
