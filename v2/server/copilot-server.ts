@@ -10,7 +10,7 @@ import { createEmptyDrawioXml, normalizeNewDrawioFileName } from "./diagram-file
 import { readCopilotProvider, describeModelRouting, isModelConfiguredWithoutProvider } from "./copilot/model-routing";
 import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
-import type { ProjectWorkspace } from "./workspace-files";
+import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
@@ -136,6 +136,21 @@ async function appendStudioConfig(config: StudioConfig, changeSummary: string): 
   studioConfig = config;
 }
 let projectWorkspace: ProjectWorkspace | null | undefined;
+
+async function getProjectWorkspace(): Promise<ProjectWorkspace | null> {
+  if (projectWorkspace !== undefined) return projectWorkspace;
+  const stored = await readJsonFile<ProjectWorkspace | null>(PROJECT_WORKSPACE_FILE, null);
+  if (!stored || typeof stored.rootPath !== "string" || typeof stored.name !== "string" ||
+      typeof stored.id !== "string" || (stored.primaryDiagram !== null && typeof stored.primaryDiagram !== "string")) {
+    projectWorkspace = null;
+    return projectWorkspace;
+  }
+  projectWorkspace = stored;
+  return projectWorkspace;
+}
+
+const workspaceFileService = createWorkspaceFileService(getProjectWorkspace);
+const { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext } = workspaceFileService;
 
 /** Draw.io XML is the only persisted model; version entries contain metadata and the complete XML. */
 type DiagramVersion = {
@@ -324,6 +339,106 @@ const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30
 const copilot = new CopilotRuntime({ log: writeLog, defaultModel: DEFAULT_MODEL, idleTtlMs: SESSION_IDLE_TTL_MS });
 
 
+
+app.get("/api/workspace/config", async (_req, res) => {
+  try {
+    const workspace = await getProjectWorkspace();
+    const suggestedRootPath = path.resolve(process.cwd(), path.basename(process.cwd()) === "v2" ? ".." : ".");
+    res.json({ configured: Boolean(workspace), workspace, suggestedRootPath });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/workspace/scan", async (req, res) => {
+  try {
+    const requestedRoot = typeof req.body?.rootPath === "string" ? req.body.rootPath.trim() : "";
+    const requestedName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : "";
+    if (!requestedRoot || requestedRoot.length > 2048) throw new Error("The local workspace directory path cannot be empty");
+    if (!requestedName) throw new Error("Workspace name cannot be empty");
+    const resolved = await resolveWorkspaceRoot(requestedRoot);
+    const previous = await getProjectWorkspace();
+    const sameRoot = previous?.rootPath === resolved.rootPath;
+    const now = new Date().toISOString();
+    const workspace: ProjectWorkspace = {
+      schemaVersion: 1,
+      id: sameRoot && previous ? previous.id : randomUUID(),
+      name: resolved.repositoryRoot ? path.basename(resolved.rootPath) : requestedName,
+      rootPath: resolved.rootPath,
+      primaryDiagram: sameRoot && previous ? previous.primaryDiagram : null,
+      includePatterns: sameRoot && previous ? previous.includePatterns : [],
+      excludePatterns: sameRoot && previous ? previous.excludePatterns : [],
+      createdAt: sameRoot && previous ? previous.createdAt : now,
+      updatedAt: now
+    };
+    const files = await scanWorkspaceFiles(workspace);
+    res.json({ workspace, files, rootAdjusted: resolved.requestedPath !== resolved.rootPath, repositoryRoot: resolved.repositoryRoot });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.put("/api/workspace/config", async (req, res) => {
+  try {
+    const requestedRoot = typeof req.body?.rootPath === "string" ? req.body.rootPath.trim() : "";
+    const requestedName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : "";
+    const requestedDiagram = typeof req.body?.primaryDiagram === "string" ? req.body.primaryDiagram.trim() : "";
+    if (!requestedRoot || requestedRoot.length > 2048) throw new Error("The local workspace directory path cannot be empty");
+    if (!requestedName) throw new Error("Workspace name cannot be empty");
+    if (!requestedDiagram || path.isAbsolute(requestedDiagram) || requestedDiagram.split(/[\\/]/).some((part) => part === "..") ||
+        !/\.(?:drawio|dio|xml)$/i.test(requestedDiagram)) {
+      throw new Error("Select an existing .drawio, .dio, or XML diagram inside the workspace");
+    }
+    const resolved = await resolveWorkspaceRoot(requestedRoot);
+    const previous = await getProjectWorkspace();
+    const sameRoot = previous?.rootPath === resolved.rootPath;
+    const now = new Date().toISOString();
+    const workspace: ProjectWorkspace = {
+      schemaVersion: 1,
+      id: sameRoot && previous ? previous.id : randomUUID(),
+      name: resolved.repositoryRoot ? path.basename(resolved.rootPath) : requestedName,
+      rootPath: resolved.rootPath,
+      primaryDiagram: requestedDiagram.replace(/\\/g, "/"),
+      includePatterns: sameRoot && previous ? previous.includePatterns : [],
+      excludePatterns: sameRoot && previous ? previous.excludePatterns : [],
+      createdAt: sameRoot && previous ? previous.createdAt : now,
+      updatedAt: now
+    };
+    const files = await scanWorkspaceFiles(workspace);
+    const selected = files.find((file) => file.path === workspace.primaryDiagram);
+    if (!selected || selected.kind !== "diagram" || !/\.(?:drawio|dio|xml)$/i.test(selected.path)) {
+      throw new Error("The selected diagram was not found inside the scanned workspace");
+    }
+    const contextChanged = !previous || previous.id !== workspace.id || previous.primaryDiagram !== workspace.primaryDiagram;
+    projectWorkspace = workspace;
+    await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace);
+    if (contextChanged) {
+      workspaceState = {
+        workspaceId: workspace.id, diagramPath: workspace.primaryDiagram, drawioXml: null,
+        copilotSessionId: null, chatMessages: [], updatedAt: now
+      };
+      await persistWorkspaceState(workspaceState);
+      // Load the newly selected file into the XML-only state so its optimistic revision matches
+      // the on-disk file before the browser's next autosave.
+      await getWorkspaceState();
+    }
+    await writeLog("workspace.config.saved", {
+      workspaceId: workspace.id, primaryDiagram: workspace.primaryDiagram, contextChanged,
+      fileCount: files.length
+    });
+    res.json({
+      configured: true, workspace, files,
+      counts: {
+        files: files.length, diagrams: files.filter((file) => file.kind === "diagram").length,
+        code: files.filter((file) => file.kind === "code").length,
+        documents: files.filter((file) => file.kind === "document").length
+      },
+      rootAdjusted: resolved.requestedPath !== resolved.rootPath, repositoryRoot: resolved.repositoryRoot
+    });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 app.get("/api/workspace/configuration", async (_req, res) => {
   const config = await getStudioConfig();
