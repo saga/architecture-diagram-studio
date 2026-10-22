@@ -65,6 +65,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const normalized = text.trim();
         const move = normalized.match(/(?:move|将|把)?\s*[“"']?(.+?)[”"']?\s*(向上移动|上移|向下移动|下移|向左移动|左移|向右移动|右移|move up|move down|move left|move right|up|down|left|right)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i);
         const rename = normalized.match(/(?:rename|change|set|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\s*[“"']?(.+?)[”"']?$/i);
+        const resize = normalized.match(/(?:resize|set size|调整大小|把|将)?\\s*[“"']?(.+?)[”"']?\\s*(?:resize to|尺寸改为|大小改为)\\s*(\\d+(?:\\.\\d+)?)\\s*[x×,]\\s*(\\d+(?:\\.\\d+)?)\\s*(?:px|pixels?|像素)?$/i);
+        const remove = normalized.match(/^(?:delete|remove|删除|移除)\\s*[“"']?(.+?)[”"']?\\s*(?:element|node|节点|元素)?[。.!！]?$/i);
         const recolor = normalized.match(/(?:change|set|make|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\s*(?:to|为|改成|设置为)?\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\s*$/i);
         const cells = Array.from(parsed.getElementsByTagName("mxCell"));
         const labelOf = (cell: Element) => {
@@ -72,8 +74,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           return (cell.getAttribute("value") || cell.getAttribute("label") || owner?.getAttribute("label") || owner?.getAttribute("value") || "")
             .replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
         };
-        const targetName = (move?.[1] || rename?.[1] || recolor?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
-        if (move || rename || recolor) {
+        const targetName = (move?.[1] || rename?.[1] || recolor?.[1] || resize?.[1] || remove?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
+        if (move || rename || recolor || resize || remove) {
           const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && cell.getAttribute("edge") !== "1");
           if (matches.length !== 1) throw new Error(matches.length ? "The label “" + targetName + "” is ambiguous (" + matches.length + " matching cells). Select a specific element or use a unique label." : "Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
           const cell = matches[0];
@@ -81,7 +83,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const geometry = cell.getElementsByTagName("mxGeometry")[0];
           if (!id) throw new Error("The target element has no stable Draw.io cell ID.");
           let path = "", value = "", summary = "";
-          if (move) {
+          if (remove) {\n            path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";\n          } else if (resize) {\n            const width = Number(resize[2]), height = Number(resize[3]);\n            if (!geometry || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Width and height must be between 1 and 10000 pixels.");\n            path = "geometry:width"; value = String(width); summary = "Resize “" + targetName + "” to " + width + " × " + height + " px";\n          } else if (move) {
             const direction = move[2].toLowerCase(), delta = Number(move[3]);
             if (!Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("Move distance must be between 0 and 10000 pixels.");
             const axis = direction.includes("left") || direction.includes("右") || direction.includes("左") ? "x" : "y";
@@ -101,8 +103,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             const colorMap: Record<string, string> = { red: "#ff0000", blue: "#0000ff", green: "#008000", black: "#000000", white: "#ffffff", orange: "#ffa500", purple: "#800080", "灰色": "#808080", "红色": "#ff0000", "蓝色": "#0000ff", "绿色": "#008000", "黑色": "#000000", "白色": "#ffffff", "橙色": "#ffa500", "紫色": "#800080" };
             path = "style:" + colorProperty; value = colorMap[rawColor] || rawColor; summary = "Set " + colorProperty + " of “" + targetName + "” to " + value;
           }
-          recordDiagnostic("copilot.standalone.native-edit.validated", "Validated a standalone native Draw.io edit against the authoritative XML", { cellId: id, targetName, operation: move ? "move" : rename ? "rename" : "recolor", path, value, xmlLength: drawioXml.length });
-          applyNativeCellEdit(id, path, value);
+          recordDiagnostic("copilot.standalone.native-edit.validated", "Validated a standalone native Draw.io edit against the authoritative XML", { cellId: id, targetName, operation: remove ? "delete" : resize ? "resize" : move ? "move" : rename ? "rename" : "recolor", path, value, xmlLength: drawioXml.length });
+          applyNativeCellEdit(id, path, value);\n          if (resize) applyNativeCellEdit(id, "geometry:height", String(Number(resize[3])));
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: summary + ". The native editor has been asked to apply the change and autosave; check Agent traces for the editor acknowledgement." }]);
           return;
         }
