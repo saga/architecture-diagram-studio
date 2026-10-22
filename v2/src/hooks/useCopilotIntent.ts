@@ -29,6 +29,7 @@ interface CopilotIntentOptions {
   setPreviewDocument: (document: DiagramDocument | null) => void;
   setPreviewSummary: (summary: string) => void;
   onAppliedEdit: (application: AppliedDiagramEdit) => void;
+  applyNativeCellEdit?: (cellId: string, path: string, value: string) => void;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
@@ -56,6 +57,31 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     setChatBusy(true);
     try {
       if (!workspaceContentReady && !standaloneMode) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
+      // Precise standalone moves operate on the authoritative native XML, never the lossy projection.
+      if (standaloneMode && applyNativeCellEdit) {
+        const move = text.match(/(?:move|将|把)?\s*[“"']?(.+?)[”"']?\s*(?:向下移动|下移|move down|down)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i)
+          || text.match(/(?:move|将|把)\s*[“"']?(.+?)[”"']?\s*(?:down|向下)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i);
+        if (move) {
+          const targetName = move[1].trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
+          const delta = Number(move[2]);
+          const parsed = new DOMParser().parseFromString(drawioXml, "application/xml");
+          if (parsed.querySelector("parsererror")) throw new Error("The authoritative Draw.io XML could not be parsed; no edit was applied.");
+          const cell = Array.from(parsed.getElementsByTagName("mxCell")).find((item) => {
+            const value = item.getAttribute("value") || item.getAttribute("label") || "";
+            const clean = value.replace(/<[^>]*>/g, " ").trim();
+            return clean.localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0;
+          });
+          if (!cell) throw new Error("Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
+          const id = cell.getAttribute("id");
+          const geometry = cell.getElementsByTagName("mxGeometry")[0];
+          const y = Number(geometry?.getAttribute("y"));
+          if (!id || !geometry || !Number.isFinite(y) || !Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("The target element has no valid ID/geometry or the requested distance is invalid.");
+          applyNativeCellEdit(id, "geometry:y", String(y + delta));
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "Requested native Draw.io move: “" + targetName + "” down " + delta + " px. The editor will autosave the XML; verify the updated element on the canvas." }]);
+          recordDiagnostic("copilot.standalone.native-edit.requested", "Requested a precise move through the native Draw.io bridge", { targetName, cellId: id, previousY: y, nextY: y + delta, deltaY: delta, xmlLength: drawioXml.length });
+          return;
+        }
+      }
       if (!standaloneMode) await persistDocumentNow(document, drawioXml, "Before Copilot request");
       let effectiveText = text;
       let modelReply = "";
@@ -166,6 +192,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit
   ]);
 }
