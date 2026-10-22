@@ -1235,9 +1235,9 @@ export default function App() {
         </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
           {previewDocument ? <div className="empty-inspector">Properties are read-only while a Copilot proposal is being previewed. Apply or discard the preview first.</div> : selectedNativeCellId ? <NativeSelectionInspector xml={drawioXml} cellId={selectedNativeCellId} pageId={selectedNativePageId}
-            onEdit={(cellId, path, value, pageId) => setCellEditRequest((previous) => ({
+            onEdit={(cellId, path, value, pageId) => setCellEditRequest({
               cellId, pageId, path, value, requestId: ++cellEditRequestSequenceRef.current
-            }))} /> : <>
+            })} /> : <>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
               <div className="field-label">Selected relation</div>
