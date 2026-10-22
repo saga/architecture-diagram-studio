@@ -231,10 +231,10 @@ export default function App() {
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
   const semanticEditingSafe = canApplySemanticEdits(drawioXml, generatedDrawioXml, document);
   const bootstrap = useWorkspaceBootstrap({
-    projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
-    historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
+    projectWorkspace, setNativeXmlOverride, setCopilotSessionId, setMessages,
+    serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
-  const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
+  const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
 
   // The native Draw.io editor is the only canvas. Unsupported native XML disables
@@ -283,7 +283,7 @@ export default function App() {
         setMessages([{ role: "assistant", id: Date.now(), text: "Created a new Draw.io diagram. The project workspace remains the folder; this file is the active diagram." }]);
         serverRevisionRef.current = result.workspaceRevision;
         workspaceInitialLoadRef.current = nextWorkspace.id;
-        setServerDocumentAvailable(true); setWorkspaceContentReady(true);
+        setServerXmlAvailable(true); setWorkspaceContentReady(true);
         setWorkspaceLaunchMode("open"); setWorkspaceSetupOpen(false);
         recordDiagnostic("workspace.diagram.created", "Created a new Draw.io file and opened it", {
           workspaceId: nextWorkspace.id, rootPath: nextWorkspace.rootPath, primaryDiagram: nextWorkspace.primaryDiagram,
@@ -349,7 +349,7 @@ export default function App() {
       // Opening a file is an explicit refresh, so don't let a prior Copilot receipt suppress
       // persistence if the native XML changed while the app was open.
       workspaceInitialLoadRef.current = nextWorkspace.id;
-      setServerDocumentAvailable(true); setProjectWorkspace(nextWorkspace); setStandaloneFileHandle(null); setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || workspaceFiles);
+      setServerXmlAvailable(true); setProjectWorkspace(nextWorkspace); setStandaloneFileHandle(null); setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
       setWorkspaceSetupOpen(false); setWorkspaceContentReady(true); setWorkspaceLaunchMode("open");
       recordDiagnostic("workspace.diagram.opened", "Opened an existing Draw.io file in the project workspace", {
