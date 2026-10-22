@@ -33,8 +33,10 @@ interface CopilotIntentOptions {
   setChatBusy: (busy: boolean) => void;
   setCopilotSessionId: (id: string) => void;
   applyNativeCellEdit?: (cellId: string, path: string, value: string) => void;
-  /** Executes one atomic batch in Draw.io and resolves only after editor acknowledgement. */
-  applyNativeCellEdits?: (edits: NativeCellEdit[], pageId: string | null) => Promise<NativeEditExecution>;
+  /** Executes an atomic batch and correlates its final editor/persistence result back to the server. */
+  applyNativeCellEdits?: (edits: NativeCellEdit[], pageId: string | null, acknowledgement: {
+    requestId: string; sessionId: string; standalone: boolean; documentRevision: string;
+  }) => Promise<NativeEditExecution>;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
@@ -139,7 +141,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const operations = plan.nativeEdits.operations;
         const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
-        const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId);
+        const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId, {
+          requestId: plan.nativeEdits.requestId,
+          sessionId: plan.sessionId || copilotSessionId,
+          standalone: standaloneMode,
+          documentRevision
+        });
         const describeAt = (stepIndex: number) => {
           let cursor = 0;
           for (const operation of operations) {
@@ -161,7 +168,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             id: Date.now() + 1,
             // Native edit status is derived from the editor acknowledgement, never from model-generated prose.
             text: "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
-              operations.map(describeNativeEditOperation).join("; ") + "."
+              operations.map(describeNativeEditOperation).join("; ") + "." + (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
           }]);
         } else {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
