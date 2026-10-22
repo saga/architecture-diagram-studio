@@ -368,33 +368,40 @@ export class CopilotRuntime {
   }
 
   private async abortAfterWatchdog(session: CopilotSession): Promise<void> {
-    let timer: NodeJS.Timeout | undefined;
+    let idleTimer: NodeJS.Timeout | undefined;
+    let abortTimer: NodeJS.Timeout | undefined;
     let off = () => {};
     let settled = false;
     const idle = new Promise<boolean>((resolve) => {
       const finish = (value: boolean) => {
         if (settled) return;
         settled = true;
-        if (timer) clearTimeout(timer);
+        if (idleTimer) clearTimeout(idleTimer);
         off();
         resolve(value);
       };
       off = session.on("session.idle", () => finish(true));
-      timer = setTimeout(() => finish(false), 10_000);
+      idleTimer = setTimeout(() => finish(false), 10_000);
     });
     try {
       await Promise.race([
         session.abort(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Copilot abort timed out")), 10_000))
+        new Promise<never>((_, reject) => {
+          abortTimer = setTimeout(() => reject(new Error("Copilot abort timed out")), 10_000);
+        })
       ]);
-      await idle;
+      const idleObserved = await idle;
+      if (!idleObserved) {
+        void Promise.resolve(this.options.log("turn.abort.idle-timeout", {})).catch(() => undefined);
+      }
     } catch (error) {
       void Promise.resolve(this.options.log("turn.abort.failed", {
         error: messageOf(error),
         idleObserved: settled
       })).catch(() => undefined);
     } finally {
-      if (timer) clearTimeout(timer);
+      if (idleTimer) clearTimeout(idleTimer);
+      if (abortTimer) clearTimeout(abortTimer);
       off();
     }
   }
