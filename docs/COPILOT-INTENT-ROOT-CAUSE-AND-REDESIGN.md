@@ -1,4 +1,7 @@
-# Copilot 改进意图：根因与方案
+# Copilot 意图处理：历史根因记录与当前扩展边界
+
+> **历史设计记录，不是当前缺陷清单。** 本文描述的是旧版前端正则与语义 Agent 之间的不一致。当前 V2 使用统一的服务端 Copilot native-edit 管线和 `NativeEditOperation` 合约；可查看 `v2/server/copilot/intent-route.ts`、`v2/src/model/native-edit-operations.ts` 与 `v2/README.md`。未来需要新增意图能力时，扩展类型化 native-cell 操作，不恢复第二套前端 intent parser。能力扩展边界见 [ADR-0012](./adr/0012-native-diagram-extension-contracts.md)。
+
 
 ## 根因
 
