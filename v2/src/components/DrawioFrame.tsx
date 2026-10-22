@@ -122,7 +122,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     } else {
       lastThemeAppliedRef.current = appliedKey;
     }
-  }, [theme, editorReady, xml]);
+  }, [theme, editorReady, iframeLoaded, xml]);
 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
