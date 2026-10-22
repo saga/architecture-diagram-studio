@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CopilotRuntime } from "./runtime";
 import { NativeExecutionAcknowledgements, registerCopilotIntentRoute } from "./intent-route";
 import { workspaceRevision } from "../storage";
+import type { ResolvedNativeEditOperation } from "../../src/model/native-edit-operations";
 
 const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -182,12 +183,16 @@ function seedAck(store: NativeExecutionAcknowledgements, overrides: Record<strin
     documentRevision: "source-revision",
     operationCount: 2,
     summary: "Rename Database; move API",
+    operations: [
+      { op: "set_label", target: "Database", label: "Data Store", cellId: "db", targetLabel: "Database" },
+      { op: "move", target: "API Service", dx: 10, dy: 0, cellId: "api", targetLabel: "API Service" }
+    ] as ResolvedNativeEditOperation[],
     createdAt: Date.now(),
     ...overrides
   };
   store.register(entry as {
     requestId: string; sessionId: string; standalone: boolean; documentRevision: string;
-    operationCount: number; summary: string; createdAt: number;
+    operationCount: number; summary: string; operations: ResolvedNativeEditOperation[]; createdAt: number;
   });
   return entry;
 }
@@ -382,6 +387,11 @@ describe("Copilot native-edit acknowledgement route", () => {
     const first = await post(harness.baseUrl, "/api/copilot/intent/ack", payload);
     expect(first.response.status).toBe(200);
     expect(first.body.outcome).toBe("applied");
+    expect(first.body.versionId).toBe("version-1");
+    expect(first.body.resolvedTargets).toEqual([
+      { cellId: "db", label: "Database" },
+      { cellId: "api", label: "API Service" }
+    ]);
     expect(harness.logs.filter((entry) => entry.event === "turn.native-edit.final-outcome")).toHaveLength(1);
   });
 
