@@ -1309,7 +1309,7 @@ app.get("/api/copilot/models", async (req, res) => {
 });
 
 registerCopilotIntentRoute(app, {
-  copilot, defaultModel: DEFAULT_MODEL, allowedCommands: ALLOWED_COMMANDS, writeLog,
+  copilot, defaultModel: DEFAULT_MODEL, writeLog,
   getStudioConfig, getProjectWorkspace, collectAgentWorkspaceContext,
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();
