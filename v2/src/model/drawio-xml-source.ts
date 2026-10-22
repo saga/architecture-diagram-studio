@@ -193,7 +193,7 @@ function managedCellIds(document: DiagramDocument): Set<string> {
 
 /**
  * True only if the entire single-page XML cell inventory is represented byte-for-byte
- * by the current Studio projection. This intentionally has false negatives: a native
+ * by the current semantic projection. This intentionally has false negatives: a native
  * document with custom structure stays in Draw.io instead of risking a lossy edit.
  */
 export function canApplySemanticEdits(sourceXml: string, projectionXml: string, document: DiagramDocument): boolean {
@@ -201,7 +201,7 @@ export function canApplySemanticEdits(sourceXml: string, projectionXml: string, 
   const projection = parseRootSlice(projectionXml);
   if (!source || !projection) return false;
   // The common lossless case is byte-identical root content. Metadata changes on <mxfile>
-  // or <mxGraphModel> must not force native-editor-only mode when every cell is unchanged.
+  // or <mxGraphModel> must not disable native editing when every cell is unchanged.
   // Since the entire cell payload equals the generated projection, no per-cell checks are needed.
   if (source.inner === projection.inner) return true;
   if (source.cellMap.size !== projection.cellMap.size) return false;
