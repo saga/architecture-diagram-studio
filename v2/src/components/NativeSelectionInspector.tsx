@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
 type PropertyEdit = (cellId: string, path: string, value: string) => void;
 interface Props { xml: string; cellId: string | null; onEdit: PropertyEdit; }
@@ -9,24 +10,56 @@ interface CellProperties {
   geometry: Element | null;
   label: string;
   style: string;
+  points: Array<{ x: string; y: string }>;
+  nestedGeometry: Array<{ name: string; attributes: Array<[string, string]> }>;
 }
 function readCellProperties(xml: string, cellId: string): CellProperties | null {
   try {
     const parsed = new DOMParser().parseFromString(xml, "application/xml");
     if (parsed.querySelector("parsererror")) return null;
-    const candidate = Array.from(parsed.querySelectorAll("[id]")).find((element) =>
-      element.getAttribute("id") === cellId && (element.localName === "mxCell" || !!element.querySelector("mxCell"))
-    );
-    if (!candidate) return null;
-    const cell = candidate.localName === "mxCell" ? candidate : candidate.querySelector("mxCell");
-    if (!cell) return null;
-    const wrapper = candidate === cell ? null : candidate;
-    const geometry = cell.querySelector(":scope > mxGeometry");
-    return {
-      wrapper, cell, geometry,
-      label: wrapper?.getAttribute("label") ?? cell.getAttribute("value") ?? "",
-      style: cell.getAttribute("style") ?? ""
-    };
+    const root = parsed.documentElement;
+    const models: Element[] = [];
+    if (root.localName === "mxGraphModel") models.push(root);
+    else if (root.localName === "mxfile") {
+      for (const page of Array.from(root.children).filter((element) => element.localName === "diagram")) {
+        const inlineModel = Array.from(page.children).find((element) => element.localName === "mxGraphModel");
+        if (inlineModel) {
+          models.push(inlineModel);
+          continue;
+        }
+        const payload = page.textContent?.trim() ?? "";
+        if (!payload) continue;
+        try {
+          const decoded = decodeDrawioPageXml(payload);
+          const modelDocument = new DOMParser().parseFromString(decoded, "application/xml");
+          if (!modelDocument.querySelector("parsererror") && modelDocument.documentElement.localName === "mxGraphModel") {
+            models.push(modelDocument.documentElement);
+          }
+        } catch { /* The schema validator reports malformed compressed pages elsewhere. */ }
+      }
+    }
+    for (const model of models) {
+      const candidate = Array.from(model.querySelectorAll("[id]")).find((element) =>
+        element.getAttribute("id") === cellId && (element.localName === "mxCell" || !!element.querySelector("mxCell"))
+      );
+      if (!candidate) continue;
+      const cell = candidate.localName === "mxCell" ? candidate : candidate.querySelector("mxCell");
+      if (!cell) continue;
+      const wrapper = candidate === cell ? null : candidate;
+      const geometry = Array.from(cell.children).find((element) => element.localName === "mxGeometry") ?? null;
+      const pointArray = geometry && Array.from(geometry.children).find((element) => element.localName === "Array" && element.getAttribute("as") === "points");
+      const points = pointArray ? Array.from(pointArray.children).filter((element) => element.localName === "mxPoint")
+        .map((point) => ({ x: point.getAttribute("x") ?? "", y: point.getAttribute("y") ?? "" })) : [];
+      const nestedGeometry = geometry ? Array.from(geometry.children)
+        .filter((element) => element !== pointArray)
+        .map((element) => ({ name: element.localName, attributes: attributes(element) })) : [];
+      return {
+        wrapper, cell, geometry, points, nestedGeometry,
+        label: wrapper?.getAttribute("label") ?? cell.getAttribute("value") ?? "",
+        style: cell.getAttribute("style") ?? ""
+      };
+    }
+    return null;
   } catch { return null; }
 }
 function attributes(element: Element | null): Array<[string, string]> {
@@ -57,7 +90,7 @@ export default function NativeSelectionInspector({ xml, cellId, onEdit }: Props)
   if (!cellId) return <div className="empty-inspector">Select an element or connector in the Draw.io canvas to inspect its native properties.</div>;
   if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> is not present in the current XML projection. Its native XML remains unchanged.</div>;
 
-  const { wrapper, cell, geometry, label, style } = properties;
+  const { wrapper, cell, geometry, label, style, points, nestedGeometry } = properties;
   const wrapperAttrs = attributes(wrapper).filter(([name]) => name !== "id" && name !== "label");
   const cellAttrs = attributes(cell).filter(([name]) => !["id", "value", "style", "parent", "source", "target"].includes(name));
   const geometryAttrs = attributes(geometry).filter(([name]) => name !== "as");
@@ -90,6 +123,15 @@ export default function NativeSelectionInspector({ xml, cellId, onEdit }: Props)
       {geometryAttrs.filter(([key]) => !["x", "y", "width", "height", "relative"].includes(key)).map(([key, value]) =>
         <Field key={key} label={"geometry." + key} value={value} readOnly />
       )}
+      {points.map((point, index) => <div className="native-property-point" key={index}>
+        <div className="field-label">Connector control point {index + 1}</div>
+        <Field label="x" value={point.x} onChange={update("point:" + index + ":x")} />
+        <Field label="y" value={point.y} onChange={update("point:" + index + ":y")} />
+      </div>)}
+      {nestedGeometry.map((item, index) => <details key={item.name + ":" + index} className="native-inspector-group">
+        <summary className="field-label">{item.name} attributes · {item.attributes.length}</summary>
+        {item.attributes.map(([key, value]) => <Field key={key} label={item.name + "." + key} value={value} readOnly />)}
+      </details>)}
     </div>}
     {tokens.length > 0 && <details className="native-inspector-group" open>
       <summary className="field-label">Style properties · {tokens.length}</summary>
