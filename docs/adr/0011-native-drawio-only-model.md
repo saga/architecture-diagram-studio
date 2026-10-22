@@ -22,6 +22,10 @@ Maintaining two graph models, import/export conversion, completeness checks, pro
 6. A document being unfamiliar or containing unsupported cell attributes is not an edit blocker. Reject only an operation whose target, page, or requested mutation cannot be validated safely.
 7. Agent inspection must describe the native cells it actually inspected. It must not report a semantic completeness flag or infer that the file is unusable because a projection is incomplete.
 
+## Extension interface
+
+ADR-0012 defines the allowed way to add future layout, style, structural-edit and quality-analysis capabilities without recreating a parallel graph model. The extension types are contracts only; they do not restore the retired semantic pipeline or imply that a provider is installed.
+
 ## Consequences
 
 - There is one source of truth and no XML-to-`DiagramDocument`-to-XML round trip for editing.
