@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { nodeVisualStyleFromDrawio, relationVisualStyleFromDrawio } from "./drawio";
 import { diagramPalette } from "../design/render-spec";
+import { fromDrawioXml } from "./drawio";
+import { FIXTURES } from "../model/fixtures";
+import type { DiagramDocument } from "../model/types";
 
 describe("Draw.io style import parity", () => {
   it("captures explicit native node fills, strokes, fonts and corner radius", () => {
@@ -39,6 +42,22 @@ describe("Draw.io style import parity", () => {
       endArrow: "diamond",
       endFill: false
     });
+  });
+
+  it("projects a Draw.io UserObject wrapper using the wrapper ID and label", () => {
+    const base: DiagramDocument = {
+      ...FIXTURES.c4(), id: "projection-test", title: "Wrapper test",
+      nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+    };
+    const xml = '<mxfile><diagram id="page-1" name="Wrapper test"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<UserObject id="user-object-7" label="Wrapped service" owner="ops" customKey="retain">' +
+      '<mxCell style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">' +
+      '<mxGeometry x="45" y="70" width="180" height="80" as="geometry"/>' +
+      '</mxCell></UserObject></root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, base);
+    expect(imported.nodes).toHaveLength(1);
+    expect(imported.nodes[0]).toMatchObject({ id: "user-object-7", name: "Wrapped service", x: 45, y: 70, width: 180, height: 80 });
   });
 
   it("doesn't freeze the generated theme defaults as custom overrides", () => {
