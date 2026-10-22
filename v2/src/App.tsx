@@ -1321,7 +1321,7 @@ export default function App() {
 
         <div className="canvas-stage">
           {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
-                      <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme}
+                      <DrawioFrame xml={previewDrawioXml ?? drawioXml} theme={uiTheme}
             onNativeEditResult={(result) => {
               const resolver = result.requestId === null ? undefined : nativeEditResolversRef.current.get(result.requestId);
               if (resolver && result.requestId !== null) {
@@ -1346,7 +1346,7 @@ export default function App() {
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={previewDocument ? null : cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
-            onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
+            onDocumentChange={previewDocument ? () => {} : (nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
