@@ -84,7 +84,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           if (!id) throw new Error("The target element has no stable Draw.io cell ID.");
           let path = "", value = "", summary = "";
           if (remove) {
-          if (remove) {
             path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";
           } else if (resize) {
             const width = Number(resize[2]), height = Number(resize[3]);
