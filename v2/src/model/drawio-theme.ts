@@ -142,6 +142,7 @@ export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: D
     }
     if (!changed) return cellTag;
     const replacement = encodeXmlAttribute(styleString(values));
+    if (!attr) return cellTag.slice(0, -1) + ' style="' + replacement + '">';
     return cellTag.slice(0, attr.index) + 'style="' + replacement + '"' + cellTag.slice(attr.index + attr[0].length);
   });
 }
