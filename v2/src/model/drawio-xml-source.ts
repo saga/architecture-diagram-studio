@@ -231,9 +231,9 @@ export function getDrawioXmlDiagnostics(xml: string): DrawioXmlDiagnostics {
   const pageCount = validation.format === "mxfile"
     ? validation.root.children.filter((child) => child.name === "diagram").length
     : validation.format === "mxGraphModel" ? 1 : 0;
+  // Page-count scope is an intentional integration constraint (LeanIX consumes the
+  // first page); do not present it as a compatibility defect. Keep pageCount available
+  // to callers that need informational UI, while surfacing only actual schema warnings.
   const warnings = [...validation.warnings];
-  if (pageCount > 1) {
-    warnings.unshift("This file has " + pageCount + " pages; Studio currently projects only the first page. The complete XML remains preserved.");
-  }
   return { pageCount, warnings: [...new Set(warnings)], issues: [] };
 }
