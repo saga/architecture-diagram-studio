@@ -5,6 +5,7 @@ import { parseNativeEditOperations } from "./model/native-edit-operations";
 describe("native Draw.io Copilot contract", () => {
   it("accepts typed native editor operations with server-resolved cell IDs", () => {
     const response = parseAIIntentResponse(JSON.stringify({
+      outcome: "command_ready",
       reply: "Add an audit service",
       nativeEdits: {
         operations: [{ op: "add_node_after", target: "Database", cellId: "db", targetLabel: "Database", newLabel: "Audit Service" }],
@@ -15,6 +16,7 @@ describe("native Draw.io Copilot contract", () => {
       },
       model: "stub-model"
     }));
+    expect(response.outcome).toBe("command_ready");
     expect(response.nativeEdits?.operations[0]).toMatchObject({
       op: "add_node_after", cellId: "db", newLabel: "Audit Service"
     });
