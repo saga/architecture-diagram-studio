@@ -422,7 +422,7 @@ function createSelectDiagramElementTool(sessionId: string) {
 function mergeTurnUsage(samples: TurnUsageMetrics[]): TurnUsageMetrics | undefined {
   if (!samples.length) return undefined;
   const result: TurnUsageMetrics = {
-    source: samples.every((item) => item.source === "assistant.usage") ? "assistant.usage" : "session-metrics"
+    source: samples.every((item) => item.source === "provider-event") ? "provider-event" : "session-metrics"
   };
   const byModel: NonNullable<TurnUsageMetrics["byModel"]> = {};
   for (const sample of samples) {
