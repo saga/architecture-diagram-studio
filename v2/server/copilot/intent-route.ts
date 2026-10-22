@@ -182,7 +182,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       return;
     }
     if (!proposal.standalone) {
-      const authoritative = await deps.getWorkspaceDiagramSnapshot();
+      let authoritative: { drawioXml: string; revision: string } | null;
+      try {
+        authoritative = await deps.getWorkspaceDiagramSnapshot();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace before confirming this proposal.", error: message.slice(0, 1000) });
+        return;
+      }
       if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
         pendingNativeProposals.delete(proposalId);
         res.status(409).json({ outcome: "stale_context", reply: "The workspace changed after this proposal was prepared.", error: "The proposal is stale; reload and create a new proposal.", documentRevision: authoritative?.revision ?? null });
@@ -256,7 +263,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       return;
     }
     if (outcome === "applied" && !pending.standalone) {
-      const authoritative = await deps.getWorkspaceDiagramSnapshot();
+      let authoritative: { drawioXml: string; revision: string } | null;
+      try {
+        authoritative = await deps.getWorkspaceDiagramSnapshot();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await deps.writeLog("turn.native-edit.ack-verification-failed", { requestId, sessionId, errorMessage: message });
+        res.status(502).json({ outcome: "failed", reply: "The edit result was received, but the server could not verify the saved workspace revision. Retry the acknowledgement.", error: message.slice(0, 1000), requestId });
+        return;
+      }
       if (persistenceStatus !== "saved" || !persistedRevision ||
           persistedRevision !== serializedXmlRevision || !authoritative ||
           authoritative.revision !== persistedRevision) {
