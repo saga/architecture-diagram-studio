@@ -22,12 +22,30 @@ describe("native Draw.io Copilot contract", () => {
   it("rejects native edit batches without resolved cell IDs", () => {
     expect(() => parseAIIntentResponse(JSON.stringify({
       nativeEdits: {
-        operations: [{ op: "set_label", target: "Database", label: "Store", cellId: "db", targetLabel: "Database" }],
+        operations: [{ op: "set_label", target: "Database", label: "Store" }],
         summary: "Rename",
         requiresClientExecution: true
       }
     }))).toThrow("resolved cell id");
   });
+
+  it("preserves the requested new label separately from the resolved target label", () => {
+    const response = parseAIIntentResponse(JSON.stringify({
+      reply: "Renamed Database to Data Store",
+      nativeEdits: {
+        operations: [{
+          op: "set_label", target: "Database", cellId: "db",
+          targetLabel: "Database", label: "Data Store"
+        }],
+        summary: "Rename Database to Data Store",
+        requiresClientExecution: true
+      }
+    }));
+    expect(response.nativeEdits?.operations[0]).toMatchObject({
+      op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store"
+    });
+  });
+
 
   it("rejects invalid JSON and unsupported operations instead of guessing an intent", () => {
     expect(() => parseAIIntentResponse("move database to the right")).toThrow("valid native-edit response");
