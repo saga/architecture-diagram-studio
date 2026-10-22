@@ -223,6 +223,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", plan.sessionId); } catch { /* Session remains active in memory. */ }
         }
         modelReply = plan.reply;
+        if (plan.selection) {
+          recordDiagnostic("copilot.selection.resolved", "Copilot resolved a native Draw.io cell selection", { cellId: plan.selection.cellId, pageId: plan.selection.pageId, label: plan.selection.label, standaloneMode });
+          if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
+          applyNativeCellEdit(plan.selection.cellId, "cell:select", plan.selection.pageId || "");
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "Selected “" + plan.selection!.label + "” on the diagram. No document change or commit was needed." }]);
+          return;
+        }
         recordDiagnostic("copilot.agent.response", "Received a structured result from the Copilot SDK agent", {
           sessionId: plan.sessionId || copilotSessionId, provider: plan.provider || "github-copilot-sdk", model: plan.model || aiModel.trim(),
           reasoningEffort: plan.reasoningEffort, durationMs: plan.durationMs, toolUsed: plan.application ? "apply_diagram_operation" : plan.proposal ? "propose_diagram_operation" : "propose_layout_plan",
