@@ -326,7 +326,7 @@ export default function App() {
             warningCount: xmlDiagnostics.warnings.length, warnings: xmlDiagnostics.warnings.slice(0, 20)
           }, "warn");
         }
-        const importBaseDocument = diagramContextChanged ? { ...FIXTURES.c4(), renderTheme: uiTheme } : document;
+        const importBaseDocument = diagramContextChanged ? FIXTURES.c4() : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
         // Valid native XML must open even when no cells can be represented by the partial
         // semantic projection; keep the source XML and disable unsafe semantic operations.
@@ -796,7 +796,7 @@ export default function App() {
       if (!isDrawioXmlDocument(xml)) throw new Error("The selected file is not a supported Draw.io diagram.");
       const empty: DiagramDocument = {
         ...FIXTURES.c4(), id: newId("opened"), title: file.name.replace(/\.(drawio|dio|xml)$/i, ""),
-        renderTheme: uiTheme, nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+        renderTheme: "editorial", nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
       };
       const parsed = fromDrawioXml(xml, empty);
       // Native Draw.io supports shapes and constructs outside our semantic projection.
