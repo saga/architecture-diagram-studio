@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 import tls from "node:tls";
-import { ProxyAgent } from "undici";
+import { Agent, ProxyAgent } from "undici";
 
 const VERSION = "v32.0.2";
 const SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -57,24 +57,41 @@ async function loadWar() {
   const startedAt = Date.now();
   log("Downloading the pinned Draw.io release for build-time bundling. No runtime network access is required.");
 
-  // Support HTTPS proxies that re-sign TLS traffic with an internal CA.
-  // TLS_TRUST_SSL_CERT_FILE (or DRAWIO_TRUST_SSL_CERT_FILE) points to a PEM CA certificate/bundle.
-  const trustSslCertFile = process.env.TLS_TRUST_SSL_CERT_FILE || process.env.DRAWIO_TRUST_SSL_CERT_FILE;
-  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+  // Support corporate HTTPS interception proxies and private CA certificates.
+  // The explicit project variables are useful for this script; standard Node/OpenSSL
+  // certificate variables are also accepted for local build environments.
+  const trustSslCertFile =
+    process.env.TLS_TRUST_SSL_CERT_FILE ||
+    process.env.DRAWIO_TRUST_SSL_CERT_FILE ||
+    process.env.NODE_EXTRA_CA_CERTS ||
+    process.env.SSL_CERT_FILE;
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy;
   let ca;
   if (trustSslCertFile) {
     const certPath = path.resolve(trustSslCertFile);
-    if (!fs.existsSync(certPath)) throw new Error("TLS trustSslCertFile does not exist: " + certPath);
-    ca = [...tls.rootCertificates, fs.readFileSync(certPath)];
-    log("Custom TLS trust certificate configured: " + certPath);
+    if (!fs.existsSync(certPath)) {
+      throw new Error("TLS CA certificate file does not exist: " + certPath);
+    }
+    const customCa = fs.readFileSync(certPath);
+    if (!customCa.length) throw new Error("TLS CA certificate file is empty: " + certPath);
+    // Keep Node's public roots and add the corporate/private CA instead of replacing them.
+    ca = [...tls.rootCertificates, customCa];
+    log("Additional TLS CA certificate configured from: " + certPath);
   }
   const dispatcher = proxyUrl
     ? new ProxyAgent({
         uri: proxyUrl,
         ...(ca ? { proxyTls: { ca }, requestTls: { ca } } : {})
       })
-    : undefined;
+    : ca
+      ? new Agent({ connect: { ca } })
+      : undefined;
   if (proxyUrl) log("HTTPS proxy configured: " + new globalThis.URL(proxyUrl).origin);
+  if (ca && !proxyUrl) log("Using custom TLS trust with a direct HTTPS connection.");
   log("GET " + DRAWIO_ARCHIVE_URL);
   const response = await fetch(DRAWIO_ARCHIVE_URL, dispatcher ? { dispatcher } : undefined);
   log("Download response: status=" + response.status + " " + response.statusText +
