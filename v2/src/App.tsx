@@ -109,7 +109,9 @@ export default function App() {
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
+  const cellEditRequestSequenceRef = useRef(0);
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
+  useEffect(() => { setCellEditRequest(null); }, [previewDocument, activePage, projectWorkspace?.id]);
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
@@ -1234,7 +1236,7 @@ export default function App() {
         {rightPanelTab === "properties" && <section className="inspector-section">
           {previewDocument ? <div className="empty-inspector">Properties are read-only while a Copilot proposal is being previewed. Apply or discard the preview first.</div> : selectedNativeCellId ? <NativeSelectionInspector xml={drawioXml} cellId={selectedNativeCellId} pageId={selectedNativePageId}
             onEdit={(cellId, path, value, pageId) => setCellEditRequest((previous) => ({
-              cellId, pageId, path, value, requestId: (previous?.requestId ?? 0) + 1
+              cellId, pageId, path, value, requestId: ++cellEditRequestSequenceRef.current
             }))} /> : <>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
