@@ -80,10 +80,13 @@
         collect(activeModel.getRoot());
         var affectedIds = Object.create(null);
         var deletedIds = Object.create(null);
+        var restoreAllIds = Object.create(null);
+        var pathsById = Object.create(null);
         function markCellTree(cell) {
           if (!cell || cell.id === "0" || cell.id === "1" || affectedIds[cell.id]) return;
           affectedIds[cell.id] = true;
           deletedIds[cell.id] = true;
+          restoreAllIds[cell.id] = true;
           var childCount = activeModel.getChildCount(cell);
           for (var childIndex = 0; childIndex < childCount; childIndex++) {
             markCellTree(activeModel.getChildAt(cell, childIndex));
@@ -92,10 +95,12 @@
         operations.forEach(function (operation) {
           if (!operation || typeof operation.cellId !== "string") return;
           if (operation.path === "cell:delete") {
-            // markCellTree must own the first visit so it can also mark descendants and incident edges.
+            // A delete can affect the entire cell tree and all incident edges.
             markCellTree(activeModel.getCell(operation.cellId));
           } else if (operation.cellId !== "0" && operation.cellId !== "1") {
             affectedIds[operation.cellId] = true;
+            if (!pathsById[operation.cellId]) pathsById[operation.cellId] = [];
+            pathsById[operation.cellId].push(operation.path);
           }
         });
         // Deleting a vertex can also remove its connected edges. Include only those edges
@@ -104,6 +109,7 @@
           if (item && item.edge &&
               ((item.source && deletedIds[item.source.id]) || (item.target && deletedIds[item.target.id]))) {
             affectedIds[item.id] = true;
+            restoreAllIds[item.id] = true;
           }
         });
         var snapshots = allCells.filter(function (item) {
@@ -112,7 +118,8 @@
           return { cell: item, value: item.value && typeof item.value.cloneNode === "function" ? item.value.cloneNode(true) : item.value,
             style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
             index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
-            visible: item.visible, collapsed: item.collapsed, connectable: item.connectable };
+            visible: item.visible, collapsed: item.collapsed, connectable: item.connectable,
+            paths: (pathsById[item.id] || []).slice(), restoreAll: Boolean(restoreAllIds[item.id]) };
         });
         var batchResults = [];
         var failedIndex = -1;
@@ -151,19 +158,25 @@
               if (activeModel.getCell(item.id) !== item && snapshot.parent) {
                 activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
               }
-              activeModel.setValue(item, snapshot.value);
-              activeModel.setStyle(item, snapshot.style);
-              if (snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
-              // Only edge cells own terminals. Calling setTerminal on a vertex can throw
-              // in Draw.io and falsely report that the whole rollback failed.
-              if (item.edge) {
-                activeModel.setTerminal(item, snapshot.source || null, true);
-                activeModel.setTerminal(item, snapshot.target || null, false);
+              var restoreAll = snapshot.restoreAll;
+              var paths = snapshot.paths;
+              var restoreValue = restoreAll || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
+              var restoreStyle = restoreAll || paths.indexOf("style") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
+              var restoreGeometry = restoreAll || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
+              var restoreSource = restoreAll || paths.indexOf("cell:source") >= 0;
+              var restoreTarget = restoreAll || paths.indexOf("cell:target") >= 0;
+              if (restoreValue) activeModel.setValue(item, snapshot.value);
+              if (restoreStyle) activeModel.setStyle(item, snapshot.style);
+              if (restoreGeometry && snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
+              // Only edge cells own terminals. Restore only terminals the operation may change.
+              if (item.edge && restoreSource) activeModel.setTerminal(item, snapshot.source || null, true);
+              if (item.edge && restoreTarget) activeModel.setTerminal(item, snapshot.target || null, false);
+              if ((restoreAll || paths.indexOf("cell:parent") >= 0) && snapshot.parent && item.parent !== snapshot.parent) {
+                activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
               }
-              if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
-              if (typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
-              if (typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
-              if (typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
+              if ((restoreAll || paths.indexOf("cell:visible") >= 0) && typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
+              if ((restoreAll || paths.indexOf("cell:collapsed") >= 0) && typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
+              if ((restoreAll || paths.indexOf("cell:connectable") >= 0) && typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
             } catch (rollbackError) {
               rollbackErrors.push({ cellId: snapshot.cell.id, error: rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError) });
             }
