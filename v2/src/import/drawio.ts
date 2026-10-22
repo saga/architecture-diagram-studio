@@ -309,7 +309,8 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     }
   }
 
-  const importedNodeIds = new Set(nodes.map((node) => node.id));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const importedNodeIds = new Set(nodeById.keys());
   // Resolve edges only after all vertices (including later-in-XML endpoints) are indexed.
   for (const cell of cells) {
     if (cell.getAttribute("edge") !== "1") continue;
@@ -319,6 +320,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     const value = plainLabel(cell.getAttribute("value") || wrapper.getAttribute("label") || "");
     const style = cell.getAttribute("style") || "";
     if (id.endsWith("__lifeline")) continue;
+
     const rawSource = cell.getAttribute("source") || "";
     const rawTarget = cell.getAttribute("target") || "";
     const styleSource = style.match(/(?:^|;)studioSource=([^;]+)/)?.[1];
@@ -328,34 +330,44 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     const target = styleTarget || (rawTarget.includes("__messageTargetAnchor") ? old?.target || rawTarget : rawTarget);
     if (!previousNodes.has(source) && !importedNodeIds.has(source)) continue;
     if (!previousNodes.has(target) && !importedNodeIds.has(target)) continue;
+
     const geometry = directChild(cell, "mxGeometry");
-    const pointElements = geometry ? directChildren(geometry, "Array").filter((array) => array.getAttribute("as") === "points").flatMap((array) => directChildren(array, "mxPoint")) : [];
-    const points: Point[] = pointElements.map((point) => ({ x: Number(point.getAttribute("x") || 0), y: Number(point.getAttribute("y") || 0) }));
-      const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
-      const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\d+)(?:;|$)/)?.[1];
-      const relationKind = explicitKind || old?.kind || "flow";
-      const importedRelationStyle = relationVisualStyleFromDrawio(style, relationKind, previous.renderTheme || "editorial");
-      const sourceGeometryNode = nodes.find((node) => node.id === source) || previousNodes.get(source);
-      const targetGeometryNode = nodes.find((node) => node.id === target) || previousNodes.get(target);
-      const readPort = (xKey: "exitX" | "entryX", yKey: "exitY" | "entryY", node: DiagramNode | undefined): Point | undefined => {
-        if (!node) return undefined;
-        const xValue = style.match(new RegExp("(?:^|;)" + xKey + "=([-+0-9.eE]+)(?:;|$)"))?.[1];
-        const yValue = style.match(new RegExp("(?:^|;)" + yKey + "=([-+0-9.eE]+)(?:;|$)"))?.[1];
-        if (xValue === undefined || yValue === undefined) return undefined;
-        const x = Number(xValue), y = Number(yValue);
-        return Number.isFinite(x) && Number.isFinite(y)
-          ? { x: node.x + x * node.width, y: node.y + y * node.height }
-          : undefined;
-      };
-      const sourcePort = readPort("exitX", "exitY", sourceGeometryNode);
-      const targetPort = readPort("entryX", "entryY", targetGeometryNode);
-      relations.push({
-        ...(old || { id, source, target, label: value, kind: explicitKind || "flow" }),
-        source, target, label: value,
-        kind: relationKind,
-        sequenceOrder: explicitSequenceOrder === undefined ? old?.sequenceOrder : Number(explicitSequenceOrder),
-        dashed: style.includes("dashed=1"),
-        routing: style.includes("curved=1") ? "curved" : style.includes("edgeStyle=orthogonalEdgeStyle") ? "orthogonal" : "polyline",
+    const pointElements = geometry ? directChildren(geometry, "Array")
+      .filter((array) => array.getAttribute("as") === "points")
+      .flatMap((array) => directChildren(array, "mxPoint")) : [];
+    const points: Point[] = pointElements.map((point) => ({
+      x: Number(point.getAttribute("x") || 0),
+      y: Number(point.getAttribute("y") || 0)
+    }));
+    const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
+    const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\\d+)(?:;|$)/)?.[1];
+    const relationKind = explicitKind || old?.kind || "flow";
+    const importedRelationStyle = relationVisualStyleFromDrawio(style, relationKind, previous.renderTheme || "editorial");
+    const sourceGeometryNode = nodeById.get(source) || previousNodes.get(source);
+    const targetGeometryNode = nodeById.get(target) || previousNodes.get(target);
+    const readPort = (
+      xKey: "exitX" | "entryX",
+      yKey: "exitY" | "entryY",
+      node: DiagramNode | undefined
+    ): Point | undefined => {
+      if (!node) return undefined;
+      const xValue = style.match(new RegExp("(?:^|;)" + xKey + "=([-+0-9.eE]+)(?:;|$)"))?.[1];
+      const yValue = style.match(new RegExp("(?:^|;)" + yKey + "=([-+0-9.eE]+)(?:;|$)"))?.[1];
+      if (xValue === undefined || yValue === undefined) return undefined;
+      const x = Number(xValue), y = Number(yValue);
+      return Number.isFinite(x) && Number.isFinite(y)
+        ? { x: node.x + x * node.width, y: node.y + y * node.height }
+        : undefined;
+    };
+    const sourcePort = readPort("exitX", "exitY", sourceGeometryNode);
+    const targetPort = readPort("entryX", "entryY", targetGeometryNode);
+    relations.push({
+      ...(old || { id, source, target, label: value, kind: explicitKind || "flow" }),
+      source, target, label: value,
+      kind: relationKind,
+      sequenceOrder: explicitSequenceOrder === undefined ? old?.sequenceOrder : Number(explicitSequenceOrder),
+      dashed: style.includes("dashed=1"),
+      routing: style.includes("curved=1") ? "curved" : style.includes("edgeStyle=orthogonalEdgeStyle") ? "orthogonal" : "polyline",
       sourcePort, targetPort,
       points,
       visualStyle: importedRelationStyle
