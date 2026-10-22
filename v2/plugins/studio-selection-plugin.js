@@ -97,6 +97,10 @@
           });
         } catch (error) {
           var rollbackErrors = [];
+          var failedOperation = operations[failedIndex];
+          batchResults.push({ index: failedIndex + 1, cellId: failedOperation && failedOperation.cellId || null,
+            path: failedOperation && failedOperation.path || null, value: failedOperation && failedOperation.value || null,
+            success: false, error: error && error.message ? String(error.message) : String(error) });
           snapshots.forEach(function (snapshot) {
             try {
               var item = snapshot.cell;
@@ -120,6 +124,7 @@
           failure.batchResults = batchResults;
           failure.failedIndex = failedIndex;
           failure.rollbackErrors = rollbackErrors;
+          failure.batchRolledBack = rollbackErrors.length === 0;
           throw failure;
         } finally { activeModel.endUpdate(); }
         if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
@@ -337,7 +342,8 @@
             error: error && error.message ? String(error.message) : String(error),
             batchResults: error && error.batchResults || null,
             failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null,
-            rollbackErrors: error && error.rollbackErrors || [] });
+            rollbackErrors: error && error.rollbackErrors || [],
+            batchRolledBack: error && typeof error.batchRolledBack === "boolean" ? error.batchRolledBack : null });
         }
       } else if (request.event === "studioSetBackground") {
         var backgroundGraph = currentGraph();
