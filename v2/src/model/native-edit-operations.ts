@@ -298,12 +298,23 @@ export type NativeCellEditPlan =
 /**
  * Converts resolved operations into the bridge's `cell:batch` steps.
  *
- * `move` is expressed as a delta by the model but the bridge needs absolute coordinates,
- * so the current geometry is read from the authoritative XML the browser already holds.
+ * The source XML is used only to reject a target that is not present on the expected page; move
+ * remains a delta so the native editor applies it to live geometry rather than stale coordinates.
  */
 export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml: string, pageId?: string | null): NativeCellEditPlan {
   if (operations.length === 0) return { ok: false, error: "No native edit operations were supplied" };
   if (operations.length > MAX_NATIVE_EDIT_OPERATIONS) return { ok: false, error: `At most ${MAX_NATIVE_EDIT_OPERATIONS} operations can be executed at once` };
+  let activeTargetIds: Set<string>;
+  try {
+    activeTargetIds = new Set(extractNativeEditTargets(xml, pageId).map((target) => target.id));
+  } catch (error) {
+    return { ok: false, error: "The Draw.io XML could not be indexed: " + (error instanceof Error ? error.message : String(error)) };
+  }
+  for (const operation of operations) {
+    if (typeof operation.cellId !== "string" || !activeTargetIds.has(operation.cellId)) {
+      return { ok: false, error: `Cell “${operation.targetLabel || operation.target}” is not present on the expected Draw.io page` };
+    }
+  }
   const edits: NativeCellEdit[] = [];
   for (const operation of operations) {
     const cellId = operation.cellId;
