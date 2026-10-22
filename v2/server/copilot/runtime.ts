@@ -580,7 +580,21 @@ export class CopilotRuntime {
       // which can make sendAndWait hang forever. This runtime uses mode:"empty" and
       // exposes only Studio-owned custom tools, so approve each tool invocation once;
       // no ambient shell/filesystem tools are enabled by this session configuration.
-      onPermissionRequest: async (request) => {
+      onPermissionRequest: async (request, invocation) => {
+        // This app has no human approval UI. Never auto-approve a request that carries
+        // managed-policy requirements; explicitly fail closed instead of leaving it pending.
+        const managedApprovalRequired = request.managedApprovalRequired === true;
+        const managedSettingsEnabled = invocation.managedSettingsEnabled === true;
+        if (managedApprovalRequired || managedSettingsEnabled) {
+          this.logDetached("permission.request", {
+            kind: request.kind,
+            decision: "user-not-available",
+            managedApprovalRequired,
+            managedSettingsEnabled
+          });
+          return { kind: "user-not-available" };
+        }
+
         // Permission callbacks must never depend on log storage completing. A slow disk/log
         // sink here blocks the SDK's permission handshake and can stall sendAndWait.
         this.logDetached("permission.request", {
