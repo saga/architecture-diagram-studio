@@ -8,6 +8,7 @@ export interface AIProviderConfig {
   reasoningEffort?: "high" | "max";
   sessionId?: string;
   apiKey?: string;
+  standalone?: boolean;
 }
 
 export interface AIIntentContext {
@@ -131,7 +132,7 @@ export async function requestAIIntentPlan(
     response = await fetch("/api/copilot/intent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, context, ...(model ? { model } : {}), ...(config.sessionId ? { sessionId: config.sessionId } : {}), reasoningEffort: config.reasoningEffort || "max" }),
+      body: JSON.stringify({ prompt, context, ...(model ? { model } : {}), ...(config.sessionId ? { sessionId: config.sessionId } : {}), reasoningEffort: config.reasoningEffort || "max", standalone: config.standalone === true }),
       signal: AbortSignal.timeout(90_000)
     });
   } catch (error) {
