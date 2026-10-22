@@ -108,6 +108,7 @@ type StoredDiagramVersion = Omit<DiagramVersion, "document"> & { document?: unkn
 type StoredWorkspaceState = Omit<WorkspaceState, "document"> & { document?: unknown | null };
 const withDataWrite = createSerializedWriteQueue();
 let workspaceState: WorkspaceState | null = null;
+let workspaceNeedsProjectionMigration = false;
 let diagramVersions: DiagramVersion[] | null = null;
 let diagramVersionsLoad: Promise<DiagramVersion[]> | null = null;
 async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
@@ -140,6 +141,7 @@ async function persistWorkspaceState(state: WorkspaceState | null = workspaceSta
   const persisted = { ...state } as Partial<WorkspaceState>;
   delete persisted.document;
   await writeJsonAtomic(WORKSPACE_FILE, persisted);
+  workspaceNeedsProjectionMigration = false;
 }
 
 async function persistDiagramVersions(versions: DiagramVersion[] = diagramVersions || []): Promise<void> {
@@ -157,6 +159,7 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
       drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null
     });
     workspaceState = { ...stored, document: stored.document ?? null };
+    workspaceNeedsProjectionMigration = Object.prototype.hasOwnProperty.call(stored, "document");
   }
 
   if (typeof workspaceState.drawioXml !== "string") {
@@ -184,6 +187,7 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
   const xml = workspaceState.drawioXml;
   if (typeof xml === "string" && validateDrawioXmlDocument(xml).success) {
     workspaceState = { ...workspaceState, document: projectDocumentFromXml(xml) };
+    if (workspaceNeedsProjectionMigration) await persistWorkspaceState(workspaceState);
     return workspaceState;
   }
 
@@ -200,6 +204,7 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
   }
 
   workspaceState = { ...workspaceState, document: null };
+  if (workspaceNeedsProjectionMigration) await persistWorkspaceState(workspaceState);
   return workspaceState;
 }
 const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
