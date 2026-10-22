@@ -152,64 +152,43 @@ async function adoptConfiguredModel(config: StudioConfig): Promise<StudioConfig>
 }
 async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> { await mkdir(DATA_DIR, { recursive: true }); await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", "utf8"); studioConfig = config; }
 let projectWorkspace: ProjectWorkspace | null | undefined;
-/** Runtime version view includes a projection derived from XML; only XML is serialized to disk. */
-type DiagramVersion = { id: string; workspaceId?: string; diagramPath?: string | null; createdAt: string; label: string; document: unknown; drawioXml: string };
-/** Runtime workspace view. The document field is derived in memory and omitted from workspace.json. */
-type WorkspaceState = { workspaceId?: string; diagramPath?: string | null; document: unknown | null; drawioXml: string | null; copilotSessionId: string | null; chatMessages: unknown[]; updatedAt: string | null };
-type StoredDiagramVersion = Omit<DiagramVersion, "document"> & { document?: unknown; drawioXml?: string };
-type StoredWorkspaceState = Omit<WorkspaceState, "document"> & { document?: unknown | null };
+
+/** Draw.io XML is the only persisted model; version entries contain metadata and the complete XML. */
+type DiagramVersion = {
+  id: string;
+  workspaceId?: string;
+  diagramPath?: string | null;
+  createdAt: string;
+  label: string;
+  drawioXml: string;
+};
+type WorkspaceState = {
+  workspaceId?: string;
+  diagramPath?: string | null;
+  drawioXml: string | null;
+  copilotSessionId: string | null;
+  chatMessages: unknown[];
+  updatedAt: string | null;
+};
+type StoredDiagramVersion = Omit<DiagramVersion, "drawioXml"> & { drawioXml?: unknown; document?: unknown };
+type StoredWorkspaceState = Partial<WorkspaceState> & { document?: unknown };
+
 const withDataWrite = createSerializedWriteQueue();
 let workspaceState: WorkspaceState | null = null;
-let workspaceNeedsProjectionMigration = false;
 let diagramVersions: DiagramVersion[] | null = null;
 let diagramVersionsLoad: Promise<DiagramVersion[]> | null = null;
+
 async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(file, "utf8")) as T; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback; throw error; }
 }
-let projectedSourceXml: string | null = null;
-let projectedSourceDocument: DiagramDocument | null = null;
-let projectedSourceIsValid = false;
-let projectedSourceCachedValidity = false;
-
-/** Rebuild the ephemeral semantic view from XML; never hydrate the view from persisted JSON. */
-function projectDocumentFromXml(xml: string): DiagramDocument {
-  if (projectedSourceXml === xml && projectedSourceDocument) {
-    projectedSourceIsValid = projectedSourceCachedValidity;
-    return projectedSourceDocument;
-  }
-  const validation = validateDrawioXmlDocument(xml);
-  projectedSourceIsValid = validation.success;
-  projectedSourceCachedValidity = validation.success;
-  const firstPage = validation.success && validation.root.name === "mxfile"
-    ? validation.root.children.find((child) => child.name === "diagram") : undefined;
-  const title = firstPage?.attributes.name || "Draw.io diagram";
-  const id = firstPage?.attributes.id || "drawio-xml-projection";
-  const emptyProjection: DiagramDocument = {
-    ...FIXTURES.c4(), id, title,
-    nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
-  };
-  const parsed = validation.success ? fromDrawioXml(xml, emptyProjection) : emptyProjection;
-  projectedSourceXml = xml;
-  projectedSourceDocument = parsed;
-  return parsed;
-}
 
 async function persistWorkspaceState(state: WorkspaceState | null = workspaceState): Promise<void> {
-  if (!state) return;
-  const persisted = { ...state } as Partial<WorkspaceState>;
-  delete persisted.document;
-  await writeJsonAtomic(WORKSPACE_FILE, persisted);
-  workspaceNeedsProjectionMigration = false;
+  if (state) await writeJsonAtomic(WORKSPACE_FILE, state);
 }
 
 async function persistDiagramVersions(versions: DiagramVersion[] = diagramVersions || []): Promise<void> {
-  const persisted: StoredDiagramVersion[] = versions.map((version) => {
-    const item = { ...version } as Partial<DiagramVersion>;
-    delete item.document;
-    return item as StoredDiagramVersion;
-  });
-  await writeJsonAtomic(VERSIONS_FILE, persisted);
+  await writeJsonAtomic(VERSIONS_FILE, versions);
 }
 
 async function getWorkspaceState(): Promise<WorkspaceState> {
@@ -217,8 +196,16 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
     const stored = await readJsonFile<StoredWorkspaceState>(WORKSPACE_FILE, {
       drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null
     });
-    workspaceState = { ...stored, document: stored.document ?? null };
-    workspaceNeedsProjectionMigration = Object.prototype.hasOwnProperty.call(stored, "document");
+    workspaceState = {
+      ...(typeof stored.workspaceId === "string" ? { workspaceId: stored.workspaceId } : {}),
+      ...(typeof stored.diagramPath === "string" || stored.diagramPath === null ? { diagramPath: stored.diagramPath } : {}),
+      drawioXml: typeof stored.drawioXml === "string" ? stored.drawioXml : null,
+      copilotSessionId: typeof stored.copilotSessionId === "string" ? stored.copilotSessionId : null,
+      chatMessages: Array.isArray(stored.chatMessages) ? stored.chatMessages : [],
+      updatedAt: typeof stored.updatedAt === "string" ? stored.updatedAt : null
+    };
+    // Discard the obsolete persisted projection field the first time XML-only state is written.
+    if (Object.prototype.hasOwnProperty.call(stored, "document")) await persistWorkspaceState(workspaceState);
   }
 
   if (typeof workspaceState.drawioXml !== "string") {
@@ -227,49 +214,23 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
       try {
         const { absolutePath } = await resolveWorkspaceFile(activeWorkspace.primaryDiagram);
         const sourceXml = await readFile(absolutePath, "utf8");
-        const projection = projectDocumentFromXml(sourceXml);
-        const validSource = projectedSourceIsValid;
-        workspaceState = {
-          ...workspaceState, workspaceId: activeWorkspace.id, diagramPath: activeWorkspace.primaryDiagram,
-          drawioXml: sourceXml, document: validSource ? projection : null
-        };
-        // Import the existing file into the source store without replacing its XML.
-        await persistWorkspaceState(workspaceState);
-        if (validSource) return workspaceState;
+        if (validateDrawioXmlDocument(sourceXml).success) {
+          workspaceState = {
+            ...workspaceState,
+            workspaceId: activeWorkspace.id,
+            diagramPath: activeWorkspace.primaryDiagram,
+            drawioXml: sourceXml
+          };
+          await persistWorkspaceState(workspaceState);
+        }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        // A newly configured path may not exist yet; keep it uninitialized instead of
-        // reconstructing a file from a stale semantic cache.
       }
     }
   }
-
-  const xml = workspaceState.drawioXml;
-  if (typeof xml === "string") {
-    const projection = projectDocumentFromXml(xml);
-    if (projectedSourceIsValid) {
-      workspaceState = { ...workspaceState, document: projection };
-      if (workspaceNeedsProjectionMigration) await persistWorkspaceState(workspaceState);
-      return workspaceState;
-    }
-  }
-
-  // One-time migration for a previous Studio-only workspace with no native file selected.
-  // Never use a cached projection to replace an external primary diagram.
-  if (typeof workspaceState.drawioXml !== "string" && isDiagramDocument(workspaceState.document)) {
-    const configuredWorkspace = await getProjectWorkspace();
-    if (!configuredWorkspace?.primaryDiagram) {
-      const xmlFromLegacyStudio = toDrawioXml(workspaceState.document);
-      workspaceState = { ...workspaceState, drawioXml: xmlFromLegacyStudio, document: projectDocumentFromXml(xmlFromLegacyStudio) };
-      await persistWorkspaceState(workspaceState);
-      return workspaceState;
-    }
-  }
-
-  workspaceState = { ...workspaceState, document: null };
-  if (workspaceNeedsProjectionMigration) await persistWorkspaceState(workspaceState);
   return workspaceState;
 }
+
 const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
 const MAX_TOTAL_DIAGRAM_VERSIONS = Math.min(5000, Math.max(100, Number(process.env.STUDIO_MAX_TOTAL_DIAGRAM_VERSIONS) || 500));
 function retainRecentVersions(versions: DiagramVersion[]): DiagramVersion[] {
@@ -277,20 +238,15 @@ function retainRecentVersions(versions: DiagramVersion[]): DiagramVersion[] {
 }
 function versionMatchesActiveDiagram(version: DiagramVersion, workspace: ProjectWorkspace | null): boolean {
   const activePath = workspace?.primaryDiagram ?? null;
-  // Older versions have no diagramPath. Treat them as belonging to the previously configured diagram;
-  // /api/workspace/config and /api/workspace/diagram/create pin them before the active path changes.
   return (!workspace || version.workspaceId === workspace.id) &&
     (version.diagramPath === undefined || version.diagramPath === activePath);
 }
 function workspaceStateMatchesActiveDiagram(state: WorkspaceState, workspace: ProjectWorkspace | null): boolean {
   if (state.workspaceId && workspace && state.workspaceId !== workspace.id) return false;
-  // An unscoped legacy document must not masquerade as the current primary diagram.
   if (workspace?.primaryDiagram && !state.workspaceId) return false;
   if (state.diagramPath !== undefined && workspace && state.diagramPath !== (workspace.primaryDiagram ?? null)) return false;
   return true;
 }
-
-/** If a primary file exists but its content is not hydrated, semantic mutations must wait. */
 function hasUnloadedPrimaryDiagramXml(state: WorkspaceState, workspace: ProjectWorkspace | null): boolean {
   return Boolean(workspace?.primaryDiagram && /\.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram) && typeof state.drawioXml !== "string");
 }
@@ -299,27 +255,24 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (!diagramVersionsLoad) {
     diagramVersionsLoad = (async () => {
       const stored = await readJsonFile<StoredDiagramVersion[]>(VERSIONS_FILE, []);
-      let migrated = false;
       const hydrated: DiagramVersion[] = [];
+      let migrated = false;
       for (const item of stored) {
-        let xml = typeof item.drawioXml === "string" ? item.drawioXml : null;
-        // One-time migration for historical Studio snapshots that predate XML-only storage.
-        // Never use an old projection to replace XML that already exists in the snapshot.
-        if (xml === null && isDiagramDocument(item.document)) {
-          xml = toDrawioXml(item.document);
-          migrated = true;
-        }
-        if (xml === null) continue;
-        if (Buffer.byteLength(xml, "utf8") > 20_000_000 || !validateDrawioXmlDocument(xml).success) {
+        const xml = typeof item.drawioXml === "string" ? item.drawioXml : null;
+        // Old semantic-only snapshots cannot be restored faithfully; do not regenerate native XML from them.
+        if (xml === null || Buffer.byteLength(xml, "utf8") > 20_000_000 || !validateDrawioXmlDocument(xml).success) {
           migrated = true;
           continue;
         }
-        const derivedProjection = projectDocumentFromXml(xml);
-        const projection = projectedSourceIsValid
-          ? derivedProjection
-          : { ...derivedProjection, title: item.label };
-        hydrated.push({ ...item, drawioXml: xml, document: projection });
-        if (Object.prototype.hasOwnProperty.call(item, "document") || typeof item.drawioXml !== "string") migrated = true;
+        hydrated.push({
+          id: item.id,
+          ...(typeof item.workspaceId === "string" ? { workspaceId: item.workspaceId } : {}),
+          ...(typeof item.diagramPath === "string" || item.diagramPath === null ? { diagramPath: item.diagramPath } : {}),
+          createdAt: item.createdAt,
+          label: item.label,
+          drawioXml: xml
+        });
+        if (Object.prototype.hasOwnProperty.call(item, "document")) migrated = true;
       }
       const retained = retainRecentVersions(hydrated);
       if (retained.length !== stored.length) migrated = true;
