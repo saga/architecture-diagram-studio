@@ -7,7 +7,7 @@ describe("native Draw.io Copilot contract", () => {
     const response = parseAIIntentResponse(JSON.stringify({
       reply: "Add an audit service",
       nativeEdits: {
-        operations: [{ op: "add_node_after", target: "Database", cellId: "db", label: "Database", newLabel: "Audit Service" }],
+        operations: [{ op: "add_node_after", target: "Database", cellId: "db", targetLabel: "Database", newLabel: "Audit Service" }],
         summary: "Add an audit service after Database",
         requiresClientExecution: true
       },
