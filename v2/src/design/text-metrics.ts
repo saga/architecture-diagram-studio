@@ -13,7 +13,7 @@ export function containsWideCharacters(value: string): boolean {
 }
 
 /**
- * Deterministic layout estimate shared by quality checks and the SVG canvas.
+ * Deterministic text-width estimate shared by semantic layout and quality checks.
  * Wide CJK/emoji glyphs reserve one em; Latin glyphs use proportional widths.
  * It is a conservative fallback, not a replacement for browser font metrics.
  */
