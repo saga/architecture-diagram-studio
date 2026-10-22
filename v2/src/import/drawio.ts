@@ -309,10 +309,16 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     }
   }
 
+  const importedNodeIds = new Set(nodes.map((node) => node.id));
   // Resolve edges only after all vertices (including later-in-XML endpoints) are indexed.
   for (const cell of cells) {
     if (cell.getAttribute("edge") !== "1") continue;
-      if (id.endsWith("__lifeline")) continue;
+    const id = cellId(cell);
+    if (!id) continue;
+    const wrapper = wrapperByCell.get(cell) || cell;
+    const value = plainLabel(cell.getAttribute("value") || wrapper.getAttribute("label") || "");
+    const style = cell.getAttribute("style") || "";
+    if (id.endsWith("__lifeline")) continue;
       const rawSource = cell.getAttribute("source") || "";
       const rawTarget = cell.getAttribute("target") || "";
       const styleSource = style.match(/(?:^|;)studioSource=([^;]+)/)?.[1];
@@ -320,8 +326,8 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const old = previousRelations.get(id);
       const source = styleSource || (rawSource.includes("__messageSourceAnchor") ? old?.source || rawSource : rawSource);
       const target = styleTarget || (rawTarget.includes("__messageTargetAnchor") ? old?.target || rawTarget : rawTarget);
-      if (!previousNodes.has(source) && !nodes.some((node) => node.id === source)) continue;
-      if (!previousNodes.has(target) && !nodes.some((node) => node.id === target)) continue;
+      if (!previousNodes.has(source) && !importedNodeIds.has(source)) continue;
+      if (!previousNodes.has(target) && !importedNodeIds.has(target)) continue;
       const geometry = directChild(cell, "mxGeometry");
       const pointElements = geometry ? directChildren(geometry, "Array").filter((array) => array.getAttribute("as") === "points").flatMap((array) => directChildren(array, "mxPoint")) : [];
       const points: Point[] = pointElements.map((point) => ({ x: Number(point.getAttribute("x") || 0), y: Number(point.getAttribute("y") || 0) }));
@@ -358,7 +364,6 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   }
   if (nodes.length === 0) return previous;
   const relationList = relations.length ? relations : previous.relations.filter((relation) => nodes.some((node) => node.id === relation.source) && nodes.some((node) => node.id === relation.target));
-  const importedNodeIds = new Set(nodes.map((node) => node.id));
   const boundaries = [...importedBoundaries.values()].map((boundary) => ({
     ...boundary,
     members: boundary.members.filter((id) => importedNodeIds.has(id))
