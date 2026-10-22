@@ -327,9 +327,9 @@ export default function App() {
         }
         const importBaseDocument = diagramContextChanged ? { ...FIXTURES.c4(), renderTheme: uiTheme } : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
-        if (parsedDocument === importBaseDocument) throw new Error("The file passed XML validation but could not be represented by the supported semantic projection.");
-        // Opening a Draw.io file must preserve its geometry; semantic normalization is an explicit action only.
-        nextDocument = parsedDocument;
+        // Valid native XML must open even when no cells can be represented by the partial
+        // semantic projection; keep the source XML and disable unsafe semantic operations.
+        nextDocument = parsedDocument === importBaseDocument ? importBaseDocument : parsedDocument;
       } else if (workspaceChanged) {
         nextDocument = await layoutSample(FIXTURES.c4()); nextXml = null;
       }
@@ -823,16 +823,18 @@ export default function App() {
         renderTheme: uiTheme, nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
       };
       const parsed = fromDrawioXml(xml, empty);
-      if (parsed === empty) throw new Error("The file passed XML validation but could not be represented by the supported semantic projection.");
+      // Native Draw.io supports shapes and constructs outside our semantic projection.
+      // A valid file is still editable in the native canvas even when projection is empty.
+      const projected = parsed === empty ? empty : parsed;
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         await persistDocumentNow(document, drawioXml, "Autosave before opening standalone Draw.io");
       }
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
       standaloneLastSavedXmlRef.current = xml;
-      setDocument(parsed); setNativeXmlOverride(xml);
+      setDocument(projected); setNativeXmlOverride(xml);
       setPreviewDocument(null); setPreviewSummary(""); setPendingAgentProposalId(null);
-      setSelectedNodeId(parsed.nodes[0]?.id || null); setSelectedRelationId(null);
+      setSelectedNodeId(projected.nodes[0]?.id || null); setSelectedRelationId(null);
       historyRef.current = [parsed]; historyIndexRef.current = 0;
       setCanUndo(false); setCanRedo(false);
       serverRevisionRef.current = null; serverCommittedDocumentRef.current = null;
@@ -840,7 +842,7 @@ export default function App() {
       setWorkspaceSetupOpen(false); setWorkspaceError("");
       setLastAction(handle ? "Opened " + file.name + " with local autosave enabled" : "Opened " + file.name + " as a standalone document; use Export to save changes");
       recordDiagnostic("drawio.open.standalone", "Opened a Draw.io file independently of the project workspace", {
-        fileName: file.name, xmlLength: xml.length, fileBytes: file.size, hasLocalWriteAccess: Boolean(handle), durationMs: Date.now() - startedAt
+        fileName: file.name, xmlLength: xml.length, fileBytes: file.size, hasLocalWriteAccess: Boolean(handle), semanticProjectionAvailable: parsed !== empty, durationMs: Date.now() - startedAt
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
