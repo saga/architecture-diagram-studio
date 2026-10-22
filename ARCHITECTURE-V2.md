@@ -2,9 +2,9 @@
 
 > **当前权威决策（ADR-0006 与 ADR-0008，2026-10-22）：完整 Draw.io `mxfile` XML 是所有图形的唯一真源，嵌入式原生 Draw.io 是唯一画布。本文中与 XML 真源决策冲突的旧表述由 ADR-0006 取代；关于 Studio/Freeform 双画布或 SVG 画布的旧设计由 ADR-0008 取代。`DiagramDocument` 仅是派生语义投影，不是第二个持久化真源。**
 
-- 日期：2026-10-20
-- 状态：V2 技术架构方案，作为后续实现基线
-- 目标：把 Studio 从“能生成 draw.io XML 的图形编辑器”升级成“有设计语言、有布局规则、有 AI 编辑闭环、以 draw.io 为最终渲染器的架构图产品”。
+- 原始方案日期：2026-10-20；当前基线复核：2026-10-22
+- 状态：当前架构参考；历史方案章节以 ADR-0006/0008 和 `v2/README.md` 为准
+- 目标：在完整 Draw.io XML 单一真源和原生 Draw.io 唯一画布上提供受控语义布局、质量检查、配置与 Copilot 操作。本文不得把未实现的规划写成已交付能力。
 
 ## 1. V2 的核心判断
 
@@ -77,52 +77,36 @@ V2 的“好看”不能依赖模型随机发挥，也不能简单等于“使�
 
 # 3. 总体架构
 
-## 3.1 六个核心层
+## 3.1 当前运行架构
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│ 1. Intent Layer                                             │
-│    用户 / Copilot SDK：create / move / restyle / reroute       │
-├──────────────────────────────────────────────────────────────┤
-│ 2. Diagram Model                                            │
-│    Draw.io mxfile XML：唯一持久化真源；DiagramDocument 是派生语义投影 │
-├──────────────────────────────────────────────────────────────┤
-│ 3. Layout & Routing                                         │
-│    ELK Layered + Dagre + Sequence Layout + Flow Layout      │
-├──────────────────────────────────────────────────────────────┤
-│ 4. Design Quality                                           │
-│    overlap / crossing / density / alignment / label checks   │
-│    + automatic repair                                       │
-├──────────────────────────────────────────────────────────────┤
-│ 5. Draw.io Adapter                                          │
-│    native mxGraph XML + local bundled draw.io Web           │
-├──────────────────────────────────────────────────────────────┤
-│ 6. Persistence / Export                                     │
-│    DiagramDocument + .drawio + SVG/PNG + history            │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    UI["React UI / 属性面板 / 布局配置"] --> Native["本地打包的原生 Draw.io iframe"]
+    Native <--> XML[("完整 mxfile XML<br/>唯一持久化真源")]
+    XML --> Import["XML 验证与导入适配器"]
+    Import --> Projection["DiagramDocument<br/>派生的部分语义投影"]
+    Projection --> Gate{"当前 XML 可安全 patch？"}
+    Gate -->|是| Semantic["受支持的语义布局 / 质量检查 / Copilot 操作"]
+    Semantic --> Patch["按 cell ID 的受控 XML patch"]
+    Patch --> XML
+    Gate -->|否| NativeOnly["只使用原生 Draw.io 编辑"]
+    UI <--> API["Express 服务端 API"]
+    API --> Store["工作区 XML / 不可变版本快照"]
+    API --> Agent["Copilot SDK 内部工具与会话"]
+    Agent --> Gate
 ```
 
-### 3.2 为什么不让 React Flow 成为最终画布
+职责边界：
 
-React Flow 仍然可以保留，而且可以继续借鉴它的布局和交互实现；但 V2 不应该把 React Flow DOM/SVG 作为最终视觉结果。
+- 原生 Draw.io 负责通用图形编辑和渲染；没有第二张生产画布，也没有 Studio/Freeform 模式。
+- 完整 `mxfile` XML 负责打开、自动保存、版本、恢复和导出。语义模型是临时派生投影，不能作为持久化或 diff 真源。
+- ELK、Dagre、专用时序布局、路由和质量评估只服务于受支持的语义操作。它们不能覆盖未知 cell、页面、样式、嵌套结构或自定义属性。
+- 服务端负责工作区范围、revision 检查、配置、版本快照和 Copilot 工具治理；浏览器负责原生编辑器交互、显示和预览。
+- 主题只修改编辑器 chrome 与允许修改的图形背景，不得因 UI 主题重写用户单元格的 fill/stroke/font 样式。
 
-原因：
+## 3.2 为什么只保留原生 Draw.io 画布
 
-- 用户明确要求最终基于 draw.io。
-- `.drawio` 必须保持原生可编辑。
-- draw.io 自身拥有成熟的连接线、端口、选择、撤销、XML、导出和图形能力。
-- React Flow 和 draw.io 同时作为“最终真相”会导致两个 renderer 的几何和样式漂移。
-
-因此 React Flow 在 V2 中最多承担：
-
-- 开发期 layout prototype
-- 算法实验
-- 与现有代码兼容
-- 未来某些非 draw.io preview
-
-但生产画布的 authoritative renderer 是本地打包的 draw.io Web。
-
----
+第二个 SVG/React Flow 画布会创建两套选择、编辑、渲染和几何语义，且无法完整表示 Draw.io 的开放 XML 格式。因此生产界面只嵌入本地打包、固定版本的 Draw.io Web。布局算法是服务端/共享逻辑，不是另一套画布；预览也通过原生 Draw.io 显示。
 
 # 4. DiagramDocument：派生语义投影
 
@@ -861,69 +845,35 @@ https://embed.diagrams.net
 
 作为生产默认路径。
 
-## 14.2 DrawioAdapter
+## 14.2 当前 Draw.io 集成
 
-建议新增：
+当前实现位于：
 
-```text
-src/drawio/
-  drawio-adapter.ts
-  drawio-loader.ts
-  drawio-bridge.ts
-  drawio-style.ts
-  drawio-xml.ts
-  drawio-import.ts
-  drawio-export.ts
+- `v2/src/components/DrawioFrame.tsx`：同源 iframe、embed 握手、原生选择监听、自动保存回调、主题 chrome/background 适配。
+- `v2/src/model/drawio-xml-schema.ts`：Zod XML 契约，支持完整文件结构、压缩页解码与未知属性保留。
+- `v2/src/model/drawio-xml-source.ts` 与 `v2/server/drawio-xml-source.ts`：检查语义投影是否可安全编辑，并按 cell identity patch 原始 XML。
+- `v2/src/import/drawio.ts`：把可识别的原生 cell 投影到当前语义模型。
+- `v2/src/export/drawio.ts`：用于应用创建新图及测试/fixture 的 XML 生成；不能用于重建覆盖用户已存在的完整原生文件。
+- `v2/scripts/bundle-drawio.mjs`：下载/验证固定版本的 Draw.io Web 资源。
+
+原生 Draw.io 内部 API 的访问集中在 `DrawioFrame`，并必须针对固定的 Draw.io 版本进行集成验证。属性面板通过原生选区和当前 XML 读取 cell 属性；所有编辑仍须经过原生编辑器模型或受控 XML 操作，并让自动保存更新完整 XML。
+
+## 14.3 唯一权威数据流
+
+```mermaid
+flowchart TD
+    XML[("当前完整 Draw.io XML")] --> Projection["派生语义投影"]
+    Projection --> Operation["受支持的布局 / 语义操作"]
+    Operation --> Safety{"XML patch 安全且 revision 未变化？"}
+    Safety -->|是| CellPatch["只修改目标 cell 的 XML"]
+    CellPatch --> XML
+    Safety -->|否| Reject["拒绝语义操作并保留原 XML"]
+    Native["用户在原生 Draw.io 手工编辑"] --> Autosave["原生编辑器 autosave XML"]
+    Autosave --> XML
+    XML --> Snapshot["工作区文件与不可变版本快照"]
 ```
 
-Adapter 负责：
-
-- load XML
-- save XML
-- export SVG/PNG
-- selection
-- undo/redo
-- screenshot
-- current document readback
-- AI changed-cell highlight
-
-不要让业务代码直接调用 `EditorUi` / `mxGraph`。
-
-如果必须访问 draw.io internal API，全部隔离在 Adapter 内，并针对固定 draw.io 版本建立 integration test。
-
-## 14.3 一个 authoritative source
-
-推荐：
-
-```text
-DiagramDocument V2
-       │
-       ├── Layout
-       ├── AI operations
-       ├── persistence
-       └── draw.io XML
-                 │
-                 ▼
-           draw.io canvas
-```
-
-draw.io iframe 不是第二个独立业务数据库。
-
-用户手动修改 draw.io 后：
-
-```text
-draw.io XML
-   ↓
-parse / diff
-   ↓
-DiagramDocument V2
-   ↓
-new revision
-```
-
-必须有明确的 commit/sync 边界。
-
----
+不能以 `DiagramDocument` 重建已有文件；不能因打开文件、切换页面或切换 UI 主题而自动重排或重绘 cell 样式。XML 验证成功不代表语义编辑安全；安全门必须独立判断。
 
 # 15. Draw.io Style Adapter：不要使用默认 C4 / Sequence 样式
 
@@ -1179,38 +1129,18 @@ src/layout/
 
 ---
 
-# 21. React Flow 的布局经验怎么借鉴
+# 21. 跨布局引擎共享的 Layout Contract
 
-React Flow example 看起来好看的部分，真正值得借鉴的是：
+ELK、Dagre 和时序专用布局可以采用不同算法，但必须共享可验证的布局约束：
 
-1. 节点尺寸明确。
-2. 连接点稳定。
-3. edge routing 和 node placement 是一起考虑的。
-4. 节点之间有明显 whitespace。
-5. graph direction 明确。
-6. group/parent layout 不只是画一个背景框。
-7. 用户手工移动后，局部 layout 可以保持稳定。
+1. 避免节点重叠和连线穿过无关节点。
+2. 保持布局方向、语义分层和边界成员关系。
+3. 评估交叉、标签可读性、间距和画布越界。
+4. 尊重锁定节点和明确的用户布局约束。
+5. 相同输入和配置应尽可能产生确定性结果。
+6. 对不支持的图形结构拒绝语义重排，不影响原生 Draw.io 编辑。
 
-V2 不应该“换成 React Flow 自动布局”，而应该把这些原则提炼成 Layout Contract。
-
-```text
-Layout Contract
-
-1. no overlap
-2. no edge through node
-3. stable direction
-4. stable semantic ranks
-5. bounded crossing count
-6. readable labels
-7. predictable spacing
-8. locked nodes respected
-9. groups contain members
-10. result deterministic
-```
-
-这样 ELK、Dagre 或未来其它 engine 都必须满足同一 contract。
-
----
+这些是算法契约，不依赖 React Flow 或任何第二渲染器。
 
 # 22. Layout Determinism
 
@@ -1363,197 +1293,72 @@ Supported tool outputs and context are bounded. Retrieved project contents are u
 
 # 27. Draw.io 与 AI 的实际交互闭环
 
-最终应该是：
-
-```text
-                 User
-                  │
-                  ▼
-             Chat / Canvas
-                  │
-        ┌─────────┴─────────┐
-        │                   │
-     Manual             AI Intent
-        │                   │
-        ▼                   ▼
-   DrawioAdapter       Intent Parser
-        │                   │
-        │             Diagram Ops
-        │                   │
-        └─────────┬─────────┘
-                  ▼
-          DiagramDocument V2
-                  │
-                  ▼
-           Layout / Routing
-                  │
-                  ▼
-            Quality Engine
-                  │
-          ┌───────┴───────┐
-          │               │
-        fail              pass
-          │               │
-          ▼               ▼
-       Repair          Preview
-          │               │
-          └───────┬───────┘
-                  ▼
-             Draw.io Web
-                  │
-                  ▼
-           native rendering
-                  │
-                  ▼
-          SVG / PNG / .drawio
+```mermaid
+flowchart TD
+    User["用户意图"] --> Agent["Copilot SDK / 确定性意图处理"]
+    Agent --> Inspect["读取当前 XML 与 revision"]
+    Inspect --> Projection["派生语义投影"]
+    Projection --> Validate["验证操作、布局约束与 patch 安全性"]
+    Validate -->|可安全应用| Patch["服务端按 cell ID patch XML"]
+    Validate -->|不安全或有歧义| Proposal["拒绝或生成待确认提案"]
+    Patch --> Version["创建不可变版本并持久化完整 XML"]
+    Proposal --> Confirm["用户确认与 revision 重检"]
+    Confirm --> Patch
+    Version --> Native["原生 Draw.io 显示 / 编辑"]
+    Native --> Autosave["XML autosave"]
+    Autosave --> Version
 ```
 
----
+Copilot 不能直接编写任意 XML 或项目文件。内部工具共享服务端领域逻辑；直接应用也必须经过 revision 检查、操作校验和版本创建。宽泛、破坏性或有歧义的修改必须走可审查提案。
 
-# 28. V2 与当前架构的关系
+# 28. 当前代码与架构职责映射
 
-不要推翻现有代码。
-
-| 当前能力 | V2 处理方式 |
+| 领域 | 当前实现与约束 |
 |---|---|
-| `DiagramDocument` | 保留为派生的部分语义投影；不是持久化真源，所有修改 patch 回权威 XML |
-| ELK | 保留，升级成 C4/Flow 的底层 engine |
-| Dagre | 保留，作为轻量 fallback / prototype engine |
-| D3 hierarchy/force | 保留为实验能力，默认 UI 不暴露 |
-| draw.io exporter | 保留，升级为 Style Adapter + XML Adapter |
-| React Flow | 保留用于现有编辑器/算法实验，逐步减少其作为最终 renderer 的职责 |
-| 六种 theme | 收敛成 Design Token + Style Resolver |
-| Copilot SDK tools | Internal, intent-oriented tools with server-validated proposals |
-| layout config | 从 engine 参数升级为 semantic Layout Profile |
-| waypoints | 保留，但由 routing engine 生成，而不是 AI 任意写 |
+| 权威文档 | 完整 Draw.io `mxfile` XML；`DiagramDocument` 是派生的部分语义投影 |
+| 画布与通用编辑 | 固定版本、本地打包的原生 Draw.io Web；无第二画布 |
+| XML schema | `v2/src/model/drawio-xml-schema.ts`，Zod 校验；未知属性与扩展元素保持开放 |
+| 安全语义修改 | `drawio-xml-source.ts` 中的投影安全门与 cell-ID XML patch |
+| 布局 | ELK、Dagre 与专用时序布局；只对当前可安全投影的结构启用 |
+| 质量评估 | 共享的服务端/布局质量逻辑；仍可供内部 Agent 和预览使用，不是右侧独立 Quality 页面 |
+| 主题 | 应用 CSS token 适配编辑器 chrome 与图形背景；不得自动改写用户 cell 样式 |
+| Copilot | GitHub Copilot SDK 的内部服务端工具；不提供独立 MCP 服务或 VS Code MCP 配置 |
+| 持久化与版本 | 工作区保存完整 XML，revision 基于权威 XML，版本快照保留原生文件 |
+| 配置 | 服务端版本化的布局 allowlist、提示词、模型与 reasoning effort |
+| 导入/导出 | 导入保留完整 XML；新图可由语义模型生成 XML；不能用派生投影重建已有原生文件 |
 
----
+历史提案中关于 React Flow、D3 布局实验、双画布、DiagramDocument revisions 或独立 DrawioAdapter 模块的描述均不构成当前实现要求。
 
-# 29. 分阶段实施计划
+# 29. 原始分阶段计划（历史记录）
 
-## Phase 1：Design System + V2 model
+以下阶段保留了 2026-10-20 的原始规划，用于追踪设计意图；它们不是当前待办列表，也不能证明相应功能已经实现。当前能力以 `v2/README.md`、源代码和 CI 为准。任何与 ADR-0006/0008 冲突的阶段描述都由当前 ADR 覆盖。
 
-目标：先解决“丑”。
+实施与验证应优先覆盖：
 
-1. 新建 `src/design/`。
-2. 定义 `Studio Editorial` 默认 theme。
-3. 定义 C4 / Flow / Sequence 的 style grammar。
-4. DiagramDocument 增加 `semanticRole`、`visualRole`、`layoutHints`、`theme`、`layoutProfile`。
-5. 建立 10–15 张 golden diagrams。
+1. XML 无损打开、编辑、保存、恢复和多页/未知元素保留。
+2. 原生选区与属性检查器、可编辑属性和保存往返。
+3. revision 检查、服务端操作白名单和不可变版本快照。
+4. ELK/Dagre/时序布局、路由和质量评估回归。
+5. 固定 Draw.io 版本的同源 iframe 集成验证。
+6. Copilot 提案/直接应用边界、配置版本与 Agent 轨迹。
 
-验收：
+这些验收项必须由测试或实际运行证据证明，不能仅凭规划文档标记完成。
 
-- 不再出现默认 draw.io C4 样式。
-- 节点、边、字体、spacing 统一。
-- 主题能生成 native draw.io style。
+# 30. 当前技术选型
 
-## Phase 2：C4 Layout V2
-
-1. ELK Layered 作为主引擎。
-2. semantic rank。
-3. external/vendor lane。
-4. storage bottom。
-5. compound boundary。
-6. orthogonal routing。
-7. quality scorer。
-8. repair pass。
-
-验收：
-
-- 典型企业架构图无需人工拖线即可达到可发布水平。
-
-## Phase 3：Flow Layout
-
-1. main path detection。
-2. decision branching。
-3. merge strategy。
-4. crossing reduction。
-5. label placement。
-
-验收：
-
-- 常见业务流程图不出现蜘蛛网。
-
-## Phase 4：Sequence Layout
-
-1. participant ordering。
-2. message timeline。
-3. activation。
-4. fragments。
-5. label collision repair。
-
-验收：
-
-- Sequence 不再依赖 draw.io 默认自动布局。
-
-## Phase 5：Local draw.io Web
-
-1. 固定 draw.io version + SHA。
-2. build-time fetch/extract。
-3. `public/drawio/`。
-4. same-origin iframe。
-5. DrawioAdapter。
-6. XML readback。
-7. screenshot/export。
-
-验收：
-
-- 无公网也可以打开编辑器。
-- `.drawio` 可直接继续在 diagrams.net / draw.io 中编辑。
-
-## Phase 6：AI Intent Engine
-
-1. `apply_diagram_intent`。
-2. semantic operations。
-3. layout/re-route trigger。
-4. preview/commit。
-5. stale-edit gate。
-6. revision history。
-
-验收：
-
-```text
-“所有线改成虚线”
-“curve 改成折线”
-“所有 external 放右边”
-“DB 放最下面”
-“保持用户手动放的 API 不动，重新排其它节点”
-```
-
-都能产生可读结果，而不是简单修改 style 或坐标。
-
-## Phase 7：视觉回归
-
-1. SVG/PNG snapshots。
-2. golden corpus。
-3. quality thresholds。
-4. draw.io version upgrade test。
-5. AI regression prompts。
-
----
-
-# 30. V2 的最终技术选型
-
-| 领域 | V2 推荐 |
+| 领域 | 当前基线 |
 |---|---|
-| Semantic model | `DiagramDocument V2` |
-| C4 layout | ELK Layered + Studio constraints |
-| Flow layout | ELK Layered + main-path/decision constraints |
-| Sequence layout | Studio 专用 deterministic layout |
-| Lightweight fallback | Dagre |
-| Rendering | 本地打包 draw.io Web |
-| Draw.io integration | same-origin iframe + Adapter |
-| Native format | mxGraph XML / `.drawio` |
-| Theme | Studio Design Tokens |
-| AI | intent → semantic ops → layout → quality → preview |
-| Routing | orthogonal / polyline first，curve 为受控选项 |
-| Quality | deterministic geometry + visual metrics |
-| Persistence | DiagramDocument revisions |
-| Manual edit | draw.io → XML diff → DiagramDocument sync |
-| Offline | draw.io Web assets build-time bundled；AI 是否 offline 单独配置 |
-| Visual regression | golden SVG/PNG + quality metrics |
-
----
+| 权威文档 | 完整原生 Draw.io XML |
+| 语义视图 | 派生、部分的 `DiagramDocument`，不作为持久化真源 |
+| C4 / Flow 布局 | ELK Layered 与 Dagre，配合共享约束和路由/质量逻辑 |
+| Sequence 布局 | 专用时序布局与路由 |
+| 渲染与手工编辑 | 本地固定版本的 Draw.io Web |
+| Draw.io 集成 | 同源 iframe 与受控桥接 |
+| 主题 | 应用 CSS token；只适配编辑器 chrome 与图形背景 |
+| AI | 意图 → 服务端校验 → revision 检查 → 安全 XML patch / 待确认提案 |
+| 持久化 | 工作区与版本快照存完整 XML；revision 由 XML 决定 |
+| 离线 | Draw.io Web 资源构建时固定版本并本地打包；Copilot 可用性取决于登录和运行环境 |
+| 回归 | XML schema/patch、布局质量、主题保真、服务端持久化与固定版本编辑器集成测试 |
 
 # 31. 最重要的设计决策
 
@@ -1627,8 +1432,8 @@ V2 不以“支持更多图形”作为成功标准，而以以下结果作为�
 
 # 33. 一句话架构
 
-**V2 = Studio Design System + Semantic Diagram IR + Diagram-specific Layout + Routing/Quality Engine + Local Bundled draw.io Renderer + Intent-based AI。**
+**V2 = Draw.io XML 单一真源 + 原生 Draw.io 唯一画布 + 派生语义投影 + 受控布局/质量能力 + 服务端 Copilot 与版本化持久化。**
 
 其中最关键的产品差异不是“用了 draw.io”，而是：
 
-> **Studio 自己决定什么是一个好看的 C4 / Flow / Sequence；ELK/自研布局负责把它排好；Quality Engine 负责拒绝丑结果；draw.io 负责把最终结果高保真地渲染成用户可以继续编辑的原生图。**
+> **Draw.io XML 保存完整原生文档；原生 Draw.io 负责通用编辑；应用只在安全投影范围内提供语义布局、质量评估和受控 AI 操作，且绝不以派生模型覆盖原始 XML。**
