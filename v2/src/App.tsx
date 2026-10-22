@@ -12,7 +12,7 @@ import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import type { AppliedDiagramEdit } from "./intent/aiProvider";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
-import { canEditInStudio, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
+import { canApplySemanticEdits, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
 import { roleLabels } from "./design/tokens";
 import DrawioFrame from "./components/DrawioFrame";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
@@ -231,8 +231,8 @@ export default function App() {
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? generatedDrawioXml;
-  const studioEditingSafe = canEditInStudio(drawioXml, generatedDrawioXml, document);
-  const previewDrawioXml = previewDocument && studioEditingSafe
+  const semanticEditingSafe = canApplySemanticEdits(drawioXml, generatedDrawioXml, document);
+  const previewDrawioXml = previewDocument && semanticEditingSafe
     ? patchDrawioXml(drawioXml, toDrawioXml(previewDocument), document)
     : null;
   const bootstrap = useWorkspaceBootstrap({
@@ -338,7 +338,7 @@ export default function App() {
         }
         const importBaseDocument = diagramContextChanged ? { ...FIXTURES.c4(), renderTheme: uiTheme } : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
-        if (parsedDocument === importBaseDocument) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
+        if (parsedDocument === importBaseDocument) throw new Error("The file passed XML validation but could not be represented by the supported semantic projection.");
         // Opening a Draw.io file must preserve its geometry; semantic normalization is an explicit action only.
         nextDocument = parsedDocument;
       } else if (workspaceChanged) {
@@ -502,7 +502,7 @@ export default function App() {
   const commitDocument = useCallback((next: DiagramDocument, action: string, preservedNativeXml?: string) => {
     let nextXml = preservedNativeXml;
     if (nextXml === undefined) {
-      if (!studioEditingSafe) {
+      if (!semanticEditingSafe) {
         const message = "Semantic editing is disabled because this Draw.io XML contains cells or structure that cannot be safely round-tripped. Continue editing in the native Draw.io canvas.";
         setLastAction(message);
         recordDiagnostic("drawio.semantic-edit.blocked", message, { documentId: document.id, action }, "warn");
@@ -532,11 +532,11 @@ export default function App() {
       diagramKind: next.kind, nodeCount: next.nodes.length, relationCount: next.relations.length,
       hasPreview: false, preservedNativeXml: Boolean(preservedNativeXml), xmlLength: nextXml.length
     });
-  }, [document, drawioXml, studioEditingSafe]);
+  }, [document, drawioXml, semanticEditingSafe]);
 
   /** Updates the document in place: the current history entry is replaced instead of pushing a new step. */
   const replaceDocument = useCallback((next: DiagramDocument) => {
-    if (studioEditingSafe) {
+    if (semanticEditingSafe) {
       const patchedXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
       if (!patchedXml) {
         setLastAction("The update was not applied because the authoritative Draw.io XML could not be patched safely.");
@@ -549,7 +549,7 @@ export default function App() {
     if (index >= 0) historyRef.current = [...historyRef.current.slice(0, index), next];
     setDocument(next);
     setRevision((value) => value + 1);
-  }, [document, drawioXml, studioEditingSafe]);
+  }, [document, drawioXml, semanticEditingSafe]);
 
   // The color theme is a workspace/UI preference, not a property of an individual diagram.
   // In particular, never synchronize it back from an imported document: doing so made every
@@ -567,7 +567,7 @@ export default function App() {
    * are already computed by the paths that create them.
    */
   useEffect(() => {
-    if (!serverHydrated || geometryHealRef.current || !studioEditingSafe) return;
+    if (!serverHydrated || geometryHealRef.current || !semanticEditingSafe) return;
     geometryHealRef.current = true;
     const current = documentRef.current;
     if (!hasStackedGeometry(current)) return;
@@ -611,7 +611,7 @@ export default function App() {
   }, [commitDocument, document]);
 
   function undoDocument() {
-    if (!studioEditingSafe) { setLastAction("Undo is available in the native Draw.io editor for this document."); return; }
+    if (!semanticEditingSafe) { setLastAction("Undo is available in the native Draw.io editor for this document."); return; }
     if (historyIndexRef.current <= 0) return;
     const previous = historyRef.current[historyIndexRef.current - 1];
     const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(previous), document);
@@ -633,7 +633,7 @@ export default function App() {
   }
 
   function redoDocument() {
-    if (!studioEditingSafe) { setLastAction("Redo is available in the native Draw.io editor for this document."); return; }
+    if (!semanticEditingSafe) { setLastAction("Redo is available in the native Draw.io editor for this document."); return; }
     if (historyIndexRef.current >= historyRef.current.length - 1) return;
     const next = historyRef.current[historyIndexRef.current + 1];
     const restoredXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
@@ -655,7 +655,7 @@ export default function App() {
   }
 
   function changeKind(kind: DiagramKind) {
-    if (!studioEditingSafe) { setLastAction("Open a new Studio diagram before switching semantic diagram types; this native XML is preserved unchanged."); return; }
+    if (!semanticEditingSafe) { setLastAction("Create a new diagram before switching semantic diagram types; this native XML is preserved unchanged."); return; }
     setPreviewDocument(null);
     setPreviewSummary("");
     setSelectedRelationId(null);
@@ -784,7 +784,7 @@ export default function App() {
   }
 
   function resetDiagram() {
-    if (!studioEditingSafe) { setLastAction("Reset is disabled for native Draw.io documents to prevent replacing their XML."); return; }
+    if (!semanticEditingSafe) { setLastAction("Reset is disabled for native Draw.io documents to prevent replacing their XML."); return; }
     setSelectedRelationId(null);
     void (async () => {
       const next = await layoutSample(FIXTURES[document.kind]());
@@ -866,7 +866,7 @@ export default function App() {
         renderTheme: uiTheme, nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
       };
       const parsed = fromDrawioXml(xml, empty);
-      if (parsed === empty) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
+      if (parsed === empty) throw new Error("The file passed XML validation but could not be represented by the supported semantic projection.");
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         await persistDocumentNow(document, drawioXml, "Autosave before opening standalone Draw.io");
       }
@@ -1177,7 +1177,7 @@ export default function App() {
             setUiTheme(nextTheme);
             // Update the semantic render theme when the native XML can be round-tripped safely.
             // The UI preference is still allowed for native documents with custom cells.
-            if (studioEditingSafe) replaceDocument({ ...document, renderTheme: nextTheme });
+            if (semanticEditingSafe) replaceDocument({ ...document, renderTheme: nextTheme });
           }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
@@ -1201,9 +1201,9 @@ export default function App() {
           if (file) void openStandaloneDiagram(file);
         }} />
         {activePage === "studio" ? <div className="topbar-actions">
-          <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
-          <UiButton className="button button-quiet" disabled={!studioEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
-          <UiButton className="button button-quiet" title="Reload the built-in sample" disabled={!studioEditingSafe} onClick={resetDiagram}>Reset</UiButton>
+          <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
+          <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
+          <UiButton className="button button-quiet" title="Reload the built-in sample" disabled={!semanticEditingSafe} onClick={resetDiagram}>Reset</UiButton>
           <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
@@ -1219,13 +1219,13 @@ export default function App() {
           <UiButton type="button" className="workspace-switch" onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</UiButton>
         </div>}
         <div className="side-section">
-          <UiButton disabled={!studioEditingSafe} className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
+          <UiButton disabled={!semanticEditingSafe} className={"diagram-kind " + (document.kind === "c4" ? "active" : "")} onClick={() => changeKind("c4")}>
             <span className="kind-icon kind-c4"><i /><i /><i /></span><span className="kind-text"><b>C4 architecture</b></span>
           </UiButton>
-          <UiButton disabled={!studioEditingSafe} className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
+          <UiButton disabled={!semanticEditingSafe} className={"diagram-kind " + (document.kind === "flowchart" ? "active" : "")} onClick={() => changeKind("flowchart")}>
             <span className="kind-icon kind-flow"><i /><i /><i /></span><span className="kind-text"><b>Process flow</b></span>
           </UiButton>
-          <UiButton disabled={!studioEditingSafe} className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
+          <UiButton disabled={!semanticEditingSafe} className={"diagram-kind " + (document.kind === "sequence" ? "active" : "")} onClick={() => changeKind("sequence")}>
             <span className="kind-icon kind-sequence"><i /><i /></span><span className="kind-text"><b>Sequence diagram</b></span>
           </UiButton>
         </div>
@@ -1245,7 +1245,7 @@ export default function App() {
             <label className="layout-profile-control" title="Choose the auto-layout algorithm">
               <span>Algorithm</span>
               <UiSelect className="text-field" aria-label="Auto-layout algorithm" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
-                disabled={!studioEditingSafe || isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
+                disabled={!semanticEditingSafe || isLayoutting || Boolean(previewDocument) || document.kind === "sequence"}
                 onChange={(event) => {
                   const next = { ...document, layout: { ...document.layout, profile: event.target.value } };
                   void runLayout(next);
@@ -1265,13 +1265,13 @@ export default function App() {
                 <option value="DOWN">Top → bottom</option>
               </UiSelect>
             </label>
-            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={!studioEditingSafe || isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
+            <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={!semanticEditingSafe || isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
             
           </div>
         </div>
 
         <div className="canvas-stage native-mode">
-          {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram contains native Draw.io structure that cannot be safely represented by the semantic projection. The original XML remains authoritative; semantic layout and structural operations are disabled to prevent data loss.</div>}
+          {!semanticEditingSafe && <div className="drawio-source-banner" role="status">This diagram contains native Draw.io structure that cannot be safely represented by the semantic projection. The original XML remains authoritative; semantic layout and structural operations are disabled to prevent data loss.</div>}
           {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
                       <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme} onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
         </div>
