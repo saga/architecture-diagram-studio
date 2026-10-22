@@ -209,11 +209,25 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const parsed = parseDrawioXml(xml);
   if (!parsed) return previous;
   const root = directChild(parsed.documentElement, "root");
-  const cells = root ? descendants(root, "mxCell").filter((cell) => {
-    // Avoid accidentally folding cell-like extensions into the diagram model.
-    return true;
-  }) : [];
-  const currentCellIds = new Set(cells.map((cell) => cell.getAttribute("id") || ""));
+  const cellEntries: Array<{ cell: Element; wrapper: Element; id: string }> = [];
+  if (root) {
+    for (let index = 0; index < root.childNodes.length; index += 1) {
+      const child = root.childNodes.item(index);
+      if (!child || child.nodeType !== 1) continue;
+      const wrapper = child as Element;
+      if (wrapper.nodeName === "mxCell") {
+        cellEntries.push({ cell: wrapper, wrapper, id: wrapper.getAttribute("id") || "" });
+      } else {
+        const wrappedCell = directChild(wrapper, "mxCell");
+        if (wrappedCell) cellEntries.push({ cell: wrappedCell, wrapper, id: wrapper.getAttribute("id") || wrappedCell.getAttribute("id") || "" });
+      }
+    }
+  }
+  const cells = cellEntries.map((entry) => entry.cell);
+  const idByCell = new Map(cellEntries.map((entry) => [entry.cell, entry.id]));
+  const wrapperByCell = new Map(cellEntries.map((entry) => [entry.cell, entry.wrapper]));
+  const cellId = (cell: Element) => idByCell.get(cell) || cell.getAttribute("id") || "";
+  const currentCellIds = new Set(cells.map(cellId));
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const previousRelations = new Map(previous.relations.map((relation) => [relation.id, relation]));
   const nodes: DiagramNode[] = [];
@@ -225,11 +239,12 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     .filter((fragment) => currentCellIds.has(fragment.id + "__sequenceFragment"))
     .map((fragment) => [fragment.id, { ...fragment }]));
   for (const cell of cells) {
-    const id = cell.getAttribute("id") || "";
+    const id = cellId(cell);
     if (!id || id === "0" || id === "1" || id.endsWith("__lifelineEnd") ||
         id.endsWith("__messageSourceAnchor") || id.endsWith("__messageTargetAnchor") ||
         id.endsWith("__lifeline") || id.endsWith("__sequenceActivation") || id.endsWith("__studioAccent")) continue;
-    const value = plainLabel(cell.getAttribute("value") || "");
+    const wrapper = wrapperByCell.get(cell) || cell;
+    const value = plainLabel(cell.getAttribute("value") || wrapper.getAttribute("label") || "");
     const style = cell.getAttribute("style") || "";
     if (cell.getAttribute("vertex") === "1") {
       if (style.includes("studioBoundary=1")) {
