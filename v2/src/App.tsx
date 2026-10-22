@@ -715,7 +715,7 @@ export default function App() {
   }, [commitDocument, projectWorkspace?.id]);
 
   const sendIntent = useCopilotIntent({
-    projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
+    projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
     setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode,
     onAppliedEdit: applyCopilotEdit
