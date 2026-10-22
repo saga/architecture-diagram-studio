@@ -2,7 +2,7 @@
 
 ## Startup and diagram files
 
-A project workspace is optional and represents a project directory, not a diagram. Use **Open Draw.io** to open any local `.drawio`, `.dio`, or `.xml` file as a standalone document; when the browser supports the File System Access API, edits autosave to the selected file. Browsers without direct file-write access can still open the file, but use **Export** to save edits. Standalone files do not require workspace scanning. Use **New Draw.io** when you want a diagram tracked in a configured project workspace; autosave and version history are scoped to that workspace diagram. Creating a new diagram never overwrites an existing file.
+A project workspace is optional and represents a project directory, not a diagram. Use **Open Draw.io** to open any local `.drawio`, `.dio`, or `.xml` file as a standalone document; when the browser supports the File System Access API, edits autosave to the selected file. Browsers without direct file-write access can still open the file, but use **Export** to save edits. Copilot can analyze the standalone diagram and propose supported layout-intent changes without reading or modifying the configured project workspace; workspace-only semantic Agent tools remain unavailable in standalone mode. Standalone files do not require workspace scanning. Use **New Draw.io** when you want a diagram tracked in a configured project workspace; autosave and version history are scoped to that workspace diagram. Creating a new diagram never overwrites an existing file.
 
 ## Rendering parity
 
