@@ -40,6 +40,11 @@ describe("normalizeNativeColor", () => {
 });
 
 describe("parseNativeEditOperations", () => {
+  it("accepts a native add-after operation with an explicit label", () => {
+    const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx", newLabel: "bbb" }]);
+    expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
+  });
+
   it("accepts a compound select + recolor request", () => {
     const parsed = parseNativeEditOperations([
       { op: "select", target: "Database" },
@@ -104,14 +109,16 @@ describe("toNativeCellEdits", () => {
   it("maps operations onto bridge paths", () => {
     const operations: ResolvedNativeEditOperation[] = [
       { op: "select", target: "Database", cellId: "db", label: "Database" },
-      { op: "set_style", target: "Database", cellId: "db", label: "Database", key: "fillColor", color: "#ff0000" }
+      { op: "set_style", target: "Database", cellId: "db", label: "Database", key: "fillColor", color: "#ff0000" },
+      { op: "add_node_after", target: "Database", cellId: "db", label: "Database", newLabel: "bbb" }
     ];
     const plan = toNativeCellEdits(operations, XML);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.edits).toEqual([
       { cellId: "db", path: "cell:select", value: "true" },
-      { cellId: "db", path: "style:fillColor", value: "#ff0000" }
+      { cellId: "db", path: "style:fillColor", value: "#ff0000" },
+      { cellId: "db", path: "cell:add-node-after", value: JSON.stringify({ label: "bbb" }) }
     ]);
   });
 
@@ -142,5 +149,6 @@ describe("describeNativeEditOperation", () => {
     expect(describeNativeEditOperation({ op: "set_style", target: "db", key: "fillColor", color: "#ff0000" }))
       .toBe("Set fillColor of “db” to #ff0000");
     expect(describeNativeEditOperation({ op: "select", target: "db" })).toBe("Select “db”");
+    expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” after “xxx” and connect it");
   });
 });
