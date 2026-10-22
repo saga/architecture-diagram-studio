@@ -148,9 +148,9 @@ async function main() {
   const indexHtmlPath = path.join(temp, "index.html");
   let indexHtml = fs.readFileSync(indexHtmlPath, "utf8");
   if (!indexHtml.includes('<script src="studio-selection-plugin.js"></script>')) {
-    const mainScript = /(<script\\s+src=["']js\\/main\\.js["'][^>]*>\\s*<\\/script>)/i;
+    const mainScript = /(<script\s+src=["']js\/main\.js["'][^>]*>\s*<\/script>)/i;
     if (!mainScript.test(indexHtml)) throw new Error("Could not locate js/main.js in Draw.io index.html to install the selection bridge.");
-    indexHtml = indexHtml.replace(mainScript, '$1\\n<script src="studio-selection-plugin.js"></script>');
+    indexHtml = indexHtml.replace(mainScript, '$1\n<script src="studio-selection-plugin.js"></script>');
     fs.writeFileSync(indexHtmlPath, indexHtml);
   }
 
