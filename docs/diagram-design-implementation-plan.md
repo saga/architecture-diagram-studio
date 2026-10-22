@@ -12,15 +12,15 @@
 
 | 能力 | 判断 | 实施决定 |
 |---|---|---|
-| 几何质量门与冲突定位 | 高价值，已有基础 | 扩展指标和诊断；严重错误与软评分分开 |
-| 4px 网格 | 高价值 | 统一自动布局、拖动吸附和 Draw.io 网格；不强制重写手工尺寸 |
-| 文本溢出与 CJK 宽度 | 高价值 | 用统一的字符宽度估算检测标题、技术信息、描述和边标签 |
-| 端口分散与连线避障 | 高价值但较复杂 | 先做共享端口分配和正交路径避障，交叉桥接暂不作为通用前置条件 |
-| 视觉 token / 对比度 | 高价值 | 保留现有配色，补充可测量的对比度审计与风格一致性 |
-| 语义布局和 containment | 有价值，依赖数据模型 | 复用现有 `preferredSide`、`preferredRank`、`boundaries` 等字段，分阶段增强 |
-| 时序图 fragment | 部分已实现 | 保留现有模型和导出；校验范围、间距及边界 |
+| 几何质量门与冲突定位 | 候选的 native analysis provider | 未来输出可定位诊断；严重错误与软警告必须分开 |
+| 4px 网格 | 可选的 native operation provider 规则 | 只有明确启用的布局操作可以调整坐标；不隐式吸附既有手工位置 |
+| 文本溢出与 CJK 宽度 | 候选的 native analysis provider 规则 | 返回文本可读性诊断，不要求布局模型重建文档 |
+| 端口分散与连线避障 | 候选的 routing operation provider 规则 | 只修改明确目标的原生 edge/geometry，先验证现有端点与 waypoints |
+| 视觉 token / 对比度 | analysis + explicit style operations | 对比度检查为诊断；颜色只在用户明确要求时作为原生操作修改 |
+| 布局方向、容器与分组 | 可选的 native operation provider | 从原生 mxCell parent/geometry/terminal 信息推导约束，不引入持久化语义角色模型 |
+| Sequence / fragment 几何 | 需要单独的原生 cell 能力设计 | 读取真实 page/cell/style/geometry 信息，任何新操作均要进入 typed operation allowlist |
 | 复杂度预算 | 适合提示，不适合硬限制 | 输出质量警告和拆图建议，不拒绝正常的大型图 |
-| 原生编辑器可访问性 | 高价值 | 检查 iframe 标题、键盘操作、属性面板字段标签和焦点行为 |
+| 原生编辑器可访问性 | 当前 UI 的改进方向 | 用 E2E/只读诊断验证键盘、焦点、字段标签和编辑器 acknowledgements |
 
 不在本轮实现 45 种图表类型、全局固定节点尺寸档位、所有交叉必然使用 hop/bridge，或替换布局引擎。这些要么超出 Studio 当前核心范围，要么会损害用户手工布局和复杂工程图的合法性。
 
