@@ -452,6 +452,7 @@ export default function App() {
           resolve({
             ok: result.success,
             error: result.error,
+            failureStage: result.failureStage,
             rolledBack: result.success ? false : result.batchRolledBack !== false,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error }))
           });
