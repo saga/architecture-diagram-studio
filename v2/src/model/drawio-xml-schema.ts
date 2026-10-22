@@ -1,4 +1,4 @@
-import { DOMParser } from "@xmldom/xmldom";
+import { parseDrawioXml } from "./drawio-xml-dom";
 import { inflateSync, unzlibSync } from "fflate";
 import { z } from "zod";
 
@@ -360,26 +360,7 @@ function issuesAsStrings(issues: z.ZodIssue[]): string[] {
 }
 
 function parseXmlTree(xml: string): DrawioXmlElement {
-  // DTD/entity declarations are unnecessary for Draw.io files and create avoidable parser risk.
-  // Ignore comments, CDATA and processing instructions when detecting declarations.
-  const withoutSafeRegions = xml
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
-    .replace(/<\?[\s\S]*?\?>/g, "");
-  if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(withoutSafeRegions)) throw new Error("DTD and custom entity declarations are not supported.");
-  const errors: string[] = [];
-  const parser = new DOMParser({
-    locator: false,
-    onError: (level, message) => {
-      if (level !== "warning") errors.push(message);
-    }
-  });
-  const document = parser.parseFromString(xml, "application/xml");
-  if (errors.length) throw new Error(errors.slice(0, 5).join("; "));
-  if (!document.documentElement) throw new Error("The XML document has no root element.");
-  // xmldom implements the DOM, but its types are module-local rather than the lib.dom ones this
-  // walker reads, so the parsed root needs an explicit cast at the boundary.
-  return toXmlElement(document.documentElement as unknown as Element);
+  return toXmlElement(parseDrawioXml(xml).documentElement as unknown as Element);
 }
 
 const MAX_INFLATED_PAGE_BYTES = 20_000_000;
