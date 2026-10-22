@@ -135,6 +135,17 @@ describe("Draw.io style import parity", () => {
     expect(imported.nodes[0]).toMatchObject({ id: existing.id, role: "storage", visualRole: "highlight", name: "Updated node" });
   });
 
+  it("re-maps native shapes instead of inheriting a stale semantic role", () => {
+    const previous = FIXTURES.c4();
+    const existing = previous.nodes[0];
+    const xml = '<mxfile><diagram id="page-1" name="Native shape update"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="' + existing.id + '" value="Orders table" style="shape=table;" vertex="1" parent="1"><mxGeometry x="240" y="120" width="160" height="80" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, previous);
+    expect(imported.nodes[0]).toMatchObject({ id: existing.id, role: "data", visualRole: "secondary", name: "Orders table" });
+  });
+
   it("maps common Draw.io shapes to coarse semantic roles", () => {
     expect(roleFromStyle("shape=umlActor;")).toBe("actor");
     expect(roleFromStyle("shape=cloud;")).toBe("external");
