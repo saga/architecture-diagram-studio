@@ -123,12 +123,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     // The Draw.io plugin bridge owns graph internals; window.editorUi is not a public API.
     const storedBackground = /\bstudioThemeOriginalBackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
     const explicitBackground = /\bbackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
-    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
-      event: "studioSetBackground",
-      restore: theme === "editorial",
-      background: palette.canvas,
-      restoreBackground: storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || null
-    }), window.location.origin);
+    if (nativeDocumentLoadedRef.current) {
+      iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
+        event: "studioSetBackground",
+        restore: theme === "editorial",
+        background: palette.canvas,
+        restoreBackground: storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || null
+      }), window.location.origin);
+    }
 
     // For uncompressed XML pages, persist the corresponding mxGraphModel background
     // attribute without touching cell styles. Compressed pages use the graph API above.
@@ -223,16 +225,10 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           });
         } else {
           recordDiagnostic("drawio.selection.property.update.failed", "Could not update a selected native Draw.io cell property", {
-            cellId: data.cellId, property: data.path, requestId, errorMessage: typeof data.error === "string" ? data.error : "Unknown property edit error"
+            cellId: data.cellId, property: data.path, requestId,
+            errorMessage: typeof data.error === "string" ? data.error : "Unknown property edit error"
           }, "error");
         }
-      }
-      if (data.event === "studioPropertyEditResult") {
-        const requestId = typeof data.requestId === "number" ? data.requestId : null;
-        recordDiagnostic(data.success === true ? "drawio.selection.property.updated" : "drawio.selection.property.update.failed",
-          data.success === true ? "Updated a selected native Draw.io cell property" : "Could not update the selected native Draw.io cell property",
-          { requestId, cellId: data.cellId, property: data.path, errorMessage: data.success === true ? undefined : data.error },
-          data.success === true ? "info" : "error");
       }
       if (data.event === "configure") {
         recordDiagnostic("drawio.handshake.configure", "Draw.io requested configuration");
