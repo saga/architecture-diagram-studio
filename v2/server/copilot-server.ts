@@ -231,9 +231,7 @@ function workspaceStateMatchesActiveDiagram(state: WorkspaceState, workspace: Pr
   if (state.diagramPath !== undefined && workspace && state.diagramPath !== (workspace.primaryDiagram ?? null)) return false;
   return true;
 }
-function hasUnloadedPrimaryDiagramXml(state: WorkspaceState, workspace: ProjectWorkspace | null): boolean {
-  return Boolean(workspace?.primaryDiagram && /\.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram) && typeof state.drawioXml !== "string");
-}
+
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
   if (!diagramVersionsLoad) {
