@@ -118,6 +118,35 @@ function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsuppo
   };
 }
 
+function renamingCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "propose_native_edits");
+        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
+        await tool.handler({ operations: [{ op: "set_label", target: "Database", label: "Data Store" }] });
+        return { message: { data: { content: "Rename Database to Data Store." } }, modelCallUsages: [] };
+      }
+    })
+  };
+}
+
 function proposingCopilot() {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -280,6 +309,34 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe(outcome);
     expect(body.reply).toBe(reply);
     expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("resolves the same focused rename through the shared pipeline in workspace and standalone modes", async () => {
+    const workspaceHarness = await createServer({ copilot: renamingCopilot() });
+    const standaloneHarness = await createServer({ copilot: renamingCopilot() });
+    const baseRequest = {
+      prompt: "Rename Database to Data Store",
+      context: { kind: "drawio", activePageId: "p1", selectedCell: null, cells: [] },
+      diagramXml: XML,
+      documentRevision: workspaceRevision(XML)
+    };
+    const workspace = await post(workspaceHarness.baseUrl, "/api/copilot/intent", {
+      ...baseRequest, sessionId: "workspace-rename", standalone: false
+    });
+    const standalone = await post(standaloneHarness.baseUrl, "/api/copilot/intent", {
+      ...baseRequest, sessionId: "standalone-rename", standalone: true
+    });
+    expect(workspace.response.status).toBe(200);
+    expect(standalone.response.status).toBe(200);
+    expect(workspace.body.outcome).toBe("command_ready");
+    expect(standalone.body.outcome).toBe("command_ready");
+    const workspaceEdit = (workspace.body.nativeEdits as { operations: unknown[] }).operations[0];
+    const standaloneEdit = (standalone.body.nativeEdits as { operations: unknown[] }).operations[0];
+    expect(workspaceEdit).toMatchObject({ op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store" });
+    expect(standaloneEdit).toEqual(workspaceEdit);
+    expect(workspaceHarness.snapshot).toHaveBeenCalledTimes(2);
+    expect(standaloneHarness.snapshot).not.toHaveBeenCalled();
+    expect(standaloneHarness.persistSessionId).not.toHaveBeenCalled();
   });
 
   it("turns broad destructive batches into reviewable proposals and requires a fresh explicit confirmation", async () => {
