@@ -153,7 +153,7 @@ test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并
   });
 
   await page.getByRole("tab", { name: "Copilot" }).click();
-  const input = page.locator('textarea[placeholder^="Describe the layout change"]');
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
   await input.fill("把 Database 后面加上一个新元素 bbb，然后连接起来");
   await input.press("Enter");
 
