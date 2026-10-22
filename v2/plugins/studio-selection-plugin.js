@@ -159,6 +159,9 @@
       } finally {
         activeModel.endUpdate();
       }
+      // Programmatic model mutations bypass Draw.io's normal UI command path; mark the
+      // editor dirty so the host's subsequent { action: "save" } request serializes them.
+      if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
       if (typeof activeGraph.refresh === "function") activeGraph.refresh();
     }
 
