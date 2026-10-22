@@ -413,6 +413,16 @@ export class CopilotRuntime {
           decision: "approve-once"
         })).catch(() => undefined);
         return { kind: "approve-once" };
+      },
+      // This application has no OAuth UI/token broker. Cancel explicitly so an MCP
+      // authentication request cannot remain pending indefinitely inside the SDK.
+      onMcpAuthRequest: async (request) => {
+        void Promise.resolve(this.options.log("mcp.auth.cancelled", {
+          serverName: request.serverName,
+          serverUrl: request.serverUrl,
+          reason: request.reason
+        })).catch(() => undefined);
+        return { kind: "cancelled" };
       }
     };
 
