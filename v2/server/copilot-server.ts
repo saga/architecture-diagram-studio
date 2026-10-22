@@ -203,9 +203,27 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
   if (!diagramVersionsLoad) {
     diagramVersionsLoad = (async () => {
-      const stored = await readJsonFile<DiagramVersion[]>(VERSIONS_FILE, []);
-      const retained = retainRecentVersions(stored);
-      if (retained.length !== stored.length) await writeJsonAtomic(VERSIONS_FILE, retained);
+      const stored = await readJsonFile<StoredDiagramVersion[]>(VERSIONS_FILE, []);
+      let migrated = false;
+      const hydrated: DiagramVersion[] = [];
+      for (const item of stored) {
+        let xml = typeof item.drawioXml === "string" ? item.drawioXml : null;
+        // One-time migration for historical Studio snapshots that predate XML-only storage.
+        // Never use an old projection to replace XML that already exists in the snapshot.
+        if (xml === null && isDiagramDocument(item.document)) {
+          xml = toDrawioXml(item.document);
+          migrated = true;
+        }
+        if (xml === null) continue;
+        const projection = validateDrawioXmlDocument(xml).success
+          ? projectDocumentFromXml(xml)
+          : { ...FIXTURES.c4(), id: "invalid-drawio-projection", title: item.label, nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
+        hydrated.push({ ...item, drawioXml: xml, document: projection });
+        if (Object.prototype.hasOwnProperty.call(item, "document") || typeof item.drawioXml !== "string") migrated = true;
+      }
+      const retained = retainRecentVersions(hydrated);
+      if (retained.length !== stored.length) migrated = true;
+      if (migrated) await persistDiagramVersions(retained);
       return retained;
     })().catch((error) => {
       diagramVersionsLoad = null;
