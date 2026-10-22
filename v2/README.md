@@ -17,6 +17,16 @@ The original native Draw.io `mxfile` XML is the only diagram model. The embedded
 
 Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. Editing happens inside the Draw.io graph; its serializer may normalize XML formatting or attribute order after a mutation. V2 never rebuilds a document from a reduced model, and supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
 
+## Extension points for future native capabilities
+
+V2 intentionally does not ship the legacy semantic graph or its custom layout/quality pipeline. It does preserve a small extension contract in `src/model/native-diagram-capabilities.ts` so future features can be added without porting the old renderer or introducing a parallel model:
+
+- `NativeDiagramOperationProvider` receives the authoritative XML, base revision, active page, selection and a lightweight native-cell index, and returns a plan using the shared `NativeEditOperation` vocabulary.
+- `NativeDiagramAnalysisProvider` returns read-only findings (for example geometry, routing, contrast or accessibility diagnostics) keyed by native page/cell IDs.
+- `NativeDiagramCapabilityRegistry` is an interface for explicit capability discovery only. No generic registry, layout provider or quality provider is currently installed.
+
+Every mutation plan must be revalidated against the same page and current XML revision, executed by the native Draw.io bridge, and reported as successful only after editor acknowledgement and the normal save/version path. Analysis findings do not silently block ordinary native editing. See [ADR-0012](../docs/adr/0012-native-diagram-extension-contracts.md) for the contract and rules for reusing prior research.
+
 ## Copilot native cell edits
 
 The server passes the selected page's native cell IDs, labels and cell types to the Copilot SDK. The model may request two kinds of action:
