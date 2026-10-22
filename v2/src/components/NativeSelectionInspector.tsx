@@ -30,7 +30,7 @@ function readCellProperties(xml: string, cellId: string): CellProperties | null 
   } catch { return null; }
 }
 function attributes(element: Element | null): Array<[string, string]> {
-  return element ? Array.from(element.attributes).map((attribute) => [attribute.name, attribute.value]) : [];
+  return element ? Array.from(element.attributes).map((attribute) => [attribute.name, attribute.value] as [string, string]) : [];
 }
 function styleTokens(style: string): Array<[string, string]> {
   const tokens: Array<[string, string]> = [];
@@ -83,6 +83,7 @@ export default function NativeSelectionInspector({ xml, cellId, onEdit }: Props)
     </div>
     {geometry && <div className="native-inspector-group">
       <div className="field-label">Geometry</div>
+      <Field label="geometry.as" value={geometry.getAttribute("as") ?? ""} readOnly />
       {(["x", "y", "width", "height", "relative"] as const).filter((key) => geometry.hasAttribute(key)).map((key) =>
         <Field key={key} label={key} value={geometry.getAttribute(key) ?? ""} onChange={update("geometry:" + key)} />
       )}
