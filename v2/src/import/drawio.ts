@@ -238,6 +238,13 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const cellId = (cell: Element) => idByCell.get(cell) || cell.getAttribute("id") || "";
   const currentCellIds = new Set(cells.map(cellId));
   const cellById = new Map(cellEntries.map((entry) => [entry.id, entry.cell]));
+  const hasNativeSequenceStructure = cells.some((cell) => {
+    const style = (cell.getAttribute("style") || "").toLowerCase();
+    const shape = style.match(/(?:^|;)shape=([^;]+)/)?.[1] || "";
+    const id = cellId(cell);
+    return shape.includes("lifeline") || shape.includes("umlactor") ||
+      id.endsWith("__lifelineEnd") || id.endsWith("__messageSourceAnchor");
+  });
   const layerCell = cellById.get("1");
   const storedLayout = styleValues(layerCell?.getAttribute("style") || "");
   const storedNumber = (key: string, fallback: number, minimum: number) => {
@@ -400,7 +407,11 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     }));
     const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
     const explicitSequenceOrder = style.match(/(?:^|;)studioSequenceOrder=(\d+)(?:;|$)/)?.[1];
-    const relationKind = explicitKind || old?.kind || "flow";
+    // The current XML determines relation semantics; a same-ID edge from the previous
+    // diagram must not leak its call/return/dependency classification into this import.
+    const relationKind = explicitKind || (hasNativeSequenceStructure
+      ? style.includes("endArrow=open") ? "return" : "call"
+      : "flow");
     const importedRelationStyle = relationVisualStyleFromDrawio(style, relationKind, previous.renderTheme || "editorial");
     const sourceGeometryNode = nodeById.get(source) || previousNodes.get(source);
     const targetGeometryNode = nodeById.get(target) || previousNodes.get(target);
@@ -424,7 +435,9 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       ...(old || { id, source, target, label: value, kind: explicitKind || "flow" }),
       source, target, label: value,
       kind: relationKind,
-      sequenceOrder: explicitSequenceOrder === undefined ? old?.sequenceOrder : Number(explicitSequenceOrder),
+      sequenceOrder: explicitSequenceOrder === undefined
+        ? (hasNativeSequenceStructure ? undefined : old?.sequenceOrder)
+        : Number(explicitSequenceOrder),
       dashed: style.includes("dashed=1"),
       routing: style.includes("curved=1") ? "curved" : style.includes("edgeStyle=orthogonalEdgeStyle") ? "orthogonal" : "polyline",
       sourcePort, targetPort,
@@ -442,15 +455,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   }));
   const embeddedTheme = cells.map((cell) => styleValues(cell.getAttribute("style") || "").get("studioTheme")).find(Boolean);
   const importedTheme = embeddedTheme || previous.renderTheme || "editorial";
-  const hasNativeSequenceStructure = cells.some((cell) => {
-    const style = (cell.getAttribute("style") || "").toLowerCase();
-    const shape = style.match(/(?:^|;)shape=([^;]+)/)?.[1] || "";
-    return shape.includes("lifeline") || shape.includes("umlactor");
-  });
-  const isSequenceDiagram = hasNativeSequenceStructure || cells.some((cell) => {
-    const cellId = idByCell.get(cell) || cell.getAttribute("id") || "";
-    return cellId.endsWith("__lifelineEnd") || cellId.endsWith("__messageSourceAnchor");
-  }) || importedFragments.size > 0;
+  const isSequenceDiagram = hasNativeSequenceStructure || importedFragments.size > 0;
   const declaredParticipants = isSequenceDiagram ? previous.sequence?.participants || [] : [];
   const sequence = isSequenceDiagram ? {
     participants: [
