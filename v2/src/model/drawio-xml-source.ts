@@ -1,4 +1,6 @@
 import type { DiagramDocument } from "./types";
+import { validateDrawioXmlDocument } from "./drawio-xml-schema";
+export { DrawioXmlElementSchema, MxCellSchema, MxGeometrySchema, MxGraphModelSchema, MxLibrarySchema, MxLibraryEntrySchema, MxRootSchema, MxfileSchema, DrawioDiagramPageSchema, DrawioXmlRootSchema, DrawioDiagramXmlSchema, validateDrawioXmlDocument, validateDrawioXmlFile } from "./drawio-xml-schema";
 
 interface RootSlice {
   start: number;
@@ -133,17 +135,7 @@ export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, pre
   return sourceXml.slice(0, source.start) + merged.join("") + sourceXml.slice(source.end);
 }
 
-/** XML envelope validation accepts native cell types unknown to Studio. */
+/** XML validation is based on the extensible Zod Draw.io schema, including compressed pages. */
 export function isDrawioXmlDocument(xml: string): boolean {
-  if (!xml.trim() || /<!DOCTYPE/i.test(xml) || typeof DOMParser === "undefined") return false;
-  const parsed = new DOMParser().parseFromString(xml, "application/xml");
-  if (parsed.querySelector("parsererror")) return false;
-  const root = parsed.documentElement;
-  if (root.localName === "mxGraphModel") return Boolean(root.querySelector(":scope > root"));
-  if (root.localName !== "mxfile") return false;
-  const pages = Array.from(root.children).filter((child) => child.localName === "diagram");
-  return pages.length > 0 && pages.every((page) =>
-    Array.from(page.children).some((child) => child.localName === "mxGraphModel") ||
-    Boolean(page.textContent?.trim())
-  );
+  return validateDrawioXmlDocument(xml).success;
 }
