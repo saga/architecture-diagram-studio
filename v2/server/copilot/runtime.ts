@@ -49,10 +49,57 @@ export interface SessionRequest {
   prepare: () => Promise<SessionPreparation>;
 }
 
+/** Usage reported by one Copilot SDK assistant.usage event. Missing fields stay absent. */
+export interface ModelCallUsage {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  premiumRequestCost?: number;
+  totalNanoAiu?: number;
+  durationMs?: number;
+  finishReason?: string;
+  reasoningEffort?: string;
+  timeToFirstTokenMs?: number;
+  interTokenLatencyMs?: number;
+}
+
+/** Current prompt/context occupancy; this is not the same as tokens consumed by the turn. */
+export interface ContextUsage {
+  currentTokens?: number;
+  tokenLimit?: number;
+  messagesLength?: number;
+  percent?: number;
+}
+
+export interface TurnUsageMetrics {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  premiumRequestCost?: number;
+  totalNanoAiu?: number;
+  modelCalls?: number;
+  source: "assistant.usage" | "session-metrics";
+  byModel?: Record<string, Omit<ModelCallUsage, "model" | "finishReason" | "reasoningEffort" | "timeToFirstTokenMs" | "interTokenLatencyMs">>;
+}
+
+export interface SessionSendResult {
+  message?: SessionEvent;
+  usage?: TurnUsageMetrics;
+  modelCallUsages: ModelCallUsage[];
+  contextUsage?: ContextUsage;
+}
+
 /** Handed to one conversation turn; `session` follows the live session if the runtime is rebuilt mid-turn. */
 export interface SessionTurn {
   readonly session: RuntimeSession;
-  send(body: unknown, timeoutMs: number): Promise<SessionEvent | undefined>;
+  send(body: unknown, timeoutMs: number): Promise<SessionSendResult>;
 }
 
 export interface CopilotRuntimeOptions {
@@ -361,7 +408,12 @@ export class CopilotRuntime {
         send: async (body, timeoutMs) => {
           const outcome = await this.sendWithRecovery(active, body, timeoutMs);
           active = outcome.session;
-          return outcome.message;
+          return {
+            message: outcome.message,
+            ...(outcome.usage ? { usage: outcome.usage } : {}),
+            modelCallUsages: outcome.modelCallUsages,
+            ...(outcome.contextUsage ? { contextUsage: outcome.contextUsage } : {})
+          };
         }
       };
       return await run(turn);
@@ -372,9 +424,23 @@ export class CopilotRuntime {
     }
   }
 
-  /** Sends one prompt; if the CLI died under it, rebuilds the session once and replays the same prompt. */
-  private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number, recovered = false): Promise<{ session: RuntimeSession; message: SessionEvent | undefined }> {
+  /** Sends one prompt; captures real SDK usage events and retries once if the CLI process died. */
+  private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number, recovered = false): Promise<{ session: RuntimeSession; message: SessionEvent | undefined; usage?: TurnUsageMetrics; modelCallUsages: ModelCallUsage[]; contextUsage?: ContextUsage }> {
+    const modelCallUsages: ModelCallUsage[] = [];
+    let contextUsage: ContextUsage | undefined;
+    const offUsage = session.session.on((event: SessionEvent) => {
+      const data = event.data as unknown as Record<string, unknown> | undefined;
+      if (!data) return;
+      if (event.type === "assistant.usage") {
+        const item = normalizeModelCallUsage(data);
+        if (item) modelCallUsages.push(item);
+      } else if (event.type === "session.usage_info") {
+        contextUsage = normalizeContextUsage(data);
+      }
+    });
+
     try {
+      const usageBefore = await readSessionUsageMetrics(session.session);
       const pending = session.session.sendAndWait(body as SendBody, timeoutMs > 0 ? timeoutMs + 1_000 : timeoutMs);
       let watchdog: NodeJS.Timeout | undefined;
       let message: SessionEvent | undefined;
@@ -395,7 +461,14 @@ export class CopilotRuntime {
       } finally {
         if (watchdog) clearTimeout(watchdog);
       }
-      return { session, message };
+      const usageAfter = await readSessionUsageMetrics(session.session);
+      const usage = aggregateModelCallUsage(modelCallUsages)
+        ?? diffSessionUsageMetrics(usageAfter, usageBefore);
+      return {
+        session, message, modelCallUsages,
+        ...(usage ? { usage } : {}),
+        ...(contextUsage ? { contextUsage } : {})
+      };
     } catch (error) {
       const message = messageOf(error);
       if (/Copilot turn watchdog timed out/i.test(message)) {
@@ -410,6 +483,8 @@ export class CopilotRuntime {
       // Reuse the same watchdog/abort path on the single permitted retry. A second
       // transport failure is surfaced rather than recursively recreating sessions.
       return this.sendWithRecovery(fresh, body, timeoutMs, true);
+    } finally {
+      offUsage();
     }
   }
 
@@ -606,6 +681,134 @@ export class CopilotRuntime {
       if (errors.length) await this.options.log("client.stop.failed", { errors: errors.map((error) => error.message) });
     }
   }
+}
+
+type UsageRecord = Record<string, unknown>;
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizeModelCallUsage(data: UsageRecord): ModelCallUsage | undefined {
+  const usage: ModelCallUsage = {};
+  const fields: Array<[keyof ModelCallUsage, string]> = [
+    ["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"],
+    ["totalTokens", "totalTokens"], ["cachedInputTokens", "cacheReadTokens"],
+    ["cacheWriteTokens", "cacheWriteTokens"], ["reasoningTokens", "reasoningTokens"],
+    ["premiumRequestCost", "cost"], ["totalNanoAiu", "totalNanoAiu"],
+    ["durationMs", "duration"], ["timeToFirstTokenMs", "timeToFirstTokenMs"],
+    ["interTokenLatencyMs", "interTokenLatencyMs"]
+  ];
+  for (const [target, source] of fields) {
+    const value = numberValue(data[source]);
+    if (value !== undefined) (usage as Record<string, unknown>)[target] = value;
+  }
+  const model = stringValue(data.model);
+  const finishReason = stringValue(data.finishReason);
+  const reasoningEffort = stringValue(data.reasoningEffort);
+  if (model) usage.model = model;
+  if (finishReason) usage.finishReason = finishReason;
+  if (reasoningEffort) usage.reasoningEffort = reasoningEffort;
+  if (usage.totalTokens === undefined && usage.inputTokens !== undefined && usage.outputTokens !== undefined) {
+    usage.totalTokens = usage.inputTokens + usage.outputTokens;
+  }
+  return Object.keys(usage).length ? usage : undefined;
+}
+
+function normalizeContextUsage(data: UsageRecord): ContextUsage | undefined {
+  const result: ContextUsage = {};
+  const currentTokens = numberValue(data.currentTokens);
+  const tokenLimit = numberValue(data.tokenLimit);
+  const messagesLength = numberValue(data.messagesLength);
+  if (currentTokens !== undefined) result.currentTokens = currentTokens;
+  if (tokenLimit !== undefined) result.tokenLimit = tokenLimit;
+  if (messagesLength !== undefined) result.messagesLength = messagesLength;
+  if (currentTokens !== undefined && tokenLimit !== undefined && tokenLimit > 0) {
+    result.percent = Math.round(currentTokens / tokenLimit * 100);
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+function sumNumber(target: Record<string, unknown>, source: ModelCallUsage, key: keyof ModelCallUsage): void {
+  const value = source[key];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    target[key] = (typeof target[key] === "number" ? target[key] as number : 0) + value;
+  }
+}
+
+function aggregateModelCallUsage(calls: ModelCallUsage[]): TurnUsageMetrics | undefined {
+  if (!calls.length) return undefined;
+  const result: TurnUsageMetrics = { source: "assistant.usage", modelCalls: calls.length };
+  const byModel: Record<string, Record<string, unknown>> = {};
+  for (const call of calls) {
+    for (const key of ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens", "reasoningTokens", "premiumRequestCost", "totalNanoAiu"] as const) {
+      sumNumber(result as unknown as Record<string, unknown>, call, key);
+    }
+    const name = call.model || "unknown";
+    const entry = byModel[name] ?? (byModel[name] = {});
+    for (const key of ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens", "reasoningTokens", "premiumRequestCost", "totalNanoAiu"] as const) {
+      sumNumber(entry, call, key);
+    }
+  }
+  if (Object.keys(byModel).length) result.byModel = byModel as TurnUsageMetrics["byModel"];
+  return result;
+}
+
+/** Read cumulative SDK metrics as a fallback when per-call assistant.usage events are unavailable. */
+async function readSessionUsageMetrics(session: CopilotSession): Promise<UsageRecord | undefined> {
+  try {
+    const usage = (session as unknown as { usage?: { getMetrics?: () => Promise<unknown> } }).usage;
+    if (!usage?.getMetrics) return undefined;
+    const metrics = await usage.getMetrics();
+    return metrics && typeof metrics === "object" ? metrics as UsageRecord : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function numericDelta(after: unknown, before: unknown): number | undefined {
+  const a = numberValue(after);
+  const b = numberValue(before);
+  if (a === undefined || b === undefined) return undefined;
+  return Math.max(0, a - b);
+}
+
+function diffSessionUsageMetrics(after: UsageRecord | undefined, before: UsageRecord | undefined): TurnUsageMetrics | undefined {
+  if (!after) return undefined;
+  const result: TurnUsageMetrics = { source: "session-metrics" };
+  for (const field of ["inputTokens", "outputTokens", "totalTokens", "totalNanoAiu", "totalPremiumRequestCost"] as const) {
+    const value = numericDelta(after[field], before?.[field]);
+    if (value !== undefined) {
+      const target = field === "totalPremiumRequestCost" ? "premiumRequestCost" : field;
+      (result as unknown as Record<string, unknown>)[target] = value;
+    }
+  }
+  const afterModels = after.modelMetrics;
+  const beforeModels = before?.modelMetrics;
+  if (afterModels && typeof afterModels === "object") {
+    const byModel: Record<string, Record<string, unknown>> = {};
+    for (const [model, raw] of Object.entries(afterModels as Record<string, unknown>)) {
+      const afterModel = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const beforeRaw = beforeModels && typeof beforeModels === "object" ? (beforeModels as Record<string, unknown>)[model] : undefined;
+      const beforeModel = beforeRaw && typeof beforeRaw === "object" ? beforeRaw as Record<string, unknown> : {};
+      const afterUsage = afterModel.usage && typeof afterModel.usage === "object" ? afterModel.usage as Record<string, unknown> : {};
+      const beforeUsage = beforeModel.usage && typeof beforeModel.usage === "object" ? beforeModel.usage as Record<string, unknown> : {};
+      const item: Record<string, unknown> = {};
+      for (const field of ["inputTokens", "outputTokens"] as const) {
+        const value = numericDelta(afterUsage[field], beforeUsage[field]);
+        if (value !== undefined) item[field] = value;
+      }
+      const aiu = numericDelta(afterModel.totalNanoAiu, beforeModel.totalNanoAiu);
+      if (aiu !== undefined) item.totalNanoAiu = aiu;
+      if (Object.keys(item).length) byModel[model] = item;
+    }
+    if (Object.keys(byModel).length) result.byModel = byModel as TurnUsageMetrics["byModel"];
+  }
+  return Object.keys(result).some((key) => key !== "source") ? result : undefined;
 }
 
 function messageOf(error: unknown): string {
