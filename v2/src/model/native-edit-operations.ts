@@ -19,7 +19,8 @@ export type NativeEditOperation =
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
-  | { op: "delete"; target: string };
+  | { op: "delete"; target: string }
+  | { op: "add_node_after"; target: string; newLabel: string };
 
 /** An operation whose target label was resolved to a concrete Draw.io cell by the server. */
 export type ResolvedNativeEditOperation = NativeEditOperation & { cellId: string; label: string };
@@ -51,7 +52,7 @@ export type NativeEditParseResult =
   | { ok: true; operations: NativeEditOperation[] }
   | { ok: false; error: string };
 
-const OPERATION_NAMES = ["select", "set_label", "set_style", "move", "resize", "delete"] as const;
+const OPERATION_NAMES = ["select", "set_label", "set_style", "move", "resize", "delete", "add_node_after"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -130,6 +131,9 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
         case "delete":
           operations.push({ op: name, target });
           break;
+        case "add_node_after":
+          operations.push({ op: name, target, newLabel: textField(raw, "newLabel", 500) });
+          break;
         case "set_label":
           operations.push({ op: name, target, label: textField(raw, "label", 500) });
           break;
@@ -174,6 +178,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation): str
     case "move": return `Move “${operation.target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${operation.target}” to ${operation.width} × ${operation.height}`;
     case "delete": return `Delete “${operation.target}”`;
+    case "add_node_after": return `Add “${operation.newLabel}” after “${operation.target}” and connect it`;
   }
 }
 
@@ -218,6 +223,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "delete":
         edits.push({ cellId, path: "cell:delete", value: "true" });
+        break;
+      case "add_node_after":
+        edits.push({ cellId, path: "cell:add-node-after", value: JSON.stringify({ label: operation.newLabel }) });
         break;
       case "set_label":
         edits.push({ cellId, path: "label", value: operation.label });
