@@ -109,8 +109,24 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     }
     if (style) style.textContent = drawioFrameThemeCss(palette);
 
-    // The XML model owns its canvas background. Patch only this attribute and leave
-    // every cell style untouched, preserving semantic/user-authored colours.
+    // Use Draw.io's own graph view API as the visual adapter. This also covers
+    // compressed <diagram> payloads where no mxGraphModel tag is visible in XML.
+    const editorWindow = iframeRef.current?.contentWindow as (Window & {
+      editorUi?: { editor?: { graph?: {
+        background?: string;
+        refresh?: () => void;
+        view?: { validateBackground?: () => void };
+      } } };
+    }) | null;
+    const graph = editorWindow?.editorUi?.editor?.graph;
+    if (graph) {
+      graph.background = palette.canvas;
+      graph.view?.validateBackground?.();
+      graph.refresh?.();
+    }
+
+    // For uncompressed XML pages, persist the corresponding mxGraphModel background
+    // attribute without touching cell styles. Compressed pages use the graph API above.
     const themedXml = applyDrawioThemeBackground(xml, palette.canvas);
     const appliedKey = theme + ":" + palette.canvas;
     if (editorReady && themedXml !== xml && lastThemeAppliedRef.current !== appliedKey) {
