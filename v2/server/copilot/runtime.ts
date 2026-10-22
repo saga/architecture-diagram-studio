@@ -85,7 +85,7 @@ export interface TurnUsageMetrics {
   premiumRequestCost?: number;
   totalNanoAiu?: number;
   modelCalls?: number;
-  source: "assistant.usage" | "session-metrics";
+  source: "provider-event" | "session-metrics";
   byModel?: Record<string, Omit<ModelCallUsage, "model" | "finishReason" | "reasoningEffort" | "timeToFirstTokenMs" | "interTokenLatencyMs">>;
 }
 
@@ -742,7 +742,7 @@ function sumNumber(target: Record<string, unknown>, source: ModelCallUsage, key:
 
 function aggregateModelCallUsage(calls: ModelCallUsage[]): TurnUsageMetrics | undefined {
   if (!calls.length) return undefined;
-  const result: TurnUsageMetrics = { source: "assistant.usage", modelCalls: calls.length };
+  const result: TurnUsageMetrics = { source: "provider-event", modelCalls: calls.length };
   const byModel: Record<string, Record<string, unknown>> = {};
   for (const call of calls) {
     for (const key of ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens", "reasoningTokens", "premiumRequestCost", "totalNanoAiu"] as const) {
