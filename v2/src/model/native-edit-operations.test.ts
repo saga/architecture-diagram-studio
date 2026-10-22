@@ -168,6 +168,22 @@ describe("toNativeCellEdits", () => {
     ]);
   });
 
+  it("uses the selected page when duplicate cell IDs exist in a multi-page file", () => {
+    const twoPages = '<mxfile>' +
+      '<diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="db" value="Database" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel></diagram>' +
+      '<diagram id="p2"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="db" value="Database" vertex="1" parent="1"><mxGeometry x="500" y="600" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel></diagram>' +
+      '</mxfile>';
+    const plan = toNativeCellEdits([
+      { op: "move", target: "Database", cellId: "db", targetLabel: "Database", dx: 5, dy: 7 }
+    ], twoPages, "p2");
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.edits).toEqual([
+      { cellId: "db", path: "geometry:x", value: "505" },
+      { cellId: "db", path: "geometry:y", value: "607" }
+    ]);
+  });
+
   it("fails when the cell is missing from the XML", () => {
     const plan = toNativeCellEdits([{ op: "move", target: "Gone", cellId: "gone", targetLabel: "Gone", dx: 1, dy: 1 }], XML);
     expect(plan.ok).toBe(false);
