@@ -17,7 +17,7 @@ Maintaining a second user-facing theme palette would cause drift. Rewriting ever
 1. Read the resolved `--theme-*` tokens from the active `.app-shell` after the selected theme is applied. Do not duplicate per-theme colour tables in TypeScript.
 2. Inject a narrowly scoped stylesheet into the same-origin Native Draw.io iframe to theme editor chrome and controls.
 3. Set the Draw.io graph view background through the editor graph API. This covers compressed Draw.io pages as well as uncompressed XML.
-4. For uncompressed XML pages, update only the `mxGraphModel` `background` attribute in the authoritative XML. Preserve all other XML bytes and metadata. Do not recolour vertex or edge styles.
+4. For uncompressed XML pages, update the `mxGraphModel` `background` attribute and the reserved `studioTheme*Background` bookkeeping attributes required to restore the original background when returning to Editorial. Preserve all unrelated XML bytes and metadata. Do not recolour vertex or edge styles.
 5. Never rewrite individual cell `fillColor`, `strokeColor`, or `fontColor` values merely because the UI theme changed. User-authored and business-semantic colours remain intact.
 6. Keep the existing theme selector and local preference behavior. There is no second Native-only theme configuration.
 
