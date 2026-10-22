@@ -9,7 +9,7 @@
 
 ## 状态说明（2026-10-22）
 
-本文保留了改造前的评审证据和旧代码行号。以下旧结论中凡称 `DiagramDocument` 为唯一真源、把 Studio/Freeform 当成现行画布，均已被 ADR-0006 与 ADR-0008 取代；不得把历史基线描述当作当前架构事实。当前实现状态以 `v2/README.md`、`ARCHITECTURE-V2.md` 和 ADR-0011 为准；将研究结论映射为未来 capability 接口的规则见 ADR-0012。文中后续的修复记录仍需结合最新代码与 CI 复核。
+本文保留了改造前的评审证据和旧代码行号。以下旧结论中凡称 `DiagramDocument` 为唯一真源、把 Studio/Freeform 当成现行画布，均已由 ADR-0011 取代；不得把历史基线描述当作当前架构事实。当前实现状态以 `v2/README.md`、`ARCHITECTURE-V2.md` 和 ADR-0011 为准；将研究结论映射为未来 capability 接口的规则见 ADR-0012。文中后续的修复记录仍需结合最新代码与 CI 复核。
 
 ## 0. 一句话结论
 
