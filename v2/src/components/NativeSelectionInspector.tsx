@@ -99,11 +99,9 @@ export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }
   const tokens = styleTokens(style);
   const update = (path: string) => (value: string) => onEdit(cellId, path, value);
   const updateToken = (key: string, value: string) => {
-    const next = new Map(styleTokens(style));
-    if (value === "") next.delete(key); else next.set(key, value);
-    const raw = style.split(";").filter((part) => part && !part.includes("=")).join(";");
-    const serialized = [...Array.from(next, ([name, item]) => name + "=" + item), raw].filter(Boolean).join(";");
-    update("style")(serialized ? serialized + ";" : "");
+    // Patch one key against the live Draw.io model so quick edits to different style
+    // fields cannot overwrite each other while the XML autosave is still in flight.
+    update("style:" + key)(value);
   };
 
   return <section className="native-inspector">
