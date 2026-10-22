@@ -111,7 +111,7 @@
           activeModel.setGeometry(cell, geometry);
         } else if (path === "cell:delete") {
           if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be deleted");
-          activeModel.remove(cell);
+          if (typeof activeGraph.removeCells === "function") activeGraph.removeCells([cell], true);\n          else activeModel.remove(cell);
         } else if (path.indexOf("geometry:") === 0 && cell.geometry) {
           var geometryKey = path.slice(9);
           var nextGeometry = cell.geometry.clone();
