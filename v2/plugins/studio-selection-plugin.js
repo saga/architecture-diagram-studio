@@ -374,6 +374,11 @@
             if (dimensions.length !== 2 || dimensions.some(function (number) { return !Number.isFinite(number) || number < 1 || number > 10000; })) throw new Error("Size must contain width and height between 1 and 10000");
             nextGeometry.width = dimensions[0];
             nextGeometry.height = dimensions[1];
+          } else if (geometryKey === "translate") {
+            var deltas = value.split(",").map(Number);
+            if (deltas.length !== 2 || deltas.some(function (number) { return !Number.isFinite(number) || number < -10000 || number > 10000; })) throw new Error("Move delta must contain finite dx and dy between -10000 and 10000");
+            nextGeometry.x = Number(nextGeometry.x || 0) + deltas[0];
+            nextGeometry.y = Number(nextGeometry.y || 0) + deltas[1];
           } else if (geometryKey === "relative") {
             var boolValue = value.toLowerCase();
             if (["1", "0", "true", "false"].indexOf(boolValue) < 0) throw new Error("relative must be 1/0 or true/false");
