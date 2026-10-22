@@ -510,9 +510,7 @@ export default function App() {
       const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: "" } }) });
       const payload = await response.json() as { config?: { model?: string; revisionId?: string }; error?: string };
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
-      setAiBaseUrl("");
       setAiModel("");
-      setAiApiKey("");
       try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Server JSONL is authoritative. */ }
       setLastAction("Local-rules mode config saved as a new revision");
       recordDiagnostic("settings.model.cleared", "Model settings cleared from the server revision history", { revisionId: payload.config.revisionId }, "warn");
@@ -1030,9 +1028,9 @@ export default function App() {
             page="copilot"
             messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
             sendIntent={() => void sendIntent()}
-            aiBaseUrl={aiBaseUrl} setAiBaseUrl={setAiBaseUrl} aiModel={aiModel} setAiModel={setAiModel}
+             aiModel={aiModel} setAiModel={setAiModel}
             reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
-            aiApiKey={aiApiKey} setAiApiKey={setAiApiKey} saveAISettings={saveAISettings} clearAISettings={clearAISettings}
+             saveAISettings={saveAISettings} clearAISettings={clearAISettings}
             traceEntries={traceEntries} refreshTraces={refreshTraceHistory}
             drawioStatus={drawioStatus} drawioStatusMessage={drawioStatusMessage}
              checkDrawioStatus={() => void checkDrawioStatus()}
@@ -1055,16 +1053,10 @@ export default function App() {
           setChatInput={setChatInput}
           chatBusy={chatBusy}
           sendIntent={() => void sendIntent()}
-          aiBaseUrl={aiBaseUrl}
-          setAiBaseUrl={setAiBaseUrl}
-          aiModel={aiModel}
-          setAiModel={setAiModel}
+             aiModel={aiModel} setAiModel={setAiModel}
           reasoningEffort={reasoningEffort}
           setReasoningEffort={setReasoningEffort}
-          aiApiKey={aiApiKey}
-          setAiApiKey={setAiApiKey}
-          saveAISettings={saveAISettings}
-          clearAISettings={clearAISettings}
+             saveAISettings={saveAISettings} clearAISettings={clearAISettings}
           traceEntries={traceEntries}
           refreshTraces={refreshTraceHistory}
           drawioStatus={drawioStatus}
