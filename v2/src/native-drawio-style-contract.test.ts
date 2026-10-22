@@ -30,7 +30,7 @@ describe("native Draw.io style and geometry contract", () => {
     const xml = toDrawioXml(document);
     const bottom = sequenceLifelineBottom(document.relations.length);
 
-    expect(xml).toContain(`y2=${bottom}`);
+    expect(xml).toContain(`y="${bottom}"`);
     expect(xml).toContain(`dashPattern=${RENDER_METRICS.relation.lifelineDashPattern};strokeColor=${palette.lifelineStroke};strokeWidth=${RENDER_METRICS.relation.lifelineStrokeWidth};`);
   });
 
