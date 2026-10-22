@@ -215,6 +215,13 @@
       }
       var path = String(request.path || "");
       var value = String(request.value == null ? "" : request.value);
+      if (path === "cell:select") {
+        if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be selected as diagram elements");
+        if (typeof activeGraph.setSelectionCell !== "function") throw new Error("This Draw.io build does not expose cell selection");
+        activeGraph.setSelectionCell(cell);
+        if (typeof activeGraph.scrollCellToVisible === "function") activeGraph.scrollCellToVisible(cell);
+        return { selected: true, cellId: cell.id };
+      }
       activeModel.beginUpdate();
       try {
         if (path === "label") {
