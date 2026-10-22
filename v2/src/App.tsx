@@ -281,7 +281,7 @@ export default function App() {
         historyRef.current = [nextDocument]; historyIndexRef.current = 0;
         setCanUndo(false); setCanRedo(false);
         setNativeXmlOverride(result.drawioXml);
-        setProjectWorkspace(nextWorkspace); setWorkspaceFiles(result.files || []);
+        setProjectWorkspace(nextWorkspace); setStandaloneFileHandle(null); setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || []);
         setWorkspaceName(nextWorkspace.name); setWorkspaceRootPath(nextWorkspace.rootPath);
         setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
         const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
@@ -355,7 +355,7 @@ export default function App() {
       // persistence if the native XML changed while the app was open.
       serverCommittedDocumentRef.current = null;
       workspaceInitialLoadRef.current = nextWorkspace.id;
-      setServerDocumentAvailable(true); setProjectWorkspace(nextWorkspace); setWorkspaceFiles(result.files || workspaceFiles);
+      setServerDocumentAvailable(true); setProjectWorkspace(nextWorkspace); setStandaloneFileHandle(null); setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
       setWorkspaceSetupOpen(false); setWorkspaceContentReady(true); setWorkspaceLaunchMode("open");
       recordDiagnostic("workspace.diagram.opened", "Opened an existing Draw.io file in the project workspace", {
@@ -870,7 +870,6 @@ export default function App() {
       const parsed = fromDrawioXml(xml, empty);
       if (parsed === empty) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
       setWorkspaceContentReady(false);
-      setServerDocumentAvailable(false);
       setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
       standaloneLastSavedXmlRef.current = xml;
       setDocument(parsed); setNativeXmlOverride(xml);
