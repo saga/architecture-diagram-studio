@@ -117,6 +117,9 @@ function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (st
     issue(ctx, "An mxCell cannot be both a vertex and an edge", path.concat("attributes"));
   }
   const geometries = childNodesNamed(element, "mxGeometry");
+  if ((element.attributes.vertex === "1" || element.attributes.edge === "1") && geometries.length === 0) {
+    issue(ctx, "A vertex or edge mxCell must contain an mxGeometry child", path.concat("children"));
+  }
   if (geometries.length > 1) issue(ctx, "An mxCell can have at most one direct mxGeometry child", path.concat("children"));
   for (const [index, geometry] of geometries.entries()) {
     if (geometry.attributes.as !== undefined && geometry.attributes.as !== "geometry") {
@@ -455,9 +458,23 @@ function addCellInventoryWarnings(root: DrawioXmlElement, warnings: string[], pa
   if (!ids.has("0")) warnings.push(pageLabel + ": missing conventional root cell id 0.");
   if (!ids.has("1")) warnings.push(pageLabel + ": missing conventional default-layer cell id 1.");
   for (const [index, entry] of inventory.entries()) {
-    if (!effectiveCellId(entry.wrapper)) warnings.push(pageLabel + ": cell " + index + " has no id; Draw.io may assign one on open.");
+    const id = effectiveCellId(entry.wrapper);
+    if (!id) warnings.push(pageLabel + ": cell " + index + " has no id; Draw.io may assign one on open.");
     const parent = entry.cell.attributes.parent;
-    if (parent && !ids.has(parent)) warnings.push(pageLabel + ": cell " + (effectiveCellId(entry.wrapper) || index) + " references missing parent " + parent + ".");
+    if (parent && !ids.has(parent)) warnings.push(pageLabel + ": cell " + (id || index) + " references missing parent " + parent + ".");
+    if (entry.cell.attributes.edge === "1") {
+      const source = entry.cell.attributes.source;
+      const target = entry.cell.attributes.target;
+      const geometry = entry.cell.children.find((child) => child.name === "mxGeometry");
+      const hasPoint = (name: string) => Boolean(geometry?.children.some((child) =>
+        child.name === "mxPoint" && child.attributes.as === name
+      ));
+      if (source && !ids.has(source) && !hasPoint("sourcePoint")) warnings.push(pageLabel + ": edge " + (id || index) + " references missing source " + source + ".");
+      if (target && !ids.has(target) && !hasPoint("targetPoint")) warnings.push(pageLabel + ": edge " + (id || index) + " references missing target " + target + ".");
+      if (!source && !hasPoint("sourcePoint")) warnings.push(pageLabel + ": edge " + (id || index) + " has neither a source nor a sourcePoint.");
+      if (!target && !hasPoint("targetPoint")) warnings.push(pageLabel + ": edge " + (id || index) + " has neither a target nor a targetPoint.");
+      if (geometry?.attributes.relative !== "1") warnings.push(pageLabel + ": edge " + (id || index) + " geometry is not marked relative=1.");
+    }
   }
 }
 
