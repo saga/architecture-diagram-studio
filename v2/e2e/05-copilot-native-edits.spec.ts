@@ -251,10 +251,10 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
     const edges = Array.from(xml.matchAll(/<mxCell\b[^>]*\bedge="1"[^>]*>/g), (match) => match[0]);
     const connected = Boolean(nodeId && edges.some((edge) => edge.includes('source="database"') && edge.includes('target="' + nodeId + '"')));
     return x === "785" && y === "260" && clientX === "60" && connected &&
-      !/\bid="queue"\b/.test(xml) && !/\bid="api-queue"\b/.test(xml) && !/\bid="queue-worker"\b/.test(xml) &&
+      !/\bid="queue"/.test(xml) && !/\bid="api-queue"/.test(xml) && !/\bid="queue-worker"/.test(xml) &&
       xml.includes('nativeCustom="preserve-me"') && xml.includes('vendorCellFlag="opaque-client"') &&
       xml.includes('agent="Architecture Diagram Studio E2E"') &&
       xml.includes('<diagram id="page-1" name="E2E diagram"') &&
-      /\bvalue="Database"\b/.test(xml);
+      xml.includes('value="Database"');
   }, { timeout: 20_000 }).toBe(true);
 });
