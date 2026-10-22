@@ -22,6 +22,8 @@
 
     var originalBackground;
     var hasOriginalBackground = false;
+    // Cells created during an atomic batch are tracked for rollback.
+    var activeBatchCreatedCells = null;
     var publish = function (message) {
       window.parent.postMessage(JSON.stringify(message), window.location.origin);
     };
@@ -84,6 +86,9 @@
         });
         var batchResults = [];
         var failedIndex = -1;
+        var batchCreatedCells = [];
+        var previousBatchCreatedCells = activeBatchCreatedCells;
+        activeBatchCreatedCells = batchCreatedCells;
         activeModel.beginUpdate();
         try {
           operations.forEach(function (operation, index) {
@@ -101,6 +106,15 @@
           batchResults.push({ index: failedIndex + 1, cellId: failedOperation && failedOperation.cellId || null,
             path: failedOperation && failedOperation.path || null, value: failedOperation && failedOperation.value || null,
             success: false, error: error && error.message ? String(error.message) : String(error) });
+          for (var createdIndex = batchCreatedCells.length - 1; createdIndex >= 0; createdIndex--) {
+            try {
+              var createdCell = batchCreatedCells[createdIndex];
+              if (createdCell && activeModel.getCell(createdCell.id) === createdCell) activeModel.remove(createdCell);
+            } catch (createdRollbackError) {
+              rollbackErrors.push({ cellId: batchCreatedCells[createdIndex] && batchCreatedCells[createdIndex].id || "created-cell",
+                error: createdRollbackError && createdRollbackError.message ? String(createdRollbackError.message) : String(createdRollbackError) });
+            }
+          }
           snapshots.forEach(function (snapshot) {
             try {
               var item = snapshot.cell;
@@ -126,7 +140,10 @@
           failure.rollbackErrors = rollbackErrors;
           failure.batchRolledBack = rollbackErrors.length === 0;
           throw failure;
-        } finally { activeModel.endUpdate(); }
+        } finally {
+          activeBatchCreatedCells = previousBatchCreatedCells;
+          activeModel.endUpdate();
+        }
         if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
         if (typeof activeGraph.refresh === "function") activeGraph.refresh();
         return { batchResults: batchResults };
