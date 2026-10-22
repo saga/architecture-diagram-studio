@@ -690,10 +690,9 @@ export default function App() {
   };
 
   const sendIntent = useCopilotIntent({
-    projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNode, selectedNativeCellId, selectedNativePageId, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary,
-    onAppliedEdit: applyCopilotEdit,
+    projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
+    setCopilotSessionId,
     applyNativeCellEdit: (cellId, path, value) => {
       const requestId = ++cellEditRequestSequenceRef.current;
       // Selection is UI state, not a document mutation: it must not consume a history slot.
