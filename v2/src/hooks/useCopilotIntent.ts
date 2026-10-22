@@ -83,7 +83,14 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const geometry = cell.getElementsByTagName("mxGeometry")[0];
           if (!id) throw new Error("The target element has no stable Draw.io cell ID.");
           let path = "", value = "", summary = "";
-          if (remove) {\n            path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";\n          } else if (resize) {\n            const width = Number(resize[2]), height = Number(resize[3]);\n            if (!geometry || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Width and height must be between 1 and 10000 pixels.");\n            path = "geometry:size"; value = width + "," + height; summary = "Resize “" + targetName + "” to " + width + " × " + height + " px";\n          } else if (move) {
+          if (remove) {
+          if (remove) {
+            path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";
+          } else if (resize) {
+            const width = Number(resize[2]), height = Number(resize[3]);
+            if (!geometry || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Width and height must be between 1 and 10000 pixels.");
+            path = "geometry:size"; value = width + "," + height; summary = "Resize “" + targetName + "” to " + width + " × " + height + " px";
+          } else if (move) {
             const direction = move[2].toLowerCase(), delta = Number(move[3]);
             if (!Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("Move distance must be between 0 and 10000 pixels.");
             const axis = direction.includes("left") || direction.includes("右") || direction.includes("左") ? "x" : "y";
