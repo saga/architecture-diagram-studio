@@ -24,7 +24,7 @@ export interface AIIntentContext {
 export interface AIIntentResponse {
   reply: string;
   selection?: { cellId: string; pageId: string | null; label: string };
-  nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; pageId: string | null; documentRevision: string };
+  nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; pageId: string | null; documentRevision: string; requestId: string };
   model?: string;
   provider?: string;
   durationMs?: number;
@@ -88,11 +88,13 @@ function parseNativeEditsPayload(value: unknown): AIIntentResponse["nativeEdits"
   });
   if (raw.pageId !== null && typeof raw.pageId !== "string") throw new Error("The native edit response is missing its resolved page ID");
   if (typeof raw.documentRevision !== "string" || !raw.documentRevision.trim()) throw new Error("The native edit response is missing its document revision");
+  if (typeof raw.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(raw.requestId)) throw new Error("The native edit response is missing its server request ID");
   return {
     operations,
     summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
     pageId: typeof raw.pageId === "string" ? raw.pageId : null,
-    documentRevision: raw.documentRevision
+    documentRevision: raw.documentRevision,
+    requestId: raw.requestId
   };
 }
 
