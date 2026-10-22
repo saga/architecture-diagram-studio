@@ -24,7 +24,7 @@ export type NativeEditOperation =
   | { op: "add_node_after"; target: string; newLabel: string };
 
 /** An operation whose target label was resolved to a concrete Draw.io cell by the server. */
-export type ResolvedNativeEditOperation = NativeEditOperation & { cellId: string; label: string };
+export type ResolvedNativeEditOperation = NativeEditOperation & { cellId: string; targetLabel: string };
 
 export interface NativeCellEdit {
   cellId: string;
@@ -347,7 +347,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         } catch (error) {
           return { ok: false, error: "The authoritative Draw.io XML could not be read: " + (error instanceof Error ? error.message : String(error)) };
         }
-        if (!geometry) return { ok: false, error: `Cell “${operation.label}” has no geometry to move` };
+        if (!geometry) return { ok: false, error: `Cell “${operation.targetLabel}” has no geometry to move` };
         edits.push({ cellId, path: "geometry:x", value: String(geometry.x + operation.dx) });
         edits.push({ cellId, path: "geometry:y", value: String(geometry.y + operation.dy) });
         break;
