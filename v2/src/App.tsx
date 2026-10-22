@@ -182,6 +182,8 @@ export default function App() {
   const [workspaceError, setWorkspaceError] = useState("");
   const nextSaveLabelRef = useRef("Autosave");
   const drawioXml = nativeXmlOverride ?? EMPTY_DRAWIO_XML;
+  const latestDiagramStateRef = useRef({ drawioXml, selectedNativeCellId, selectedNativePageId });
+  latestDiagramStateRef.current = { drawioXml, selectedNativeCellId, selectedNativePageId };
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setNativeXmlOverride, setCopilotSessionId, setMessages,
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
@@ -428,8 +430,10 @@ export default function App() {
 
   const sendIntent = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId,
+    getCurrentDiagramState: () => latestDiagramStateRef.current,
+    persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
     applyNativeCellEdit: (cellId, path, value) => {
       const requestId = ++cellEditRequestSequenceRef.current;
       // Selection is UI state, not a document mutation: it must not consume a history slot.
@@ -439,7 +443,7 @@ export default function App() {
       });
       setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
     },
-    applyNativeCellEdits: (edits) => {
+    applyNativeCellEdits: (edits, pageId) => {
       if (!edits.length) return Promise.resolve({ ok: false, error: "No native edits were supplied", rolledBack: false, steps: [] });
       const requestId = ++cellEditRequestSequenceRef.current;
       archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
@@ -455,7 +459,7 @@ export default function App() {
         recordDiagnostic("copilot.native-edits.dispatch", "Dispatching an atomic native Draw.io edit batch to the active editor", {
           requestId, editCount: edits.length, edits, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
         });
-        setCellEditRequest({ cellId: "__batch__", pageId: selectedNativePageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
+        setCellEditRequest({ cellId: "__batch__", pageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
         window.setTimeout(() => {
           const pending = nativeEditResolversRef.current.get(requestId);
           if (!pending) return;
