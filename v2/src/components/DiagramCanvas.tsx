@@ -103,7 +103,7 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
   }
   return { d, label, start: all[0], end: all[all.length - 1] };
 }
-function nodePath(node: DiagramNode, shape: string, requestedRadius: number = tokens.nodeRadius): string {
+function nodePath(node: DiagramNode, shape: string, requestedRadius: number = tokens.nodeRadius as number): string {
   if (shape === "pill") {
     const radius = Math.min(requestedRadius, node.width / 2, node.height / 2);
     return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
