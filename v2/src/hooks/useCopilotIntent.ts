@@ -76,14 +76,14 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         };
         const targetName = (move?.[1] || rename?.[1] || recolor?.[1] || resize?.[1] || remove?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
         if (move || rename || recolor || resize || remove) {
-          const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && cell.getAttribute("edge") !== "1");
+          const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && (remove || cell.getAttribute("edge") !== "1"));
           if (matches.length !== 1) throw new Error(matches.length ? "The label “" + targetName + "” is ambiguous (" + matches.length + " matching cells). Select a specific element or use a unique label." : "Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
           const cell = matches[0];
           const id = cell.getAttribute("id");
           const geometry = cell.getElementsByTagName("mxGeometry")[0];
           if (!id) throw new Error("The target element has no stable Draw.io cell ID.");
           let path = "", value = "", summary = "";
-          if (remove) {\n            path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";\n          } else if (resize) {\n            const width = Number(resize[2]), height = Number(resize[3]);\n            if (!geometry || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Width and height must be between 1 and 10000 pixels.");\n            path = "geometry:width"; value = String(width); summary = "Resize “" + targetName + "” to " + width + " × " + height + " px";\n          } else if (move) {
+          if (remove) {\n            path = "cell:delete"; value = "true"; summary = "Delete element “" + targetName + "”";\n          } else if (resize) {\n            const width = Number(resize[2]), height = Number(resize[3]);\n            if (!geometry || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Width and height must be between 1 and 10000 pixels.");\n            path = "geometry:size"; value = width + "," + height; summary = "Resize “" + targetName + "” to " + width + " × " + height + " px";\n          } else if (move) {
             const direction = move[2].toLowerCase(), delta = Number(move[3]);
             if (!Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("Move distance must be between 0 and 10000 pixels.");
             const axis = direction.includes("left") || direction.includes("右") || direction.includes("左") ? "x" : "y";
@@ -104,7 +104,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             path = "style:" + colorProperty; value = colorMap[rawColor] || rawColor; summary = "Set " + colorProperty + " of “" + targetName + "” to " + value;
           }
           recordDiagnostic("copilot.standalone.native-edit.validated", "Validated a standalone native Draw.io edit against the authoritative XML", { cellId: id, targetName, operation: remove ? "delete" : resize ? "resize" : move ? "move" : rename ? "rename" : "recolor", path, value, xmlLength: drawioXml.length });
-          applyNativeCellEdit(id, path, value);\n          if (resize) applyNativeCellEdit(id, "geometry:height", String(Number(resize[3])));
+          applyNativeCellEdit(id, path, value);
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: summary + ". The native editor has been asked to apply the change and autosave; check Agent traces for the editor acknowledgement." }]);
           return;
         }
