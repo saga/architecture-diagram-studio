@@ -38,7 +38,7 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       properties: {
         op: { type: "string", enum: ["set_style"] },
         target,
-        key: { type: "string", enum: ["fillColor", "strokeColor", "fontColor"] },
+        key: { type: "string", enum: ["fillColor", "strokeColor", "fontColor"], default: "fillColor", description: "Optional; defaults to fillColor when omitted." },
         color: { type: "string", minLength: 1, maxLength: 40, description: "Required color value, such as #ff0000 or 红色." }
       },
       required: ["op", "target", "color"],
