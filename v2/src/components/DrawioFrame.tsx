@@ -9,10 +9,13 @@ const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&windows=0&noSaveBtn=1&noExitBtn=1";
 
+interface CellPropertyEdit { cellId: string; path: string; value: string; requestId: number; }
 interface Props {
   document: DiagramDocument;
   xml: string;
   onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
+  onSelectionChange: (cellId: string | null) => void;
+  cellEdit: CellPropertyEdit | null;
   theme: string;
 }
 
@@ -28,13 +31,15 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-export default function DrawioFrame({ document, xml, onDocumentChange, theme }: Props) {
+export default function DrawioFrame({ document, xml, onDocumentChange, onSelectionChange, cellEdit, theme }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentRef = useRef(document);
   const onDocumentChangeRef = useRef(onDocumentChange);
+  const onSelectionChangeRef = useRef(onSelectionChange);
   const iframeLoadedRef = useRef(false);
   documentRef.current = document;
   onDocumentChangeRef.current = onDocumentChange;
+  onSelectionChangeRef.current = onSelectionChange;
   const lastSent = useRef("");
   const seenEvents = useRef(new Set<string>());
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -158,6 +163,81 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     }
   }, [editorReady, xml, document.nodes.length, document.relations.length]);
 
+
+  useEffect(() => {
+    if (!cellEdit || !editorReady) return;
+    const editorWindow = iframeRef.current?.contentWindow as (Window & { editorUi?: { editor?: { graph?: any } } }) | null;
+    const graph = editorWindow?.editorUi?.editor?.graph;
+    const model = graph?.getModel?.();
+    const cell = model?.getCell?.(cellEdit.cellId);
+    if (!graph || !model || !cell) return;
+    const { path, value } = cellEdit;
+    try {
+      model.beginUpdate();
+      try {
+        if (path === "label") {
+          const current = cell.value;
+          if (current && typeof current === "object" && current.nodeType === 1) {
+            const next = current.cloneNode(true) as Element;
+            next.setAttribute(next.hasAttribute("label") ? "label" : "value", value);
+            model.setValue(cell, next);
+          } else model.setValue(cell, value);
+        } else if (path === "style") {
+          model.setStyle(cell, value);
+        } else if (path.startsWith("style:")) {
+          const key = path.slice("style:".length);
+          const styles = String(model.getStyle(cell) || "").split(";").filter(Boolean);
+          let found = false;
+          const next = styles.map((part: string) => {
+            const index = part.indexOf("=");
+            if (index > 0 && part.slice(0, index) === key) {
+              found = true;
+              return value === "" ? "" : key + "=" + value;
+            }
+            return part;
+          }).filter(Boolean);
+          if (!found && value !== "") next.push(key + "=" + value);
+          model.setStyle(cell, next.join(";") + (next.length ? ";" : ""));
+        } else if (path.startsWith("geometry:") && cell.geometry) {
+          const key = path.slice("geometry:".length);
+          const geometry = cell.geometry.clone();
+          if (key === "relative") geometry.relative = value === "1" || value.toLowerCase() === "true";
+          else if (["x", "y", "width", "height"].includes(key)) {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) throw new Error("Geometry must be numeric");
+            (geometry as Record<string, unknown>)[key] = numeric;
+          }
+          model.setGeometry(cell, geometry);
+        } else if (path.startsWith("cell:")) {
+          const key = path.slice("cell:".length);
+          if (key === "source" || key === "target") {
+            const terminal = value ? model.getCell(value) : null;
+            if (value && !terminal) throw new Error("No cell exists with id " + value);
+            model.setTerminal(cell, terminal, key === "source");
+          } else if (key === "parent") {
+            const parent = model.getCell(value);
+            if (!parent) throw new Error("No parent cell exists with id " + value);
+            model.add(parent, cell, model.getChildCount(parent));
+          }
+        } else if (path.startsWith("valueAttr:")) {
+          const key = path.slice("valueAttr:".length);
+          const current = cell.value;
+          if (current && typeof current === "object" && current.nodeType === 1) {
+            const next = current.cloneNode(true) as Element;
+            if (value === "") next.removeAttribute(key); else next.setAttribute(key, value);
+            model.setValue(cell, next);
+          }
+        }
+      } finally { model.endUpdate(); }
+      graph.refresh?.();
+      recordDiagnostic("drawio.selection.property.updated", "Updated a selected native Draw.io cell property", { cellId: cellEdit.cellId, property: path });
+    } catch (error) {
+      recordDiagnostic("drawio.selection.property.update.failed", "Could not update the selected native Draw.io cell property", {
+        cellId: cellEdit.cellId, property: path, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+    }
+  }, [cellEdit, editorReady]);
+
   useLayoutEffect(() => {
     // Install the message listener in the commit phase before the iframe can finish loading
     // and send its configure/init handshake. Keep it stable across document and callback changes.
@@ -195,6 +275,15 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
         });
         setStartupError(null);
         setEditorReady(true);
+      }
+      if (data.event === "selectionChanged") {
+        const cells = Array.isArray(data.cells) ? data.cells : [];
+        const ids = cells.map((cell: unknown) => {
+          if (typeof cell === "string") return cell;
+          if (cell && typeof cell === "object" && typeof (cell as Record<string, unknown>).id === "string") return (cell as Record<string, unknown>).id as string;
+          return null;
+        }).filter((id): id is string => Boolean(id));
+        onSelectionChangeRef.current(ids[0] || null);
       }
       if (data.event === "error") {
         const message = typeof data.message === "string" ? data.message.slice(0, 300) : "Draw.io returned an unspecified error.";
