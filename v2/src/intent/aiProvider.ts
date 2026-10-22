@@ -78,9 +78,9 @@ function parseNativeEditsPayload(value: unknown): AIIntentResponse["nativeEdits"
   const operations: ResolvedNativeEditOperation[] = parsed.operations.map((operation, index) => {
     const source = rawOperations[index] as Record<string, unknown>;
     const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
-    const label = typeof source.label === "string" ? source.label.trim() : "";
-    if (!cellId || !label) throw new Error("The agent returned a native edit without a resolved cell id");
-    return { ...operation, cellId, label };
+    const targetLabel = typeof source.targetLabel === "string" ? source.targetLabel.trim() : "";
+    if (!cellId || !targetLabel) throw new Error("The agent returned a native edit without a resolved cell id and target label");
+    return { ...operation, cellId, targetLabel };
   });
   return {
     operations,
