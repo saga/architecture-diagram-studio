@@ -44,4 +44,32 @@ describe("native Draw.io theme adapter", () => {
     expect(css).toContain("background-color: #172235 !important");
     expect(css).toContain("outline-color: #91a5ff !important");
   });
+  const palette = {
+    canvas: "#101a2b", panel: "#172235", text: "#f0f4fc", secondary: "#d1dbeb",
+    muted: "#a7b7ce", border: "#35435a", accent: "#91a5ff", soft: "#263555"
+  };
+
+  it("recolours cells for non-Editorial themes and restores the exact original styles", () => {
+    const source = '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="rounded=1;fillColor=#ff0000;strokeColor=#990000;fontColor=#111111;" vertex="1" parent="1"><mxGeometry width="100" height="50" as="geometry"/></mxCell><mxCell id="e1" edge="1" style="strokeColor=#00ff00;" parent="1" source="n1" target="n1"/></root></mxGraphModel></diagram></mxfile>';
+    const themed = applyDrawioThemeStyles(source, "youth", palette);
+    expect(themed).toContain("fillColor=#263555");
+    expect(themed).toContain("strokeColor=#35435a");
+    expect(themed).toContain("studioThemeOriginalFillColor=#ff0000");
+    expect(themed).toContain("studioThemeAppliedFillColor=#263555");
+    const restored = applyDrawioThemeStyles(themed, "editorial", palette);
+    expect(restored).toContain("fillColor=#ff0000");
+    expect(restored).toContain("strokeColor=#990000");
+    expect(restored).toContain("fontColor=#111111");
+    expect(restored).not.toContain("studioThemeOriginalFillColor");
+  });
+
+  it("keeps a colour override made after theming when switching themes", () => {
+    const source = '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="fillColor=#ff0000;strokeColor=#990000;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
+    const themed = applyDrawioThemeStyles(source, "youth", palette);
+    const userEdited = themed.replace("fillColor=#263555", "fillColor=#abcdef");
+    const nextTheme = applyDrawioThemeStyles(userEdited, "midnight", { ...palette, soft: "#222222" });
+    expect(nextTheme).toContain("fillColor=#abcdef");
+    expect(nextTheme).toContain("studioThemeOverrideFillColor=1");
+  });
+
 });
