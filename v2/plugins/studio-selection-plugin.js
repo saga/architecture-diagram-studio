@@ -79,9 +79,11 @@
         }
         collect(activeModel.getRoot());
         var affectedIds = Object.create(null);
+        var deletedIds = Object.create(null);
         function markCellTree(cell) {
           if (!cell || cell.id === "0" || cell.id === "1" || affectedIds[cell.id]) return;
           affectedIds[cell.id] = true;
+          deletedIds[cell.id] = true;
           var childCount = activeModel.getChildCount(cell);
           for (var childIndex = 0; childIndex < childCount; childIndex++) {
             markCellTree(activeModel.getChildAt(cell, childIndex));
@@ -96,7 +98,7 @@
         // that a requested delete may affect; unrelated cells never participate in rollback.
         allCells.forEach(function (item) {
           if (item && item.edge &&
-              ((item.source && affectedIds[item.source.id]) || (item.target && affectedIds[item.target.id]))) {
+              ((item.source && deletedIds[item.source.id]) || (item.target && deletedIds[item.target.id]))) {
             affectedIds[item.id] = true;
           }
         });
