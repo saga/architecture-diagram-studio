@@ -55,7 +55,7 @@ function readCellProperties(xml: string, cellId: string): CellProperties | null 
         .map((element) => ({ name: element.localName, attributes: attributes(element) })) : [];
       return {
         wrapper, cell, geometry, points, nestedGeometry,
-        label: wrapper?.getAttribute("label") ?? cell.getAttribute("value") ?? "",
+        label: wrapper?.getAttribute("label") ?? wrapper?.getAttribute("value") ?? cell.getAttribute("value") ?? "",
         style: cell.getAttribute("style") ?? ""
       };
     }
@@ -79,7 +79,7 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
   return <label className="native-property-field">
     <span>{label}</span>
     {multiline
-      ? <textarea key={label + ":" + value} className="text-field text-area" defaultValue={value} readOnly={readOnly} rows={3} onBlur={(event) => onChange?.(event.currentTarget.value)} />
+      ? <textarea key={label + ":" + value} className="text-field text-area" defaultValue={value} readOnly={readOnly} rows={3} onBlur={(event) => { if (event.currentTarget.value !== value) onChange?.(event.currentTarget.value); }} />
       : <input key={label + ":" + value} className="text-field" defaultValue={value} readOnly={readOnly} onBlur={(event) => onChange?.(event.currentTarget.value)} />}
   </label>;
 }
