@@ -154,7 +154,7 @@ export default function NativeSelectionInspector({ xml, cellId, onEdit }: Props)
     <div className="native-inspector-group">
       <div className="field-label">Cell references</div>
       {(["parent", "source", "target"] as const).filter((key) => cell.hasAttribute(key)).map((key) =>
-        <Field key={key} label={key} value={cell.getAttribute(key) ?? ""} onChange={update("cell:" + key)} />
+        <Field key={key} label={key} value={cell.getAttribute(key) ?? ""} onChange={update("cell:" + key)} readOnly={key === "parent" && (cellId === "0" || cellId === "1")} />
       )}
       <Field label="id" value={cellId} readOnly />
     </div>
