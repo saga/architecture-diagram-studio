@@ -100,19 +100,68 @@ function traceTitle(entry: DiagnosticEntry): string {
   return entry.event;
 }
 
-function traceTokenUsage(entry: DiagnosticEntry): { input: number; output: number; total: number; calls: number } | null {
+type TraceTokenUsage = {
+  input: number | null;
+  output: number | null;
+  total: number | null;
+  calls: number | null;
+  cachedInput: number | null;
+  cacheWrite: number | null;
+  reasoning: number | null;
+  premiumRequestCost: number | null;
+  totalNanoAiu: number | null;
+  contextTokens: number | null;
+  contextLimit: number | null;
+  contextPercent: number | null;
+};
+
+function traceTokenUsage(entry: DiagnosticEntry): TraceTokenUsage | null {
   const raw = entry.details.usage;
-  if (!raw || typeof raw !== "object") return null;
-  const value = raw as Record<string, unknown>;
-  const input = typeof value.inputTokens === "number" ? value.inputTokens : 0;
-  const output = typeof value.outputTokens === "number" ? value.outputTokens : 0;
-  const total = typeof value.totalTokens === "number" ? value.totalTokens : input + output;
-  const calls = typeof value.calls === "number" ? value.calls : 1;
-  return total > 0 || input > 0 || output > 0 ? { input, output, total, calls } : null;
+  const value = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const modelCalls = Array.isArray(entry.details.modelCallUsages) ? entry.details.modelCallUsages : [];
+  const read = (source: Record<string, unknown>, key: string): number | null =>
+    typeof source[key] === "number" && Number.isFinite(source[key]) && (source[key] as number) >= 0
+      ? source[key] as number : null;
+  const sumModelField = (key: string): number | null => {
+    const byModel = value.byModel;
+    if (!byModel || typeof byModel !== "object") return null;
+    let total = 0, found = false;
+    for (const item of Object.values(byModel as Record<string, unknown>)) {
+      if (item && typeof item === "object") {
+        const amount = read(item as Record<string, unknown>, key);
+        if (amount !== null) { total += amount; found = true; }
+      }
+    }
+    return found ? total : null;
+  };
+  const input = read(value, "inputTokens") ?? sumModelField("inputTokens");
+  const output = read(value, "outputTokens") ?? sumModelField("outputTokens");
+  const total = read(value, "totalTokens") ?? (input !== null && output !== null ? input + output : null);
+  const calls = read(value, "modelCalls") ?? read(value, "calls") ?? (modelCalls.length ? modelCalls.length : null);
+  const context = entry.details.contextUsage && typeof entry.details.contextUsage === "object"
+    ? entry.details.contextUsage as Record<string, unknown> : {};
+  const result: TraceTokenUsage = {
+    input, output, total, calls,
+    cachedInput: read(value, "cachedInputTokens"),
+    cacheWrite: read(value, "cacheWriteTokens"),
+    reasoning: read(value, "reasoningTokens"),
+    premiumRequestCost: read(value, "premiumRequestCost"),
+    totalNanoAiu: read(value, "totalNanoAiu"),
+    contextTokens: read(context, "currentTokens"),
+    contextLimit: read(context, "tokenLimit"),
+    contextPercent: read(context, "percent")
+  };
+  const hasUsage = [result.input, result.output, result.total, result.cachedInput, result.cacheWrite,
+    result.reasoning, result.premiumRequestCost, result.totalNanoAiu].some((item) => item !== null);
+  return hasUsage ? result : null;
 }
 
 function formatTokenCount(value: number): string {
   return Number.isFinite(value) ? Math.round(value).toLocaleString("en-US") : "0";
+}
+
+function formatUsageAmount(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 6 }) : "—";
 }
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
@@ -192,6 +241,32 @@ export default function WorkspacePages(props: Props) {
     return entry.event.toLowerCase().includes(traceFilter);
   }), [traceEntries, significantTraces, showLowLevel, traceFilter]);
   const errorCount = traceEntries.filter((entry) => entry.level === "error").length;
+  const traceUsageSummary = useMemo(() => {
+    const modelCallEntries = traceEntries.filter((entry) => entry.event === "turn.model-call.completed");
+    let input = 0, output = 0, total = 0, cachedInput = 0, reasoning = 0, premiumRequestCost = 0, totalNanoAiu = 0;
+    let hasInput = false, hasOutput = false, hasTotal = false, hasCachedInput = false, hasReasoning = false, hasPremiumCost = false, hasAiu = false;
+    let calls = 0, hasCalls = false, measuredEntries = 0;
+    for (const entry of modelCallEntries) {
+      const usage = traceTokenUsage(entry);
+      if (!usage) continue;
+      measuredEntries++;
+      if (usage.input !== null) { input += usage.input; hasInput = true; }
+      if (usage.output !== null) { output += usage.output; hasOutput = true; }
+      if (usage.total !== null) { total += usage.total; hasTotal = true; }
+      if (usage.cachedInput !== null) { cachedInput += usage.cachedInput; hasCachedInput = true; }
+      if (usage.reasoning !== null) { reasoning += usage.reasoning; hasReasoning = true; }
+      if (usage.premiumRequestCost !== null) { premiumRequestCost += usage.premiumRequestCost; hasPremiumCost = true; }
+      if (usage.totalNanoAiu !== null) { totalNanoAiu += usage.totalNanoAiu; hasAiu = true; }
+      if (usage.calls !== null) { calls += usage.calls; hasCalls = true; }
+    }
+    if (!measuredEntries) return null;
+    return {
+      input: hasInput ? input : null, output: hasOutput ? output : null, total: hasTotal ? total : null,
+      cachedInput: hasCachedInput ? cachedInput : null, reasoning: hasReasoning ? reasoning : null,
+      premiumRequestCost: hasPremiumCost ? premiumRequestCost : null, totalNanoAiu: hasAiu ? totalNanoAiu : null,
+      calls: hasCalls ? calls : null, entries: measuredEntries, totalEntries: modelCallEntries.length
+    };
+  }, [traceEntries]);
 
   useEffect(() => {
     if (page === "copilot") chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -298,6 +373,19 @@ export default function WorkspacePages(props: Props) {
             </button>
           </div>
 
+          {traceUsageSummary && <div className="trace-usage-summary">
+            <strong>Usage in loaded model-call records</strong>
+            {traceUsageSummary.input !== null && <span>Input {formatTokenCount(traceUsageSummary.input)}</span>}
+            {traceUsageSummary.output !== null && <span>Output {formatTokenCount(traceUsageSummary.output)}</span>}
+            {traceUsageSummary.total !== null && <span>Total {formatTokenCount(traceUsageSummary.total)}</span>}
+            {traceUsageSummary.cachedInput !== null && <span>Cached input {formatTokenCount(traceUsageSummary.cachedInput)}</span>}
+            {traceUsageSummary.reasoning !== null && <span>Reasoning {formatTokenCount(traceUsageSummary.reasoning)}</span>}
+            {traceUsageSummary.premiumRequestCost !== null && <span>Premium request cost {formatUsageAmount(traceUsageSummary.premiumRequestCost)}</span>}
+            {traceUsageSummary.totalNanoAiu !== null && <span>nano-AIU {formatUsageAmount(traceUsageSummary.totalNanoAiu)}</span>}
+            {traceUsageSummary.calls !== null && <span>{formatTokenCount(traceUsageSummary.calls)} model calls</span>}
+            <span>{traceUsageSummary.entries} usage records / {traceUsageSummary.totalEntries} model-call records</span>
+          </div>}
+
           <div className="trace-list">
             {filteredTraces.length ? [...filteredTraces].reverse().map((entry) => {
               const title = traceTitle(entry);
@@ -312,7 +400,7 @@ export default function WorkspacePages(props: Props) {
                       className={"trace-entry-message" + (title === entry.event ? " is-event" : "")}
                       title={title === entry.event ? title : title + " · " + entry.event}
                     >{title}</span>
-                    {usage && <code title={`Token usage · ${usage.calls} model call${usage.calls === 1 ? "" : "s"}`}>tokens {formatTokenCount(usage.input)} in / {formatTokenCount(usage.output)} out</code>}
+                    {usage && <code title="Reported by the model provider; absent metrics are not estimated">{usage.input !== null || usage.output !== null ? `tokens ${usage.input === null ? "—" : formatTokenCount(usage.input)} in / ${usage.output === null ? "—" : formatTokenCount(usage.output)} out` : "usage recorded"}</code>}
                     <time dateTime={entry.timestamp}>{formattedTime(entry.timestamp)}</time>
                     <button
                       type="button"
@@ -325,7 +413,20 @@ export default function WorkspacePages(props: Props) {
                   </div>
                   {expandedTraceId === entry.id && <div className="trace-entry-details-content">
                         <div className="trace-entry-meta"><span>Event</span><code>{entry.event}</code><span>Level</span><code>{entry.level}</code></div>
-                        {usage && <div className="trace-entry-meta"><span>Tokens in</span><code>{formatTokenCount(usage.input)}</code><span>Tokens out</span><code>{formatTokenCount(usage.output)}</code><span>Total</span><code>{formatTokenCount(usage.total)}</code><span>Model calls</span><code>{usage.calls}</code></div>}
+                        {usage && <div className="trace-entry-meta trace-usage-details">
+                          {usage.input !== null && <><span>Input tokens</span><code>{formatTokenCount(usage.input)}</code></>}
+                          {usage.output !== null && <><span>Output tokens</span><code>{formatTokenCount(usage.output)}</code></>}
+                          {usage.total !== null && <><span>Total tokens</span><code>{formatTokenCount(usage.total)}</code></>}
+                          {usage.calls !== null && <><span>Model calls</span><code>{usage.calls}</code></>}
+                          {usage.cachedInput !== null && <><span>Cached input</span><code>{formatTokenCount(usage.cachedInput)}</code></>}
+                          {usage.cacheWrite !== null && <><span>Cache write</span><code>{formatTokenCount(usage.cacheWrite)}</code></>}
+                          {usage.reasoning !== null && <><span>Reasoning tokens</span><code>{formatTokenCount(usage.reasoning)}</code></>}
+                          {usage.premiumRequestCost !== null && <><span>Premium request cost</span><code>{formatUsageAmount(usage.premiumRequestCost)}</code></>}
+                          {usage.totalNanoAiu !== null && <><span>Total nano-AIU</span><code>{formatUsageAmount(usage.totalNanoAiu)}</code></>}
+                          {usage.contextTokens !== null && <><span>Context tokens</span><code>{formatTokenCount(usage.contextTokens)}</code></>}
+                          {usage.contextLimit !== null && <><span>Context limit</span><code>{formatTokenCount(usage.contextLimit)}</code></>}
+                          {usage.contextPercent !== null && <><span>Context usage</span><code>{usage.contextPercent}%</code></>}
+                        </div>}
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
