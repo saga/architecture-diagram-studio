@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
-type PropertyEdit = (cellId: string, path: string, value: string) => void;
+type PropertyEdit = (cellId: string, path: string, value: string, pageId: string | null) => void;
 interface Props { xml: string; cellId: string | null; pageId: string | null; onEdit: PropertyEdit; }
 
 interface CellProperties {
@@ -98,7 +98,7 @@ export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }
   const cellAttrs = attributes(cell).filter(([name]) => !["id", "value", "style", "parent", "source", "target"].includes(name));
   const geometryAttrs = attributes(geometry).filter(([name]) => name !== "as");
   const tokens = styleTokens(style);
-  const update = (path: string) => (value: string) => onEdit(cellId, path, value);
+  const update = (path: string) => (value: string) => onEdit(cellId, path, value, pageId);
   const updateToken = (key: string, value: string) => {
     // Patch one key against the live Draw.io model so quick edits to different style
     // fields cannot overwrite each other while the XML autosave is still in flight.
