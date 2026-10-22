@@ -105,7 +105,7 @@ function parseRootSlice(xml: string): RootSlice | null {
 }
 
 function stripThemeMetadata(raw: string): string {
-  return raw.replace(/(\\sstyle=(["']))([\\s\\S]*?)\\2/, (_match, prefix: string, _quote: string, style: string) =>
+  return raw.replace(/(\sstyle=(["']))([\s\S]*?)\2/, (_match, prefix: string, _quote: string, style: string) =>
     prefix + style.replace(/(?:^|;)studioTheme(?:Original|Applied|Override)[A-Za-z]+=[^;]*/g, "").replace(/^;+|;+$/g, "") + '"'
   );
 }
