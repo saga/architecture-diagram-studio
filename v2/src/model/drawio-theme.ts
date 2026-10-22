@@ -1,6 +1,8 @@
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+
 /**
- * The application theme controls editor chrome and graph background only.
- * Cell styles are user-authored diagram data and must never be recoloured by a UI theme.
+ * The application theme is presentation-only. Draw.io XML remains the user's document
+ * and is never rewritten just because the Studio chrome theme changed.
  */
 export interface DrawioThemePalette {
   canvas: string;
@@ -18,14 +20,43 @@ function safeColor(value: string): string | null {
   return /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) ? color : null;
 }
 
-/** Update explicit mxGraphModel backgrounds without reserializing or normalizing XML. */
+function parseXml(xml: string): Document | null {
+  const errors: string[] = [];
+  const parsed = new DOMParser({
+    onError: (level, message) => { if (level !== "warning") errors.push(message); }
+  }).parseFromString(xml, "application/xml");
+  return errors.length || !parsed.documentElement ? null : parsed as unknown as Document;
+}
+
+/** Read the saved background without editing or normalizing the authoritative XML. */
+export function readDrawioModelBackground(xml: string): string | null {
+  const parsed = parseXml(xml);
+  if (!parsed) return null;
+  const models = parsed.getElementsByTagName("mxGraphModel");
+  if (!models.length) return null;
+  const background = models.item(0)?.getAttribute("background");
+  return background && safeColor(background) ? background : null;
+}
+
+/**
+ * Compatibility utility for explicit document-background edits only. Uses a real XML DOM;
+ * callers must not use it for UI theme changes. Invalid XML/colors are returned untouched.
+ */
 export function applyDrawioThemeBackground(xml: string, background: string): string {
   const color = safeColor(background);
-  if (!color) return xml;
-  return xml.replace(/<mxGraphModel\b([^<>]*?)(\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
-    const withoutBackground = attributes.replace(/\s+background=(["'])[^"']*\1/i, "").replace(/\s+$/, "");
-    return '<mxGraphModel' + withoutBackground + ' background="' + color + '"' + selfClosing + '>';
-  });
+  const parsed = parseXml(xml);
+  if (!color || !parsed) return xml;
+  const models = parsed.getElementsByTagName("mxGraphModel");
+  if (!models.length) return xml;
+  let changed = false;
+  for (let index = 0; index < models.length; index += 1) {
+    const model = models.item(index);
+    if (model && model.getAttribute("background") !== color) {
+      model.setAttribute("background", color);
+      changed = true;
+    }
+  }
+  return changed ? new XMLSerializer().serializeToString(parsed) : xml;
 }
 
 /** CSS injected into the same-origin native editor iframe; it does not rewrite cell styles. */
@@ -64,66 +95,12 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
   `;
 }
 
-const DIAGRAM_THEME_COLORS: Record<"editorial" | "youth" | "warm" | "midnight", Record<string, string>> = {
-  editorial: { fillColor: "#ffffff", strokeColor: "#64748b", fontColor: "#172033", startFillColor: "#ffffff", endFillColor: "#64748b" },
-  youth: { fillColor: "#fce7f3", strokeColor: "#b91f6d", fontColor: "#831843", startFillColor: "#fce7f3", endFillColor: "#b91f6d" },
-  warm: { fillColor: "#fff7ed", strokeColor: "#ad4d32", fontColor: "#4a2b20", startFillColor: "#fff7ed", endFillColor: "#ad4d32" },
-  midnight: { fillColor: "#1e293b", strokeColor: "#818cf8", fontColor: "#f8fafc", startFillColor: "#1e293b", endFillColor: "#818cf8" }
-};
-
-/** Recolour explicit mxCell colours with reversible original-value metadata. */
-export function applyDrawioCellThemeReversible(xml: string, theme: "editorial" | "youth" | "warm" | "midnight"): string {
-  const palette = DIAGRAM_THEME_COLORS[theme];
-  return xml.replace(/<mxCell\b([^<>]*?)\sstyle=(["\x27])([\s\S]*?)\2([^<>]*?)\/?\s*>/g, (_tag: string, before: string, quote: string, style: string, after: string) => {
-    const values = new Map(style.split(";").filter(Boolean).map((entry) => { const i = entry.indexOf("="); return i < 0 ? [entry, "1"] : [entry.slice(0, i), entry.slice(i + 1)]; }));
-    const next = new Map(values);
-    for (const key of ["fillColor", "strokeColor", "fontColor", "startFillColor", "endFillColor"]) {
-      const suffix = key[0].toUpperCase() + key.slice(1), originalKey = "studioThemeOriginal" + suffix, appliedKey = "studioThemeApplied" + suffix, overrideKey = "studioThemeOverride" + suffix;
-      const current = values.get(key) ?? null, applied = values.get(appliedKey) ?? null;
-      if (values.get(overrideKey) === "1" || (applied !== null && current !== applied)) { next.set(overrideKey, "1"); next.delete(originalKey); next.delete(appliedKey); continue; }
-      if (theme === "editorial") { if (values.has(originalKey)) { const original = values.get(originalKey)!; if (original === "__none__") next.delete(key); else next.set(key, original); next.delete(originalKey); next.delete(appliedKey); } }
-      else if (current && /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(current)) { if (!values.has(originalKey)) next.set(originalKey, current); next.set(key, palette[key]); next.set(appliedKey, palette[key]); }
-    }
-    const nextStyle = [...next].map(([key, value]) => key + "=" + value).join(";") + (next.size ? ";" : "");
-    return "<mxCell" + before + "style=" + quote + nextStyle + quote + after + ">";
-  });
+/** Kept as a no-op compatibility export: diagram colors are user-authored XML data. */
+export function applyDrawioCellThemeReversible(xml: string, _theme: "editorial" | "youth" | "warm" | "midnight"): string {
+  return xml;
 }
 
-/** Reversible background theme adapter; explicit user changes are preserved as overrides. */
-export function applyDrawioThemeBackgroundReversible(xml: string, background: string, theme: "editorial" | "youth" | "warm" | "midnight"): string {
-  const color = safeColor(background);
-  if (!color) return xml;
-  return xml.replace(/<mxGraphModel\b([^<>]*?)(\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
-    const read = (key: string) => {
-      const match = new RegExp(key + '="([^"]*)"').exec(attributes);
-      return match?.[1] ?? null;
-    };
-    const write = (attrs: string, key: string, value: string | null) => {
-      const pattern = new RegExp("\\s+" + key + '="[^"]*"', "i");
-      return value === null ? attrs.replace(pattern, "") : pattern.test(attrs)
-        ? attrs.replace(pattern, " " + key + '="' + value + '"')
-        : attrs + " " + key + '="' + value + '"';
-    };
-    let nextAttrs = attributes;
-    const current = read("background");
-    const original = read("studioThemeOriginalBackground");
-    const applied = read("studioThemeAppliedBackground");
-    const overridden = read("studioThemeOverrideBackground") === "1" || (applied !== null && current !== applied);
-    if (overridden) {
-      nextAttrs = write(nextAttrs, "studioThemeOverrideBackground", "1");
-      nextAttrs = write(nextAttrs, "studioThemeOriginalBackground", null);
-      nextAttrs = write(nextAttrs, "studioThemeAppliedBackground", null);
-    } else if (theme === "editorial") {
-      if (original !== null) {
-        nextAttrs = write(nextAttrs, "background", original === "__none__" ? null : original);
-        nextAttrs = write(nextAttrs, "studioThemeOriginalBackground", null);
-        nextAttrs = write(nextAttrs, "studioThemeAppliedBackground", null);
-      }
-    } else {
-      if (original === null) nextAttrs = write(nextAttrs, "studioThemeOriginalBackground", current ?? "__none__");
-      if (current !== color) nextAttrs = write(nextAttrs, "background", color);
-      if (applied !== color) nextAttrs = write(nextAttrs, "studioThemeAppliedBackground", color);
-    }
-    return '<mxGraphModel' + nextAttrs + selfClosing + '>';
-  });
+/** Kept as a no-op compatibility export: UI themes must never mutate the source document. */
+export function applyDrawioThemeBackgroundReversible(xml: string, _background: string, _theme: "editorial" | "youth" | "warm" | "midnight"): string {
+  return xml;
 }
