@@ -1,4 +1,5 @@
 import { expect, test } from "./support/test";
+import { decodeDrawioPageXml } from "../src/model/drawio-xml-schema";
 import type { WorkspaceFixture } from "./support/fixtures";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
@@ -13,14 +14,25 @@ test.beforeEach(async ({ page, request }) => {
 
 /** Reads the x coordinate of the first cell whose id contains the given fragment. */
 function cellX(xml: string, fragment: string): number | null {
+  let source = xml;
+  if (!source.includes("<mxCell")) {
+    const pages = Array.from(source.matchAll(/<diagram\b[^>]*>([\s\S]*?)<\/diagram>/g));
+    for (const page of pages) {
+      try {
+        const decoded = decodeDrawioPageXml(page[1].trim());
+        if (decoded.includes("<mxCell")) { source = decoded; break; }
+      } catch { /* Ignore malformed pages and continue checking other pages. */ }
+    }
+  }
   const escaped = fragment.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
-  const cells = Array.from(xml.matchAll(/<mxCell\b([^>]*)>([\s\S]*?)<\/mxCell>/g));
+  const cells = Array.from(source.matchAll(/<mxCell\b([^>]*)>([\s\S]*?)<\/mxCell>/g));
   const cell = cells.find((match) => new RegExp('\\bid="[^"]*' + escaped + '[^"]*"').test(match[1]));
   if (!cell) return null;
   const geometry = /<mxGeometry\b([^>]*)\/?\s*>/.exec(cell[2]);
   const x = geometry && /\bx="([-.\d]+)"/.exec(geometry[1]);
   return x ? Number(x[1]) : null;
 }
+
 test.describe("原生画布", () => {
   test("加载工作区的 Draw.io 文件并渲染全部节点", async ({ page }) => {
     const frame = nativeFrame(page);
