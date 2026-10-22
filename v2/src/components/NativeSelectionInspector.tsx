@@ -148,7 +148,9 @@ export default function NativeSelectionInspector({ xml, cellId, onEdit }: Props)
     {cellAttrs.length > 0 && <details className="native-inspector-group">
       <summary className="field-label">Cell attributes · {cellAttrs.length}</summary>
       {cellAttrs.map(([key, value]) =>
-        <Field key={key} label={key} value={value} readOnly />
+        <Field key={key} label={key} value={value}
+          onChange={["visible", "collapsed", "connectable"].includes(key) ? update("cell:" + key) : undefined}
+          readOnly={!["visible", "collapsed", "connectable"].includes(key)} />
       )}
     </details>}
     <div className="native-inspector-group">
