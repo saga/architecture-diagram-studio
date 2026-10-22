@@ -17,7 +17,7 @@ export interface AIIntentContext {
   selectedCell?: { cellId: string; pageId: string | null; label: string } | null;
   activePageId?: string | null;
   /** Native Draw.io cells from the active page, not a parallel document model. */
-  nodes: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
+  cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
 }
 
 export interface AIIntentResponse {
@@ -31,7 +31,7 @@ export interface AIIntentResponse {
   sessionId?: string;
 }
 
-/** Parses only the typed native-editor contract. No semantic document or layout command fallback exists. */
+/** Parses only the typed native Draw.io cell-operation contract. */
 export function parseAIIntentResponse(raw: string): AIIntentResponse {
   const cleaned = raw.trim().replace(/^\x60{3}(?:json)?\s*/i, "").replace(/\s*\x60{3}$/, "");
   let parsed: unknown;
@@ -103,7 +103,7 @@ export async function requestAIIntentPlan(
   recordDiagnostic("copilot.agent.request.started", "Sent a native Draw.io request to the same-origin Copilot SDK service", {
     model: model || "server-default",
     promptCharacters: prompt.length,
-    nativeCellCount: context.nodes.length,
+    nativeCellCount: context.cells.length,
     selectedCellPresent: Boolean(context.selectedCell)
   });
   let response: Response;
