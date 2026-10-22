@@ -1327,7 +1327,7 @@ export default function App() {
                   recordDiagnostic("copilot.native-batch.step." + (result.success ? "applied" : "rolled-back"),
                     "Native batch step " + step.index + (result.success ? " applied" : " was rolled back"),
                     { requestId: result.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
-                      stepSuccess: step.success, batchSuccess: result.success });
+                      stepSuccess: step.success, stepError: step.error ?? null, batchSuccess: result.success, rollbackConfirmed: result.batchRolledBack ?? null });
                 }
               }
               recordDiagnostic(result.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
