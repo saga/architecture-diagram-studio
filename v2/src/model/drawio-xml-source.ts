@@ -111,8 +111,8 @@ function stripThemeMetadata(raw: string): string {
 }
 
 function mergeThemeMetadata(sourceCell: string, nextCell: string): string {
-  const sourceStyle = /\\bstyle=(["'])([\\s\\S]*?)\\1/.exec(sourceCell);
-  const nextStyle = /\\bstyle=(["'])([\\s\\S]*?)\\1/.exec(nextCell);
+  const sourceStyle = /\bstyle=(["'])([\s\S]*?)\1/.exec(sourceCell);
+  const nextStyle = /\bstyle=(["'])([\s\S]*?)\1/.exec(nextCell);
   if (!sourceStyle || !nextStyle || !/studioTheme(?:Original|Applied|Override)/.test(sourceStyle[2])) return nextCell;
   const parse = (raw: string) => new Map(raw.split(";").filter(Boolean).map((entry) => {
     const index = entry.indexOf("=");
