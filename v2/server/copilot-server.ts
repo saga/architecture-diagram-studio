@@ -600,14 +600,14 @@ app.post("/api/workspace/intent/apply", async (req, res) => {
 });
 
 
-type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; createdAt: number; workspaceId: string | null; nativeXml?: string };
+type DiagramEditProposal = { id: string; baseRevision: string; document: import("../src/model/types").DiagramDocument; summary: string; baseQuality: ReturnType<typeof evaluateLayout>; quality: ReturnType<typeof evaluateLayout>; requiresLayout: boolean; createdAt: number; workspaceId: string | null; nativeXml?: string };
 const diagramEditProposals = new Map<string, DiagramEditProposal>();
-function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null, proposedXml?: string | null): DiagramEditProposal {
+function storeAgentProposal(baseDocument: DiagramDocument, proposedDocument: DiagramDocument, summary: string, workspaceId: string | null, baseXml: string | null, requiresLayout: boolean, proposedXml?: string | null): DiagramEditProposal {
   const errors = validateDiagramSemantics(proposedDocument);
   if (errors.length) throw new Error("The proposal failed semantic validation: " + errors.join("; "));
   const proposal: DiagramEditProposal = {
     id: randomUUID(), baseRevision: workspaceRevision(baseDocument, baseXml), document: proposedDocument,
-    summary: summary.slice(0, 500), baseQuality: evaluateLayout(baseDocument), quality: evaluateLayout(proposedDocument),
+    summary: summary.slice(0, 500), baseQuality: evaluateLayout(baseDocument), quality: evaluateLayout(proposedDocument), requiresLayout,
     createdAt: Date.now(), workspaceId, ...(typeof proposedXml === "string" ? { nativeXml: proposedXml } : {})
   };
   diagramEditProposals.set(proposal.id, proposal);
@@ -700,7 +700,7 @@ app.post("/api/workspace/diagram/proposals", async (req, res) => {
     const document = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
     const validationErrors = validateDiagramSemantics(document);
     if (validationErrors.length) { res.status(422).json({ error: "The proposal failed semantic validation", validationErrors }); return; }
-    const proposal: DiagramEditProposal = { id: randomUUID(), baseRevision, document, summary: interpreted.summary, baseQuality: evaluateLayout(state.document), quality: evaluateLayout(document), createdAt: Date.now(), workspaceId: workspace?.id ?? null };
+    const proposal: DiagramEditProposal = { id: randomUUID(), baseRevision, document, summary: interpreted.summary, baseQuality: evaluateLayout(state.document), quality: evaluateLayout(document), requiresLayout: interpreted.requiresLayout, createdAt: Date.now(), workspaceId: workspace?.id ?? null };
     diagramEditProposals.set(proposal.id, proposal);
     for (const [id, item] of diagramEditProposals) if (Date.now() - item.createdAt > 15 * 60 * 1000) diagramEditProposals.delete(id);
     while (diagramEditProposals.size > 100) diagramEditProposals.delete(diagramEditProposals.keys().next().value!);
@@ -731,9 +731,9 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
         const validationErrors = validateDiagramSemantics(proposal.document);
         if (validationErrors.length) return { status: 422 as const, error: "The proposal failed server-side semantic validation", validationErrors };
         const config = await getStudioConfig();
-        if (!layoutProfileEnabled(proposal.document, config)) return { status: 422 as const, error: "The layout algorithm used by the proposal is disabled" };
+        if (proposal.requiresLayout && !layoutProfileEnabled(proposal.document, config)) return { status: 422 as const, error: "The layout algorithm used by the proposal is disabled" };
         const baseQuality = evaluateLayout(state.document);
-        if (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10) {
+        if (proposal.requiresLayout && (quality.errors.length > baseQuality.errors.length || quality.score < baseQuality.score - 10)) {
           return { status: 422 as const, error: "The proposal degrades layout quality significantly and was not saved; adjust the request and generate a new proposal", quality, baseQuality };
         }
         if (typeof state.drawioXml !== "string") return { status: 409 as const, error: "A semantic proposal cannot be committed without an authoritative XML source; reload the diagram and try again." };
@@ -1488,7 +1488,7 @@ registerCopilotIntentRoute(app, {
         if (!layoutProfileEnabled(next, config)) throw new Error("The active layout profile is disabled.");
         next = await layoutDiagram(next);
       }
-      return agentProposalView(storeAgentProposal(base, next, summary, workspace?.id ?? null, state.drawioXml));
+      return agentProposalView(storeAgentProposal(base, next, summary, workspace?.id ?? null, state.drawioXml, requiresLayout));
     },
     proposeEdit: async (intent) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
@@ -1500,7 +1500,7 @@ registerCopilotIntentRoute(app, {
       const config = await getStudioConfig();
       if (interpreted.requiresLayout && !layoutProfileEnabled(interpreted.document, config)) throw new Error("The current layout algorithm is disabled.");
       const next = interpreted.requiresLayout ? await layoutDiagram(interpreted.document) : interpreted.document;
-      return agentProposalView(storeAgentProposal(state.document, next, interpreted.summary, workspace?.id ?? null, state.drawioXml));
+      return agentProposalView(storeAgentProposal(state.document, next, interpreted.summary, workspace?.id ?? null, state.drawioXml, interpreted.requiresLayout));
     },
     proposeTemplate: async (templateKey, title) => {
       if (!["c4-context", "service-queue-database", "sequence-request"].includes(templateKey)) throw new Error("Unknown diagram template.");
@@ -1513,7 +1513,7 @@ registerCopilotIntentRoute(app, {
       if (title?.trim()) next.title = title.trim().slice(0, 200);
       if (!layoutProfileEnabled(next, config)) throw new Error("The layout algorithm used by the template is disabled.");
       const laidOut = next.kind === "sequence" ? normalizeSequenceDocument(next) : await layoutDiagram(next);
-      return agentProposalView(storeAgentProposal(state.document, laidOut, "Apply template: " + next.title, workspace?.id ?? null, state.drawioXml));
+      return agentProposalView(storeAgentProposal(state.document, laidOut, "Apply template: " + next.title, workspace?.id ?? null, state.drawioXml, true));
     },
     proposeRestore: async (versionId) => {
       const state = await getWorkspaceState(), workspace = await getProjectWorkspace();
@@ -1521,7 +1521,7 @@ registerCopilotIntentRoute(app, {
       const sourceVersion = (await getDiagramVersions()).find((item) => item.id === versionId && versionMatchesActiveDiagram(item, workspace));
       if (!sourceVersion || !isDiagramDocument(sourceVersion.document)) throw new Error("The requested version is not available in the active workspace.");
       const restored = { ...sourceVersion.document, id: state.document.id };
-      return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, sourceVersion.drawioXml));
+      return agentProposalView(storeAgentProposal(state.document, restored, "Restore version: " + sourceVersion.label, workspace?.id ?? null, state.drawioXml, false, sourceVersion.drawioXml));
     },
     onProposal, onApplied, onToolUse
   })
