@@ -65,8 +65,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const normalized = text.trim();
         const move = normalized.match(/(?:move|将|把)?\s*[“"']?(.+?)[”"']?\s*(向上移动|上移|向下移动|下移|向左移动|左移|向右移动|右移|move up|move down|move left|move right|up|down|left|right)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i);
         const rename = normalized.match(/(?:rename|change|set|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\s*[“"']?(.+?)[”"']?$/i);
-        const resize = normalized.match(/(?:resize|set size|调整大小|把|将)?\\s*[“"']?(.+?)[”"']?\\s*(?:resize to|尺寸改为|大小改为)\\s*(\\d+(?:\\.\\d+)?)\\s*[x×,]\\s*(\\d+(?:\\.\\d+)?)\\s*(?:px|pixels?|像素)?$/i);
-        const remove = normalized.match(/^(?:delete|remove|删除|移除)\\s*[“"']?(.+?)[”"']?\\s*(?:element|node|节点|元素)?[。.!！]?$/i);
+        const resize = normalized.match(/(?:resize|set size|调整大小|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:resize to|尺寸改为|大小改为)\s*(\d+(?:\.\d+)?)\s*[x×,]\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?$/i);
+        const remove = normalized.match(/^(?:delete|remove|删除|移除)\s*[“"']?(.+?)[”"']?\s*(?:element|node|节点|元素)?[。.!！]?$/i);
         const recolor = normalized.match(/(?:change|set|make|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\s*(?:to|为|改成|设置为)?\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\s*$/i);
         const cells = Array.from(parsed.getElementsByTagName("mxCell"));
         const labelOf = (cell: Element) => {
