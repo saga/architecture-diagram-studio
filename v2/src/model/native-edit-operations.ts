@@ -52,6 +52,46 @@ export type NativeEditParseResult =
   | { ok: true; operations: NativeEditOperation[] }
   | { ok: false; error: string };
 
+export interface NativeEditTarget {
+  id: string;
+  name: string;
+  cellType: "vertex" | "edge";
+}
+
+function plainNativeLabel(value: string): string {
+  return value
+    .replace(/<br\\s*\\/?\\s*>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+
+/** Read edit targets from native mxCells instead of the retired DiagramDocument projection. */
+export function extractNativeEditTargets(xml: string): NativeEditTarget[] {
+  const parsed = parseDrawioXml(xml);
+  const cells = findDrawioElements(parsed, "mxCell");
+  const result: NativeEditTarget[] = [];
+  const seen = new Set<string>();
+  for (const cell of cells) {
+    const id = cell.getAttribute("id") || "";
+    const vertex = cell.getAttribute("vertex") === "1";
+    const edge = cell.getAttribute("edge") === "1";
+    if (!id || seen.has(id) || (!vertex && !edge) || id === "0" || id === "1") continue;
+    seen.add(id);
+    const wrapper = cell.parentElement;
+    const rawLabel = cell.getAttribute("value") || cell.getAttribute("label") ||
+      wrapper?.getAttribute("label") || wrapper?.getAttribute("value") || "";
+    result.push({ id, name: plainNativeLabel(rawLabel) || id, cellType: vertex ? "vertex" : "edge" });
+  }
+  return result;
+}
+
 const OPERATION_NAMES = ["select", "set_label", "set_style", "move", "resize", "delete", "add_node_after"] as const;
 
 /**
