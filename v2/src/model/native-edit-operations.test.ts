@@ -65,6 +65,13 @@ describe("parseNativeEditOperations", () => {
     expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
   });
 
+  it("requires newLabel for add_node_after", () => {
+    const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx" }]);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error).toContain("newLabel");
+  });
+
   it("accepts a compound select + recolor request", () => {
     const parsed = parseNativeEditOperations([
       { op: "select", target: "Database" },
@@ -202,5 +209,8 @@ describe("describeNativeEditOperation", () => {
       .toBe("Set fillColor of “db” to #ff0000");
     expect(describeNativeEditOperation({ op: "select", target: "db" })).toBe("Select “db”");
     expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” after “xxx” and connect it");
+    expect(describeNativeEditOperation({
+      op: "add_node_after", target: "MRDE1TfU6mpqhOhdJKLE-1", targetLabel: "xxx", newLabel: "bbb"
+    })).toBe("Add “bbb” after “xxx” and connect it");
   });
 });
