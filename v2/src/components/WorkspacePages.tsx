@@ -150,7 +150,7 @@ function traceTokenUsage(entry: DiagnosticEntry): TraceTokenUsage | null {
     premiumRequestCost: read(value, "premiumRequestCost"),
     totalNanoAiu: read(value, "totalNanoAiu")
   };
-  const hasUsage = [result.input, result.output, result.total, result.cachedInput, result.cacheWrite,
+  const hasUsage = [result.input, result.output, result.total, result.calls, result.cachedInput, result.cacheWrite,
     result.reasoning, result.premiumRequestCost, result.totalNanoAiu].some((item) => item !== null);
   return hasUsage ? result : null;
 }
