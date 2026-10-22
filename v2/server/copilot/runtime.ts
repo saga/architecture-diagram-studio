@@ -275,11 +275,11 @@ export class CopilotRuntime {
           if (item.sdkSessionId !== sessionId) continue;
           this.sessions.delete(conversationId);
           item.disposeEvents?.();
-          void this.options.log("session.deleted.externally", { conversationId, sdkSessionId: sessionId });
+          this.logDetached("session.deleted.externally", { conversationId, sdkSessionId: sessionId });
         }
       });
     } catch (error) {
-      void this.options.log("client.lifecycle.unavailable", { error: messageOf(error) });
+      this.logDetached("client.lifecycle.unavailable", { error: messageOf(error) });
     }
   }
 
@@ -524,13 +524,13 @@ export class CopilotRuntime {
       ]);
       const idleObserved = await idle;
       if (!idleObserved) {
-        void Promise.resolve(this.options.log("turn.abort.idle-timeout", {})).catch(() => undefined);
+        this.logDetached("turn.abort.idle-timeout", {});
       }
     } catch (error) {
-      void Promise.resolve(this.options.log("turn.abort.failed", {
+      this.logDetached("turn.abort.failed", {
         error: messageOf(error),
         idleObserved: settled
-      })).catch(() => undefined);
+      });
     } finally {
       if (idleTimer) clearTimeout(idleTimer);
       if (abortTimer) clearTimeout(abortTimer);
@@ -673,10 +673,10 @@ export class CopilotRuntime {
         // quota failure name the model that was actually billed instead of the one that was asked for.
         const observed = observedModelOf(event);
         if (observed) runtimeSession.observedModel = observed;
-        void this.options.log("sdk.event", { conversationId: runtimeSession.conversationId, ...compactEvent(event) });
+        this.logDetached("sdk.event", { conversationId: runtimeSession.conversationId, ...compactEvent(event) });
       });
     } catch (error) {
-      void this.options.log("session.events.unavailable", { conversationId: runtimeSession.conversationId, error: messageOf(error) });
+      this.logDetached("session.events.unavailable", { conversationId: runtimeSession.conversationId, error: messageOf(error) });
       return () => undefined;
     }
   }
