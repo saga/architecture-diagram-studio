@@ -12,7 +12,7 @@ const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 interface Props {
   document: DiagramDocument;
-  onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean }> | null; failedIndex?: number | null; rollbackErrors?: Array<{ cellId: string; error: string }> }) => void;
+  onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean }> | null; failedIndex?: number | null; rollbackErrors?: Array<{ cellId: string; error: string }>; batchRolledBack?: boolean | null }) => void;
   xml: string;
   onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
@@ -255,7 +255,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? []
+            errorMessage, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null
           }, "error");
         }
       }
