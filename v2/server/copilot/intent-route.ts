@@ -148,9 +148,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0
         });
         const firstTurnStartedAt = Date.now();
-        await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 1, timeoutMs: 50000, model: turn.session.model, promptLength: prompt.length, standalone, toolCount: turn.session.prepared.tools.length });
-        const firstTurn = await turn.send({ prompt: JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext }) }, 50000);
-        await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt, responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn) });
+        const firstRequestPrompt = JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext });
+        await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 1, timeoutMs: 50000, model: turn.session.model, promptLength: prompt.length, requestPrompt: firstRequestPrompt, standalone, toolCount: turn.session.prepared.tools.length });
+        const firstTurn = await turn.send({ prompt: firstRequestPrompt }, 50000);
+        await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt, responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn), response: firstTurn ?? null, responseText: assistantText(firstTurn) });
         let captured = pendingPlans.get(sessionId) || null;
         pendingPlans.delete(sessionId);
         let capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -162,11 +163,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (!captured && !capturedProposal && !capturedApplication && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryStartedAt = Date.now();
-          await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 2, timeoutMs: 25000, reason: "first response did not invoke a tool", standalone });
-          const nudged = await turn.send({
-            prompt: JSON.stringify({ request: standalone ? "Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
-          }, 25000);
-          await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged) });
+          const retryPrompt = JSON.stringify({ request: standalone ? "Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context });
+          await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 2, timeoutMs: 25000, reason: "first response did not invoke a tool", standalone, requestPrompt: retryPrompt });
+          const nudged = await turn.send({ prompt: retryPrompt }, 25000);
+          await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged), response: nudged ?? null, responseText: assistantText(nudged) });
           captured = pendingPlans.get(sessionId) || null;
           pendingPlans.delete(sessionId);
           capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -191,7 +191,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         };
         await deps.writeLog("turn.completed.with-applied-edit", {
           sessionId, versionId: application.versionId, baseRevision: application.baseRevision,
-          workspaceRevision: application.workspaceRevision, summary: application.summary, qualityScore: application.quality.score
+          workspaceRevision: application.workspaceRevision, summary: application.summary, qualityScore: application.quality.score,
+          response: { applied: true, summary: application.summary, versionId: application.versionId, workspaceRevision: application.workspaceRevision }, toolsUsed: plan.usedToolNames
         });
         res.json(response);
         return;
