@@ -25,6 +25,7 @@ export interface PendingNativeExecutionAck {
   documentRevision: string;
   operationCount: number;
   summary: string;
+  operations: ResolvedNativeEditOperation[];
   createdAt: number;
 }
 
@@ -218,7 +219,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const requestId = randomUUID();
     acknowledgements.register({
       requestId, sessionId, standalone: proposal.standalone, documentRevision,
-      operationCount: revalidated.operations.length, summary: proposal.summary, createdAt: Date.now()
+      operationCount: revalidated.operations.length, summary: proposal.summary,
+      operations: revalidated.operations, createdAt: Date.now()
     });
     await deps.writeLog("turn.native-edit.proposal-confirmed", { proposalId, requestId, sessionId, standalone: proposal.standalone, documentRevision, operationCount: revalidated.operations.length, summary: proposal.summary });
     res.json({
@@ -297,11 +299,28 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return;
       }
     }
-    const responseBody = { outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."), requestId, documentRevision: serializedXmlRevision, persistedRevision, versionId, ...(errorMessage ? { error: errorMessage } : {}) };
+    const resolvedTargets = pending.operations.map((operation) => ({
+      cellId: operation.cellId,
+      label: operation.targetLabel || operation.target
+    }));
+    const recordedOperations = pending.operations.map((operation) => ({
+      op: operation.op,
+      cellId: operation.cellId,
+      targetLabel: operation.targetLabel || operation.target,
+      ...(operation.op === "set_label" ? { newLabel: operation.label } : {}),
+      ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {})
+    }));
+    const responseBody = {
+      outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."),
+      requestId, documentRevision: serializedXmlRevision, persistedRevision, versionId,
+      resolvedTargets, editorAcknowledged, persistenceStatus, failureStage,
+      ...(errorMessage ? { error: errorMessage } : {})
+    };
     await deps.writeLog("turn.native-edit.final-outcome", {
       requestId, sessionId, standalone: pending.standalone,
       baseDocumentRevision: pending.documentRevision,
       operationCount: pending.operationCount, summary: pending.summary,
+      operations: recordedOperations, resolvedTargets,
       outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision, versionId,
       failureStage, error: errorMessage
     });
@@ -704,7 +723,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         }
         acknowledgements.register({
           requestId, sessionId, standalone, documentRevision,
-          operationCount: nativeEdits.operations.length, summary: nativeEdits.summary, createdAt: Date.now()
+          operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
+          operations: nativeEdits.operations, createdAt: Date.now()
         });
         const response = {
           // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
