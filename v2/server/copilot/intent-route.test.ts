@@ -297,7 +297,11 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("stale_context");
     expect(body.documentRevision).toBe("newer-workspace-revision");
     expect(typeof body.requestId).toBe("string");
-    expect(harness.logs.some((entry) => entry.event === "turn.native-edit.stale" && typeof entry.fields?.requestId === "string")).toBe(true);
+    expect(harness.logs.some((entry) =>
+      entry.event === "request.validation.failed" &&
+      entry.fields?.reason === "stale_workspace_revision" &&
+      typeof entry.fields?.requestId === "string"
+    )).toBe(true);
   });
 
   it.each([
