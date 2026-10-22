@@ -203,7 +203,7 @@ test.describe("原生画布", () => {
     }, databaseId!);
 
     expect(result.success).toBe(false);
-    expect(result.batchRolledBack).toBe(true);
+    expect(result.batchRolledBack, "Native batch rollback details: " + JSON.stringify(result, null, 2)).toBe(true);
     expect(result.failedIndex).toBe(2);
     expect(Array.isArray(result.batchResults)).toBe(true);
     expect((result.batchResults as Array<{ success: boolean }>).map((step) => step.success)).toEqual([true, true, false]);
