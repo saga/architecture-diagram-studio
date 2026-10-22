@@ -1200,7 +1200,7 @@ export default function App() {
           event.currentTarget.value = "";
           if (file) void openStandaloneDiagram(file);
         }} />
-        {activePage === "studio" ? <div className="topbar-actions">
+        {activePage === "diagram" ? <div className="topbar-actions">
           <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
           <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
           <UiButton className="button button-quiet" title="Reload the built-in sample" disabled={!semanticEditingSafe} onClick={resetDiagram}>Reset</UiButton>
@@ -1211,7 +1211,7 @@ export default function App() {
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("diagram")}>Back to diagram</UiButton></div>}
       </header>
 
-      {activePage === "studio" ? (
+      {activePage === "diagram" ? (
         <>
       <aside className="left-panel">
         {projectWorkspace && <div className="workspace-card" title={projectWorkspace.rootPath}>
