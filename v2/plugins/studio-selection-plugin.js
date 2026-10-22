@@ -74,6 +74,7 @@
         var snapshots = allCells.map(function (item) {
           return { cell: item, value: item.value && typeof item.value.cloneNode === "function" ? item.value.cloneNode(true) : item.value,
             style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
+            index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
             visible: item.visible, collapsed: item.collapsed, connectable: item.connectable };
         });
         var originalSelection = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
@@ -89,13 +90,15 @@
         } catch (error) {
           snapshots.forEach(function (snapshot) {
             var item = snapshot.cell;
-            if (activeModel.getCell(item.id) !== item) return;
+            if (activeModel.getCell(item.id) !== item && snapshot.parent) {
+              activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
+            }
             activeModel.setValue(item, snapshot.value);
             activeModel.setStyle(item, snapshot.style);
             if (snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
             activeModel.setTerminal(item, snapshot.source || null, true);
             activeModel.setTerminal(item, snapshot.target || null, false);
-            if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, activeModel.getChildCount(snapshot.parent));
+            if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
             if (typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
             if (typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
             if (typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
