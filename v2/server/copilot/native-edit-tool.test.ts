@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 
-const CONTEXT = { nodes: [{ id: "db", name: "Database" }, { id: "api", name: "API Service" }, { id: "cache", name: "Cache" }] };
+const CONTEXT = { cells: [
+  { id: "db", name: "Database", cellType: "vertex" },
+  { id: "api", name: "API Service", cellType: "vertex" },
+  { id: "cache", name: "Cache", cellType: "vertex" }
+] };
 
 describe("resolveNativeEditTargets", () => {
   it("resolves the anchor for add_node_after without losing the new label", () => {
@@ -29,6 +33,14 @@ describe("resolveNativeEditTargets", () => {
     expect(resolved.operations.every((operation) => operation.cellId === "db" && operation.targetLabel === "Database")).toBe(true);
   });
 
+  it("rejects add-after targets that are connectors", () => {
+    const context = { cells: [{ id: "edge1", name: "calls", cellType: "edge" }] };
+    const result = resolveNativeEditTargets(context, [{ op: "add_node_after", target: "calls", newLabel: "Worker" }]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("requires a vertex");
+  });
+
   it("rejects unknown labels with an actionable message", () => {
     const resolved = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "Missing" }]);
     expect(resolved.ok).toBe(false);
@@ -49,14 +61,14 @@ describe("resolveNativeEditTargets", () => {
   });
 
   it("rejects ambiguous labels instead of guessing", () => {
-    const resolved = resolveNativeEditTargets({ nodes: [{ id: "a", name: "Queue" }, { id: "b", name: "queue" }] }, [{ op: "select", target: "Queue" }]);
+    const resolved = resolveNativeEditTargets({ cells: [{ id: "a", name: "Queue", cellType: "vertex" }, { id: "b", name: "queue", cellType: "vertex" }] }, [{ op: "select", target: "Queue" }]);
     expect(resolved.ok).toBe(false);
     if (resolved.ok) return;
     expect(resolved.error).toContain("ambiguous");
   });
 
   it("prefers a cell id over a label collision", () => {
-    const resolved = resolveNativeEditTargets({ nodes: [{ id: "Queue", name: "One" }, { id: "other", name: "Queue" }] }, [{ op: "select", target: "Queue" }]);
+    const resolved = resolveNativeEditTargets({ cells: [{ id: "Queue", name: "One", cellType: "vertex" }, { id: "other", name: "Queue", cellType: "vertex" }] }, [{ op: "select", target: "Queue" }]);
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.operations[0].cellId).toBe("Queue");
