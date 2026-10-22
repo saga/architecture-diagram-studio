@@ -128,7 +128,7 @@ describe("parseNativeEditOperations", () => {
 describe("toNativeCellEdits", () => {
   it("maps operations onto bridge paths", () => {
     const operations: ResolvedNativeEditOperation[] = [
-      { op: "select", target: "Database", cellId: "db", label: "Database" },
+      { op: "select", target: "Database", cellId: "db", targetLabel: "Database" },
       { op: "set_style", target: "Database", cellId: "db", label: "Database", key: "fillColor", color: "#ff0000" },
       { op: "add_node_after", target: "Database", cellId: "db", label: "Database", newLabel: "bbb" }
     ];
@@ -144,8 +144,8 @@ describe("toNativeCellEdits", () => {
 
   it("maps rename, delete and resize directly to native-cell bridge operations", () => {
     const operations: ResolvedNativeEditOperation[] = [
-      { op: "set_label", target: "Database", cellId: "db", label: "Database", label: "Data Store" },
-      { op: "delete", target: "Obsolete", cellId: "obsolete", label: "Obsolete" },
+      { op: "set_label", target: "Database", cellId: "db", targetLabel: "Database", label: "Data Store" },
+      { op: "delete", target: "Obsolete", cellId: "obsolete", targetLabel: "Obsolete" },
       { op: "resize", target: "Database", cellId: "db", label: "Database", width: 220, height: 90 }
     ];
     const plan = toNativeCellEdits(operations, XML);
@@ -159,7 +159,7 @@ describe("toNativeCellEdits", () => {
   });
 
   it("turns a move delta into absolute coordinates from the authoritative XML", () => {
-    const plan = toNativeCellEdits([{ op: "move", target: "Database", cellId: "db", label: "Database", dx: -20, dy: 15 }], XML);
+    const plan = toNativeCellEdits([{ op: "move", target: "Database", cellId: "db", targetLabel: "Database", dx: -20, dy: 15 }], XML);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.edits).toEqual([
@@ -169,7 +169,7 @@ describe("toNativeCellEdits", () => {
   });
 
   it("fails when the cell is missing from the XML", () => {
-    const plan = toNativeCellEdits([{ op: "move", target: "Gone", cellId: "gone", label: "Gone", dx: 1, dy: 1 }], XML);
+    const plan = toNativeCellEdits([{ op: "move", target: "Gone", cellId: "gone", targetLabel: "Gone", dx: 1, dy: 1 }], XML);
     expect(plan.ok).toBe(false);
     if (plan.ok) return;
     expect(plan.error).toContain("Gone");
