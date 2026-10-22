@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nodeVisualStyleFromDrawio, relationVisualStyleFromDrawio } from "./drawio";
 import { diagramPalette } from "../design/render-spec";
 import { fromDrawioXml } from "./drawio";
+import { toDrawioXml } from "../export/drawio";
 import { FIXTURES } from "../model/fixtures";
 import type { DiagramDocument } from "../model/types";
 
@@ -82,6 +83,8 @@ describe("Draw.io style import parity", () => {
     });
     expect(imported.nodes.some((node) => node.id === "blank-separator")).toBe(false);
     expect(imported.nodes.some((node) => node.name === "New node")).toBe(false);
+    const exported = toDrawioXml(imported);
+    expect(exported).toContain('parent="container"><mxGeometry x="10" y="20"');
   });
 
   it("doesn't freeze the generated theme defaults as custom overrides", () => {
