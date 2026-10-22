@@ -98,7 +98,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           setPendingAgentProposalId(plan.proposal.proposalId);
           setPreviewDocument(plan.proposal.document);
           setPreviewSummary(plan.proposal.summary);
-          setViewMode("studio");
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.proposal!.summary + ". A server-validated preview is ready (quality score " + plan.proposal!.quality.score + "). Review it, then apply or discard." }]);
           recordDiagnostic("copilot.preview.created", "A revision-bound internal Agent proposal is awaiting user confirmation", { proposalId: plan.proposal.proposalId, qualityScore: plan.proposal.quality.score, nodeCount: plan.proposal.document.nodes.length, relationCount: plan.proposal.document.relations.length });
           return;
@@ -126,7 +125,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         setPendingAgentProposalId(null);
         setPreviewDocument(result.document);
         setPreviewSummary(result.summary);
-        setViewMode("studio");
         const qualityResponse = await fetch("/api/workspace/diagram/quality", {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ document: result.document })
         });
@@ -157,6 +155,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
-    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode, onAppliedEdit
+    setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit
   ]);
 }
