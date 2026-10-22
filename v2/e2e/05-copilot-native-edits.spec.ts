@@ -46,13 +46,14 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
       contentType: "application/json",
       body: JSON.stringify({
         commands: [],
-        reply: "Selecting Database and changing its background to red.",
+        reply: "Renamed Database to Primary Database and changed its background to red.",
         nativeEdits: {
           operations: [
             { op: "select", target: "Database", cellId, targetLabel: "Database" },
+            { op: "set_label", target: "Database", cellId, targetLabel: "Database", label: "Primary Database" },
             { op: "set_style", target: "Database", cellId, targetLabel: "Database", key: "fillColor", color: "#ff0000" }
           ],
-          summary: "Select “Database”; Set fillColor of “Database” to #ff0000",
+          summary: "Select “Database”; Rename “Database” to “Primary Database”; Set fillColor of “Database” to #ff0000",
           requiresClientExecution: true
         },
         sessionId: "e2e-native-edits",
@@ -70,15 +71,16 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
   await input.press("Enter");
 
   const lastMessage = page.locator(".gemini-message.assistant").last();
-  await expect(lastMessage).toContainText("Applied 2 native changes");
+  await expect(lastMessage).toContainText("Applied 3 native changes");
   await expect(lastMessage).toContainText("#ff0000");
+  await expect(nativeFrame(page).getByText("Primary Database", { exact: true })).toBeVisible();
   expect(seenPrompt).toContain("红色背景");
 
-  // The native editor applied the batch, so the authoritative file must carry the new fill.
+  // The native editor applied the batch, so the authoritative file must carry both the new label and fill.
   await expect.poll(async () => {
     const xml = await readWorkspaceXml(workspace);
     const cell = new RegExp('<mxCell\\b[^>]*id="' + cellId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"[^>]*>').exec(xml);
-    return Boolean(cell && /fillColor=#ff0000/.test(cell[0]));
+    return Boolean(cell && /fillColor=#ff0000/.test(cell[0]) && /value="Primary Database"/.test(cell[0]));
   }, { timeout: 20_000 }).toBe(true);
 
   // Workspace edits are versioned on the server; local snapshots are only for standalone files.
