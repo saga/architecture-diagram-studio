@@ -145,3 +145,42 @@ export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: D
     return cellTag.slice(0, attr.index) + 'style="' + replacement + '"' + cellTag.slice(attr.index + attr[0].length);
   });
 }
+
+/** Reversible background theme adapter; explicit user changes are preserved as overrides. */
+export function applyDrawioThemeBackgroundReversible(xml: string, background: string, theme: ThemeName): string {
+  const color = safeColor(background);
+  if (!color) return xml;
+  return xml.replace(/<mxGraphModel\\b([^<>]*?)(\\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
+    const read = (key: string) => {
+      const match = new RegExp("\\\\b" + key + "=(['"])([\\s\\S]*?)\\\\1").exec(attributes);
+      return match?.[2] ?? null;
+    };
+    const write = (attrs: string, key: string, value: string | null) => {
+      const pattern = new RegExp("\\\\s+" + key + "=(['"])[^'"]*\\\\1", "i");
+      return value === null ? attrs.replace(pattern, "") : pattern.test(attrs)
+        ? attrs.replace(pattern, " " + key + '="' + value + '"')
+        : attrs + " " + key + '="' + value + '"';
+    };
+    let nextAttrs = attributes;
+    const current = read("background");
+    const original = read("studioThemeOriginalBackground");
+    const applied = read("studioThemeAppliedBackground");
+    const overridden = read("studioThemeOverrideBackground") === "1" || (applied !== null && current !== applied);
+    if (overridden) {
+      nextAttrs = write(nextAttrs, "studioThemeOverrideBackground", "1");
+      nextAttrs = write(nextAttrs, "studioThemeOriginalBackground", null);
+      nextAttrs = write(nextAttrs, "studioThemeAppliedBackground", null);
+    } else if (theme === "editorial") {
+      if (original !== null) {
+        nextAttrs = write(nextAttrs, "background", original === "__none__" ? null : original);
+        nextAttrs = write(nextAttrs, "studioThemeOriginalBackground", null);
+        nextAttrs = write(nextAttrs, "studioThemeAppliedBackground", null);
+      }
+    } else {
+      if (original === null) nextAttrs = write(nextAttrs, "studioThemeOriginalBackground", current ?? "__none__");
+      if (current !== color) nextAttrs = write(nextAttrs, "background", color);
+      if (applied !== color) nextAttrs = write(nextAttrs, "studioThemeAppliedBackground", color);
+    }
+    return '<mxGraphModel' + nextAttrs + selfClosing + '>';
+  });
+}
