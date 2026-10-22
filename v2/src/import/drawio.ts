@@ -334,8 +334,10 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const height = Number(geometry.getAttribute("height") || 78);
       const nativeParentId = cell.getAttribute("parent") || "";
       const positionChanged = Boolean(old && (Math.abs(old.x - x) > 1 || Math.abs(old.y - y) > 1));
-      const role = old?.role || roleFromStyle(style);
-      const visualRole = old?.visualRole || visualRoleFromStyle(style);
+      // Explicit Studio semantic metadata in the current XML outranks cached projection
+      // state. Previous values are only a fallback for native cells without those markers.
+      const role = /(?:^|;)studioRole=[^;]+/.test(style) ? roleFromStyle(style) : old?.role || roleFromStyle(style);
+      const visualRole = /(?:^|;)studioVisualRole=[^;]+/.test(style) ? visualRoleFromStyle(style) : old?.visualRole || visualRoleFromStyle(style);
       const importedStyle = nodeVisualStyleFromDrawio(style, role, visualRole, previous.renderTheme || "editorial");
       nodes.push({
         ...(old || { id, name: value || "New node", role, visualRole, width: 180, height: 78, x: 0, y: 0, layoutHints: {} }),
