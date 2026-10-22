@@ -6,6 +6,10 @@ export interface AIProviderConfig {
   reasoningEffort?: "high" | "max";
   sessionId?: string;
   standalone?: boolean;
+  /** Exact XML snapshot the user asked Copilot to edit. Never interpolated as executable instructions. */
+  diagramXml: string;
+  /** SHA-256 of diagramXml; workspace mode also matches the server-issued revision. */
+  documentRevision: string;
 }
 
 export interface AIIntentContext {
@@ -20,7 +24,7 @@ export interface AIIntentContext {
 export interface AIIntentResponse {
   reply: string;
   selection?: { cellId: string; pageId: string | null; label: string };
-  nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; requiresClientExecution: boolean };
+  nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; pageId: string | null; documentRevision: string };
   model?: string;
   provider?: string;
   durationMs?: number;
@@ -82,11 +86,20 @@ function parseNativeEditsPayload(value: unknown): AIIntentResponse["nativeEdits"
     if (!cellId || !targetLabel) throw new Error("The agent returned a native edit without a resolved cell id and target label");
     return { ...operation, cellId, targetLabel };
   });
+  if (raw.pageId !== null && typeof raw.pageId !== "string") throw new Error("The native edit response is missing its resolved page ID");
+  if (typeof raw.documentRevision !== "string" || !raw.documentRevision.trim()) throw new Error("The native edit response is missing its document revision");
   return {
     operations,
     summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
-    requiresClientExecution: raw.requiresClientExecution === true
+    pageId: typeof raw.pageId === "string" ? raw.pageId : null,
+    documentRevision: raw.documentRevision
   };
+}
+
+/** SHA-256 over the exact UTF-8 XML string; matches the server's workspace revision algorithm. */
+export async function calculateDrawioXmlRevision(xml: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(xml));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** The browser never talks to a model provider directly; the Copilot SDK runs server-side. */
@@ -109,7 +122,7 @@ export async function requestAIIntentPlan(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt, context,
+        prompt, context, diagramXml: config.diagramXml, documentRevision: config.documentRevision,
         ...(model ? { model } : {}),
         ...(config.sessionId ? { sessionId: config.sessionId } : {}),
         reasoningEffort: config.reasoningEffort || "max",
@@ -140,6 +153,12 @@ export async function requestAIIntentPlan(
   }
 
   const plan = validateResponse(payload);
+  if (plan.nativeEdits && plan.nativeEdits.documentRevision !== config.documentRevision) {
+    throw new Error("The native edit plan belongs to a different diagram revision; nothing was applied.");
+  }
+  if (plan.nativeEdits && plan.nativeEdits.pageId !== (context.activePageId ?? null)) {
+    throw new Error("The native edit plan belongs to a different Draw.io page; nothing was applied.");
+  }
   recordDiagnostic("copilot.agent.response.validated", "The native Draw.io response passed client-side validation", {
     durationMs: Date.now() - startedAt,
     agentDurationMs: plan.durationMs,
