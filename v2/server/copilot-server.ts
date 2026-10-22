@@ -897,6 +897,13 @@ registerCopilotIntentRoute(app, {
     const currentVersion = versions[versions.length - 1] ?? null;
     return { drawioXml: state.drawioXml, revision, versionId: currentVersion?.id ?? null };
   },
+  getWorkspaceVersionSnapshot: async (versionId: string) => {
+    const workspace = await getProjectWorkspace();
+    const version = (await getDiagramVersions()).find((item) =>
+      item.id === versionId && versionMatchesActiveDiagram(item, workspace)
+    );
+    return version ? { drawioXml: version.drawioXml, revision: workspaceRevision(version.drawioXml), versionId: version.id } : null;
+  },
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
