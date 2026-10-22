@@ -3,7 +3,7 @@ import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
-import { applyDrawioThemeBackground, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
+import { applyDrawioThemeBackground, applyDrawioThemeStyles, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -126,7 +126,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
 
     // For uncompressed XML pages, persist the corresponding mxGraphModel background
     // attribute without touching cell styles. Compressed pages use the graph API above.
-    const themedXml = applyDrawioThemeBackground(xml, palette.canvas);
+    const styledXml = applyDrawioThemeStyles(xml, theme as "editorial" | "youth" | "warm" | "midnight", palette);\n    const themedXml = applyDrawioThemeBackground(styledXml, palette.canvas);
     if (editorReady && themedXml !== xml) {
       recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
         theme, background: palette.canvas, xmlChanged: true
