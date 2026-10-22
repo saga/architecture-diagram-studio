@@ -25,6 +25,7 @@ describe("native Draw.io Copilot contract", () => {
 
   it("rejects native edit batches without resolved cell IDs", () => {
     expect(() => parseAIIntentResponse(JSON.stringify({
+      outcome: "command_ready",
       nativeEdits: {
         operations: [{ op: "set_label", target: "Database", label: "Store" }],
         summary: "Rename",
@@ -37,6 +38,7 @@ describe("native Draw.io Copilot contract", () => {
 
   it("preserves the requested new label separately from the resolved target label", () => {
     const response = parseAIIntentResponse(JSON.stringify({
+      outcome: "command_ready",
       reply: "Renamed Database to Data Store",
       nativeEdits: {
         operations: [{
@@ -54,6 +56,15 @@ describe("native Draw.io Copilot contract", () => {
     });
   });
 
+
+  it("validates explicit no-mutation and stale-context outcomes", () => {
+    expect(parseAIIntentResponse(JSON.stringify({ outcome: "answered", reply: "The diagram has three services." })).outcome).toBe("answered");
+    expect(parseAIIntentResponse(JSON.stringify({ outcome: "needs_clarification", reply: "Which database?", question: "Which database?" })).outcome).toBe("needs_clarification");
+    expect(parseAIIntentResponse(JSON.stringify({ outcome: "unsupported", reply: "Page reordering is not supported.", reason: "no page operation" })).outcome).toBe("unsupported");
+    expect(parseAIIntentResponse(JSON.stringify({ outcome: "stale_context", reply: "Reload the diagram.", error: "revision mismatch", documentRevision: "new-revision" })).outcome).toBe("stale_context");
+    expect(parseAIIntentResponse(JSON.stringify({ outcome: "failed", reply: "No edit was applied.", error: "tool call failed" })).outcome).toBe("failed");
+    expect(() => parseAIIntentResponse(JSON.stringify({ reply: "The diagram has three services." }))).toThrow("discriminated outcome");
+  });
 
   it("rejects invalid JSON and unsupported operations instead of guessing an intent", () => {
     expect(() => parseAIIntentResponse("move database to the right")).toThrow("valid native-edit response");
