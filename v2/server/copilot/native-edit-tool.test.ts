@@ -37,6 +37,17 @@ describe("resolveNativeEditTargets", () => {
     expect(resolved.error).toContain("Operation 1");
   });
 
+  it("does not overwrite a requested rename label while resolving the target cell", () => {
+    const resolved = resolveNativeEditTargets({ cells: [{ id: "db", name: "Database", cellType: "vertex" }] }, [
+      { op: "set_label", target: "Database", label: "Data Store" }
+    ]);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.operations[0]).toMatchObject({
+      op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store"
+    });
+  });
+
   it("rejects ambiguous labels instead of guessing", () => {
     const resolved = resolveNativeEditTargets({ nodes: [{ id: "a", name: "Queue" }, { id: "b", name: "queue" }] }, [{ op: "select", target: "Queue" }]);
     expect(resolved.ok).toBe(false);
