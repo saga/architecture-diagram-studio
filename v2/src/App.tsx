@@ -129,7 +129,7 @@ export default function App() {
   const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
   // Transcripts persisted by older sessions may open with a greeting that no longer exists;
   // drop it so a restored conversation starts with real content.
-  const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the layout change you want"];
+  const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the change you want"];
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const initial: ChatMessage[] = [];
     try {
