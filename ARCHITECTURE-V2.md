@@ -1,6 +1,6 @@
 # Architecture Diagram Studio V2 架构设计
 
-> **当前权威决策（ADR-0006 与 ADR-0008，2026-10-22）：完整 Draw.io `mxfile` XML 是所有图形的唯一真源，嵌入式原生 Draw.io 是唯一画布。本文中与 XML 真源决策冲突的旧表述由 ADR-0006 取代；关于 Studio/Freeform 双画布或 SVG 画布的旧设计由 ADR-0008 取代。`DiagramDocument` 仅是派生语义投影，不是第二个持久化真源。
+> **当前权威决策（ADR-0006 与 ADR-0008，2026-10-22）：完整 Draw.io `mxfile` XML 是所有图形的唯一真源，嵌入式原生 Draw.io 是唯一画布。本文中与 XML 真源决策冲突的旧表述由 ADR-0006 取代；关于 Studio/Freeform 双画布或 SVG 画布的旧设计由 ADR-0008 取代。`DiagramDocument` 仅是派生语义投影，不是第二个持久化真源。**
 
 - 日期：2026-10-20
 - 状态：V2 技术架构方案，作为后续实现基线
@@ -14,7 +14,7 @@ V2 不应该把 draw.io 当成“自动布局引擎”，也不应该把 React F
 
 ```mermaid
 flowchart TD
-    Intent["User / Copilot intent"] --> NativeEdit["Native Draw.io editor or governed cell operation"]
+    Intent["User / Copilot intent"] --> NativeEdit["Native Draw.io editor"]
     NativeEdit --> XML[("Draw.io mxfile XML<br/>single source of truth")]
     XML --> Projection["Projection adapter"]
     Projection --> Semantic["DiagramDocument<br/>derived, partial semantic view"]
