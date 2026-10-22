@@ -3,7 +3,7 @@ import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
-import { applyDrawioThemeBackground, applyDrawioThemeStyles, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
+import { applyDrawioThemeBackgroundReversible, applyDrawioThemeStyles, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -108,6 +108,9 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     }
     if (style) style.textContent = drawioFrameThemeCss(palette);
 
+    const styledXml = applyDrawioThemeStyles(xml, theme as "editorial" | "youth" | "warm" | "midnight", palette);
+    const themedXml = applyDrawioThemeBackgroundReversible(styledXml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
+
     // Use Draw.io's own graph view API as the visual adapter. This also covers
     // compressed <diagram> payloads where no mxGraphModel tag is visible in XML.
     const editorWindow = iframeRef.current?.contentWindow as (Window & {
@@ -119,15 +122,15 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     }) | null;
     const graph = editorWindow?.editorUi?.editor?.graph;
     if (graph) {
-      graph.background = palette.canvas;
+      const storedBackground = /\bstudioThemeOriginalBackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
+      const explicitBackground = /\bbackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
+      graph.background = theme === "editorial" ? (storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || palette.canvas) : palette.canvas;
       graph.view?.validateBackground?.();
       graph.refresh?.();
     }
 
     // For uncompressed XML pages, persist the corresponding mxGraphModel background
     // attribute without touching cell styles. Compressed pages use the graph API above.
-    const styledXml = applyDrawioThemeStyles(xml, theme as "editorial" | "youth" | "warm" | "midnight", palette);
-    const themedXml = applyDrawioThemeBackground(styledXml, palette.canvas);
     if (editorReady && themedXml !== xml) {
       recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
         theme, background: palette.canvas, xmlChanged: true
