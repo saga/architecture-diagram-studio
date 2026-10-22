@@ -9,6 +9,7 @@ import { workspaceRevision } from "../storage";
 const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
   '<mxCell id="db" value="Database" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell>' +
+  '<mxCell id="api" value="API Service" vertex="1" parent="1"><mxGeometry x="200" y="20" width="120" height="60" as="geometry"/></mxCell>' +
   '</root></mxGraphModel></diagram></mxfile>';
 
 type ServerHarness = {
@@ -18,6 +19,7 @@ type ServerHarness = {
   acknowledgements: NativeExecutionAcknowledgements;
   snapshot: ReturnType<typeof vi.fn>;
   copilot: Record<string, unknown>;
+  persistSessionId: ReturnType<typeof vi.fn>;
 };
 
 const servers: Server[] = [];
@@ -37,6 +39,7 @@ async function createServer(options: {
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model")
   };
+  const persistSessionId = vi.fn(async () => undefined);
   registerCopilotIntentRoute(app, {
     copilot: copilot as unknown as CopilotRuntime,
     defaultModel: "test-model",
@@ -45,14 +48,14 @@ async function createServer(options: {
     getProjectWorkspace: async () => ({ id: "ws-1", name: "Test", rootPath: "/tmp", primaryDiagram: "test.drawio" }),
     getWorkspaceDiagramSnapshot: snapshot,
     collectAgentWorkspaceContext: async () => ({}),
-    persistSessionId: vi.fn(async () => undefined),
+    persistSessionId,
     acknowledgements
   });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const address = server.address() as AddressInfo;
-  return { baseUrl: `http://127.0.0.1:${address.port}`, server, logs, acknowledgements, snapshot, copilot };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, server, logs, acknowledgements, snapshot, copilot, persistSessionId };
 }
 
 afterEach(async () => {
@@ -79,6 +82,64 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
     sessionId: "route-test-session",
     standalone: false,
     ...overrides
+  };
+}
+
+function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsupported", reply: string) {
+  let activeSession: Record<string, unknown>;
+  let prepared: { tools: unknown[] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "report_intent_outcome");
+        if (!tool?.handler) throw new Error("report_intent_outcome tool was not registered");
+        await tool.handler({ outcome, reply, ...(outcome === "needs_clarification" ? { question: reply } : {}), ...(outcome === "unsupported" ? { reason: "not in allowlist" } : {}) });
+        return { message: { data: { content: reply } }, modelCallUsages: [] };
+      }
+    })
+  };
+}
+
+function proposingCopilot() {
+  let activeSession: Record<string, unknown>;
+  let prepared: { tools: unknown[] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "propose_native_edits");
+        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
+        await tool.handler({ operations: [{ op: "delete", target: "Database" }, { op: "delete", target: "API Service" }] });
+        return { message: { data: { content: "Delete both nodes." } }, modelCallUsages: [] };
+      }
+    })
   };
 }
 
@@ -156,6 +217,68 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(409);
     expect(body.outcome).toBe("stale_context");
     expect(body.documentRevision).toBe("newer-workspace-revision");
+  });
+
+  it.each([
+    ["answered", "The diagram has two nodes."],
+    ["needs_clarification", "Which service should be renamed?"],
+    ["unsupported", "Page reordering is not supported."]
+  ] as const)("returns the model's explicit %s outcome without mutating the diagram", async (outcome, reply) => {
+    const harness = await createServer({ copilot: reportingCopilot(outcome, reply) });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe(outcome);
+    expect(body.reply).toBe(reply);
+    expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("turns broad destructive batches into reviewable proposals and requires a fresh explicit confirmation", async () => {
+    const harness = await createServer({ copilot: proposingCopilot() });
+    const initial = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(initial.response.status).toBe(200);
+    expect(initial.body.outcome).toBe("proposal_required");
+    const proposal = initial.body.proposal as { id: string; summary: string; operations: unknown[]; pageId: string; documentRevision: string };
+    expect(proposal.operations).toHaveLength(2);
+    expect(harness.acknowledgements.pending.size).toBe(0);
+
+    const confirmed = await post(harness.baseUrl, "/api/copilot/intent/confirm", {
+      proposalId: proposal.id,
+      sessionId: "route-test-session",
+      standalone: false,
+      diagramXml: XML,
+      documentRevision: workspaceRevision(XML),
+      context: { activePageId: "p1", selectedCell: null }
+    });
+    expect(confirmed.response.status).toBe(200);
+    expect(confirmed.body.outcome).toBe("command_ready");
+    expect((confirmed.body.nativeEdits as { operations: unknown[] }).operations).toHaveLength(2);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+
+    const replay = await post(harness.baseUrl, "/api/copilot/intent/confirm", {
+      proposalId: proposal.id,
+      sessionId: "route-test-session",
+      standalone: false,
+      diagramXml: XML,
+      documentRevision: workspaceRevision(XML),
+      context: { activePageId: "p1", selectedCell: null }
+    });
+    expect(replay.response.status).toBe(404);
+    expect(replay.body.outcome).toBe("stale_context");
+  });
+
+  it("invalidates a proposal when its source revision changes before confirmation", async () => {
+    const harness = await createServer({ copilot: proposingCopilot() });
+    const initial = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    const proposal = initial.body.proposal as { id: string };
+    const changedXml = XML.replace('value="Database"', 'value="Database v2"');
+    const response = await post(harness.baseUrl, "/api/copilot/intent/confirm", {
+      proposalId: proposal.id, sessionId: "route-test-session", standalone: false,
+      diagramXml: changedXml, documentRevision: workspaceRevision(changedXml),
+      context: { activePageId: "p1", selectedCell: null }
+    });
+    expect(response.response.status).toBe(409);
+    expect(response.body.outcome).toBe("stale_context");
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
   it("does not consult or persist workspace state for standalone requests", async () => {
