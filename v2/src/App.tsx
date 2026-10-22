@@ -1167,7 +1167,7 @@ export default function App() {
         <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span className="crumb-sep">/</span><strong>{projectWorkspace?.primaryDiagram || document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
           {([["diagram", "Diagram"], ["copilot", "Layout Copilot"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
-            <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "diagram" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
+            <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "diagram" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "diagram" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
         <label className="theme-selector" title="Switch the color theme of the whole workspace">
@@ -1362,7 +1362,7 @@ export default function App() {
           sendIntent={() => void sendIntent()}
           acceptPreview={acceptPreview}
           discardPreview={discardPreview}
-          openStudio={() => { openPage("studio"); }}
+          openDiagram={() => { openPage("diagram"); }}
           aiBaseUrl={aiBaseUrl}
           setAiBaseUrl={setAiBaseUrl}
           aiModel={aiModel}
