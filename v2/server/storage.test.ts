@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSerializedWriteQueue, matchesWorkspaceRevision, retainRecentVersions, workspaceRevision } from "./storage";
+import { createSerializedWriteQueue, isWorkspaceSaveContextCompatible, matchesWorkspaceRevision, retainRecentVersions, workspaceRevision } from "./storage";
 describe("server persistence primitives", () => {
   it("retains the most recent bounded number of versions per workspace", () => {
     const versions = Array.from({ length: 8 }, (_, index) => ({ id: "v" + index, workspaceId: "a" }));
@@ -28,6 +28,14 @@ describe("server persistence primitives", () => {
     expect(matchesWorkspaceRevision("stale", "current")).toBe(false);
     expect(matchesWorkspaceRevision(null, null)).toBe(true);
     expect(matchesWorkspaceRevision("current", "current")).toBe(true);
+  });
+  it("rejects stale document saves after a workspace switch", () => {
+    expect(isWorkspaceSaveContextCompatible(true, true, true, "current")).toBe(true);
+    expect(isWorkspaceSaveContextCompatible(false, true, true, null)).toBe(false);
+    expect(isWorkspaceSaveContextCompatible(false, false, true, null)).toBe(false);
+    expect(isWorkspaceSaveContextCompatible(false, false, false, "stale")).toBe(false);
+    expect(isWorkspaceSaveContextCompatible(false, false, false, undefined)).toBe(false);
+    expect(isWorkspaceSaveContextCompatible(false, false, false, null)).toBe(true);
   });
   it("tracks workspace revisions from the authoritative XML only", () => {
     expect(workspaceRevision({ id: "a" }, "<xml/>")).not.toBe(workspaceRevision({ id: "a" }, "<changed/>"));
