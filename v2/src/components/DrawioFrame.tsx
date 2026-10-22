@@ -8,8 +8,23 @@ const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32e
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&noSaveBtn=1&noExitBtn=1";
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
+type NativeEditResult = {
+  requestId: number | null;
+  success: boolean;
+  cellId: string | null;
+  path: string | null;
+  error?: string;
+  batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null;
+  failedIndex?: number | null;
+  rollbackErrors?: Array<{ cellId: string; error: string }>;
+  batchRolledBack?: boolean | null;
+  /** XML returned by the native Draw.io save protocol after a Copilot batch. */
+  serializedXml?: string;
+};
+type PendingNativeEdit = { cellId: string; path: string; value: string; startedAt: number; beforeXml: string };
+type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult };
 interface Props {
-  onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; failedIndex?: number | null; rollbackErrors?: Array<{ cellId: string; error: string }>; batchRolledBack?: boolean | null }) => void;
+  onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
   onDocumentChange: (nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
@@ -37,8 +52,8 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onNativeEditResultRef = useRef(onNativeEditResult);
   const lastHandledCellEditRequestRef = useRef<number | null>(null);
-  const pendingNativeEditsRef = useRef(new Map<number, { cellId: string; path: string; value: string; startedAt: number; beforeXml: string }>());
-  const pendingSaveConfirmationsRef = useRef(new Map<number, { cellId: string; path: string; value: string; startedAt: number; beforeXml: string }>());
+  const pendingNativeEditsRef = useRef(new Map<number, PendingNativeEdit>());
+  const pendingSaveConfirmationsRef = useRef(new Map<number, PendingSaveConfirmation>());
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   const themeRef = useRef(theme);
@@ -231,15 +246,27 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
         if (data.success === true) {
-          onNativeEditResultRef.current?.({ requestId, success: true, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> : null });
+          const nativeResult: NativeEditResult = {
+            requestId, success: true,
+            cellId: typeof data.cellId === "string" ? data.cellId : null,
+            path: typeof data.path === "string" ? data.path : null,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null
+          };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          if (requestId !== null && pending) {
+            pendingSaveConfirmationsRef.current.set(requestId, {
+              ...pending,
+              ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
+            });
+          }
+          // Copilot batch success is deferred until the native editor has serialized XML. A graph-model
+          // mutation acknowledgement alone is not proof that the resulting document was captured.
+          if (data.path !== "cell:batch" || !pending) onNativeEditResultRef.current?.(nativeResult);
           recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null, xmlLengthBefore: pending?.beforeXml.length ?? null
           });
-          if (requestId !== null && pending) pendingSaveConfirmationsRef.current.set(requestId, pending);
           // Programmatic graph-model edits do not always trigger Draw.io's autosave event.
           // Ask the native editor to serialize the current XML through its standard save protocol.
           iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "save" }), window.location.origin);
@@ -283,8 +310,7 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
         recordDiagnostic("drawio.editor.error", "The Draw.io editor reported an error", { message }, "error");
       }
       if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
-        if (data.xml === lastSent.current) return;
-        lastSent.current = data.xml;
+        const duplicateXml = data.xml === lastSent.current;
         try {
           if (!isDrawioXmlDocument(data.xml)) {
             setStartupError("Draw.io returned an invalid XML document. The previous saved source was preserved.");
@@ -292,6 +318,7 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
             return;
           }
           const pendingSaves = Array.from(pendingSaveConfirmationsRef.current.entries());
+          const deferredBatchAcks: NativeEditResult[] = [];
           for (const [requestId, pending] of pendingSaves) {
             const changed = data.xml !== pending.beforeXml;
             recordDiagnostic(changed ? "drawio.selection.property.save_confirmed" : "drawio.selection.property.save_unchanged",
@@ -299,12 +326,19 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
               { requestId, cellId: pending.cellId, property: pending.path, value: pending.value,
                 durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
                 xmlChanged: changed, saveEvent: data.event });
+            if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
+          if (duplicateXml) {
+            for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
+            return;
+          }
+          lastSent.current = data.xml;
           recordDiagnostic("drawio.document.saved", "Native Draw.io XML autosave captured as the authoritative source", {
             event: data.event, xmlLength: data.xml.length
           });
           onDocumentChangeRef.current(data.xml);
+          for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
