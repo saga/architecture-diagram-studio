@@ -237,24 +237,24 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
 
   await expect.poll(async () => {
     const xml = await readWorkspaceXml(workspace);
-    const apiCell = /<mxCell\\b(?=[^>]*\\bid="api")(?=[^>]*\\bvalue="API Gateway")[^>]*>/.exec(xml);
-    const workerCell = /<mxCell\\b(?=[^>]*\\bid="worker")[^>]*>[\\s\\S]*?<mxGeometry\\b([^>]*)/.exec(xml);
-    const clientCell = /<mxCell\\b(?=[^>]*\\bid="client")[^>]*>[\\s\\S]*?<mxGeometry\\b([^>]*)/.exec(xml);
-    const node = /<mxCell\\b(?=[^>]*\\bvalue="bbb")(?=[^>]*\\bvertex="1")[^>]*>/.exec(xml);
+    const apiCell = /<mxCell\b(?=[^>]*\bid="api")(?=[^>]*\bvalue="API Gateway")[^>]*>/.exec(xml);
+    const workerCell = /<mxCell\b(?=[^>]*\bid="worker")[^>]*>[\s\S]*?<mxGeometry\b([^>]*)/.exec(xml);
+    const clientCell = /<mxCell\b(?=[^>]*\bid="client")[^>]*>[\s\S]*?<mxGeometry\b([^>]*)/.exec(xml);
+    const node = /<mxCell\b(?=[^>]*\bvalue="bbb")(?=[^>]*\bvertex="1")[^>]*>/.exec(xml);
     if (!apiCell || !workerCell || !clientCell || !node) return false;
-    const nodeId = /\\bid="([^"]+)"/.exec(node[0])?.[1];
+    const nodeId = /\bid="([^"]+)"/.exec(node[0])?.[1];
     const geometry = workerCell[1];
-    const x = /\\bx="([-.\\d]+)"/.exec(geometry)?.[1];
-    const y = /\\by="([-.\\d]+)"/.exec(geometry)?.[1];
+    const x = /\bx="([-.\d]+)"/.exec(geometry)?.[1];
+    const y = /\by="([-.\d]+)"/.exec(geometry)?.[1];
     const clientGeometry = clientCell[1];
-    const clientX = /\\bx="([-.\\d]+)"/.exec(clientGeometry)?.[1];
-    const edges = Array.from(xml.matchAll(/<mxCell\\b[^>]*\\bedge="1"[^>]*>/g), (match) => match[0]);
+    const clientX = /\bx="([-.\d]+)"/.exec(clientGeometry)?.[1];
+    const edges = Array.from(xml.matchAll(/<mxCell\b[^>]*\bedge="1"[^>]*>/g), (match) => match[0]);
     const connected = Boolean(nodeId && edges.some((edge) => edge.includes('source="database"') && edge.includes('target="' + nodeId + '"')));
     return x === "785" && y === "260" && clientX === "60" && connected &&
-      !/\\bid="queue"\\b/.test(xml) && !/\\bid="api-queue"\\b/.test(xml) && !/\\bid="queue-worker"\\b/.test(xml) &&
+      !/\bid="queue"\b/.test(xml) && !/\bid="api-queue"\b/.test(xml) && !/\bid="queue-worker"\b/.test(xml) &&
       xml.includes('nativeCustom="preserve-me"') && xml.includes('vendorCellFlag="opaque-client"') &&
       xml.includes('agent="Architecture Diagram Studio E2E"') &&
       xml.includes('<diagram id="page-1" name="E2E diagram"') &&
-      /\\bvalue="Database"\\b/.test(xml);
+      /\bvalue="Database"\b/.test(xml);
   }, { timeout: 20_000 }).toBe(true);
 });
