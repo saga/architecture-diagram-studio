@@ -33,6 +33,7 @@ export interface AIIntentPlan {
   reply: string;
   proposal?: { proposalId: string; baseRevision: string; document: DiagramDocument; summary: string; baseQuality: LayoutQualityReport; quality: LayoutQualityReport };
   application?: AppliedDiagramEdit;
+  selection?: { cellId: string; pageId: string | null; label: string };
   model?: string;
   provider?: string;
   durationMs?: number;
@@ -91,6 +92,10 @@ function validatePlan(value: unknown): AIIntentPlan {
   const proposal = rawProposal && typeof rawProposal.proposalId === "string" && typeof rawProposal.baseRevision === "string" && isDiagramDocument(rawProposal.document) && typeof rawProposal.summary === "string" && rawProposal.baseQuality && typeof rawProposal.baseQuality === "object" && rawProposal.quality && typeof rawProposal.quality === "object"
     ? { proposalId: rawProposal.proposalId, baseRevision: rawProposal.baseRevision, document: rawProposal.document, summary: rawProposal.summary.slice(0, 500), baseQuality: rawProposal.baseQuality as LayoutQualityReport, quality: rawProposal.quality as LayoutQualityReport }
     : undefined;
+  const rawSelection = item.selection && typeof item.selection === "object" ? item.selection as Record<string, unknown> : null;
+  const selection = rawSelection && typeof rawSelection.cellId === "string" && typeof rawSelection.label === "string"
+    ? { cellId: rawSelection.cellId, pageId: typeof rawSelection.pageId === "string" ? rawSelection.pageId : null, label: rawSelection.label }
+    : undefined;
   const rawApplication = item.application && typeof item.application === "object" ? item.application as Record<string, unknown> : null;
   const application = rawApplication?.applied === true && typeof rawApplication.versionId === "string" &&
     typeof rawApplication.baseRevision === "string" && typeof rawApplication.workspaceRevision === "string" &&
@@ -104,6 +109,7 @@ function validatePlan(value: unknown): AIIntentPlan {
     commands: rawCommands,
     ...(proposal ? { proposal } : {}),
     ...(application ? { application } : {}),
+    ...(selection ? { selection } : {}),
     reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
     ...(typeof item.model === "string" ? { model: item.model } : {}),
     ...(typeof item.provider === "string" ? { provider: item.provider } : {}),
