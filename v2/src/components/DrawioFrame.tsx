@@ -213,14 +213,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       if (data.event === "studioBridgeReady") {
         setBridgeReady(true);
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
+        recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }
       if (data.event === "studioSelectionChanged") {
         const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
         const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
         onSelectionChangeRef.current(cellId, pageId);
-      }
-      if (data.event === "studioBridgeReady") {
-        recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready");
       }
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
@@ -326,6 +324,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     setEditorReady(false);
     setIframeLoaded(false);
     iframeLoadedRef.current = false;
+    nativeDocumentLoadedRef.current = false;
+    setBridgeReady(false);
     setStartupError(null);
     setFrameKey((value) => value + 1);
   }
