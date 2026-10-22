@@ -1122,13 +1122,36 @@ app.post("/api/workspace/logs", async (req, res) => {
 
 app.get("/api/workspace/logs", async (req, res) => {
   try {
-    const raw = await readFile(APP_LOG_FILE, "utf8").catch(() => "");
+    const [appRaw, agentRaw] = await Promise.all([
+      readFile(APP_LOG_FILE, "utf8").catch(() => ""),
+      readFile(LOG_FILE, "utf8").catch(() => "")
+    ]);
     const workspace = await getProjectWorkspace();
     const limit = Math.min(10000, Math.max(1, Number(req.query.limit) || 2000));
-    const logs = raw.split("\n").filter(Boolean).flatMap((line) => {
+    const appLogs = appRaw.split("\n").filter(Boolean).flatMap((line) => {
       try { const entry = JSON.parse(line) as Record<string, unknown>; return !workspace || entry.workspaceId === workspace.id ? [entry] : []; } catch { return []; }
-    }).slice(-limit);
-    res.json({ logs, logFile: APP_LOG_FILE, workspaceId: workspace?.id ?? null });
+    });
+    const agentLogs = agentRaw.split("\n").filter(Boolean).flatMap((line) => {
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        if (workspace && entry.workspaceId !== workspace.id) return [];
+        const { timestamp, workspaceId, event, ...details } = entry;
+        return [{
+          id: "agent:" + String(entry.requestId || entry.sessionId || timestamp || "") + ":" + String(event || "event") + ":" + line.length,
+          receivedAt: timestamp || new Date(0).toISOString(),
+          clientTimestamp: timestamp || null,
+          workspaceId: workspaceId ?? null,
+          level: String(event || "").endsWith(".failed") || String(event || "").endsWith(".error") ? "error" : "info",
+          event: typeof event === "string" ? event : "agent.event",
+          message: typeof event === "string" ? event : "Copilot agent event",
+          details
+        }];
+      } catch { return []; }
+    });
+    const logs = [...appLogs, ...agentLogs].sort((a, b) =>
+      new Date(String(a.clientTimestamp || a.receivedAt || 0)).getTime() - new Date(String(b.clientTimestamp || b.receivedAt || 0)).getTime()
+    ).slice(-limit);
+    res.json({ logs, logFile: APP_LOG_FILE, agentLogFile: LOG_FILE, workspaceId: workspace?.id ?? null });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
