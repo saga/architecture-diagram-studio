@@ -15,10 +15,10 @@ import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
-type VersionSummary = { id: string; createdAt: string; label: string; documentId: string | null; title: string | null };
+type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
-type SavedAISettings = { baseUrl: string; model: string; reasoningEffort: "high" | "max" };
+type SavedAISettings = { model: string; reasoningEffort: "high" | "max" };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 /** Ant Design primary colour per theme, so library-rendered controls match the studio palette. */
 const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
@@ -55,12 +55,12 @@ function loadSavedAISettings(): SavedAISettings {  try {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
       // An empty model means "no explicit choice": the server's configured model is used instead of
       // pinning a browser-side default that the Copilot runtime may not even have.
-      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "", reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max" };
+      return { model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "", reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max" };
     }
   } catch {
     // The page can still use deterministic local rules when browser storage is unavailable.
   }
-  return { baseUrl: "copilot-sdk", model: "", reasoningEffort: "max" };
+  return { model: "", reasoningEffort: "max" };
 }
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -125,10 +125,8 @@ export default function App() {
 
   const [chatBusy, setChatBusy] = useState(false);
   const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
-  const [aiBaseUrl, setAiBaseUrl] = useState(savedAISettings.baseUrl);
   const [aiModel, setAiModel] = useState(savedAISettings.model);
   const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
-  const [aiApiKey, setAiApiKey] = useState("");
   // Transcripts persisted by older sessions may open with a greeting that no longer exists;
   // drop it so a restored conversation starts with real content.
   const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the layout change you want"];
@@ -235,7 +233,7 @@ export default function App() {
       if (requestedMode === "create") {
         const response = await fetch("/api/workspace/diagram/create", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, fileName: workspaceNewDiagramName, renderTheme: uiTheme })
+          body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, fileName: workspaceNewDiagramName,  })
         });
         const result = await response.json() as {
           error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
@@ -496,10 +494,9 @@ export default function App() {
       const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: next }) });
       const payload = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max"; revisionId?: string }; error?: string };
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
-      setAiBaseUrl("copilot-sdk");
       setAiModel(payload.config.model || "");
       setReasoningEffort(payload.config.reasoningEffort || "max");
-      try { window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify({ baseUrl: "copilot-sdk", ...next })); } catch { /* Server JSONL is authoritative. */ }
+      try { window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next)); } catch { /* Server JSONL is authoritative. */ }
       recordDiagnostic("settings.model.saved", "Model and reasoning effort written to a new server config revision", { model: next.model || "local-rules", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
       setLastAction(next.model ? "Copilot SDK model settings saved as a new revision" : "Local-rules mode config saved as a new revision");
     } catch (error) {
@@ -910,7 +907,7 @@ export default function App() {
           {versionHistoryLoading ? <p>Loading version history…</p> : versionEntries.length === 0 ? <p>The server has no saved versions yet.</p> : [...versionEntries].reverse().map((version) => (
             <div key={version.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 0", borderBottom: "1px solid var(--border, #e5e7eb)" }}>
               <div style={{ minWidth: 0 }}>
-                <strong>{version.title || "Untitled diagram"} · {version.label}</strong>
+                <strong>{version.label}</strong>
                 <div style={{ opacity: 0.7, marginTop: 4 }}>{new Date(version.createdAt).toLocaleString()} · {version.id}</div>
               </div>
               <UiButton type="button" className="button button-secondary" onClick={() => void restoreVersion(version.id)}>Restore</UiButton>
