@@ -49,7 +49,7 @@ export async function openStudio(page: Page): Promise<void> {
 
 /** Waits for the Draw.io embed handshake, which is what makes the canvas interactive. */
 export async function waitForNativeEditor(page: Page): Promise<void> {
-  await expect(page.locator(".drawio-inline-hint")).toContainText("Native editor ready", { timeout: 60_000 });
+  await expect(page.locator(".status-native")).toContainText("Native editor ready", { timeout: 60_000 });
 }
 
 export function nativeFrame(page: Page): FrameLocator {

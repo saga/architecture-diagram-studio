@@ -70,9 +70,12 @@ button:disabled { opacity: .58; cursor: wait; }
 .v1-note { margin: 12px 5px 0; font: 8px ui-monospace, monospace; color: #a0a9b5; text-align: center; }
 
 .main-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-.canvas-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 20px 25px 17px; flex-shrink: 0; }
+/* The kicker above the title is gone, so the toolbar is a single compact row: the title no longer
+   needs its offset margin, and the inherited 1.9 line-height would add ~11px of dead space above
+   and below 17px text. */
+.canvas-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 10px 25px; flex-shrink: 0; }
 .canvas-kicker { font-size: 8px; letter-spacing: 1.15px; } .canvas-kicker span { color: #c0c6d0; margin: 0 3px; }
-.canvas-title { display: flex; align-items: center; gap: 11px; margin-top: 7px; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: #263446; }
+.canvas-title { display: flex; align-items: center; gap: 11px; line-height: 1.3; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: #263446; }
 .canvas-subtitle { border-left: 1px solid #dfe4eb; padding-left: 10px; font-size: 10px; color: #8b97a7; font-weight: 400; letter-spacing: 0; }
 .canvas-tools { display: flex; align-items: center; gap: 9px; }
 .layout-profile-control { display: flex; align-items: center; gap: 5px; color: #7a8798; font-size: 10px; white-space: nowrap; }
@@ -82,7 +85,9 @@ button:disabled { opacity: .58; cursor: wait; }
 .segmented { background: #e9edf3; border: 1px solid #e2e7ee; padding: 2px; display: flex; border-radius: 7px; }
 .segmented button { font-size: 9px; color: #7a8799; background: transparent; padding: 6px 8px; border: 0; border-radius: 5px; }
 .segmented button.selected { background: #fff; color: #344256; box-shadow: 0 1px 2px #1c2a3b0b; }
-.canvas-stage { position: relative; min-height: 250px; flex: 1; margin: 0 18px 13px; overflow: hidden; background: #fbfcfd; border: 1px solid #e5e9f0; border-radius: 10px; box-shadow: 0 4px 12px #1a273805; }
+/* The native editor is a full-bleed surface: no margin, border, radius or shadow, so the Draw.io
+   canvas meets the side panels and the page chrome directly instead of floating inside a card. */
+.canvas-stage { position: relative; min-height: 250px; flex: 1; margin: 0; overflow: hidden; background: #fbfcfd; }
 .diagram-svg { width: 100%; height: 100%; display: block; touch-action: none; }
 .diagram-node { outline: none; user-select: none; } .diagram-node path { transition: stroke .12s; } .diagram-node.selected path:first-child { filter: drop-shadow(0 2px 2px #425bc714); } .diagram-node.dragging { opacity: .88; }
 .canvas-stage-footer { position: absolute; left: 0; bottom: 0; height: 29px; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 12px; border-top: 1px solid #e8ecf1; background: #fff; color: #8a96a6; font-size: 9px; pointer-events: none; }
@@ -94,7 +99,10 @@ button:disabled { opacity: .58; cursor: wait; }
 .zoom-indicator { position: absolute; bottom: 39px; right: 12px; display: flex; gap: 12px; align-items: center; padding: 7px 10px; background: #fff; border: 1px solid #e2e7ee; border-radius: 6px; color: #7f8b9b; font-size: 11px; box-shadow: 0 2px 7px #26374a08; }
 .bottom-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 25px 12px; font-size: 9px; color: #8a96a6; white-space: nowrap; }
 .status-left { display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; } .status-pulse { width: 5px; height: 5px; flex-shrink: 0; }
-.status-right { display: flex; gap: 13px; font-family: ui-monospace, monospace; font-size: 8px; color: #9aa4b2; }
+.status-right { display: flex; gap: 13px; min-width: 0; font-family: ui-monospace, monospace; font-size: 8px; color: #9aa4b2; }
+/* The Draw.io labels are the longest items and shrink first so the node counts never wrap. */
+.status-right > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status-right > span:nth-last-child(-n+2) { flex: 0 0 auto; }
 
 .right-panel { min-height: 0; overflow-y: auto; background: #fff; border-left: 1px solid #e7eaf0; display: flex; flex-direction: column; }
 .right-tabs { height: 51px; border-bottom: 1px solid #e9edf2; display: flex; align-items: center; gap: 18px; padding: 0 17px; flex-shrink: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
@@ -146,8 +154,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .chat-input-wrap button:disabled { background: #bdc6e9; } .copilot-footnote { color: #a0a9b6; font: 7px ui-monospace, monospace; margin-top: 8px; text-align: center; letter-spacing: .1px; }
 
 .drawio-frame-wrap { height: 100%; min-height: 0; display: flex; flex-direction: column; background: #fff; }
-.drawio-inline-bar { height: 33px; display: flex; align-items: center; padding: 0 12px; gap: 7px; font-size: 9px; color: #738195; border-bottom: 1px solid #e8ecf1; flex-shrink: 0; }
-.drawio-inline-bar .local-indicator { width: 5px; height: 5px; } .drawio-inline-hint { margin-left: auto; color: #9ba5b2; }
 .drawio-iframe { border: 0; width: 100%; height: 100%; min-height: 0; flex: 1; background: #fff; }
 .drawio-status, .drawio-missing { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; height: 100%; min-height: 300px; padding: 36px; color: #596a80; }
 .drawio-missing-icon { display: grid; place-items: center; width: 43px; height: 43px; border: 1px solid #dce2ec; border-radius: 12px; color: #425bc7; font-weight: 700; font-size: 18px; }
@@ -853,7 +859,6 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .app-shell .relation-editor,
 .app-shell .connected-relations,
 .app-shell .sequence-fragment-editor { border-color: var(--theme-border); }
-.app-shell .canvas-stage { box-shadow: 0 4px 14px #0c162614; }
 .app-shell .relation-label-text { fill: var(--theme-text); }
 
 

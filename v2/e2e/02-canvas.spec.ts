@@ -42,7 +42,8 @@ test.describe("原生画布", () => {
     await expect(page.locator(".status-right")).toContainText("5 nodes");
     await expect(page.locator(".status-right")).toContainText("4 relations");
     await expect(page.locator(".drawio-error-banner")).toHaveCount(0);
-    await expect(page.locator(".drawio-inline-hint")).toContainText("edits autosave back into Studio");
+    // The autosave contract lives in the status tooltip so the bar stays one short line.
+    await expect(page.locator(".status-native")).toHaveAttribute("title", /edits autosave back into Studio/);
   });
 
   test("拖动节点会把新的几何信息写回工作区文件", async ({ page }) => {

@@ -12,7 +12,7 @@ import type { AppliedDiagramEdit } from "./intent/aiProvider";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { canApplySemanticEdits, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
-import DrawioFrame from "./components/DrawioFrame";
+import DrawioFrame, { DRAWIO_VERSION } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
@@ -178,6 +178,7 @@ export default function App() {
   const documentRef = useRef(document);
   documentRef.current = document;
   const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
+  const [nativeEditorReady, setNativeEditorReady] = useState(false);
   const [isLayoutting, setIsLayoutting] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
   const openExistingFileRef = useRef<HTMLInputElement>(null);
@@ -1378,9 +1379,14 @@ export default function App() {
               }, result.success && !(result.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={previewDocument ? null : cellEditRequest}
+            onEditorStatusChange={setNativeEditorReady}
             onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
         </div>
-        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span></div></div>
+        <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
+          <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
+          <span className="status-native" title={nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake"}>{nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"}</span>
+          <span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span>
+        </div></div>
       </main>
       <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
 

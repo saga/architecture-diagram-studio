@@ -5,7 +5,7 @@ import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
 
-const DRAWIO_VERSION = "v32.0.2";
+export const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&noSaveBtn=1&noExitBtn=1";
 
@@ -18,6 +18,8 @@ interface Props {
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
   cellEdit: CellPropertyEdit | null;
   theme: string;
+  /** Reports the embed handshake state so the app's single status bar can show it. */
+  onEditorStatusChange?: (ready: boolean) => void;
 }
 
 /**
@@ -32,7 +34,7 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-export default function DrawioFrame({ document, xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme }: Props) {
+export default function DrawioFrame({ document, xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentRef = useRef(document);
   const onDocumentChangeRef = useRef(onDocumentChange);
@@ -61,6 +63,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
+
+  // The editor's readiness is surfaced in the app's bottom status bar, so the canvas stays flush
+  // against the stage instead of carrying its own header strip.
+  useEffect(() => {
+    onEditorStatusChange?.(editorReady);
+  }, [editorReady, onEditorStatusChange]);
 
   useEffect(() => {
     let active = true;
@@ -368,11 +376,6 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
   return (
     <div className="drawio-frame-wrap">
-      <div className="drawio-inline-bar">
-        <span className="local-indicator" />
-        <span>Local Draw.io · {DRAWIO_VERSION} · same-origin editing</span>
-        <span className="drawio-inline-hint">{editorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the embed handshake…"}</span>
-      </div>
       {startupError && <div className="drawio-error-banner" role="alert">
         <span>{startupError}</span><button type="button" onClick={retryEditor}>Re-initialise</button>
       </div>}
