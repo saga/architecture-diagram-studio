@@ -351,6 +351,9 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const importedStyle = nodeVisualStyleFromDrawio(style, role, visualRole, previous.renderTheme || "editorial");
       nodes.push({
         ...(old || { id, name: value || "New node", role, visualRole, width: 180, height: 78, x: 0, y: 0, layoutHints: {} }),
+        // Current XML wins over a same-ID node from the previously open document.
+        role,
+        visualRole,
         name: value || old!.name,
         parentId: nativeParentId && nativeParentId !== "0" && nativeParentId !== "1" ? nativeParentId : undefined,
         x, y, width, height,
@@ -444,11 +447,11 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
     const shape = style.match(/(?:^|;)shape=([^;]+)/)?.[1] || "";
     return shape.includes("lifeline") || shape.includes("umlactor");
   });
-  const isSequenceDiagram = previous.kind === "sequence" || hasNativeSequenceStructure || cells.some((cell) => {
+  const isSequenceDiagram = hasNativeSequenceStructure || cells.some((cell) => {
     const cellId = idByCell.get(cell) || cell.getAttribute("id") || "";
     return cellId.endsWith("__lifelineEnd") || cellId.endsWith("__messageSourceAnchor");
   }) || importedFragments.size > 0;
-  const declaredParticipants = previous.sequence?.participants || [];
+  const declaredParticipants = isSequenceDiagram ? previous.sequence?.participants || [] : [];
   const sequence = isSequenceDiagram ? {
     participants: [
       ...declaredParticipants.filter((id) => importedNodeIds.has(id)),
