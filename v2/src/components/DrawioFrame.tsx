@@ -169,7 +169,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
 
   useEffect(() => {
-    if (!cellEdit || !editorReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
+    if (!cellEdit || !editorReady || !bridgeReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
     const target = iframeRef.current?.contentWindow;
     if (!target) return;
     lastHandledCellEditRequestRef.current = cellEdit.requestId;
@@ -184,7 +184,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     recordDiagnostic("drawio.selection.property.requested", "Sent a native property edit through the Draw.io plugin bridge", {
       cellId: cellEdit.cellId, property: cellEdit.path, requestId: cellEdit.requestId
     });
-  }, [cellEdit, editorReady]);
+  }, [cellEdit, editorReady, bridgeReady]);
 
   useLayoutEffect(() => {
     // Install the message listener in the commit phase before the iframe can finish loading
