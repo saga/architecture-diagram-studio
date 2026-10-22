@@ -230,6 +230,10 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           // Ask the native editor to serialize the current XML through its standard save protocol.
           iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "save" }), window.location.origin);
           recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId });
+          // Programmatic graph-model edits do not always trigger Draw.io's autosave event.
+          // Ask the native editor to serialize the current XML through its standard save protocol.
+          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "save" }), window.location.origin);
+          recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId });
         } else {
           recordDiagnostic("drawio.selection.property.update.failed", "Could not update a selected native Draw.io cell property", {
             cellId: data.cellId, property: data.path, requestId,
