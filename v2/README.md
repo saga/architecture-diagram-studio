@@ -61,7 +61,7 @@ The V2 workspace uses `antd` for shared enterprise controls and theme tokens, wi
 
 ## Workspace pages and diagnostics
 
-The top navigation separates **Studio**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page reads structured application events from the server and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. This application log is separate from the full Copilot SDK session audit log.
+The top navigation separates **Diagram**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page reads structured application events from the server and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. This application log is separate from the full Copilot SDK session audit log.
 
 Browser diagnostics are sent to the local server and persisted as application events. The UI telemetry redacts credential-like fields; server Copilot audit logs retain user request text and the submitted diagram context, while native Draw.io XML is preserved in document version snapshots. Treat local logs and snapshots as potentially sensitive project data.
 
@@ -103,7 +103,7 @@ Deterministic diagram operations run through the HTTP server so the UI and the S
 
 These endpoints support the Studio UI and internal Agent workflow. The application does not expose these diagram-specific operations through a standalone MCP server.
 
-The React UI requests server-side layout scoring, node movement, sequence normalization, and XML generation. It still owns interactive rendering, temporary preview state, and explicit user confirmation. Draw.io XML import parsing remains browser-side because the current parser depends on DOM APIs; moving it requires a portable parser implementation. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
+The React UI requests server-side layout scoring, node movement, sequence normalization, and XML generation. It still owns native editor interaction and temporary preview state; explicit confirmation is required for proposals that need review. Draw.io XML import parsing remains browser-side because the current parser depends on DOM APIs; moving it requires a portable parser implementation. The underlying domain modules are intentionally reused rather than duplicated in a second server-only implementation.
 
 ADR: [0003 — Server-authoritative diagram operations](../docs/adr/0003-server-authoritative-diagram-operations.md).
 
