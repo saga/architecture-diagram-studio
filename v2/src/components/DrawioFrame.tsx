@@ -36,6 +36,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   const documentRef = useRef(document);
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
+  const lastHandledCellEditRequestRef = useRef<number | null>(null);
   const iframeLoadedRef = useRef(false);
   documentRef.current = document;
   onDocumentChangeRef.current = onDocumentChange;
@@ -164,20 +165,27 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
 
   useEffect(() => {
-    if (!cellEdit || !editorReady) return;
+    if (!cellEdit || !editorReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
     const editorWindow = iframeRef.current?.contentWindow as (Window & { editorUi?: { editor?: { graph?: any }; currentPage?: { id?: string; getId?: () => string } } }) | null;
     const graph = editorWindow?.editorUi?.editor?.graph;
     const model = graph?.getModel?.();
+    if (!graph || !model) return;
     const currentPage = editorWindow?.editorUi?.currentPage;
     const currentPageId = currentPage?.getId?.() ?? currentPage?.id ?? null;
     if (cellEdit.pageId && currentPageId && cellEdit.pageId !== currentPageId) {
+      lastHandledCellEditRequestRef.current = cellEdit.requestId;
       recordDiagnostic("drawio.selection.property.stale-page", "Ignored a property edit after the active Draw.io page changed", {
         cellId: cellEdit.cellId, requestedPageId: cellEdit.pageId, currentPageId
       }, "warn");
       return;
     }
-    const cell = model?.getCell?.(cellEdit.cellId);
-    if (!graph || !model || !cell) return;
+    const cell = model.getCell?.(cellEdit.cellId);
+    if (!cell) {
+      lastHandledCellEditRequestRef.current = cellEdit.requestId;
+      recordDiagnostic("drawio.selection.property.cell-missing", "Ignored a property edit because the selected cell no longer exists", { cellId: cellEdit.cellId }, "warn");
+      return;
+    }
+    lastHandledCellEditRequestRef.current = cellEdit.requestId;
     const { path, value } = cellEdit;
     try {
       model.beginUpdate();
