@@ -98,18 +98,8 @@ function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectH
 function newId(prefix: string): string { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
 
 export default function App() {
-  const [document, setDocument] = useState<DiagramDocument>(() => {
-    try {
-      const saved = window.localStorage.getItem("architecture-diagram-studio:v2:document");
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        if (isDiagramDocument(parsed)) return parsed;
-      }
-    } catch {
-      // Browser storage may be disabled or contain an older draft; use the sample instead.
-    }
-    return FIXTURES.c4();
-  });
+  // The server-derived XML projection is authoritative; browser storage keeps preferences only.
+  const [document, setDocument] = useState<DiagramDocument>(() => FIXTURES.c4());
   const [previewDocument, setPreviewDocument] = useState<DiagramDocument | null>(null);
   const [pendingAgentProposalId, setPendingAgentProposalId] = useState<string | null>(null);
   const [previewSummary, setPreviewSummary] = useState("");
@@ -412,14 +402,6 @@ export default function App() {
     };
   }, []);
 
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("architecture-diagram-studio:v2:document", JSON.stringify(document));
-    } catch {
-      setLastAction("Browser storage is unavailable; this session can still be edited");
-    }
-  }, [document]);
 
   useEffect(() => {
     try {
