@@ -3,6 +3,7 @@
 - **Status:** Current architecture as of 2026-10-23.
 - **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md).
 - **Reference implementation:** v2/.
+- **Capability and contract review:** [Native Copilot / Draw.io Capability Audit](docs/NATIVE-COPILOT-CAPABILITY-AUDIT.md).
 - **Legacy:** V1 is read-only reference material.
 
 ## Core design
@@ -11,8 +12,8 @@ Draw.io's mxfile XML is the only diagram representation. The application does no
 
 Responsibilities are deliberately small:
 
-1. The browser loads native XML in the iframe, reflects selected-cell properties, sends typed Copilot requests, forwards operations through the first-party plugin bridge, and waits for an editor acknowledgement.
-2. The Copilot service resolves targets against cells on the active Draw.io page, validates operation arguments, and exposes only the native edit and selection tools.
+1. The browser loads native XML in the iframe, reflects selected-cell properties, sends typed Copilot requests with a source hash, forwards operations through the first-party plugin bridge, waits for serialized XML, persists workspace edits, and posts the final result to the server's acknowledgement endpoint.
+2. The Copilot service validates the XML snapshot/revision, resolves targets against the full active-page cell index, validates operation arguments, and exposes only the native edit and selection tools. The model-facing cell summary is bounded for prompt size; server-side uniqueness checks use the full index.
 3. The workspace service validates XML, applies optimistic revision checks, saves exact XML, and stores snapshots containing the complete XML.
 4. Agent Traces shows browser events and server-side Copilot/model-call records. Token and cost values are shown only when reported by the SDK/provider; missing metrics are not estimated.
 
