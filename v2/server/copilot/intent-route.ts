@@ -1,8 +1,8 @@
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
-import type { SessionEvent } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
+import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import type { AgentAppliedEditView, AgentProposalView } from "./diagram-tools";
 import {
   describeNativeEditOperation, MAX_NATIVE_EDIT_OPERATIONS, NATIVE_EDIT_STYLE_KEYS, parseNativeEditOperations,
@@ -39,70 +39,6 @@ const pendingAgentApplications = new Map<string, AgentAppliedEditView>();
 const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
 const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOperation[]; summary: string }>();
 const usedToolsBySession = new Map<string, Set<string>>();
-
-/** Per-model token usage emitted by one Copilot SDK model call. */
-interface TokenUsage {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  calls: number;
-  models: Record<string, { inputTokens: number; outputTokens: number }>;
-}
-
-function emptyTokenUsage(): TokenUsage {
-  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, calls: 0, models: {} };
-}
-
-function addTokenUsage(target: TokenUsage, raw: unknown): void {
-  const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  const inputTokens = typeof data.inputTokens === "number" && Number.isFinite(data.inputTokens) ? Math.max(0, data.inputTokens) : 0;
-  const outputTokens = typeof data.outputTokens === "number" && Number.isFinite(data.outputTokens) ? Math.max(0, data.outputTokens) : 0;
-  const model = typeof data.model === "string" && data.model.trim() ? data.model.trim() : "unknown";
-  if (!inputTokens && !outputTokens) return;
-  target.inputTokens += inputTokens;
-  target.outputTokens += outputTokens;
-  target.totalTokens += inputTokens + outputTokens;
-  target.calls += 1;
-  const existing = target.models[model] || { inputTokens: 0, outputTokens: 0 };
-  existing.inputTokens += inputTokens;
-  existing.outputTokens += outputTokens;
-  target.models[model] = existing;
-}
-
-function mergeTokenUsage(target: TokenUsage, source: TokenUsage): void {
-  target.inputTokens += source.inputTokens;
-  target.outputTokens += source.outputTokens;
-  target.totalTokens += source.totalTokens;
-  target.calls += source.calls;
-  for (const [model, usage] of Object.entries(source.models)) {
-    const existing = target.models[model] || { inputTokens: 0, outputTokens: 0 };
-    existing.inputTokens += usage.inputTokens;
-    existing.outputTokens += usage.outputTokens;
-    target.models[model] = existing;
-  }
-}
-
-function tokenUsageForLog(usage: TokenUsage): TokenUsage | undefined {
-  return usage.calls > 0 ? usage : undefined;
-}
-
-async function sendWithTokenUsage(
-  turn: Parameters<Parameters<CopilotRuntime["withTurn"]>[1]>[0],
-  body: unknown,
-  timeoutMs: number,
-): Promise<{ message: SessionEvent | undefined; usage: TokenUsage }> {
-  const usage = emptyTokenUsage();
-  let off = () => undefined;
-  try {
-    off = turn.session.session.on("assistant.usage", (event) => {
-      addTokenUsage(usage, (event as SessionEvent & { data?: unknown }).data);
-    });
-    const message = await turn.send(body, timeoutMs);
-    return { message, usage };
-  } finally {
-    off();
-  }
-}
 
 /**
  * The select and native-edit tools must see the elements of the *current* request.
@@ -282,7 +218,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         usedToolsBySession.set(sessionId, new Set<string>());
-        const totalUsage = emptyTokenUsage();
+        const usageSamples: TurnUsageMetrics[] = [];
+        const modelCallUsages: ModelCallUsage[] = [];
+        let contextUsage: ContextUsage | undefined;
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = standalone ? { mode: "standalone", workspace: null, snippets: [], diagram: context } : await deps.collectAgentWorkspaceContext();
         await deps.writeLog("turn.workspace-context.loaded", {
@@ -293,10 +231,17 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const firstTurnStartedAt = Date.now();
         const firstRequestPrompt = JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext });
         await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 1, timeoutMs: 50000, model: turn.session.model, promptLength: prompt.length, requestPrompt: firstRequestPrompt, standalone, toolCount: turn.session.prepared.tools.length });
-        const firstTurnResult = await sendWithTokenUsage(turn, { prompt: firstRequestPrompt }, 50000);
-        mergeTokenUsage(totalUsage, firstTurnResult.usage);
+        const firstTurnResult = await turn.send({ prompt: firstRequestPrompt }, 50000);
         const firstTurn = firstTurnResult.message;
-        await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt, responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn), responseText: assistantText(firstTurn), usage: tokenUsageForLog(firstTurnResult.usage) });
+        if (firstTurnResult.usage) usageSamples.push(firstTurnResult.usage);
+        modelCallUsages.push(...firstTurnResult.modelCallUsages);
+        contextUsage = firstTurnResult.contextUsage ?? contextUsage;
+        await deps.writeLog("turn.model-call.completed", {
+          requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt,
+          responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn), responseText: assistantText(firstTurn),
+          usage: firstTurnResult.usage ?? null, modelCallUsages: firstTurnResult.modelCallUsages,
+          contextUsage: firstTurnResult.contextUsage ?? null
+        });
         let captured = pendingPlans.get(sessionId) || null;
         pendingPlans.delete(sessionId);
         let capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -314,10 +259,17 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           const retryStartedAt = Date.now();
           const retryPrompt = JSON.stringify({ request: standalone ? "Use propose_native_edits for element appearance (fill, stroke or font color), label, size, position or deletion changes, and select_diagram_element only for pure focus requests. Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For element appearance (color), label, position, size or deletion changes use propose_native_edits with every step in one call. For analysis, inspect the active diagram and evaluate quality. For one focused semantic change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context });
           await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 2, timeoutMs: 25000, reason: "first response did not invoke a tool", standalone, requestPrompt: retryPrompt });
-          const nudgedResult = await sendWithTokenUsage(turn, { prompt: retryPrompt }, 25000);
-          mergeTokenUsage(totalUsage, nudgedResult.usage);
+          const nudgedResult = await turn.send({ prompt: retryPrompt }, 25000);
           const nudged = nudgedResult.message;
-          await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged), responseText: assistantText(nudged), usage: tokenUsageForLog(nudgedResult.usage) });
+          if (nudgedResult.usage) usageSamples.push(nudgedResult.usage);
+          modelCallUsages.push(...nudgedResult.modelCallUsages);
+          contextUsage = nudgedResult.contextUsage ?? contextUsage;
+          await deps.writeLog("turn.model-call.completed", {
+            requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt,
+            responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged), responseText: assistantText(nudged),
+            usage: nudgedResult.usage ?? null, modelCallUsages: nudgedResult.modelCallUsages,
+            contextUsage: nudgedResult.contextUsage ?? null
+          });
           captured = pendingPlans.get(sessionId) || null;
           pendingPlans.delete(sessionId);
           capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -331,15 +283,21 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
           modelText = assistantText(nudged) || modelText;
         }
-        return { captured, capturedProposal, capturedApplication, capturedSelection, capturedNativeEdits, modelText, usedToolNames: [...usedToolNames], session: turn.session, usage: tokenUsageForLog(totalUsage) };
+        return {
+          captured, capturedProposal, capturedApplication, capturedSelection, capturedNativeEdits, modelText,
+          usedToolNames: [...usedToolNames], session: turn.session,
+          usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
+        };
       });
 
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
       const shared = {
-        sessionId, model: plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
+        sessionId, model: plan.session.observedModel || plan.session.model, reasoningEffort: plan.session.reasoningEffort || "model-default",
         provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed: plan.usedToolNames,
-        usage: plan.usage
+        ...(plan.usage ? { usage: plan.usage } : {}),
+        ...(plan.modelCallUsages.length ? { modelCallUsages: plan.modelCallUsages } : {}),
+        ...(plan.contextUsage ? { contextUsage: plan.contextUsage } : {})
       };
       if (plan.capturedApplication) {
         const application = plan.capturedApplication;
@@ -459,6 +417,34 @@ function createSelectDiagramElementTool(sessionId: string) {
       return { selected: true, ...selected, documentChanged: false };
     }
   });
+}
+
+function mergeTurnUsage(samples: TurnUsageMetrics[]): TurnUsageMetrics | undefined {
+  if (!samples.length) return undefined;
+  const result: TurnUsageMetrics = {
+    source: samples.every((item) => item.source === "assistant.usage") ? "assistant.usage" : "session-metrics"
+  };
+  const byModel: NonNullable<TurnUsageMetrics["byModel"]> = {};
+  for (const sample of samples) {
+    for (const key of ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens", "reasoningTokens", "premiumRequestCost", "totalNanoAiu", "modelCalls"] as const) {
+      const value = sample[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        const target = result as unknown as Record<string, unknown>;
+        target[key] = ((typeof target[key] === "number" ? target[key] : 0) as number) + value;
+      }
+    }
+    for (const [model, counts] of Object.entries(sample.byModel ?? {})) {
+      const aggregate = { ...(byModel[model] ?? {}) } as Record<string, unknown>;
+      for (const [key, value] of Object.entries(counts)) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+          aggregate[key] = ((typeof aggregate[key] === "number" ? aggregate[key] : 0) as number) + value;
+        }
+      }
+      byModel[model] = aggregate as NonNullable<TurnUsageMetrics["byModel"]>[string];
+    }
+  }
+  if (Object.keys(byModel).length) result.byModel = byModel;
+  return result;
 }
 
 function assistantText(message: unknown): string {
