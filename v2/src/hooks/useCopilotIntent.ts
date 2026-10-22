@@ -106,6 +106,43 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             .replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
         };
         const targetName = (endpoint?.[1] || relationRename?.[1] || move?.[1] || rename?.[1] || recolor?.[1] || resize?.[1] || remove?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
+        if (normalized.includes(";") || normalized.includes("；")) {
+          const statements = normalized.split(/[;；]/).map((part) => part.trim()).filter(Boolean);
+          if (statements.length < 2 || statements.length > 50) throw new Error("A multi-step request must contain between 2 and 50 semicolon-separated operations.");
+          const operations: Array<{ cellId: string; path: string; value: string }> = [];
+          const summaries: string[] = [];
+          for (const statement of statements) {
+            const r = statement.match(/^(?:rename|重命名|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\s*[“"']?(.+?)[”"']?$/i);
+            const z = statement.match(/^(?:resize|set size|调整大小|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:resize to|尺寸改为|大小改为)\s*(\d+(?:\.\d+)?)\s*[x×,]\s*(\d+(?:\.\d+)?)(?:\s*(?:px|pixels?|像素))?$/i);
+            const d = statement.match(/^(?:delete|remove|删除|移除)\s*[“"']?(.+?)[”"']?\s*(?:element|node|节点|元素)?[。.!！]?$/i);
+            const target = (r?.[1] || z?.[1] || d?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "");
+            if (!target) throw new Error("Unsupported batch step: “" + statement + "”. Use rename, resize, or delete steps separated by semicolons.");
+            const candidates = cells.filter((item) => labelOf(item).localeCompare(target, undefined, { sensitivity: "accent" }) === 0 && item.getAttribute("vertex") !== "0");
+            if (candidates.length !== 1 || !candidates[0].getAttribute("id")) throw new Error(candidates.length ? "Batch target is ambiguous: “" + target + "”." : "Batch target not found: “" + target + "”. No changes were applied.");
+            const item = candidates[0];
+            if (r) {
+              const value = r[2].trim().replace(/^[“"']|[”"']$/g, "");
+              if (!value || value.length > 500) throw new Error("Invalid new label in batch step: “" + statement + "”.");
+              operations.push({ cellId: item.getAttribute("id")!, path: "label", value });
+              summaries.push("rename “" + target + "” to “" + value + "”");
+            } else if (z) {
+              const width = Number(z[2]), height = Number(z[3]);
+              if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 10000 || height > 10000) throw new Error("Invalid size in batch step: “" + statement + "”.");
+              operations.push({ cellId: item.getAttribute("id")!, path: "geometry:size", value: width + "," + height });
+              summaries.push("resize “" + target + "” to " + width + " × " + height);
+            } else {
+              operations.push({ cellId: item.getAttribute("id")!, path: "cell:delete", value: "true" });
+              summaries.push("delete “" + target + "”");
+            }
+          }
+          recordDiagnostic("copilot.standalone.native-batch.validated", "Validated an atomic multi-step Draw.io edit batch", {
+            operationCount: operations.length, operations, request: text, xmlLength: drawioXml.length
+          });
+          applyNativeCellEdit("__batch__", "cell:batch", JSON.stringify(operations));
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1,
+            text: "Submitted an atomic batch (" + summaries.join("; ") + "). Draw.io applies the steps in order and restores the original cell state if any step fails; check Agent traces for the acknowledgement." }]);
+          return;
+        }
         if (endpoint || relationRename || move || rename || recolor || resize || remove) {
           const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && ((endpoint || relationRename || recolor || remove) || cell.getAttribute("edge") !== "1"));
           if (matches.length !== 1) throw new Error(matches.length ? "The label “" + targetName + "” is ambiguous (" + matches.length + " matching cells). Select a specific element or use a unique label." : "Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
