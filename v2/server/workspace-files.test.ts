@@ -1,4 +1,4 @@
-import { mkdtemp, symlink, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, symlink, writeFile, rm, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,7 +26,7 @@ describe("workspace file service", () => {
     const service = createWorkspaceFileService(async () => workspace);
     try {
       await expect(service.resolveWorkspaceFile("../outside.txt")).rejects.toThrow(/Invalid file path|escapes the workspace/);
-      expect((await service.resolveWorkspaceFile("diagram.drawio")).absolutePath).toBe(filePath);
+      expect((await service.resolveWorkspaceFile("diagram.drawio")).absolutePath).toBe(await realpath(filePath));
       await expect(service.resolveWorkspaceFile("escape.txt")).rejects.toThrow(/symlinks/);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
