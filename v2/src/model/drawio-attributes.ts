@@ -1,3 +1,5 @@
+import { encodeDrawioXmlAttribute } from "./drawio-xml-dom";
+
 /**
  * Attribute-level helpers for native Draw.io XML.
  *
@@ -56,7 +58,7 @@ export function decodeXmlAttribute(value: string): string {
 }
 
 export function encodeXmlAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return encodeDrawioXmlAttribute(value);
 }
 
 /** Replaces one attribute value in place, quoting it with double quotes. */
