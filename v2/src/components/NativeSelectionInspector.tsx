@@ -67,12 +67,19 @@ function readCellProperties(xml: string, cellId: string, pageId: string | null):
       }) : [];
       return {
         wrapper, cell, geometry, points, nestedGeometry,
-        label: wrapper?.getAttribute("label") ?? wrapper?.getAttribute("value") ?? cell.getAttribute("value") ?? "",
+        label: displayLabel(wrapper?.getAttribute("label") ?? wrapper?.getAttribute("value") ?? cell.getAttribute("value") ?? ""),
         style: cell.getAttribute("style") ?? ""
       };
     }
     return null;
   } catch { return null; }
+}
+function displayLabel(value: string): string {
+  if (!/<[a-z][^>]*>/i.test(value)) return value;
+  try {
+    const parsed = new DOMParser().parseFromString(value, "text/html");
+    return (parsed.body.textContent ?? value).trim();
+  } catch { return value; }
 }
 function attributes(element: Element | null): Array<[string, string]> {
   return element ? Array.from(element.attributes).map((attribute) => [attribute.name, attribute.value] as [string, string]) : [];
