@@ -331,8 +331,10 @@ export default function App() {
         const importBaseDocument = diagramContextChanged ? FIXTURES.c4() : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
         // Valid native XML must open even when no cells can be represented by the partial
-        // semantic projection; keep the source XML and disable unsafe semantic operations.
-        nextDocument = parsedDocument === importBaseDocument ? importBaseDocument : parsedDocument;
+        // semantic projection. Never leave a previous diagram or fixture in the semantic panel.
+        nextDocument = parsedDocument === importBaseDocument
+          ? { ...importBaseDocument, id: "drawio-xml-projection", title: targetDiagramPath.split("/").pop() || "Draw.io diagram", nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined }
+          : parsedDocument;
       } else if (workspaceChanged) {
         nextDocument = await layoutSample(FIXTURES.c4()); nextXml = null;
       }
