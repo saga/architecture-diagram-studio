@@ -16,6 +16,8 @@ export function isStudioProjectionCurrent(xml: string, document: DiagramDocument
 /** Apply a semantic edit as a cell-identity patch to the current XML source. */
 export function patchStudioDocumentXml(xml: string, previous: DiagramDocument, next: DiagramDocument): string | null {
   const currentProjection = toDrawioXml(previous);
-  if (!canApplySemanticEdits(xml, currentProjection, previous)) return null;
-  return patchDrawioXml(xml, toDrawioXml(next), previous);
+  // Do not require a complete semantic inventory for append-only operations. The patcher
+  // retains every source cell whose semantic projection did not change and adds only new
+  // cell XML. Callers must separately restrict partial-projection edits to this safe scope.
+  return patchDrawioXml(xml, toDrawioXml(next), previous, currentProjection);
 }
