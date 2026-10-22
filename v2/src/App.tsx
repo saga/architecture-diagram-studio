@@ -18,7 +18,6 @@ type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
-type SavedAISettings = { model: string; reasoningEffort: "high" | "max" };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 /** Ant Design primary colour per theme, so library-rendered controls match the studio palette. */
 const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
@@ -49,19 +48,6 @@ function loadPanelWidths(): PanelWidths {
   return { left: 240, right: 380 };
 }
 
-function loadSavedAISettings(): SavedAISettings {  try {
-    const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
-    if (saved) {
-      const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
-      // An empty model means "no explicit choice": the server's configured model is used instead of
-      // pinning a browser-side default that the Copilot runtime may not even have.
-      return { model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "", reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max" };
-    }
-  } catch {
-    // The page can still use deterministic local rules when browser storage is unavailable.
-  }
-  return { model: "", reasoningEffort: "max" };
-}
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
@@ -91,7 +77,7 @@ const EMPTY_DRAWIO_XML = '<mxfile host="localhost" agent="Architecture Diagram S
 export default function App() {
   // The active diagram is native Draw.io XML; browser storage keeps only user preferences.
   useEffect(() => {
-    // Clean up the previous application's persisted semantic cache after switching to XML-only storage.
+    // Clear the obsolete browser-side semantic document cache once.
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:document"); } catch { /* Storage may be disabled. */ }
   }, []);
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
@@ -122,9 +108,8 @@ export default function App() {
   });
 
   const [chatBusy, setChatBusy] = useState(false);
-  const [savedAISettings] = useState<SavedAISettings>(() => loadSavedAISettings());
-  const [aiModel, setAiModel] = useState(savedAISettings.model);
-  const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">(savedAISettings.reasoningEffort);
+  const [aiModel, setAiModel] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">("max");
   // Transcripts persisted by older sessions may open with a greeting that no longer exists;
   // drop it so a restored conversation starts with real content.
   const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the change you want"];
@@ -153,7 +138,7 @@ export default function App() {
   const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
   const [versionEntries, setVersionEntries] = useState<VersionSummary[]>([]);
   const [revision, setRevision] = useState(1);
-  const [lastAction, setLastAction] = useState("Studio Editorial sample loaded");
+  const [lastAction, setLastAction] = useState("Draw.io editor ready");
   const [nativeEditorReady, setNativeEditorReady] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
   const openExistingFileRef = useRef<HTMLInputElement>(null);
@@ -178,25 +163,20 @@ export default function App() {
   useEffect(() => {
     let active = true;
     void fetch("/api/workspace/configuration")
-      .then(async (response) => { if (!response.ok) throw new Error("Could not read the Studio configuration"); return response.json() as Promise<{ config?: { model?: string; reasoningEffort?: "high" | "max" }; revisions?: number; hasRuntimeSettings?: boolean }>; })
-      .then(async (payload) => {
-        if (!active || !payload.config) return;
-                // Migrate the previous browser-only model preference into the authoritative server JSONL config
-        // once. The model is only sent when the browser holds an explicit choice; otherwise the server
-        // keeps its own configured model, which is the one the Copilot runtime can actually serve.
-        if (!payload.hasRuntimeSettings) {
-          const migratedConfig: Record<string, unknown> = { reasoningEffort: savedAISettings.reasoningEffort };
-          if (savedAISettings.model.trim()) migratedConfig.model = savedAISettings.model;
-          const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: migratedConfig }) });
-          const migrated = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max" }; error?: string };
-          if (!response.ok || !migrated.config) throw new Error(migrated.error || "Migrating the model settings failed");
-          if (active) { setAiModel(migrated.config.model || ""); setReasoningEffort(migrated.config.reasoningEffort || "max"); }
-        } else {
-          if (active && typeof payload.config.model === "string") setAiModel(payload.config.model);
-          if (active && (payload.config.reasoningEffort === "high" || payload.config.reasoningEffort === "max")) setReasoningEffort(payload.config.reasoningEffort);
-        }
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not read the server model configuration");
+        return response.json() as Promise<{ config?: { model?: string; reasoningEffort?: "high" | "max" } }>;
       })
-      .catch((error) => { if (active) recordDiagnostic("settings.configuration.load.failed", "Could not load the versioned server configuration", { errorMessage: error instanceof Error ? error.message : String(error) }, "error"); });
+      .then((payload) => {
+        if (!active || !payload.config) return;
+        setAiModel(typeof payload.config.model === "string" ? payload.config.model : "");
+        setReasoningEffort(payload.config.reasoningEffort === "high" ? "high" : "max");
+      })
+      .catch((error) => {
+        if (active) recordDiagnostic("settings.configuration.load.failed", "Could not load the server model configuration", {
+          errorMessage: error instanceof Error ? error.message : String(error)
+        }, "error");
+      });
     return () => { active = false; };
   }, []);
   const [workspaceError, setWorkspaceError] = useState("");
@@ -209,8 +189,7 @@ export default function App() {
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
 
-  // The native Draw.io editor is the only canvas. Unsupported native XML disables
-  // native cell edits while preserving the complete source XML.
+  // The native Draw.io editor is the only canvas; typed edits preserve unrelated XML cells.
 
   useEffect(() => {
     let active = true;
@@ -268,7 +247,7 @@ export default function App() {
         body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: targetDiagramPath })
       });
       const result = await response.json() as {
-        error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
+        error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[]; workspaceRevision?: string | null;
         counts?: { files: number; diagrams: number; code: number; documents: number };
       };
       if (!response.ok || !result.workspace) throw new Error(result.error || "Opening the Draw.io workspace failed");
@@ -304,6 +283,7 @@ export default function App() {
         nextXml = EMPTY_DRAWIO_XML;
       }
       setNativeXmlOverride(nextXml);
+      serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
       // Opening a file is an explicit refresh, so don't let a prior Copilot receipt suppress
       // persistence if the native XML changed while the app was open.
       workspaceInitialLoadRef.current = nextWorkspace.id;
@@ -495,7 +475,6 @@ export default function App() {
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiModel(payload.config.model || "");
       setReasoningEffort(payload.config.reasoningEffort || "max");
-      try { window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next)); } catch { /* Server JSONL is authoritative. */ }
       recordDiagnostic("settings.model.saved", "Model and reasoning effort written to a new server config revision", { model: next.model || "server-default", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
       setLastAction(next.model ? "Copilot SDK model settings saved as a new revision" : "Server default model selected in a new config revision");
     } catch (error) {
@@ -510,7 +489,6 @@ export default function App() {
       const payload = await response.json() as { config?: { model?: string; revisionId?: string }; error?: string };
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiModel("");
-      try { window.localStorage.removeItem("architecture-diagram-studio:v2:ai-provider"); } catch { /* Server JSONL is authoritative. */ }
       setLastAction("Server default model selected in a new config revision");
       recordDiagnostic("settings.model.cleared", "Model settings cleared from the server revision history", { revisionId: payload.config.revisionId }, "warn");
     } catch (error) {
