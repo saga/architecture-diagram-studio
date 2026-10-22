@@ -1,18 +1,12 @@
 # Architecture Diagram Studio
 
-This repository now separates the preserved first implementation from the new independent V2 app.
+This repository contains two implementations.
 
-- V2 architecture design: ARCHITECTURE-V2.md
-- Project workspace decisions: [ADR index](docs/adr/README.md), [workspace JSON schema](v2/schemas/project-workspace.schema.json), and [Internal Copilot Agent / Skill documentation](v2/README.md#project-workspace)
-- Run V2 application: v2/README.md
-- Original V1 application snapshot: v1/README.md
+- **V2** (v2/) is the active application. It uses native Draw.io XML as the only diagram model and the bundled Draw.io editor as the only canvas.
+- **V1** (v1/) is retained as a reference snapshot. V2 does not import from or depend on V1.
 
-V1 is preserved byte-for-byte at the file level under v1/ for reference only. V2 does not import, depend on, or modify V1 implementation files.
+Run V2 from the v2 directory with Node.js 22.13 or later: install dependencies with npm install, then run npm run dev.
 
-Start the new application:
+Architecture decisions: [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md). Setup and current capabilities: [V2 README](v2/README.md).
 
-    cd v2
-    npm install
-    npm run dev
-
-V2 focuses on C4, sequence and process-flow diagrams, with a Studio Editorial design system, semantic ELK layout, route-quality scoring, preview-before-commit Copilot, Copilot SDK agent-backed intent planning, manual relation editing, and a pinned locally bundled Draw.io editor. See v2/README.md for supported features and offline setup.
+V2 intentionally does not maintain a parallel semantic graph, generate diagrams from a reduced model, or run a custom layout/quality pipeline. Copilot uses typed, allowlisted native cell operations and applies them through Draw.io's own graph model.
