@@ -4,13 +4,13 @@
 
 > 对象：`architecture-diagram-studio` V2（`v2/`，约 9.4k 行 TS/TSX）
 > 目标：把"支持 Draw.io 全部图形"这件事做实，并把全系统的**唯一真源**统一为 **`.drawio` XML（mxfile）**——不再有 `DiagramDocument` 与原生 XML 两套源，不再有"语义轨 / 原生轨"双轨设计。
-> 状态：实施前评审基线；后续决策见 `docs/adr/0006-drawio-xml-single-source-of-truth.md`。代码已开始按 XML 单一真源改造；本报告中的分阶段路线是计划，不表示所有阶段均已完成。
+> 状态：实施前评审基线；当前实现以 `docs/adr/0011-native-drawio-only-model.md` 为准。V2 不保留 `DiagramDocument` 语义投影、语义布局器或双轨编辑链路；本报告中的分阶段路线是计划，不表示所有阶段均已完成。
 
 ---
 
 ## 0. 决策与结论
 
-**决策（本次分析的基准）**：`.drawio` XML 是唯一事实源（golden source）。`DiagramDocument` 从"真源"降级为**从 XML 派生出来的只读语义投影（Semantic Projection）**，只用于布局、质量评分、AI 意图和查询，**不持久化、不参与相等性判断、不作为 diff 基准**。
+**历史方案（不再是现行设计）**：本报告曾建议从 XML 派生只读 `DiagramDocument` 投影。该建议已被 ADR-0011 取代；现行 V2 直接对原生 mxCell 执行窄范围、类型化操作，不生成第二张图模型。
 
 由此得到三条推论，全报告都围绕它们展开：
 
