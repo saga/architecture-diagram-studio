@@ -13,30 +13,14 @@ test.beforeEach(async ({ page, request }) => {
 
 /** Reads the x coordinate of the first cell whose id contains the given fragment. */
 function cellX(xml: string, fragment: string): number | null {
-  // Draw.io may reorder XML attributes when serializing after an edit. Match the
-  // mxCell and read x from its mxGeometry attributes independently of attribute order.
-  const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\function cellX(xml: string, fragment: string): number | null {
-  const cell = new RegExp('id="([^"]*' + fragment + '[^"]*)"').exec(xml);
-  if (!cell) return null;
-  const id = cell[1].replace(/[.*+?^$()|[\]\\{}]/g, "\\function cellX(xml: string, fragment: string): number | null {
-  const cell = new RegExp('id="([^"]*' + fragment + '[^"]*)"').exec(xml);
-  if (!cell) return null;
-  const geometry = new RegExp('id="' + cell[1] + '"[^>]*>\\s*<mxGeometry x="([-\\d.]+)"').exec(xml);
-  return geometry ? Number(geometry[1]) : null;
-}");
-  // Draw.io may reorder mxGeometry attributes on save, so x must not be assumed first.
-  const geometry = new RegExp('id="' + id + '"[\\s\\S]*?<mxGeometry\\b([^>]*)>').exec(xml);
-  const x = geometry ? /\\bx="([-\\d.]+)"/.exec(geometry[1]) : null;
-  return x ? Number(x[1]) : null;
-}");
+  // Draw.io may reorder XML attributes when serializing after an edit.
   const cells = Array.from(xml.matchAll(/<mxCell\\b([^>]*)>([\\s\\S]*?)<\\/mxCell>/g));
-  const cell = cells.find((match) => new RegExp('\\\\bid="[^"]*' + escaped + '[^"]*"').test(match[1]));
+  const cell = cells.find((match) => new RegExp('id="[^"]*' + fragment + '[^"]*"').test(match[1]));
   if (!cell) return null;
-  const geometry = /<mxGeometry\\b([^>]*)\\/?\s*>/.exec(cell[2]);
+  const geometry = /<mxGeometry\\b([^>]*)>/.exec(cell[2]);
   const x = geometry && /\\bx="([-\\d.]+)"/.exec(geometry[1]);
   return x ? Number(x[1]) : null;
 }
-
 test.describe("原生画布", () => {
   test("加载工作区的 Draw.io 文件并渲染全部节点", async ({ page }) => {
     const frame = nativeFrame(page);
