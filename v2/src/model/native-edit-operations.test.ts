@@ -72,6 +72,32 @@ describe("parseNativeEditOperations", () => {
     expect(parsed.error).toContain("newLabel");
   });
 
+  it.each([
+    ["Rename the Database to Data Store", "Data Store"],
+    ["把 Database 改名为数据仓库", "数据仓库"]
+  ])("validates the same typed rename operation for localized label value %s", (requestLabel, newLabel) => {
+    expect(requestLabel.length).toBeGreaterThan(0);
+    const parsed = parseNativeEditOperations([{ op: "set_label", target: "Database", label: newLabel }]);
+    expect(parsed).toMatchObject({ ok: true, operations: [{ op: "set_label", target: "Database", label: newLabel }] });
+  });
+
+  it.each([
+    ["up", 0, -10],
+    ["down", 0, 10],
+    ["left", -10, 0],
+    ["right", 10, 0]
+  ] as const)("preserves a bounded numeric move delta for %s", (_direction, dx, dy) => {
+    const parsed = parseNativeEditOperations([{ op: "move", target: "Database", dx, dy }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const plan = toNativeCellEdits(parsed.operations.map((operation) => ({
+      ...operation, cellId: "db", targetLabel: "Database"
+    } as ResolvedNativeEditOperation)), XML);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.edits).toEqual([{ cellId: "db", path: "geometry:translate", value: dx + "," + dy }]);
+  });
+
   it("accepts a compound select + recolor request", () => {
     const parsed = parseNativeEditOperations([
       { op: "select", target: "Database" },
@@ -106,6 +132,12 @@ describe("parseNativeEditOperations", () => {
     expect(parseNativeEditOperations([{ op: "move", target: "db", dx: 0, dy: 0 }]).ok).toBe(false);
     expect(parseNativeEditOperations([{ op: "resize", target: "db", width: 0, height: 10 }]).ok).toBe(false);
     expect(parseNativeEditOperations([{ op: "resize", target: "db", width: 10, height: 20000 }]).ok).toBe(false);
+  });
+
+  it("keeps unsupported alignment, grouping and relation actions outside the native allowlist", () => {
+    for (const op of ["align", "group", "create_relation", "set_edge_endpoints"]) {
+      expect(parseNativeEditOperations([{ op, target: "Database" }])).toMatchObject({ ok: false });
+    }
   });
 
   it("rejects unknown operations, empty lists and oversized batches", () => {
