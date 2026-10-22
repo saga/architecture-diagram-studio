@@ -149,9 +149,14 @@ export function canEditInStudio(sourceXml: string, projectionXml: string, docume
   const source = parseRootSlice(sourceXml);
   const projection = parseRootSlice(projectionXml);
   if (!source || !projection || source.cellMap.size !== projection.cellMap.size) return false;
-  for (const [id, raw] of source.cellMap) {
-    const projectedCell = projection.cellMap.get(id);
-    if (projectedCell !== raw && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
+  // The common lossless case is byte-identical root content. Metadata changes on <mxfile>
+  // or <mxGraphModel> must not force Freeform-only mode when every cell is unchanged.
+  // Only inspect individual cell diffs when the root payload itself differs.
+  if (source.inner !== projection.inner) {
+    for (const [id, raw] of source.cellMap) {
+      const projectedCell = projection.cellMap.get(id);
+      if (projectedCell !== raw && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
+    }
   }
 
   for (const node of document.nodes) {
