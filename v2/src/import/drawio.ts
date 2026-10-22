@@ -142,9 +142,9 @@ export function relationVisualStyleFromDrawio(style: string, kind: DiagramRelati
   if (endFill !== undefined && (!theme || (endFill === "1") !== defaults.endFill)) result.endFill = endFill === "1";
   return Object.keys(result).length ? result : undefined;
 }
-function parseDrawioXml(xml: string): XMLDocument | null {
+function parseDrawioXml(xml: string): Document | null {
   if (!validateDrawioXmlDocument(xml).success) return null;
-  const parse = (source: string): XMLDocument | null => {
+  const parse = (source: string): Document | null => {
     const errors: string[] = [];
     try {
       const parser = new DOMParser({ locator: false, onError: (level, message) => { if (level !== "warning") errors.push(message); } });
