@@ -255,17 +255,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         res.json(response);
         return;
       }
-      if (plan.usedToolNames.length) {
-        await deps.writeLog("turn.completed.after-analysis-tools", { sessionId, model: plan.session.model, tools: plan.usedToolNames, modelText: modelText.slice(0, 2000), usage: plan.usage });
-        res.json({
-          commands: [], reply: modelText.slice(0, 500) || "The requested analysis completed; the diagram is unchanged.",
-          ...shared
-        });
-        return;
-      }
-      await deps.writeLog("turn.completed.without-plan", { sessionId, model: plan.session.model, modelText: modelText.slice(0, 2000), usage: plan.usage });
+      await deps.writeLog("turn.completed.without-native-edit", {
+        sessionId, model: plan.session.model, modelText: modelReply, usage: plan.usage
+      });
       res.json({
-        commands: [], reply: modelText.slice(0, 500) || "No actionable plan was produced and the diagram is unchanged. Try specifying a supported layout or semantic edit.",
+        commands: [],
+        reply: modelReply || "No supported native edit was produced. The diagram is unchanged.",
         ...shared
       });
     } catch (error) {
