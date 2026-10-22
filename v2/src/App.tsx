@@ -691,7 +691,7 @@ export default function App() {
 
   const sendIntent = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
+    copilotSessionId, selectedNode, selectedNativeCellId, selectedNativePageId, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
     setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary,
     onAppliedEdit: applyCopilotEdit,
     applyNativeCellEdit: (cellId, path, value) => {
