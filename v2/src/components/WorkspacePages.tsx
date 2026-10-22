@@ -68,13 +68,13 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
 }
 
 
-export type WorkspacePage = "studio" | "copilot" | "traces" | "settings";
+export type WorkspacePage = "diagram" | "copilot" | "traces" | "settings";
 type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
 
 interface Props {
-  page: Exclude<WorkspacePage, "studio">;
+  page: Exclude<WorkspacePage, "diagram">;
   document: DiagramDocument;
   previewDocument: DiagramDocument | null;
   previewSummary: string;
@@ -85,7 +85,7 @@ interface Props {
   sendIntent: () => void;
   acceptPreview: () => void;
   discardPreview: () => void;
-  openStudio: () => void;
+  openDiagram: () => void;
   aiBaseUrl: string;
   setAiBaseUrl: (value: string) => void;
   aiModel: string;
@@ -117,7 +117,7 @@ function formattedTime(timestamp: string): string {
 export default function WorkspacePages(props: Props) {
   const {
     page, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, acceptPreview, discardPreview, openStudio, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
+    sendIntent, acceptPreview, discardPreview, openDiagram, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
     saveAISettings, clearAISettings, traceEntries, refreshTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
@@ -203,7 +203,7 @@ export default function WorkspacePages(props: Props) {
               <div className="preview-summary">{previewSummary || "Layout preview generated"}</div>
               <div className="preview-buttons">
                 <Button onClick={discardPreview}>Discard preview</Button>
-                <Button onClick={openStudio}>Inspect on the Studio canvas</Button>
+                <Button onClick={openDiagram}>Inspect on the diagram canvas</Button>
                 <Button type="primary" onClick={acceptPreview}>Apply to the document</Button>
               </div>
             </div>}
