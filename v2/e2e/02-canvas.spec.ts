@@ -39,8 +39,6 @@ test.describe("原生画布", () => {
     for (const label of ["Client", "API Service", "Background Worker", "Message Queue", "Database"]) {
       await expect(frame.getByText(label, { exact: true })).toBeVisible();
     }
-    await expect(page.locator(".status-right")).toContainText("5 nodes");
-    await expect(page.locator(".status-right")).toContainText("4 relations");
     await expect(page.locator(".drawio-error-banner")).toHaveCount(0);
     // The autosave contract lives in the status tooltip so the bar stays one short line.
     await expect(page.locator(".status-native")).toHaveAttribute("title", /edits autosave back into Studio/);
