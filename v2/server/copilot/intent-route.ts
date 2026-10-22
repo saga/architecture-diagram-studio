@@ -275,7 +275,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       return;
     }
     if (outcome === "applied" && !pending.standalone) {
-      let authoritative: { drawioXml: string; revision: string } | null;
+      let authoritative: { drawioXml: string; revision: string; versionId?: string | null } | null;
       try {
         authoritative = await deps.getWorkspaceDiagramSnapshot();
       } catch (error) {
