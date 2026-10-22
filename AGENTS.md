@@ -4,17 +4,17 @@
 
 ## Authoritative Draw.io document model
 
-- The complete native `.drawio` `mxfile` XML is the single source of truth for every diagram, including Studio-created C4, flowchart and sequence diagrams. Do not introduce separate persisted semantic/native document tracks.
-- `DiagramDocument` is only a derived partial projection for Studio-specific semantic editing. Never treat it as a full inventory of Draw.io cells or regenerate/replace an authoritative document from that projection.
+- The complete native `.drawio` `mxfile` XML is the single source of truth for every diagram, including C4, flowchart and sequence diagrams. Do not introduce separate persisted semantic/native document tracks.
+- `DiagramDocument` is only a derived partial projection for supported semantic editing. Never treat it as a full inventory of Draw.io cells or regenerate/replace an authoritative document from that projection.
 - Every import, workspace bootstrap, autosave, version snapshot, recovery and export must preserve the complete `mxfile`, including multiple pages, unknown cells, nesting, custom shapes, HTML labels and arbitrary attributes. Never run automatic layout as part of opening/importing a file.
-- A Studio semantic edit may change the source only through a server/client XML cell patch that has proven the current projection is complete and lossless. Preserve the outer `mxfile`, page/model metadata and all untouched cells. If the source contains unsupported structure or patch safety cannot be established, disable/refuse the Studio-only operation and keep the document editable in native Draw.io. Never fall back to whole-document regeneration.
+- A semantic edit may change the source only through a server/client XML cell patch that has proven the current projection is complete and lossless. Preserve the outer `mxfile`, page/model metadata and all untouched cells. If the source contains unsupported structure or patch safety cannot be established, disable/refuse the semantic operation and keep the document editable in native Draw.io. Never fall back to whole-document regeneration.
 - Validate all diagram XML through `v2/src/model/drawio-xml-schema.ts` (`validateDrawioXmlDocument` for diagrams, `validateDrawioXmlFile` for libraries). Do not use regular expressions as the document/schema validator. Keep the schema open for custom attributes, wrapper elements, style strings and unknown stencils; reject DTD/custom entity declarations, and test inline, plaintext, compressed and multi-page payloads.
 - Persistence validates the authoritative XML envelope, size and optimistic revision separately from semantic/layout validation. Do not reject an otherwise valid native Draw.io document because a partial projection exceeds semantic role, edge-kind, size or layout rules.
-- Multi-page XML may be projected page-by-page for Studio-only features, but page identity and every non-projected page must remain untouched in the authoritative XML.
+- Multi-page XML may be projected page-by-page for optional semantic features, but page identity and every non-projected page must remain untouched in the authoritative XML.
 
 
 - Treat the repository root opened in the editor as the default development workspace. Do not ask the user to create a wrapper directory around the repository.
-- The Studio's configured project workspace is a runtime binding to a local directory. It is distinct from the Studio data directory under `~/.architecture-diagram-studio/data`.
+- The configured project workspace is a runtime binding to a local directory. It is distinct from the Studio data directory under `~/.architecture-diagram-studio/data`.
 - Ground architecture analysis in the primary Draw.io diagram, related diagrams, source code, README files and ADRs. Cite workspace-relative paths and distinguish facts from inferences.
 - Repository Agent Skills live under `.github/skills/<skill-name>/SKILL.md`. Repository-wide Copilot instructions live in `.github/copilot-instructions.md`.
 
@@ -23,14 +23,14 @@
 - Treat `v2/src/model/drawio-xml-schema.ts` as the shared Zod validation contract for browser import and server persistence. Add regression fixtures whenever core XML structures or supported page encodings change.
 - Preserve unknown XML attributes, style keys, shape/stencil names, UserObject wrappers, nested children, and future extension elements. Do not turn Draw.io's open format into a closed shape whitelist.
 - Validate `mxfile`, page payloads (including raw-DEFLATE/Base64), bare `mxGraphModel`, `root/mxCell/mxGeometry`, `defs`, and the separate `mxlibrary` root through the appropriate schema entry point.
-- A source that validates as Draw.io XML is not necessarily safe for semantic editing. Use the lossless projection gate separately; schema acceptance must never imply that Studio can regenerate or rewrite the whole source.
+- A source that validates as Draw.io XML is not necessarily safe for semantic editing. Use the lossless projection gate separately; schema acceptance must never imply that the application can regenerate or rewrite the whole source.
 
-## Rendering parity
+## Single-canvas contract
 
-- Treat `v2/src/design/render-spec.ts` as the single source of truth for diagram palettes, typography, shape metrics, sequence geometry, relationship labels and arrow metrics.
-- Studio SVG (`v2/src/components/DiagramCanvas.tsx`) and native Draw.io XML (`v2/src/export/drawio.ts`) must consume the shared render spec; do not reintroduce duplicate theme-specific drawing constants in CSS.
-- In the Studio semantic view, preserve representable non-default visuals through `visualStyle`; this is not permission to replace the original XML. Native styles and properties the projection cannot represent must remain in XML and force native editing mode.
-- Rendering changes must update `v2/src/render-parity.test.ts`. The parity test should compare the same fixture's SVG and XML geometry/style contracts, including sequence activation bars, lifelines, labels, arrows, accent strips, fonts and themes.
+- The embedded native Draw.io editor is the only diagram canvas. Do not reintroduce the custom SVG `DiagramCanvas`, a Studio/Freeform mode toggle, canvas-mode state, or a second production renderer.
+- Keep `v2/src/design/render-spec.ts` as the shared source for style and geometry values used when generating native Draw.io XML; do not duplicate theme-specific constants in CSS.
+- `DiagramDocument` remains a derived partial semantic projection. Use it for supported properties, layout, quality checks and Copilot operations only when the current authoritative XML can be patched safely.
+- Tests must validate native XML serialization, style contracts, safe XML patching, and layout behavior. Do not add parity tests against a removed SVG renderer.
 
 ## Internal Agent boundary
 
