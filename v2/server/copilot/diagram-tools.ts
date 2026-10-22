@@ -107,7 +107,7 @@ export function createDiagramAgentTools(deps:Dependencies): any[] {
       }
     }),
     createTrackedTool("apply_diagram_operation",{
-      description:"Apply one focused, explicit user-requested node, relation, layout, boundary or sequence-fragment operation directly. First inspect_active_diagram and supply its exact revision. The server rejects stale revisions, validates semantics and layout quality, and creates an immutable version before success. Do not use for analysis-only requests, hypotheticals, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use the proposal tools for those.",
+      description:"Apply one focused, explicit user-requested node, relation, layout, boundary or sequence-fragment operation directly. First inspect_active_diagram and supply its exact revision. The server rejects stale revisions, validates semantics, applies layout-quality gates when the operation uses semantic layout, and creates an immutable version before success. Do not use for analysis-only requests, hypotheticals, broad redesigns, ambiguous or bulk destructive changes, template replacement or restore; use the proposal tools for those.",
       parameters:{
         type:"object",
         properties:{
