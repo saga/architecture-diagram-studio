@@ -63,16 +63,16 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const parsed = new DOMParser().parseFromString(drawioXml, "application/xml");
         if (parsed.querySelector("parsererror")) throw new Error("The authoritative Draw.io XML could not be parsed; no edit was applied.");
         const normalized = text.trim();
-        const move = normalized.match(/(?:move|将|把)?\\s*[“"']?(.+?)[”"']?\\s*(向上移动|上移|向下移动|下移|向左移动|左移|向右移动|右移|move up|move down|move left|move right|up|down|left|right)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:px|pixels?|像素)?/i);
-        const rename = normalized.match(/(?:rename|change|set|把|将)?\\s*[“"']?(.+?)[”"']?\\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\\s*[“"']?(.+?)[”"']?$/i);
-        const recolor = normalized.match(/(?:change|set|make|把|将)?\\s*[“"']?(.+?)[”"']?\\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\\s*(?:to|为|改成|设置为)?\\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\\s*$/i);
+        const move = normalized.match(/(?:move|将|把)?\s*[“"']?(.+?)[”"']?\s*(向上移动|上移|向下移动|下移|向左移动|左移|向右移动|右移|move up|move down|move left|move right|up|down|left|right)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i);
+        const rename = normalized.match(/(?:rename|change|set|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\s*[“"']?(.+?)[”"']?$/i);
+        const recolor = normalized.match(/(?:change|set|make|把|将)?\s*[“"']?(.+?)[”"']?\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\s*(?:to|为|改成|设置为)?\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\s*$/i);
         const cells = Array.from(parsed.getElementsByTagName("mxCell"));
         const labelOf = (cell: Element) => {
           const owner = cell.parentElement;
           return (cell.getAttribute("value") || cell.getAttribute("label") || owner?.getAttribute("label") || owner?.getAttribute("value") || "")
             .replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
         };
-        const targetName = (move?.[1] || rename?.[1] || recolor?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\\s+/i, "").replace(/[。.!！]+$/, "");
+        const targetName = (move?.[1] || rename?.[1] || recolor?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
         if (move || rename || recolor) {
           const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && cell.getAttribute("edge") !== "1");
           if (matches.length !== 1) throw new Error(matches.length ? "The label “" + targetName + "” is ambiguous (" + matches.length + " matching cells). Select a specific element or use a unique label." : "Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
