@@ -829,8 +829,24 @@ export default function App() {
     recordDiagnostic("drawio.import.started", "Draw.io import started", { fileBytes: file.size, fileType: file.name.split(".").pop()?.toLowerCase() || "unknown" });
     try {
       const xml = await file.text();
+      const xmlDiagnostics = getDrawioXmlDiagnostics(xml);
+      if (xmlDiagnostics.issues.length) {
+        setLastAction(xmlDiagnostics.issues[0]);
+        recordDiagnostic("drawio.import.validation-failed", xmlDiagnostics.issues[0], {
+          fileName: file.name, issues: xmlDiagnostics.issues.slice(0, 10)
+        }, "error");
+        return;
+      }
+      if (xmlDiagnostics.warnings.length) {
+        const message = "Imported Draw.io with " + xmlDiagnostics.warnings.length + " compatibility warning(s): " + xmlDiagnostics.warnings.slice(0, 2).join(" ");
+        setLastAction(message);
+        recordDiagnostic("drawio.compatibility.warnings", message, {
+          fileName: file.name, pageCount: xmlDiagnostics.pageCount,
+          warningCount: xmlDiagnostics.warnings.length, warnings: xmlDiagnostics.warnings.slice(0, 20)
+        }, "warn");
+      }
       if (!isDrawioXmlDocument(xml)) {
-        setLastAction("The selected file is not valid Draw.io XML; the active document was not changed.");
+        setLastAction("The selected file is not a supported Draw.io diagram; the active document was not changed.");
         return;
       }
       const empty: DiagramDocument = { ...document, id: newId("imported"), title: file.name.replace(/\.(drawio|dio|xml)$/i, ""), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
