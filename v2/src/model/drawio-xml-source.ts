@@ -104,6 +104,12 @@ function parseRootSlice(xml: string): RootSlice | null {
   return { start: root.contentStart, end: root.closeStart, inner, cellMap, cells: parsedCells };
 }
 
+function stripThemeMetadata(raw: string): string {
+  return raw.replace(/(\\sstyle=(["']))([\\s\\S]*?)\\2/, (_match, prefix: string, _quote: string, style: string) =>
+    prefix + style.replace(/(?:^|;)studioTheme(?:Original|Applied|Override)[A-Za-z]+=[^;]*/g, "").replace(/^;+|;+$/g, "") + '"'
+  );
+}
+
 function styleOf(raw: string): string {
   return attribute(raw, "style") || "";
 }
@@ -156,7 +162,7 @@ export function canEditInStudio(sourceXml: string, projectionXml: string, docume
   if (source.cellMap.size !== projection.cellMap.size) return false;
   for (const [id, raw] of source.cellMap) {
     const projectedCell = projection.cellMap.get(id);
-    if (projectedCell !== raw && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
+    if (projectedCell !== raw && stripThemeMetadata(projectedCell) !== stripThemeMetadata(raw) && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
   }
 
   for (const node of document.nodes) {
