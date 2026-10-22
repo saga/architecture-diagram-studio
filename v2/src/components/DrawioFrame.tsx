@@ -14,7 +14,7 @@ interface Props {
   document: DiagramDocument;
   xml: string;
   onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
-  onSelectionChange: (cellId: string | null) => void;
+  onSelectionChange: (cellId: string | null, pageId: string | null) => void;
   cellEdit: CellPropertyEdit | null;
   theme: string;
 }
@@ -275,7 +275,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       editorUi?: { editor?: { graph?: {
         getSelectionModel?: () => { addListener?: (name: string, listener: () => void) => void; removeListener?: (listener: () => void) => void };
         getSelectionCells?: () => Array<{ id?: string; getId?: () => string }>;
-      } } };
+      } };
+      currentPage?: { id?: string; getId?: () => string };
     }) | null;
     const graph = editorWindow?.editorUi?.editor?.graph;
     const selectionModel = graph?.getSelectionModel?.();
@@ -286,7 +287,9 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     const onSelectionChanged = () => {
       const selected = graph.getSelectionCells?.() ?? [];
       const id = selected[0]?.getId?.() ?? selected[0]?.id ?? null;
-      onSelectionChangeRef.current(typeof id === "string" && id ? id : null);
+      const page = editorWindow?.editorUi?.currentPage;
+      const pageId = page?.getId?.() ?? page?.id ?? null;
+      onSelectionChangeRef.current(typeof id === "string" && id ? id : null, typeof pageId === "string" && pageId ? pageId : null);
     };
     selectionModel.addListener("change", onSelectionChanged);
     onSelectionChanged();
@@ -339,7 +342,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           if (cell && typeof cell === "object" && typeof (cell as Record<string, unknown>).id === "string") return (cell as Record<string, unknown>).id as string;
           return null;
         }).filter((id): id is string => Boolean(id));
-        onSelectionChangeRef.current(ids[0] || null);
+        onSelectionChangeRef.current(ids[0] || null, null);
       }
       if (data.event === "error") {
         const message = typeof data.message === "string" ? data.message.slice(0, 300) : "Draw.io returned an unspecified error.";
