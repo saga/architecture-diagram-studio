@@ -23,6 +23,13 @@ describe("native edit tool parameter schema", () => {
     expect(addNode?.additionalProperties).toBe(false);
   });
 
+  it("documents vertex-only semantics for move and resize", () => {
+    const move = branches.find((branch) => branch.properties.op.enum.includes("move"));
+    const resize = branches.find((branch) => branch.properties.op.enum.includes("resize"));
+    expect(move?.properties.target).toMatchObject({ description: expect.stringContaining("vertex") });
+    expect(resize?.properties.target).toMatchObject({ description: expect.stringContaining("vertex") });
+  });
+
   it("makes operation-specific fields mandatory for every edit type", () => {
     const requiredByOperation: Record<string, string[]> = {
       select: ["op", "target"],
