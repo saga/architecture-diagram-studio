@@ -187,10 +187,13 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
   }
 
   const xml = workspaceState.drawioXml;
-  if (typeof xml === "string" && validateDrawioXmlDocument(xml).success) {
-    workspaceState = { ...workspaceState, document: projectDocumentFromXml(xml) };
-    if (workspaceNeedsProjectionMigration) await persistWorkspaceState(workspaceState);
-    return workspaceState;
+  if (typeof xml === "string") {
+    const projection = projectDocumentFromXml(xml);
+    if (projectedSourceIsValid) {
+      workspaceState = { ...workspaceState, document: projection };
+      if (workspaceNeedsProjectionMigration) await persistWorkspaceState(workspaceState);
+      return workspaceState;
+    }
   }
 
   // One-time migration for a previous Studio-only workspace with no native file selected.
