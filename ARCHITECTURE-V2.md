@@ -1,7 +1,7 @@
 # Architecture Diagram Studio V2
 
 - **Status:** Current architecture as of 2026-10-22.
-- **Decision:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md).
+- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md).
 - **Reference implementation:** v2/.
 - **Legacy:** V1 is read-only reference material.
 
@@ -20,9 +20,24 @@ Responsibilities are deliberately small:
 
 The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, and add_node_after (insert a vertex to the right of a target and connect it). The model cannot submit raw replacement XML or arbitrary workspace writes.
 
+## Extension contracts without porting the old implementation
+
+V2 does not currently include the former `DiagramDocument` model, semantic fixtures/templates, custom layout/quality engine, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Their removal is an implementation decision, not a ban on future layout, geometry, style, or quality capabilities.
+
+`v2/src/model/native-diagram-capabilities.ts` defines the seam for such work:
+
+| Contract | Future use | Return type / rule |
+| --- | --- | --- |
+| `NativeDiagramCapabilityContext` | Exact XML revision, active page, selection and native cell index | Transient, read-only context; never persisted as a second model |
+| `NativeDiagramOperationProvider` | Layout, routing, style and structural edits | A revision-bound plan using `NativeEditOperation[]`; never raw replacement XML |
+| `NativeDiagramAnalysisProvider` | Geometry, contrast, routing and accessibility checks | Findings linked to native page/cell IDs; no mutation side effects |
+| `NativeDiagramCapabilityRegistry` | Explicit discovery of installed providers | Interface only; no generic registry or optional provider is currently installed |
+
+A future provider should reuse the shared XML parser/schema, target resolver, typed operation validation, plugin bridge, editor acknowledgement, and XML revision/version path. Adding a new native operation requires synchronized updates to the operation union/schema, server validation, bridge execution and tests. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
+
 ## Explicit non-goals
 
-V2 has no DiagramDocument, semantic fixtures/templates, custom graph layout or quality-scoring pipeline, semantic proposal engine, semantic XML importer/exporter, or secondary canvas. If a future requirement needs a specific capability, it must operate directly on native mxGraph cells with a concrete use case and narrow validation. It must not reintroduce a parallel graph model.
+V2 does not restore the old semantic graph model or directly port the old SVG/React Flow renderer, layout engines, or quality pipeline. New capability work requires a concrete use case and must operate against native mxCells through the extension contracts, without introducing a parallel persisted model or replacing the complete XML.
 
 ## Code map
 
@@ -32,6 +47,7 @@ V2 has no DiagramDocument, semantic fixtures/templates, custom graph layout or q
 | src/components/NativeSelectionInspector.tsx | Read/edit selected native-cell properties |
 | src/model/drawio-xml-schema.ts | Draw.io XML and encoded-page validation |
 | src/model/native-edit-operations.ts | Typed native operations and active-page cell index |
+| src/model/native-diagram-capabilities.ts | Extension contracts for future native operation planners and read-only analyzers |
 | src/model/drawio-theme.ts | Editor background/theme adapter |
 | src/hooks/useWorkspaceBootstrap.ts | Loads XML without conversion |
 | src/hooks/useWorkspacePersistence.ts | Persists exact XML and chat state |
@@ -39,6 +55,8 @@ V2 has no DiagramDocument, semantic fixtures/templates, custom graph layout or q
 | server/copilot/intent-route.ts | Copilot SDK tool registration and native operations |
 | server/copilot-server.ts | Workspace, XML revisions and version persistence |
 | plugins/studio-selection-plugin.js | Native Draw.io graph operations |
+
+
 
 ## Validation
 
