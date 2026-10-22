@@ -96,7 +96,7 @@ test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并
   const stateResponse = await request.get("/api/workspace/state");
   expect(stateResponse.ok()).toBe(true);
   const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
-  // Add a native-only attribute to make the semantic projection intentionally incomplete.
+  // Add an opaque native-only attribute to verify unrelated XML survives an add-and-connect edit.
   const nativeXml = state.drawioXml.replace('<mxCell id="1"', '<mxCell id="1" nativeCustom="preserve-me"');
   expect(nativeXml).not.toBe(state.drawioXml);
   const savedNativeXml = await request.put("/api/workspace/document", {
