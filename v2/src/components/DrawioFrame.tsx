@@ -165,7 +165,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
   useEffect(() => {
     if (!cellEdit || !editorReady) return;
-    const editorWindow = iframeRef.current?.contentWindow as (Window & { editorUi?: { editor?: { graph?: any } } }) | null;
+    const editorWindow = iframeRef.current?.contentWindow as (Window & { editorUi?: { editor?: { graph?: any }; currentPage?: { id?: string; getId?: () => string } } }) | null;
     const graph = editorWindow?.editorUi?.editor?.graph;
     const model = graph?.getModel?.();
     const currentPage = editorWindow?.editorUi?.currentPage;
