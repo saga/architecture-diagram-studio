@@ -283,6 +283,38 @@
           points[index][axis] = numeric;
           geometry.points = points;
           activeModel.setGeometry(cell, geometry);
+        } else if (path === "cell:add-node-after") {
+          if (!cell.vertex || !cell.geometry || cell.id === "0" || cell.id === "1") {
+            throw new Error("The target must be a diagram vertex with geometry");
+          }
+          var addRequest;
+          try { addRequest = JSON.parse(value); } catch (_) { throw new Error("New-node payload is not valid JSON"); }
+          if (!addRequest || typeof addRequest.label !== "string" || !addRequest.label.trim() || addRequest.label.length > 500) {
+            throw new Error("The new node needs a non-empty label of at most 500 characters");
+          }
+          var nodeParent = cell.parent || activeModel.getCell("1");
+          if (!nodeParent) throw new Error("The target has no valid Draw.io layer");
+          var nodeGeometry = cell.geometry;
+          var newX = Number(nodeGeometry.x) + Number(nodeGeometry.width) + 64;
+          var newY = Number(nodeGeometry.y);
+          var newWidth = Math.max(120, Math.min(220, addRequest.label.trim().length * 10 + 36));
+          var newHeight = 60;
+          var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight,
+            "rounded=0;whiteSpace=wrap;html=1;");
+          if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
+          var insertedEdge = null;
+          try {
+            insertedEdge = activeGraph.insertEdge(nodeParent, null, "", cell, insertedNode,
+              "edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;");
+            if (!insertedEdge) throw new Error("Draw.io did not create the connecting edge");
+          } catch (edgeError) {
+            try { activeModel.remove(insertedNode); } catch (_) {}
+            throw edgeError;
+          }
+          if (activeBatchCreatedCells) {
+            activeBatchCreatedCells.push(insertedNode);
+            activeBatchCreatedCells.push(insertedEdge);
+          }
         } else if (path === "cell:delete") {
           if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be deleted");
           if (typeof activeGraph.removeCells === "function") activeGraph.removeCells([cell], true);
