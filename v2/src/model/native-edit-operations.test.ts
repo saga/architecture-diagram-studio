@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeNativeEditOperation,
+  extractNativeEditTargets,
   MAX_NATIVE_EDIT_OPERATIONS,
   normalizeNativeColor,
   parseNativeEditOperations,
@@ -14,6 +15,25 @@ const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
     <mxGeometry x="120" y="80" width="160" height="60" as="geometry"/>
   </mxCell>
 </root></mxGraphModel></diagram></mxfile>`;
+
+describe("extractNativeEditTargets", () => {
+  it("reads real vertex and edge ids from native XML without a DiagramDocument", () => {
+    const xml = XML.replace(
+      '</root>',
+      '<mxCell id="api" value="API &amp; Service" style="shape=custom.shape;customFlag=preserve;" vertex="1" parent="1"><mxGeometry x="350" y="80" width="160" height="60" as="geometry"/></mxCell>' +
+      '<mxCell id="db-to-api" value="calls" edge="1" parent="1" source="db" target="api"><mxGeometry relative="1" as="geometry"/></mxCell></root>'
+    );
+    expect(extractNativeEditTargets(xml)).toEqual([
+      { id: "db", name: "Database", cellType: "vertex" },
+      { id: "api", name: "API & Service", cellType: "vertex" },
+      { id: "db-to-api", name: "calls", cellType: "edge" }
+    ]);
+  });
+
+  it("does not expose root/layer cells as editable targets", () => {
+    expect(extractNativeEditTargets(XML).map((target) => target.id)).toEqual(["db"]);
+  });
+});
 
 describe("normalizeNativeColor", () => {
   it("expands short hex and lowercases long hex", () => {
