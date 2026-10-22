@@ -45,6 +45,8 @@ export interface NativeBatchStepResult {
 export interface NativeEditExecution {
   ok: boolean;
   error?: string;
+  /** Distinguishes a native editor rejection from a successful edit whose required save failed. */
+  failureStage?: "editor" | "persistence";
   rolledBack: boolean;
   steps: NativeBatchStepResult[];
 }
