@@ -380,6 +380,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         });
         const response = {
           // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
+          outcome: "command_ready" as const,
           commands: [], reply: nativeEdits.summary, selection,
           nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
           ...shared
