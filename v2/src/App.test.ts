@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createC4Fixture, createFlowFixture, createSequenceFixture } from "./model/fixtures";
 import { interpretIntent } from "./intent/applyIntent";
 import { mxEdgeStyle, relationPaint } from "./design/styles";
-import { parseAIIntentPlan } from "./intent/aiProvider";
+import { parseAIIntentResponse } from "./intent/aiProvider";
 import { isDiagramDocument } from "./model/types";
 import { layoutDiagram } from "./layout/layout";
 
@@ -117,59 +117,45 @@ describe("V2 semantic fixtures and intents", () => {
     expect(mxEdgeStyle({ ...edge, dashed: false }, "polyline")).not.toContain("dashed=1");
   });
 
-  it("bounds model output to a small JSON intent plan", () => {
-    const plan = parseAIIntentPlan(JSON.stringify({
-      commands: ["所有关系线改成虚线", "把所有 external 放到右侧", "所有关系线改成实线", "把曲线改成折线", "把数据库和存储放到底部", "重新自动排版"],
-      reply: "按布局指令执行"
+  it("accepts typed native Draw.io operations with a resolved cell id", () => {
+    const response = parseAIIntentResponse(JSON.stringify({
+      reply: "Add bbb after Database",
+      nativeEdits: {
+        operations: [
+          { op: "add_node_after", target: "Database", cellId: "db", label: "Database", newLabel: "bbb" }
+        ],
+        summary: "Add bbb after Database",
+        requiresClientExecution: true
+      },
+      model: "stub-model"
     }));
-    expect(plan.commands).toHaveLength(6);
-    expect(plan.reply).toBe("按布局指令执行");
+    expect(response.nativeEdits?.operations).toEqual([
+      { op: "add_node_after", target: "Database", cellId: "db", label: "Database", newLabel: "bbb" }
+    ]);
+    expect(response.reply).toBe("Add bbb after Database");
+    expect(response.sessionId).toBeUndefined();
   });
 
-  it("parses a server-validated direct operation receipt separately from a preview", () => {
-    const document = createC4Fixture();
-    const plan = parseAIIntentPlan(JSON.stringify({
-      commands: [],
-      reply: "Added the requested relationship",
-      application: {
-        applied: true,
-        versionId: "v-direct-1",
-        baseRevision: "a".repeat(64),
-        workspaceRevision: "b".repeat(64),
-        document,
-        summary: "Added relation Portal → API",
-        quality: { score: 92, errors: [], warnings: [], metrics: {} }
+  it("rejects a native edit batch without a server-resolved cell id", () => {
+    expect(() => parseAIIntentResponse(JSON.stringify({
+      reply: "Rename Database",
+      nativeEdits: {
+        operations: [{ op: "set_label", target: "Database", label: "Store" }],
+        summary: "Rename Database",
+        requiresClientExecution: true
       }
-    }));
-    expect(plan.application?.applied).toBe(true);
-    expect(plan.application?.versionId).toBe("v-direct-1");
-    expect(plan.application?.workspaceRevision).toBe("b".repeat(64));
-    expect(plan.application?.document).toEqual(document);
-    expect(plan.proposal).toBeUndefined();
+    }))).toThrow("resolved cell id");
   });
 
-  it("rejects an incomplete direct operation receipt", () => {
-    const document = createC4Fixture();
-    const plan = parseAIIntentPlan(JSON.stringify({
-      commands: [],
-      reply: "Done",
-      application: {
-        applied: true, versionId: "v-direct-2", baseRevision: "a".repeat(64),
-        document, summary: "Updated node", quality: { score: 90, errors: [], warnings: [], metrics: {} }
+  it("rejects invalid response JSON and unsupported native operations", () => {
+    expect(() => parseAIIntentResponse("Change the diagram")).toThrow("valid native-edit response");
+    expect(() => parseAIIntentResponse(JSON.stringify({
+      nativeEdits: {
+        operations: [{ op: "regenerate_document", target: "all" }],
+        summary: "No",
+        requiresClientExecution: true
       }
-    }));
-    expect(plan.application).toBeUndefined();
-  });
-
-  it("rejects unstructured model output instead of applying guesses", () => {
-    expect(() => parseAIIntentPlan("Change all lines and put vendor on right")).toThrow("valid JSON");
-  });
-
-  it("rejects any command outside the exact intent whitelist", () => {
-    expect(() => parseAIIntentPlan(JSON.stringify({
-      commands: ["所有关系线改成虚线", "删除所有节点"],
-      reply: "完成"
-    }))).toThrow("whitelist");
+    }))).toThrow("invalid native edit batch");
   });
 
   it("validates local documents before restoring them", () => {
