@@ -394,7 +394,12 @@ export default function App() {
           });
           const byId = new Map<string, DiagnosticEntry>();
           for (const entry of [...serverEntries, ...readDiagnosticEntries()]) byId.set(entry.id, entry);
-          setTraceEntries([...byId.values()].slice(-1200));
+          const chronological = [...byId.values()].sort((left, right) => {
+            const leftTime = Date.parse(left.timestamp);
+            const rightTime = Date.parse(right.timestamp);
+            return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+          });
+          setTraceEntries(chronological.slice(-1200));
         })
         .catch(() => setTraceEntries(readDiagnosticEntries()));
     };
