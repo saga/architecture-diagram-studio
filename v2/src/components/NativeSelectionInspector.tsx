@@ -94,7 +94,7 @@ export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }
   if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> is not present in the current XML projection. Its native XML remains unchanged.</div>;
 
   const { wrapper, cell, geometry, label, style, points, nestedGeometry } = properties;
-  const wrapperAttrs = attributes(wrapper).filter(([name]) => name !== "id" && name !== "label");
+  const wrapperAttrs = attributes(wrapper).filter(([name]) => name !== "id" && name !== "label" && !(name === "value" && !wrapper?.hasAttribute("label")));
   const cellAttrs = attributes(cell).filter(([name]) => !["id", "value", "style", "parent", "source", "target"].includes(name));
   const geometryAttrs = attributes(geometry).filter(([name]) => name !== "as");
   const tokens = styleTokens(style);
