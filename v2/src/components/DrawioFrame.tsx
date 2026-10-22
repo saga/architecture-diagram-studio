@@ -3,7 +3,7 @@ import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
-import { applyDrawioThemeBackgroundReversible, applyDrawioThemeStyles, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
+import { applyDrawioThemeBackgroundReversible, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -113,8 +113,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     }
     if (style) style.textContent = drawioFrameThemeCss(palette);
 
-    const styledXml = applyDrawioThemeStyles(xml, theme as "editorial" | "youth" | "warm" | "midnight", palette);
-    const themedXml = applyDrawioThemeBackgroundReversible(styledXml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
+    const themedXml = applyDrawioThemeBackgroundReversible(xml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
 
     // Use Draw.io's own graph view API as the visual adapter. This also covers
     // compressed <diagram> payloads where no mxGraphModel tag is visible in XML.
@@ -198,6 +197,21 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           }).filter(Boolean);
           if (!found && value !== "") next.push(key + "=" + value);
           model.setStyle(cell, next.join(";") + (next.length ? ";" : ""));
+        } else if (path.startsWith("point:") && cell.geometry) {
+          const [, indexText, axis] = path.split(":");
+          const index = Number(indexText);
+          const numeric = Number(value);
+          const geometry = cell.geometry.clone();
+          if (!Number.isInteger(index) || index < 0 || !Number.isFinite(numeric) || (axis !== "x" && axis !== "y")) {
+            throw new Error("Connector control point coordinates must be numeric");
+          }
+          const points = (geometry.points || []).map((point: { clone?: () => unknown }) =>
+            typeof point.clone === "function" ? point.clone() : { ...point }
+          ) as Array<Record<string, unknown>>;
+          if (!points[index]) throw new Error("Connector control point no longer exists");
+          points[index][axis] = numeric;
+          geometry.points = points as never;
+          model.setGeometry(cell, geometry);
         } else if (path.startsWith("geometry:") && cell.geometry) {
           const key = path.slice("geometry:".length);
           const geometry = cell.geometry.clone();
@@ -237,6 +251,32 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       }, "error");
     }
   }, [cellEdit, editorReady]);
+
+
+  useEffect(() => {
+    if (!editorReady) return;
+    const editorWindow = iframeRef.current?.contentWindow as (Window & {
+      editorUi?: { editor?: { graph?: {
+        getSelectionModel?: () => { addListener?: (name: string, listener: () => void) => void; removeListener?: (listener: () => void) => void };
+        getSelectionCells?: () => Array<{ id?: string; getId?: () => string }>;
+      } } };
+    }) | null;
+    const graph = editorWindow?.editorUi?.editor?.graph;
+    const selectionModel = graph?.getSelectionModel?.();
+    if (!graph || !selectionModel?.addListener) {
+      recordDiagnostic("drawio.selection.listener.unavailable", "The native Draw.io selection model was not available after initialization", { frameKey }, "warn");
+      return;
+    }
+    const onSelectionChanged = () => {
+      const selected = graph.getSelectionCells?.() ?? [];
+      const id = selected[0]?.getId?.() ?? selected[0]?.id ?? null;
+      onSelectionChangeRef.current(typeof id === "string" && id ? id : null);
+    };
+    selectionModel.addListener("change", onSelectionChanged);
+    onSelectionChanged();
+    recordDiagnostic("drawio.selection.listener.ready", "Attached to the native Draw.io selection model", { frameKey });
+    return () => selectionModel.removeListener?.(onSelectionChanged);
+  }, [editorReady, frameKey]);
 
   useLayoutEffect(() => {
     // Install the message listener in the commit phase before the iframe can finish loading
