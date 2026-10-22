@@ -38,8 +38,8 @@ describe("server persistence primitives", () => {
     expect(isWorkspaceSaveContextCompatible(false, false, false, null)).toBe(true);
   });
   it("tracks workspace revisions from the authoritative XML only", () => {
-    expect(workspaceRevision({ id: "a" }, "<xml/>")).not.toBe(workspaceRevision({ id: "a" }, "<changed/>"));
-    expect(workspaceRevision({ id: "a" }, "<xml/>")).toBe(workspaceRevision({ id: "b" }, "<xml/>"));
+    expect(workspaceRevision("<xml/>")).not.toBe(workspaceRevision("<changed/>"));
+    expect(workspaceRevision("<xml/>")).toBe(workspaceRevision("<xml/>"));
   });
   it("keeps the write queue usable after a failed write", async () => {
     const write = createSerializedWriteQueue(), order: number[] = [];
