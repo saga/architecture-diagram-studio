@@ -330,10 +330,35 @@ export class CopilotRuntime {
   /** Sends one prompt; if the CLI died under it, rebuilds the session once and replays the same prompt. */
   private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number): Promise<{ session: RuntimeSession; message: SessionEvent | undefined }> {
     try {
-      const message = await session.session.sendAndWait(body as SendBody, timeoutMs);
+      const pending = session.session.sendAndWait(body as SendBody, timeoutMs);
+      let watchdog: NodeJS.Timeout | undefined;
+      let message: SessionEvent | undefined;
+      try {
+        // Keep an application-level watchdog because SDK sendAndWait timeouts are not
+        // sufficient protection against a stuck external-tool dispatch / tool loop.
+        message = timeoutMs > 0
+          ? await Promise.race([
+              pending,
+              new Promise<never>((_, reject) => {
+                watchdog = setTimeout(
+                  () => reject(new Error(`Copilot turn watchdog timed out after ${timeoutMs}ms`)),
+                  timeoutMs
+                );
+              })
+            ])
+          : await pending;
+      } finally {
+        if (watchdog) clearTimeout(watchdog);
+      }
       return { session, message };
     } catch (error) {
       const message = messageOf(error);
+      if (/Copilot turn watchdog timed out/i.test(message)) {
+        // Stop the SDK session explicitly; do not leave a background turn running after
+        // the HTTP request has already failed.
+        try { await session.session.abort(); } catch { /* preserve the watchdog failure */ }
+        throw error;
+      }
       if (!isRecoverable(message)) throw error;
       await this.options.log("turn.recovering", { conversationId: session.conversationId, error: message });
       const fresh = await this.reopenSession(session);
