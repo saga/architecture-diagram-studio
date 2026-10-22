@@ -72,6 +72,7 @@ function styleTokens(style: string): Array<[string, string]> {
   for (const part of style.split(";")) {
     const index = part.indexOf("=");
     if (index > 0) tokens.push([part.slice(0, index).trim(), part.slice(index + 1).trim()]);
+    else if (part.trim()) tokens.push([part.trim(), "1"]);
   }
   return tokens;
 }
