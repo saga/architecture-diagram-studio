@@ -1,5 +1,7 @@
 # Copilot「选中元素 + 改背景色」只返回“已选中”的分析报告
 
+> **历史分析，已被当前 V2 原生编辑链路取代。** 本文基于旧提交，关于前端正则、缺少填色工具和 selection 优先返回的结论不代表当前实现。当前入口使用服务端 Copilot SDK、类型化 `propose_native_edits`、active-page cell ID/label 校验，以及 Draw.io 原生编辑器回执。当前行为以 `v2/server/copilot/intent-route.ts`、`v2/src/model/native-edit-operations.ts` 和最新 CI 为准。
+
 分析对象：`main @ 63cdeea`（Analyze at 2026-10-22）
 涉及模块：`v2/server/copilot/*`、`v2/src/hooks/useCopilotIntent.ts`、`v2/plugins/studio-selection-plugin.js`
 
