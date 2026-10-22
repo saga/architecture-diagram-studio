@@ -375,7 +375,19 @@ export class CopilotRuntime {
       streaming: true,
       availableTools: new ToolSet().addCustom("*"),
       tools: prepared.tools,
-      systemMessage: { content: prepared.systemMessage }
+      systemMessage: { content: prepared.systemMessage },
+      // Without this callback the SDK emits a permission request and leaves it pending,
+      // which can make sendAndWait hang forever. This runtime uses mode:"empty" and
+      // exposes only Studio-owned custom tools, so approve each tool invocation once;
+      // no ambient shell/filesystem tools are enabled by this session configuration.
+      onPermissionRequest: async (request) => {
+        await this.options.log("permission.request", {
+          conversationId: request && typeof request === "object" ? "session-pending" : "unknown",
+          kind: request.kind,
+          decision: "approve-once"
+        });
+        return { kind: "approve-once" };
+      }
     };
 
     // The runtime rejects session ids containing dots, so the studio conversation id is sanitized and the
