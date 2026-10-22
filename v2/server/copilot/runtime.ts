@@ -328,7 +328,7 @@ export class CopilotRuntime {
   }
 
   /** Sends one prompt; if the CLI died under it, rebuilds the session once and replays the same prompt. */
-  private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number): Promise<{ session: RuntimeSession; message: SessionEvent | undefined }> {
+  private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number, recovered = false): Promise<{ session: RuntimeSession; message: SessionEvent | undefined }> {
     try {
       const pending = session.session.sendAndWait(body as SendBody, timeoutMs > 0 ? timeoutMs + 1_000 : timeoutMs);
       let watchdog: NodeJS.Timeout | undefined;
@@ -359,11 +359,12 @@ export class CopilotRuntime {
         await this.abortAfterWatchdog(session.session);
         throw error;
       }
-      if (!isRecoverable(message)) throw error;
+      if (!isRecoverable(message) || recovered) throw error;
       await this.options.log("turn.recovering", { conversationId: session.conversationId, error: message });
       const fresh = await this.reopenSession(session);
-      const retried = await fresh.session.sendAndWait(body as SendBody, timeoutMs);
-      return { session: fresh, message: retried };
+      // Reuse the same watchdog/abort path on the single permitted retry. A second
+      // transport failure is surfaced rather than recursively recreating sessions.
+      return this.sendWithRecovery(fresh, body, timeoutMs, true);
     }
   }
 
