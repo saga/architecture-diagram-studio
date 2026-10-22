@@ -13,6 +13,8 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
   const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
+  const versionsBefore = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
+  const versionCountBefore = versionsBefore.versions.length;
 
   await page.evaluate(() => {
     const state = window as Window & { __studioSelection?: string[] };
@@ -79,12 +81,12 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
     return Boolean(cell && /fillColor=#ff0000/.test(cell[0]));
   }, { timeout: 20_000 }).toBe(true);
 
-  // The edit is traceable: the browser keeps the pre-edit XML snapshot for recovery.
-  expect(await page.evaluate(() => {
-    const key = "architecture-diagram-studio:v2:standalone-history:standalone";
-    const entries = JSON.parse(window.localStorage.getItem(key) || "[]") as Array<{ label?: string }>;
-    return entries.some((entry) => (entry.label || "").includes("native edit"));
-  })).toBe(true);
+  // Workspace edits are versioned on the server; local snapshots are only for standalone files.
+  await expect.poll(async () => {
+    const result = await request.get("/api/workspace/versions");
+    const payload = await result.json() as { versions: unknown[] };
+    return payload.versions.length;
+  }, { timeout: 20_000 }).toBeGreaterThan(versionCountBefore);
 
   // The selection step reached the canvas as UI state, not as a document mutation.
   await expect.poll(() => page.evaluate((id) => (window as Window & { __studioSelection?: string[] }).__studioSelection?.includes(id) ?? false, cellId), { timeout: 20_000 }).toBe(true);
