@@ -510,14 +510,6 @@ export default function App() {
     setRevision((value) => value + 1);
   }, [document, drawioXml, semanticEditingSafe]);
 
-  // The color theme is a workspace/UI preference, not a property of an individual diagram.
-  // In particular, never synchronize it back from an imported document: doing so made every
-  // theme selection immediately revert to the document's previous renderTheme.
-  useEffect(() => {
-    if (!serverHydrated || document.renderTheme) return;
-    replaceDocument({ ...document, renderTheme: uiTheme });
-  }, [serverHydrated, document, uiTheme, replaceDocument]);
-
   /**
    * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
    * a fixture before it was laid out, and every later reload restored the stack of nodes on one spot.
@@ -1129,9 +1121,7 @@ export default function App() {
           <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as UiTheme;
             setUiTheme(nextTheme);
-            // Update the semantic render theme when the native XML can be round-tripped safely.
-            // The UI preference is still allowed for native documents with custom cells.
-            if (semanticEditingSafe) replaceDocument({ ...document, renderTheme: nextTheme });
+            // Theme selection is presentation-only: do not rewrite native cell styles or semantic data.
           }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
