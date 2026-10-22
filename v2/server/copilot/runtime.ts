@@ -255,6 +255,16 @@ export class CopilotRuntime {
     try { await client.forceStop(); } catch { /* the runtime is already gone */ }
   }
 
+  /**
+   * Schedules diagnostics without allowing either asynchronous or synchronous logger failures to
+   * escape into SDK callbacks. Permission and MCP-auth callbacks must settle independently of I/O.
+   */
+  private logDetached(event: string, fields?: Record<string, unknown>): void {
+    void Promise.resolve()
+      .then(() => this.options.log(event, fields))
+      .catch(() => undefined);
+  }
+
   /** Drops a session the runtime itself reported as deleted, so the next turn resumes from disk. */
   private watchLifecycle(client: CopilotClient): void {
     try {
@@ -573,19 +583,19 @@ export class CopilotRuntime {
       onPermissionRequest: async (request) => {
         // Permission callbacks must never depend on log storage completing. A slow disk/log
         // sink here blocks the SDK's permission handshake and can stall sendAndWait.
-        void Promise.resolve(this.options.log("permission.request", {
+        this.logDetached("permission.request", {
           kind: request.kind,
           decision: "approve-once"
-        })).catch(() => undefined);
+        });
         return { kind: "approve-once" };
       },
       // This application has no OAuth UI/token broker. Cancel explicitly so an MCP
       // authentication request cannot remain pending indefinitely inside the SDK.
       onMcpAuthRequest: async (request) => {
-        void Promise.resolve(this.options.log("mcp.auth.cancelled", {
+        this.logDetached("mcp.auth.cancelled", {
           serverName: request.serverName,
           reason: request.reason
-        })).catch(() => undefined);
+        });
         return { kind: "cancelled" };
       }
     };
