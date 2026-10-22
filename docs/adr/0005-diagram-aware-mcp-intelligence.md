@@ -1,8 +1,10 @@
 # ADR 0005: Internal Copilot Diagram Intelligence and Governed Edits
 
-- Status: Accepted
+- Status: Superseded by [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md)
 - Date: 2026-10-21
 - Scope: Internal diagram analysis, workspace example retrieval, edit proposals, templates, semantic diffs and version recovery
+
+> Historical decision. Where this ADR describes DiagramDocument, semantic layout/quality, templates, semantic proposals, XML projection, or semantic completeness gates as current capabilities, ADR-0011 takes precedence. Retained material explains the prior design only.
 
 ## Context
 
