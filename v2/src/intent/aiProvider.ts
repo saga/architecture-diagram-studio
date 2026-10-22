@@ -16,6 +16,7 @@ export interface AIIntentContext {
   kind: string;
   title: string;
   selectedCell?: { cellId: string; pageId: string | null; label: string } | null;
+  activePageId?: string | null;
   /** Native Draw.io cells from the active page, not a semantic projection. */
   nodes: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
 }
