@@ -12,9 +12,9 @@ export function parseDrawioXml(xml: string, options: DrawioXmlParseOptions = {})
   if (options.rejectDtd !== false) {
     const withoutSafeRegions = xml
       .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/<!\\[CDATA\\[[\s\S]*?\\]\\]>/g, "")
+      .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
       .replace(/<\?[\s\S]*?\?>/g, "");
-    if (/<!\s*(?:DOCTYPE|ENTITY)\\b/i.test(withoutSafeRegions)) {
+    if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(withoutSafeRegions)) {
       throw new Error("DTD and custom entity declarations are not supported.");
     }
   }
