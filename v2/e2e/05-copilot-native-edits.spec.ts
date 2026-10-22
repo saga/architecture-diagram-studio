@@ -47,7 +47,7 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
         reply: "Selecting Database and changing its background to red.",
         nativeEdits: {
           operations: [
-            { op: "select", target: "Database", cellId, label: "Database" },
+            { op: "select", target: "Database", cellId, targetLabel: "Database" },
             { op: "set_style", target: "Database", cellId, label: "Database", key: "fillColor", color: "#ff0000" }
           ],
           summary: "Select “Database”; Set fillColor of “Database” to #ff0000",
@@ -138,7 +138,7 @@ test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并
         reply: "Added bbb after Database and connected it.",
         nativeEdits: {
           operations: [
-            { op: "add_node_after", target: "Database", cellId: observedCellId, label: "Database", newLabel: "bbb" }
+            { op: "add_node_after", target: "Database", cellId: observedCellId, targetLabel: "Database", newLabel: "bbb" }
           ],
           summary: "Add “bbb” after “Database” and connect it",
           requiresClientExecution: true
