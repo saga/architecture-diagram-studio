@@ -1,5 +1,6 @@
 import { expect, test } from "./support/test";
 import { decodeDrawioPageXml } from "../src/model/drawio-xml-schema";
+import { parseDrawioXml } from "../src/model/drawio-xml-dom";
 import type { WorkspaceFixture } from "./support/fixtures";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
@@ -12,25 +13,47 @@ test.beforeEach(async ({ page, request }) => {
   await expect(nativeFrame(page).getByText("API Service", { exact: true })).toBeVisible();
 });
 
-/** Reads the x coordinate of the first cell whose id contains the given fragment. */
+/** Reads geometry from native mxCells, handling both compressed and uncompressed Draw.io pages. */
 function cellX(xml: string, fragment: string): number | null {
-  let source = xml;
-  if (!source.includes("<mxCell")) {
-    const pages = Array.from(source.matchAll(/<diagram\b[^>]*>([\s\S]*?)<\/diagram>/g));
-    for (const page of pages) {
-      try {
-        const decoded = decodeDrawioPageXml(page[1].trim());
-        if (decoded.includes("<mxCell")) { source = decoded; break; }
-      } catch { /* Ignore malformed pages and continue checking other pages. */ }
+  try {
+    const source = parseDrawioXml(xml);
+    const documentRoot = source.documentElement;
+    const models: Element[] = [];
+    if (documentRoot.nodeName === "mxGraphModel") {
+      models.push(documentRoot as unknown as Element);
+    } else if (documentRoot.nodeName === "mxfile") {
+      for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
+        const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
+        if (inlineModel) {
+          models.push(inlineModel);
+          continue;
+        }
+        const payload = (page.textContent || "").trim();
+        if (!payload) continue;
+        try {
+          const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
+          if (decoded.documentElement.nodeName === "mxGraphModel") {
+            models.push(decoded.documentElement as unknown as Element);
+          }
+        } catch { /* Ignore unsupported pages and keep checking other pages. */ }
+      }
     }
+    const needle = fragment.toLocaleLowerCase();
+    for (const model of models) {
+      for (const cell of Array.from(model.getElementsByTagName("mxCell"))) {
+        const id = cell.getAttribute("id") || "";
+        const label = cell.getAttribute("value") || "";
+        if (!id.toLocaleLowerCase().includes(needle) && !label.toLocaleLowerCase().includes(needle)) continue;
+        const geometry = cell.getElementsByTagName("mxGeometry").item(0);
+        if (!geometry) continue;
+        const x = Number(geometry.getAttribute("x"));
+        if (Number.isFinite(x)) return x;
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
-  const escaped = fragment.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
-  const cells = Array.from(source.matchAll(/<mxCell\b([^>]*)>([\s\S]*?)<\/mxCell>/g));
-  const cell = cells.find((match) => new RegExp("\\bid=\"[^\"]*" + escaped + "[^\"]*").test(match[1]));
-  if (!cell) return null;
-  const geometry = /<mxGeometry\b([^>]*)\/?\s*>/.exec(cell[2]);
-  const x = geometry && /\bx="([-.\d]+)"/.exec(geometry[1]);
-  return x ? Number(x[1]) : null;
 }
 
 test.describe("原生画布", () => {
