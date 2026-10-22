@@ -106,9 +106,24 @@ test.describe("原生画布", () => {
     // Editing through the inspector has to reach the same file the canvas autosaves into.
     const before = cellX(await readWorkspaceXml(workspace), "database");
     expect(before).not.toBeNull();
+    await page.evaluate(() => {
+      const target = window as Window & { __studioPropertyResults?: Array<Record<string, unknown>> };
+      target.__studioPropertyResults = [];
+      window.addEventListener("message", (event) => {
+        try {
+          const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+          if (data?.event === "studioPropertyEditResult") target.__studioPropertyResults?.push(data);
+        } catch { /* Ignore unrelated Draw.io protocol messages. */ }
+      });
+    });
     const xField = inspector.locator('.native-inspector-group').filter({ hasText: "Geometry" }).locator('label.native-property-field:has(span:text-is("x")) input');
     await xField.fill(String(before! + 40));
     await xField.press("Tab");
+    const propertyResult = await page.waitForFunction(() => {
+      const target = window as Window & { __studioPropertyResults?: Array<Record<string, unknown>> };
+      return target.__studioPropertyResults?.at(-1) ?? false;
+    }, { timeout: 5_000 }).then((handle) => handle.jsonValue()) as { success?: boolean; error?: string } | false;
+    expect(propertyResult && propertyResult.success, propertyResult && propertyResult.error ? propertyResult.error : "No native property edit result was received").toBe(true);
     try {
       await expect
         .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
