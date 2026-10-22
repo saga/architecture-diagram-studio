@@ -10,3 +10,4 @@
 | [0006](./0006-drawio-xml-single-source-of-truth.md) | Draw.io XML as the Single Source of Truth | Accepted |
 | [0007](./0007-unified-theme-adapter-for-native-drawio.md) | Unified Theme Adapter for Native Draw.io | Accepted |
 | [0008](./0008-native-drawio-is-the-only-diagram-canvas.md) | Native Draw.io as the Only Diagram Canvas | Accepted |
+| [0009](./0009-centralized-drawio-xml-processing.md) | Centralized Draw.io XML Processing | Accepted |
