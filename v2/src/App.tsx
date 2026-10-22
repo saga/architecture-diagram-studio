@@ -91,7 +91,7 @@ function newId(prefix: string): string { return prefix + "-" + Math.random().toS
 const EMPTY_DRAWIO_XML = '<mxfile host="localhost" agent="Architecture Diagram Studio V2"><diagram id="page-1" name="Page-1"><mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
 
 export default function App() {
-  // The server-derived XML projection is authoritative; browser storage keeps preferences only.
+  // The active diagram is native Draw.io XML; browser storage keeps only user preferences.
   useEffect(() => {
     // Clean up the previous application's persisted semantic cache after switching to XML-only storage.
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:document"); } catch { /* Storage may be disabled. */ }
@@ -163,7 +163,7 @@ export default function App() {
   const [standaloneFileName, setStandaloneFileName] = useState<string | null>(null);
   const standaloneLastSavedXmlRef = useRef<string | null>(null);
 
-  // The native XML is authoritative. The semantic XML is only a disposable projection.
+  // The complete native Draw.io XML is the only active diagram source.
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
@@ -212,7 +212,7 @@ export default function App() {
   const { persistDocumentNow } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
 
   // The native Draw.io editor is the only canvas. Unsupported native XML disables
-  // semantic edits, while preserving full native editing and the original XML.
+  // native cell edits while preserving the complete source XML.
 
   useEffect(() => {
     let active = true;
@@ -930,7 +930,7 @@ export default function App() {
           <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as UiTheme;
             setUiTheme(nextTheme);
-            // Theme selection is presentation-only: do not rewrite native cell styles or semantic data.
+            // Theme selection changes the editor chrome only; native cell styles stay untouched.
           }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
