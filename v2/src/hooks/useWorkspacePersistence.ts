@@ -13,12 +13,16 @@ export function useWorkspacePersistence(options: Options) {
   const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastPersistedXmlRef = useRef<string | null>(null);
+  const lastPersistedVersionIdRef = useRef<string | null>(null);
   const persistDocumentNow = useCallback((xml: string, label = "Autosave"): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
       // The explicit Copilot save and the debounced autosave can observe the same editor event.
       // Avoid creating two version records for the same exact XML snapshot.
       if (lastPersistedXmlRef.current === xml && typeof serverRevisionRef.current === "string") {
-        return { saved: false, workspaceRevision: serverRevisionRef.current };
+        return {
+          saved: false, workspaceRevision: serverRevisionRef.current,
+          version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null
+        };
       }
       const baseRevision = serverRevisionRef.current;
       const response = await fetch("/api/workspace/document", {
@@ -36,6 +40,7 @@ export function useWorkspacePersistence(options: Options) {
       }
       if (!response.ok) throw new Error(payload.error || "HTTP " + response.status + " while saving the document");
       if (typeof payload.workspaceRevision === "string" || payload.workspaceRevision === null) serverRevisionRef.current = payload.workspaceRevision ?? null;
+      if (typeof payload.version?.id === "string") lastPersistedVersionIdRef.current = payload.version.id;
       if (payload.saved) {
         lastPersistedXmlRef.current = xml;
         onDiagnostic("workspace.version.persisted", "Document and Draw.io XML revision persisted to the server", {
