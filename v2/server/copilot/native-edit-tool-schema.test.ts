@@ -38,8 +38,8 @@ describe("native edit tool parameter schema", () => {
       expect(branch, "schema branch for " + op).toBeTruthy();
       expect(branch?.required).toEqual(required);
       expect(branch?.additionalProperties).toBe(false);
+    }
     const styleBranch = branches.find((candidate) => candidate.properties.op.enum.includes("set_style"));
     expect(styleBranch?.properties.key).toMatchObject({ enum: ["fillColor", "strokeColor", "fontColor"], default: "fillColor" });
-    }
   });
 });
