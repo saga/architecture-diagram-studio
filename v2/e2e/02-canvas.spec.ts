@@ -26,7 +26,7 @@ function cellX(xml: string, fragment: string): number | null {
   }
   const escaped = fragment.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
   const cells = Array.from(source.matchAll(/<mxCell\b([^>]*)>([\s\S]*?)<\/mxCell>/g));
-  const cell = cells.find((match) => new RegExp('\\bid="[^"]*' + escaped + '[^"]*"').test(match[1]));
+  const cell = cells.find((match) => new RegExp('\bid="[^"]*' + escaped + '[^"]*"').test(match[1]));
   if (!cell) return null;
   const geometry = /<mxGeometry\b([^>]*)\/?\s*>/.exec(cell[2]);
   const x = geometry && /\bx="([-.\d]+)"/.exec(geometry[1]);
@@ -142,10 +142,10 @@ test.describe("原生画布", () => {
   });
   test("原生批量编辑逐步执行，失败时回滚并报告失败步骤", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
-    const databaseCell = Array.from(before.matchAll(/<mxCell\\b([^>]*)>/g))
-      .find((match) => /\\bvalue="Database"/.test(match[1]));
+    const databaseCell = Array.from(before.matchAll(/<mxCell\b([^>]*)>/g))
+      .find((match) => /\bvalue="Database"/.test(match[1]));
     expect(databaseCell, "fixture must contain the Database cell").toBeTruthy();
-    const databaseId = /\\bid="([^"]+)"/.exec(databaseCell![1])?.[1];
+    const databaseId = /\bid="([^"]+)"/.exec(databaseCell![1])?.[1];
     expect(databaseId).toBeTruthy();
 
     const result = await page.evaluate(async (cellId) => {
