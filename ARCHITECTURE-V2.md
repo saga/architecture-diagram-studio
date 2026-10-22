@@ -1,6 +1,6 @@
 # Architecture Diagram Studio V2
 
-- **Status:** Current architecture as of 2026-10-22.
+- **Status:** Current architecture as of 2026-10-23.
 - **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md).
 - **Reference implementation:** v2/.
 - **Legacy:** V1 is read-only reference material.
