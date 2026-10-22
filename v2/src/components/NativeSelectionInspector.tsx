@@ -108,7 +108,7 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
 export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }: Props) {
   const properties = useMemo(() => cellId ? readCellProperties(xml, cellId, pageId) : null, [xml, cellId, pageId]);
   if (!cellId) return <div className="empty-inspector">Select an element or connector in the Draw.io canvas to inspect its native properties.</div>;
-  if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> is not present in the current XML projection. Its native XML remains unchanged.</div>;
+  if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> was not found in the current native XML. No changes have been made.</div>;
 
   const { wrapper, cell, geometry, label, style, points, nestedGeometry } = properties;
   const wrapperAttrs = attributes(wrapper).filter(([name]) => name !== "id" && name !== "label" && !(name === "value" && !wrapper?.hasAttribute("label")));
