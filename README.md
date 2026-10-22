@@ -3,7 +3,7 @@
 This repository now separates the preserved first implementation from the new independent V2 app.
 
 - V2 architecture design: ARCHITECTURE-V2.md
-- Project workspace decisions: [ADR index](docs/adr/README.md), [workspace JSON schema](v2/schemas/project-workspace.schema.json), and [MCP / Agent Skill documentation](v2/README.md#project-workspace)
+- Project workspace decisions: [ADR index](docs/adr/README.md), [workspace JSON schema](v2/schemas/project-workspace.schema.json), and [Internal Copilot Agent / Skill documentation](v2/README.md#project-workspace)
 - Run V2 application: v2/README.md
 - Original V1 application snapshot: v1/README.md
 
