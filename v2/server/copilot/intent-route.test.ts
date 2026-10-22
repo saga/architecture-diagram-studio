@@ -267,6 +267,20 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
+  it("returns a typed failed outcome for malformed native Draw.io XML", async () => {
+    const harness = await createServer();
+    const malformedXml = '<mxfile><diagram><mxGraphModel><root>';
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      diagramXml: malformedXml,
+      documentRevision: workspaceRevision(malformedXml)
+    }));
+    expect(response.status).toBe(400);
+    expect(body.outcome).toBe("failed");
+    expect(String(body.reply)).toContain("invalid Draw.io XML");
+    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(harness.snapshot).not.toHaveBeenCalled();
+  });
+
   it("returns stale_context when the active page is not in the current XML", async () => {
     const harness = await createServer();
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
@@ -540,6 +554,34 @@ describe("Copilot native-edit acknowledgement route", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("failed");
     expect(harness.logs.some((entry) => entry.event === "turn.native-edit.final-outcome" && entry.fields?.failureStage === "editor")).toBe(true);
+  });
+
+  it("records a workspace persistence failure as failed, not applied", async () => {
+    const store = new NativeExecutionAcknowledgements();
+    const pending = seedAck(store);
+    const harness = await createServer({ acknowledgements: store });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", {
+      requestId: pending.requestId,
+      sessionId: pending.sessionId,
+      standalone: false,
+      documentRevision: pending.documentRevision,
+      outcome: "failed",
+      editorAcknowledged: true,
+      serializedXmlRevision: workspaceRevision(XML),
+      persistenceStatus: "failed",
+      persistedRevision: null,
+      versionId: null,
+      failureStage: "persistence",
+      error: "The workspace write was rejected."
+    });
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("failed");
+    expect(body.reply).toContain("workspace write was rejected");
+    expect(harness.logs.some((entry) =>
+      entry.event === "turn.native-edit.final-outcome" &&
+      entry.fields?.outcome === "failed" &&
+      entry.fields?.failureStage === "persistence"
+    )).toBe(true);
   });
 
   it("returns a stale_context outcome for expired acknowledgements", async () => {
