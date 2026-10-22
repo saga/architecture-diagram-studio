@@ -194,7 +194,6 @@ export default function App() {
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
-  const serverCommittedDocumentRef = useRef<{ document: DiagramDocument; workspaceId: string | null } | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   useEffect(() => { setCellEditRequest(null); }, [previewDocument, activePage, projectWorkspace?.id]);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
@@ -243,7 +242,7 @@ export default function App() {
     historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic: recordDiagnostic });
+  const { persistDocumentNow } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
 
   // The native Draw.io editor is the only canvas. Unsupported native XML disables
   // semantic edits, while preserving full native editing and the original XML.
@@ -262,7 +261,7 @@ export default function App() {
       // Flush the current file before the workspace's active diagram changes; the debounced autosave
       // is intentionally paused while the launch dialog is working.
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
-        await persistDocumentNow(document, drawioXml, "Autosave before changing the active diagram");
+        await persistDocumentNow(drawioXml, "Autosave before changing the active diagram");
       }
       if (requestedMode === "create") {
         const response = await fetch("/api/workspace/diagram/create", {
@@ -322,7 +321,7 @@ export default function App() {
         setMessages([{ role: "assistant", id: Date.now(), text: "Opened a different Draw.io diagram. The previous diagram's chat context and edit history are no longer active." }]);
         const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
         setCopilotSessionId(newSessionId);
-        serverRevisionRef.current = null; serverCommittedDocumentRef.current = null;
+        serverRevisionRef.current = null;
       }
       if (nextWorkspace.primaryDiagram && /\.(drawio|dio|xml)$/i.test(nextWorkspace.primaryDiagram)) {
         const fileResponse = await fetch("/api/workspace/files/content?path=" + encodeURIComponent(nextWorkspace.primaryDiagram));
@@ -836,7 +835,7 @@ export default function App() {
       const projected = parsed === empty ? empty : parsed;
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         try {
-          await persistDocumentNow(document, drawioXml, "Autosave before opening standalone Draw.io");
+          await persistDocumentNow(drawioXml, "Autosave before opening standalone Draw.io");
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setLastAction("Could not open " + file.name + " because the current workspace could not be saved: " + message);
