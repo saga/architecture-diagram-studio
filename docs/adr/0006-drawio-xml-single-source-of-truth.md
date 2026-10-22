@@ -15,9 +15,9 @@ Supporting all diagram types must not mean rebuilding mxGraph's data model insid
 **The native Draw.io XML (`mxfile`) is the only authoritative source of truth for every diagram.**
 
 1. The complete XML document, including all pages and metadata, is the durable source for editing, autosave, version snapshots, recovery, export and workspace-file writes.
-2. `DiagramDocument` is a derived, partial projection for the Studio-specific C4/flowchart/sequence editing experience. It is not a second source of truth and must never replace the original XML wholesale.
+2. `DiagramDocument` is a derived, partial projection for supported C4/flowchart/sequence semantic operations. It is not a second source of truth and must never replace the original XML wholesale.
 3. Any supported Studio semantic edit must be translated into a narrowly scoped XML cell update against the current authoritative XML. It must preserve untouched cells, geometry, style keys, nesting, pages and custom attributes. If safe patching cannot be established, reject or disable that edit; never fall back to serializing the projection as a new document.
-4. The bundled native Draw.io editor is the general-purpose editor for every Draw.io-supported shape and document feature. Imported documents that cannot be represented losslessly by the Studio projection remain editable in native Draw.io; Studio-only layout, validation and semantic tools are unavailable for those documents unless a lossless operation can be proven.
+4. The bundled native Draw.io editor is the general-purpose editor for every Draw.io-supported shape and document feature. The native Draw.io editor is the only diagram canvas for every document. Semantic layout, validation and editing tools are optional capabilities and are unavailable for a document unless a lossless operation can be proven.
 5. Import and workspace bootstrap must retain the original XML and must not automatically relayout it. Layout is an explicit opt-in operation and only runs through a supported semantic view.
 6. Persistence and versioning store the full authoritative XML. Server validation for document persistence checks the XML envelope, size, optimistic revision and workspace boundaries; semantic/layout validation applies to semantic operations, not as a gate for arbitrary valid Draw.io documents.
 7. Copilot must not author arbitrary XML text. Native-document AI editing, when enabled, uses typed, allowlisted cell operations (for example, set text, move/resize cell, update approved style keys, add/delete edge, add page) applied by server code to the authoritative XML, with revision checks and an immutable version snapshot. Raw XML remains untrusted input and is never directly executed.
@@ -38,7 +38,7 @@ The upstream Draw.io implementation inspected for this decision is the codec/pag
 - We do not introduce `SemanticDocument | NativeDocument` as two competing persistent document sources.
 - We do not expand `DiagramDocument` to duplicate all mxGraph features.
 - Studio can keep optimized semantic layout, quality evaluation and design-language tools for supported diagrams, but those features are optional derived capabilities.
-- A document is editable in the Studio canvas only when a completeness check confirms that the source can be safely projected and patched. Otherwise the UI selects native Draw.io and explains why Studio-only editing is unavailable.
+- Semantic operations are enabled only when a completeness check confirms that the source can be safely projected and patched. The native Draw.io canvas remains available for every valid document; unsafe semantic operations are disabled with an explanation.
 - XML patching must preserve outer `mxfile` and page/model metadata, merge changes by cell identity, retain cells unknown to Studio, and never regenerate the whole document from the projection.
 - Tests must cover lossless no-op round trips, preservation of unknown cells and page metadata, safe patch refusal, raw XML save/reopen, and protection against automatic layout on import.
 
