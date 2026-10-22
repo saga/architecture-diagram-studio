@@ -296,9 +296,27 @@ export const MxLibrarySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSche
   try { items = JSON.parse(library.text); }
   catch { issue(ctx, "mxlibrary text must be a JSON array"); return; }
   const result = z.array(MxLibraryEntrySchema).safeParse(items);
-  if (!result.success) for (const item of result.error.issues) {
-    ctx.addIssue({ ...item, path: ["text", ...item.path] });
+  if (!result.success) {
+    for (const item of result.error.issues) ctx.addIssue({ ...item, path: ["text", ...item.path] });
+    return;
   }
+  result.data.forEach((entry, index) => {
+    if (!entry.xml) return;
+    try {
+      // Library XML entries are an mxGraphModel, either plain XML or encoded/compressed
+      // in the same way as a page payload. Keep each stencil's internal cells opaque.
+      const decoded = decodeCompressedPage(entry.xml);
+      const model = parseXmlTree(decoded);
+      const modelResult = MxGraphModelSchema.safeParse(model);
+      if (!modelResult.success) {
+        for (const item of modelResult.error.issues) {
+          ctx.addIssue({ ...item, path: ["text", index, "xml", ...item.path] });
+        }
+      }
+    } catch (error) {
+      issue(ctx, "Invalid mxlibrary embedded mxGraphModel: " + (error instanceof Error ? error.message : String(error)), ["text", index, "xml"]);
+    }
+  });
 });
 
 /** Covers the documented Draw.io XML root formats while keeping library files distinct from editable diagrams. */
