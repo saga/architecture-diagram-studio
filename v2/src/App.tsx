@@ -206,7 +206,7 @@ export default function App() {
     try {
       // Flush the current file before the workspace's active diagram changes; the debounced autosave
       // is intentionally paused while the launch dialog is working.
-      if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
+      if (!standaloneFileName && workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         await persistDocumentNow(drawioXml, "Autosave before changing the active diagram");
       }
       if (requestedMode === "create") {
@@ -257,7 +257,8 @@ export default function App() {
       let nextXml: string | null = nativeXmlOverride;
       const workspaceChanged = projectWorkspace?.id !== nextWorkspace.id;
       const diagramChanged = projectWorkspace?.id === nextWorkspace.id && projectWorkspace?.primaryDiagram !== nextWorkspace.primaryDiagram;
-      const diagramContextChanged = workspaceChanged || diagramChanged;
+      // Leaving a standalone file is a context boundary even when the configured workspace is unchanged.
+      const diagramContextChanged = workspaceChanged || diagramChanged || Boolean(standaloneFileName);
       serverActiveContextChanged = diagramContextChanged;
       if (diagramContextChanged) {
         setMessages([{ role: "assistant", id: Date.now(), text: "Opened a different Draw.io diagram. The previous diagram's chat context and edit history are no longer active." }]);
@@ -571,6 +572,9 @@ export default function App() {
       setNativeXmlOverride(xml);
       setServerXmlAvailable(false);
       serverRevisionRef.current = null;
+      const standaloneSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
+      setCopilotSessionId(standaloneSessionId);
+      try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", standaloneSessionId); } catch { /* The standalone session stays isolated in memory. */ }
       setMessages([{ role: "assistant", id: Date.now(), text: "Opened a standalone Draw.io file. It is independent of the configured project workspace." }]);
       setWorkspaceSetupOpen(false);
       setWorkspaceError("");
@@ -971,7 +975,7 @@ export default function App() {
               if (result.success && result.path === "cell:batch") {
                 if (typeof result.serializedXml !== "string") {
                   finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
-                } else if (projectWorkspace) {
+                } else if (projectWorkspace && !standaloneFileName) {
                   try {
                     // The visible success receipt is gated on the same revision-checked save used by autosave.
                     await persistDocumentNow(result.serializedXml, "Copilot native edit");
@@ -996,7 +1000,7 @@ export default function App() {
                 return;
               }
               const status = finalResult.success
-                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") + (projectWorkspace && finalResult.path === "cell:batch" ? "; workspace save confirmed." : ".")
+                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") + (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch" ? "; workspace save confirmed." : ".")
                 : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error");
               setLastAction(status);
               if (finalResult.batchResults?.length) {
