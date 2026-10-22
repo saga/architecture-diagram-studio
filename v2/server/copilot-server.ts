@@ -252,9 +252,10 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
           migrated = true;
         }
         if (xml === null) continue;
-        const projection = validateDrawioXmlDocument(xml).success
-          ? projectDocumentFromXml(xml)
-          : { ...FIXTURES.c4(), id: "invalid-drawio-projection", title: item.label, nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
+        const derivedProjection = projectDocumentFromXml(xml);
+        const projection = projectedSourceIsValid
+          ? derivedProjection
+          : { ...derivedProjection, title: item.label };
         hydrated.push({ ...item, drawioXml: xml, document: projection });
         if (Object.prototype.hasOwnProperty.call(item, "document") || typeof item.drawioXml !== "string") migrated = true;
       }
