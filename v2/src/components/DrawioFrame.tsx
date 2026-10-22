@@ -126,7 +126,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
 
     // For uncompressed XML pages, persist the corresponding mxGraphModel background
     // attribute without touching cell styles. Compressed pages use the graph API above.
-    const styledXml = applyDrawioThemeStyles(xml, theme as "editorial" | "youth" | "warm" | "midnight", palette);\n    const themedXml = applyDrawioThemeBackground(styledXml, palette.canvas);
+    const styledXml = applyDrawioThemeStyles(xml, theme as "editorial" | "youth" | "warm" | "midnight", palette);
+    const themedXml = applyDrawioThemeBackground(styledXml, palette.canvas);
     if (editorReady && themedXml !== xml) {
       recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
         theme, background: palette.canvas, xmlChanged: true
