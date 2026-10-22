@@ -4,6 +4,11 @@ import { validateDrawioXmlDocument } from "../model/drawio-xml-schema";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, NodeVisualStyle, RelationVisualStyle, Point, SequenceFragment } from "../model/types";
 import { diagramPalette, nodeVisualDefaults, relationVisualDefaults } from "../design/render-spec";
 
+// xmldom ships its own module-local DOM types, which do not unify with lib.dom. This module reads the
+// parsed tree as a lib.dom document, so the two crossings below are explicit casts rather than a
+// re-typed walker.
+type XmldomSerializerNode = Parameters<InstanceType<typeof XMLSerializer>["serializeToString"]>[0];
+
 function decodeHtmlEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity: string) => {
     const key = entity.toLowerCase();
@@ -160,7 +165,7 @@ function parseDrawioXml(xml: string): Document | null {
     try {
       const parser = new DOMParser({ locator: false, onError: (level, message) => { if (level !== "warning") errors.push(message); } });
       const result = parser.parseFromString(source, "application/xml");
-      return errors.length || !result.documentElement ? null : result;
+      return errors.length || !result.documentElement ? null : result as unknown as Document;
     } catch { return null; }
   };
 
@@ -173,7 +178,7 @@ function parseDrawioXml(xml: string): Document | null {
   const diagram = directChildren(parsed.documentElement, "diagram")[0];
   if (!diagram) return null;
   const embeddedModel = directChild(diagram, "mxGraphModel");
-  if (embeddedModel) return parse(new XMLSerializer().serializeToString(embeddedModel));
+  if (embeddedModel) return parse(new XMLSerializer().serializeToString(embeddedModel as unknown as XmldomSerializerNode));
 
   const payload = diagram.textContent?.trim();
   if (!payload) return null;

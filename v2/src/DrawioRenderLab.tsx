@@ -128,7 +128,7 @@ export default function DrawioRenderLab() {
         <article className="drawio-render-lab-panel">
           <div className="drawio-render-lab-panel-title"><strong>Native Draw.io embed</strong><span>Real rendering and interaction</span></div>
           <div className="drawio-render-lab-editor">
-            <DrawioFrame key={scenario} document={document} xml={xml}
+            <DrawioFrame key={scenario} document={document} xml={xml} theme="editorial"
               onDocumentChange={(next, savedXml) => { setDocument(next); setNativeXml(savedXml); }} />
           </div>
         </article>

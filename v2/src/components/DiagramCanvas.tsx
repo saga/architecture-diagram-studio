@@ -103,7 +103,7 @@ function relationPath(document: DiagramDocument, relation: DiagramRelation): { d
   }
   return { d, label, start: all[0], end: all[all.length - 1] };
 }
-function nodePath(node: DiagramNode, shape: string, requestedRadius = tokens.nodeRadius): string {
+function nodePath(node: DiagramNode, shape: string, requestedRadius: number = tokens.nodeRadius): string {
   if (shape === "pill") {
     const radius = Math.min(requestedRadius, node.width / 2, node.height / 2);
     return "M " + (node.x + radius) + " " + node.y + " H " + (node.x + node.width - radius) + " Q " + (node.x + node.width) + " " + node.y + " " + (node.x + node.width) + " " + (node.y + radius) + " V " + (node.y + node.height - radius) + " Q " + (node.x + node.width) + " " + (node.y + node.height) + " " + (node.x + node.width - radius) + " " + (node.y + node.height) + " H " + (node.x + radius) + " Q " + node.x + " " + (node.y + node.height) + " " + node.x + " " + (node.y + node.height - radius) + " V " + (node.y + radius) + " Q " + node.x + " " + node.y + " " + (node.x + radius) + " " + node.y + " Z";
@@ -425,7 +425,7 @@ export default function DiagramCanvas({
             strokeWidth={selected ? Math.max(2.8, paint.width + 1.1) : paint.width}
             strokeDasharray={paint.dash || undefined}
             markerStart={paint.startArrow && paint.startArrow !== "none" ? "url(#" + markerId(relation.id, paint.startArrow === "open" ? "arrow-open" : "arrow") + ")" : undefined}
-            markerEnd={paint.marker ? "url(#" + markerId(relation.id, paint.marker) + ")" : undefined}
+            markerEnd={paint.marker ? "url(#" + markerId(relation.id, paint.marker === "arrow-open" ? "arrow-open" : "arrow") + ")" : undefined}
             strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
           {relation.label && editingRelationId !== relation.id && <g className="relation-label" pointerEvents="none">
             <rect className="relation-label-bg" x={path.label.x - labelWidth / 2} y={path.label.y - RENDER_METRICS.relation.labelBackgroundOffsetY} width={labelWidth} height={RENDER_METRICS.relation.labelBackgroundHeight} rx="0" fill={paint.labelBackground} fillOpacity="1" />

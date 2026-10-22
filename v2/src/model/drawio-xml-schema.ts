@@ -64,10 +64,10 @@ export const MxArrayAttributesSchema = openAttributes({ as: z.string().optional(
 export const MxDefAttributesSchema = openAttributes({ data: z.string().optional() });
 export const MxLibraryAttributesSchema = openAttributes({ title: z.string().optional(), tags: z.string().optional() });
 
-function appendIssues(ctx: z.RefinementCtx, issues: z.ZodIssue[], path: (string | number)[] = []): void {
+function appendIssues(ctx: z.RefinementCtx, issues: z.ZodIssue[], path: PropertyKey[] = []): void {
   for (const item of issues) ctx.addIssue({ ...item, path: path.concat(item.path) });
 }
-function validateAttributes<T>(schema: z.ZodType<T>, element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+function validateAttributes<T>(schema: z.ZodType<T>, element: DrawioXmlElement, ctx: z.RefinementCtx, path: PropertyKey[] = []): void {
   const result = schema.safeParse(element.attributes);
   if (!result.success) appendIssues(ctx, result.error.issues, path.concat("attributes"));
 }
@@ -81,7 +81,7 @@ export const DrawioXmlElementSchema: z.ZodType<DrawioXmlElement> = z.lazy(() =>
   }).strict()
 );
 
-function issue(ctx: z.RefinementCtx, message: string, path: (string | number)[] = []): void {
+function issue(ctx: z.RefinementCtx, message: string, path: PropertyKey[] = []): void {
   ctx.addIssue({ code: "custom", message, path });
 }
 
@@ -107,7 +107,7 @@ function cellsFromRoot(root: DrawioXmlElement): Array<{ wrapper: DrawioXmlElemen
   return result;
 }
 
-function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: PropertyKey[] = []): void {
   if (element.name !== "mxCell") {
     issue(ctx, "Expected an mxCell element", path);
     return;
@@ -174,7 +174,7 @@ export const MxGeometrySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSch
   });
 });
 
-function validateGeometry(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+function validateGeometry(element: DrawioXmlElement, ctx: z.RefinementCtx, path: PropertyKey[] = []): void {
   const checked = MxGeometrySchema.safeParse(element);
   if (!checked.success) {
     for (const item of checked.error.issues) ctx.addIssue({ ...item, path: path.concat(item.path) });
@@ -377,7 +377,9 @@ function parseXmlTree(xml: string): DrawioXmlElement {
   const document = parser.parseFromString(xml, "application/xml");
   if (errors.length) throw new Error(errors.slice(0, 5).join("; "));
   if (!document.documentElement) throw new Error("The XML document has no root element.");
-  return toXmlElement(document.documentElement);
+  // xmldom implements the DOM, but its types are module-local rather than the lib.dom ones this
+  // walker reads, so the parsed root needs an explicit cast at the boundary.
+  return toXmlElement(document.documentElement as unknown as Element);
 }
 
 const MAX_INFLATED_PAGE_BYTES = 20_000_000;

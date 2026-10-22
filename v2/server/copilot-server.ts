@@ -807,6 +807,13 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
   if (!requestedName) { res.status(400).json({ error: "Workspace name cannot be empty" }); return; }
   let createdPath: string | null = null, createdFileReady = false;
   let activeHandle: Awaited<ReturnType<typeof open>> | null = null;
+  // Control-flow analysis narrows the variable to null inside the catch, because the last write in
+  // the try block clears it; the closure reads the declared type instead.
+  const releaseActiveHandle = async () => {
+    const handle = activeHandle;
+    activeHandle = null;
+    if (handle) await handle.close().catch(() => undefined);
+  };
   try {
     const resolved = await resolveWorkspaceRoot(requestedRoot), rootPath = resolved.rootPath;
     const document = createEmptyDrawioDocument(fileName, typeof req.body?.renderTheme === "string" ? req.body.renderTheme : undefined);
@@ -871,7 +878,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
     await writeLog("diagram.file.created", { workspaceId: result.workspace.id, diagramPath: fileName, versionId: result.version.id });
     res.status(201).json({ ok: true, ...result, rootAdjusted: resolved.requestedPath !== rootPath, repositoryRoot: resolved.repositoryRoot });
   } catch (error) {
-    if (activeHandle) await activeHandle.close().catch(() => undefined);
+    await releaseActiveHandle();
     if (createdPath && !createdFileReady) await unlink(createdPath).catch(() => undefined);
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code === "EEXIST") { res.status(409).json({ error: "That Draw.io file already exists; choose a different file name." }); return; }
