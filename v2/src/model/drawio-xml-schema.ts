@@ -117,9 +117,6 @@ function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (st
     issue(ctx, "An mxCell cannot be both a vertex and an edge", path.concat("attributes"));
   }
   const geometries = childNodesNamed(element, "mxGeometry");
-  if ((element.attributes.vertex === "1" || element.attributes.edge === "1") && geometries.length === 0) {
-    issue(ctx, "A vertex or edge mxCell must contain an mxGeometry child", path.concat("children"));
-  }
   if (geometries.length > 1) issue(ctx, "An mxCell can have at most one direct mxGeometry child", path.concat("children"));
   for (const [index, geometry] of geometries.entries()) {
     if (geometry.attributes.as !== undefined && geometry.attributes.as !== "geometry") {
@@ -460,6 +457,10 @@ function addCellInventoryWarnings(root: DrawioXmlElement, warnings: string[], pa
   for (const [index, entry] of inventory.entries()) {
     const id = effectiveCellId(entry.wrapper);
     if (!id) warnings.push(pageLabel + ": cell " + index + " has no id; Draw.io may assign one on open.");
+    if ((entry.cell.attributes.vertex === "1" || entry.cell.attributes.edge === "1") &&
+        !entry.cell.children.some((child) => child.name === "mxGeometry")) {
+      warnings.push(pageLabel + ": cell " + (id || index) + " has no geometry; source XML is preserved, but Draw.io may not render it as expected.");
+    }
     const parent = entry.cell.attributes.parent;
     if (parent && !ids.has(parent)) warnings.push(pageLabel + ": cell " + (id || index) + " references missing parent " + parent + ".");
     if (entry.cell.attributes.edge === "1") {
