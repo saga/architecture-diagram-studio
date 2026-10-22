@@ -13,6 +13,7 @@ import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
 import { canApplySemanticEdits, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
 import DrawioFrame from "./components/DrawioFrame";
+import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
@@ -105,7 +106,9 @@ export default function App() {
   const [previewSummary, setPreviewSummary] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("domain");
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
-  const [rightPanelTab, setRightPanelTab] = useState<"properties" | "quality" | "design" | "copilot">("properties");
+  const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
+  const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; path: string; value: string; requestId: number } | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
@@ -178,15 +181,6 @@ export default function App() {
   const visibleDocument = previewDocument || document;
   const selectedNode = document.nodes.find((node) => node.id === selectedNodeId) || null;
   const selectedRelation = document.relations.find((relation) => relation.id === selectedRelationId) || null;
-  const [quality, setQuality] = useState<import("./model/types").LayoutQualityReport | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/workspace/diagram/quality", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: visibleDocument }) })
-      .then(async (response) => { if (!response.ok) throw new Error("Layout quality evaluation failed"); return response.json() as Promise<{ report: import("./model/types").LayoutQualityReport }>; })
-      .then(({ report }) => { if (!cancelled) setQuality(report); })
-      .catch(() => { if (!cancelled) setQuality(null); });
-    return () => { cancelled = true; };
-  }, [visibleDocument]);
   // The native XML is authoritative. The semantic XML is only a disposable projection.
   const generatedDrawioXml = useMemo(() => toDrawioXml(document), [document]);
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
@@ -1231,7 +1225,9 @@ export default function App() {
         <div className="canvas-stage">
           {!semanticEditingSafe && <div className="drawio-source-banner" role="status">This diagram contains native Draw.io structure that cannot be safely represented by the semantic projection. The original XML remains authoritative; semantic layout and structural operations are disabled to prevent data loss.</div>}
           {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
-                      <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme} onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
+                      <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme}
+            onSelectionChange={setSelectedNativeCellId} cellEdit={cellEditRequest}
+            onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span></div></div>
       </main>
@@ -1260,6 +1256,10 @@ export default function App() {
           />
         </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
+          {selectedNativeCellId ? <NativeSelectionInspector xml={drawioXml} cellId={selectedNativeCellId}
+            onEdit={(cellId, path, value) => setCellEditRequest((previous) => ({
+              cellId, path, value, requestId: (previous?.requestId ?? 0) + 1
+            }))} /> : <>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
               <div className="field-label">Selected relation</div>
@@ -1293,17 +1293,6 @@ export default function App() {
               <p className="graph-action-hint">Rename the node by double-clicking its title. Use the node's right-click menu to connect, duplicate, change its semantic role, lock its position, delete it or ask Copilot to edit it.</p>
             </div>
           ) : !selectedRelation ? <div className="empty-inspector">Select a node or relation on the canvas to inspect it.</div> : null}
-        </section>}
-        {rightPanelTab === "quality" && <section className="quality-section">
-          {!quality ? <div className="quality-footnote">Evaluating layout quality on the server…</div> : <>
-          <div className="quality-score-line"><div><strong>{quality.score >= 85 ? "Layout looks healthy" : quality.metrics.nodeOverlaps ? "Overlaps need fixing" : "Check the connections"}</strong></div><div className="quality-ring" style={{ "--score": quality.score } as CSSProperties}><span>{quality.score}</span></div></div>
-          <div className="metric-grid">
-            <div className={quality.metrics.nodeOverlaps ? "metric bad" : "metric"}><strong>{quality.metrics.nodeOverlaps}</strong><span>Node overlaps</span></div>
-            <div className={quality.metrics.edgeNodeIntersections ? "metric bad" : "metric"}><strong>{quality.metrics.edgeNodeIntersections}</strong><span>Edges through nodes</span></div>
-            <div className={quality.metrics.edgeCrossings ? "metric warn" : "metric"}><strong>{quality.metrics.edgeCrossings}</strong><span>Possible crossings</span></div>
-            <div className="metric"><strong>{Math.round(quality.metrics.whitespaceScore * 100)}%</strong><span>Whitespace</span></div>
-          </div>
-          {quality.errors.length > 0 && <div className="quality-footnote">{quality.errors[0].message}</div>}
           </>}
         </section>}
       </aside>        </>
