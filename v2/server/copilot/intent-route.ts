@@ -33,9 +33,11 @@ const pendingAgentApplications = new Map<string, AgentAppliedEditView>();
 const usedToolsBySession = new Map<string, Set<string>>();
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
-  async function buildSystemMessage(config: AgentPromptConfig): Promise<string> {
-    const workspace = await deps.getProjectWorkspace();
-    const workspaceContext = config.prompts.workspace
+  async function buildSystemMessage(config: AgentPromptConfig, standalone = false): Promise<string> {
+    const workspace = standalone ? null : await deps.getProjectWorkspace();
+    const workspaceContext = standalone
+      ? "Standalone Draw.io file mode: the supplied diagram context is the only target. No project workspace is active. Do not inspect, modify, or make claims about project files. Only return an allowlisted layout plan or answer about the supplied diagram."
+      : config.prompts.workspace
       .replaceAll("{{workspaceName}}", workspace?.name || "not configured")
       .replaceAll("{{rootPath}}", workspace?.rootPath || "not configured")
       .replaceAll("{{primaryDiagram}}", workspace?.primaryDiagram || "not selected");
@@ -82,6 +84,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const requestedEffort = req.body?.reasoningEffort === "high" || req.body?.reasoningEffort === "max"
       ? req.body.reasoningEffort
       : config.reasoningEffort;
+    const standalone = req.body?.standalone === true;
     if (!prompt || prompt.length > 4000) {
       await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_prompt", promptLength: prompt.length });
       res.status(400).json({ error: "prompt must be 1–4000 characters", sessionId });
@@ -95,7 +98,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
     const startedAt = Date.now();
     await deps.writeLog("request.received", { sessionId, model, reasoningEffort: requestedEffort, prompt, context });
-    await deps.persistSessionId(sessionId);
+    if (!standalone) await deps.persistSessionId(sessionId);
     try {
       const runtime = await deps.copilot.acquireSession({
         conversationId: sessionId,
@@ -129,7 +132,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentApplications.delete(sessionId);
         usedToolsBySession.set(sessionId, new Set<string>());
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
-        const projectContext = await deps.collectAgentWorkspaceContext();
+        const projectContext = standalone ? { mode: "standalone", workspace: null, snippets: [], diagram: context } : await deps.collectAgentWorkspaceContext();
         await deps.writeLog("turn.workspace-context.loaded", {
           sessionId,
           workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null,
@@ -147,7 +150,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (!captured && !capturedProposal && !capturedApplication && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const nudged = await turn.send({
-            prompt: JSON.stringify({ request: "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
+            prompt: JSON.stringify({ request: standalone ? "Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal Studio tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
           }, 25000);
           captured = pendingPlans.get(sessionId) || null;
           pendingPlans.delete(sessionId);
