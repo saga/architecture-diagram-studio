@@ -655,7 +655,14 @@ export default function App() {
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
     setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary,
-    onAppliedEdit: applyCopilotEdit
+    onAppliedEdit: applyCopilotEdit,
+    applyNativeCellEdit: (cellId, path, value) => {
+      const requestId = ++cellEditRequestSequenceRef.current;
+      recordDiagnostic("copilot.standalone.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
+        cellId, path, requestId, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName)
+      });
+      setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+    }
   });
 
   async function saveAISettings() {
