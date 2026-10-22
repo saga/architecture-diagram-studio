@@ -1,11 +1,12 @@
 import type { DiagramDocument, DiagramNode, DiagramRelation, Point } from "../model/types";
+import { encodeDrawioXmlAttribute } from "../model/drawio-xml-dom";
 import { mxEdgeStyle, mxNodeStyle, nodePaint } from "../design/styles";
 import { deriveSequenceActivations, sequenceMessageGeometry } from "../layout/sequence";
 import { tokens } from "../design/tokens";
 import { diagramPalette, normalizeRenderTheme, RENDER_METRICS, sequenceActivationGeometry, sequenceLifelineBottom, sequenceFragmentVerticalGeometry } from "../design/render-spec";
 
 function esc(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return encodeDrawioXmlAttribute(value);
 }
 function htmlLabel(node: DiagramNode, theme: string): string {
   const palette = diagramPalette(theme);
