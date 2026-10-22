@@ -59,6 +59,24 @@ export interface NativeEditTarget {
   cellType: "vertex" | "edge";
 }
 
+export interface NativeDiagramPageInfo {
+  id: string | null;
+  title: string | null;
+}
+
+/** Read the current page metadata from the native mxfile envelope without semantic inference. */
+export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): NativeDiagramPageInfo {
+  const parsed = parseDrawioXml(xml);
+  if (parsed.documentElement.nodeName !== "mxfile") return { id: null, title: null };
+  const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
+  const page = (pageId ? diagrams.find((item) => item.getAttribute("id") === pageId) : undefined) || diagrams[0];
+  if (!page) return { id: null, title: null };
+  return {
+    id: page.getAttribute("id") || null,
+    title: page.getAttribute("name") || null
+  };
+}
+
 function plainNativeLabel(value: string): string {
   return value
     .replace(/<br\s*\/?\s*>/gi, " ")
