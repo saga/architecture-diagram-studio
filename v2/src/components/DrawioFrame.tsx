@@ -272,11 +272,13 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   useEffect(() => {
     if (!editorReady) return;
     const editorWindow = iframeRef.current?.contentWindow as (Window & {
-      editorUi?: { editor?: { graph?: {
-        getSelectionModel?: () => { addListener?: (name: string, listener: () => void) => void; removeListener?: (listener: () => void) => void };
-        getSelectionCells?: () => Array<{ id?: string; getId?: () => string }>;
-      } };
-      currentPage?: { id?: string; getId?: () => string };
+      editorUi?: {
+        editor?: { graph?: {
+          getSelectionModel?: () => { addListener?: (name: string, listener: () => void) => void; removeListener?: (listener: () => void) => void };
+          getSelectionCells?: () => Array<{ id?: string; getId?: () => string }>;
+        } };
+        currentPage?: { id?: string; getId?: () => string };
+      };
     }) | null;
     const graph = editorWindow?.editorUi?.editor?.graph;
     const selectionModel = graph?.getSelectionModel?.();
