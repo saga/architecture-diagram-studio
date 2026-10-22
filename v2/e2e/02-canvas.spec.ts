@@ -77,12 +77,26 @@ test.describe("原生画布", () => {
   });
 
   test.fixme("选中画布元素后右侧切换到原生 Draw.io 属性面板", async ({ page }) => {
-    // The bundled Draw.io v32 exposes neither `window.editorUi` nor a
-    // selectionChanged embed event, so DrawioFrame never receives a cell id and the
-    // panel keeps showing semantic properties. Tracked as a product gap, not a test defect.
+    // The click does select the cell inside the canvas, but DrawioFrame attaches its
+    // listener through `iframe.contentWindow.editorUi`, and the bundled Draw.io v32.0.2
+    // never exposes that global in any entry URL, so no selection id ever reaches Studio.
+    // Tracked as a product gap in the embed bridge, not as a test defect.
     await nativeFrame(page).getByText("Database", { exact: true }).click();
+
     const inspector = page.locator(".native-inspector");
     await expect(inspector).toBeVisible();
-    await expect(inspector).toContainText("Element properties");
+    await expect(inspector.locator(".native-inspector-heading")).toContainText("Element properties");
+    // The inspector reads the native XML, not the semantic projection.
+    await expect(inspector.locator(".native-property-field", { hasText: /^(Value|Label)$/ }).locator("textarea")).toHaveValue("Database");
+
+    // Editing through the inspector has to reach the same file the canvas autosaves into.
+    const before = cellX(await readWorkspaceXml(workspace), "database");
+    expect(before).not.toBeNull();
+    const xField = inspector.locator(".native-property-field", { hasText: /^x$/ }).locator("input");
+    await xField.fill(String(before! + 40));
+    await xField.press("Tab");
+    await expect
+      .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
+      .toBe(before! + 40);
   });
 });
