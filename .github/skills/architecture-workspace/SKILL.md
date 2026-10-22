@@ -15,7 +15,7 @@ description: Ground architecture diagram work and repository analysis in the con
 
 ## Internal Agent boundary
 
-Workspace retrieval, diagram inspection, quality scoring, example search, edit proposals, templates, and version operations are internal Studio server capabilities invoked through the GitHub Copilot SDK. Do not expose these operations as MCP tools or start a separate MCP server. The model may propose changes but must not directly write Draw.io XML, project files, workspace state or version files.
+Workspace retrieval, diagram inspection, quality scoring, example search, edit proposals, templates, and version operations are internal Studio server capabilities invoked through the GitHub Copilot SDK. Do not expose these operations as MCP tools or start a separate MCP server. The model must never author or write arbitrary Draw.io XML, project files, workspace state or version files directly. It may invoke trusted server tools to apply a focused, explicitly requested edit after inspecting the current revision; broad, ambiguous or destructive edits require a reviewable proposal and confirmation.
 
 ## Safety and evidence boundaries
 
