@@ -39,9 +39,22 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
   });
 
   let seenPrompt = "";
-  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
-    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
-  }));
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as {
+      requestId?: string; outcome?: string; serializedXmlRevision?: string | null;
+      persistedRevision?: string | null; versionId?: string | null;
+    };
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       prompt?: unknown; documentRevision?: unknown;
@@ -144,9 +157,22 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
   expect(observedCellId).toBeTruthy();
 
   let seenPrompt = "";
-  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
-    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
-  }));
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as {
+      requestId?: string; outcome?: string; serializedXmlRevision?: string | null;
+      persistedRevision?: string | null; versionId?: string | null;
+    };
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       prompt?: unknown; documentRevision?: unknown;
@@ -222,9 +248,22 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
   await waitForNativeEditor(page);
 
   let seenPrompt = "";
-  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
-    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
-  }));
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as {
+      requestId?: string; outcome?: string; serializedXmlRevision?: string | null;
+      persistedRevision?: string | null; versionId?: string | null;
+    };
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       prompt?: unknown; documentRevision?: unknown;
@@ -301,9 +340,22 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
   await openStudio(page);
   await waitForNativeEditor(page);
 
-  await page.route("**/api/copilot/intent/ack", async (route) => route.fulfill({
-    status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "applied" })
-  }));
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as {
+      requestId?: string; outcome?: string; serializedXmlRevision?: string | null;
+      persistedRevision?: string | null; versionId?: string | null;
+    };
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
   await page.route("**/api/copilot/intent", async (route) => {
     const body = JSON.parse(route.request().postData() || "{}") as {
       documentRevision?: unknown; context?: { activePageId?: string | null }; sessionId?: string;
