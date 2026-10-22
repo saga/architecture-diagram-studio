@@ -82,7 +82,6 @@
             index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
             visible: item.visible, collapsed: item.collapsed, connectable: item.connectable };
         });
-        var originalSelection = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
         activeModel.beginUpdate();
         try {
           operations.forEach(function (operation, index) {
@@ -125,7 +124,7 @@
               if (typeof activeGraph.groupCells !== "function") throw new Error("This Draw.io build does not expose groupCells");
               activeGraph.groupCells(null, 0, selected);
             } else {
-              var groups = selected.filter(function (item) { return item && typeof activeGraph.isValidRoot === "function" && activeGraph.isValidRoot(item); });
+              var groups = selected.filter(function (item) { return item && item.vertex && activeModel.getChildCount(item) > 0; });
               if (!groups.length) throw new Error("Select a group cell to ungroup");
               if (typeof activeGraph.ungroupCells !== "function") throw new Error("This Draw.io build does not expose ungroupCells");
               activeGraph.ungroupCells(groups);
@@ -141,6 +140,10 @@
         var isAlign = selectionOperation.indexOf("cell:align:") === 0;
         if ((isAlign && ["left", "right", "top", "bottom", "center", "middle"].indexOf(alignMode) < 0) ||
             (!isAlign && ["horizontal", "vertical"].indexOf(distributeMode) < 0)) throw new Error("Unsupported selection layout operation");
+        var parent = vertices[0].parent;
+        if (vertices.some(function (item) { return item.parent !== parent; })) {
+          throw new Error("Align and distribute only support cells in the same layer or group");
+        }
         var snapshots = vertices.map(function (item) { return { cell: item, geometry: item.geometry.clone() }; });
         activeModel.beginUpdate();
         try {
@@ -165,8 +168,7 @@
             var extent = distributeMode === "horizontal" ? "width" : "height";
             var sorted = vertices.slice().sort(function (a, b) { return a.geometry[axis] - b.geometry[axis]; });
             var first = sorted[0].geometry[axis];
-            var lastCell = sorted[sorted.length - 1].geometry;
-            var last = lastCell[axis] + lastCell[extent];
+            var last = Math.max.apply(Math, sorted.map(function (item) { return item.geometry[axis] + item.geometry[extent]; }));
             var totalSize = sorted.reduce(function (sum, item) { return sum + item.geometry[extent]; }, 0);
             var gap = (last - first - totalSize) / (sorted.length - 1);
             if (!Number.isFinite(gap) || gap < 0) throw new Error("Selected cells do not have enough space for even distribution");
