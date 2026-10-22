@@ -18,6 +18,71 @@ interface AgentPromptConfig {
   reasoningEffort: "high" | "max";
 }
 interface ProjectWorkspace { id: string; name: string; rootPath: string; primaryDiagram: string | null; }
+export interface PendingNativeExecutionAck {
+  requestId: string;
+  sessionId: string;
+  standalone: boolean;
+  documentRevision: string;
+  operationCount: number;
+  summary: string;
+  createdAt: number;
+}
+
+interface PendingNativeProposal {
+  id: string;
+  sessionId: string;
+  standalone: boolean;
+  documentRevision: string;
+  pageId: string | null;
+  operations: ResolvedNativeEditOperation[];
+  summary: string;
+  createdAt: number;
+}
+
+export interface NativeExecutionAckReceipt {
+  fingerprint: string;
+  status: number;
+  body: Record<string, unknown>;
+  completedAt: number;
+}
+
+/** Injectable store makes retries, expiry and acknowledgement handling testable without a model call. */
+export class NativeExecutionAcknowledgements {
+  readonly pending = new Map<string, PendingNativeExecutionAck>();
+  readonly completed = new Map<string, NativeExecutionAckReceipt>();
+
+  register(entry: PendingNativeExecutionAck): void {
+    this.pending.set(entry.requestId, entry);
+  }
+
+  getPending(requestId: string): PendingNativeExecutionAck | undefined {
+    return this.pending.get(requestId);
+  }
+
+  getReceipt(requestId: string): NativeExecutionAckReceipt | undefined {
+    return this.completed.get(requestId);
+  }
+
+  complete(requestId: string, receipt: NativeExecutionAckReceipt): void {
+    this.pending.delete(requestId);
+    this.completed.set(requestId, receipt);
+  }
+
+  expire(now: number, ttlMs: number): string[] {
+    const expired: string[] = [];
+    for (const [id, entry] of this.pending) {
+      if (now - entry.createdAt >= ttlMs) {
+        this.pending.delete(id);
+        expired.push(id);
+      }
+    }
+    for (const [id, entry] of this.completed) {
+      if (now - entry.completedAt >= ttlMs) this.completed.delete(id);
+    }
+    return expired;
+  }
+}
+
 interface IntentDependencies {
   copilot: CopilotRuntime;
   defaultModel: string;
@@ -27,10 +92,18 @@ interface IntentDependencies {
   getWorkspaceDiagramSnapshot(): Promise<{ drawioXml: string; revision: string } | null>;
   collectAgentWorkspaceContext(): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
+  acknowledgements?: NativeExecutionAcknowledgements;
 }
+
+type ReportedNoEditOutcome =
+  | { outcome: "answered"; reply: string }
+  | { outcome: "needs_clarification"; reply: string; question?: string }
+  | { outcome: "unsupported"; reply: string; reason?: string };
 
 const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
 const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOperation[]; summary: string }>();
+const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
+const pendingNativeProposals = new Map<string, PendingNativeProposal>();
 
 /**
  * The select and native-edit tools must see the elements of the *current* request.
@@ -39,41 +112,67 @@ const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOpera
  */
 const contextBySession = new Map<string, unknown>();
 
-interface PendingNativeExecutionAck {
-  requestId: string;
-  sessionId: string;
-  standalone: boolean;
-  documentRevision: string;
-  operationCount: number;
-  summary: string;
-  createdAt: number;
+const ACK_TTL_MS = 10 * 60_000;
+const acknowledgementsDefault = new NativeExecutionAcknowledgements();
+
+function acknowledgementFingerprint(body: Record<string, unknown>): string {
+  return JSON.stringify({
+    requestId: body.requestId, sessionId: body.sessionId, standalone: body.standalone,
+    documentRevision: body.documentRevision, outcome: body.outcome, editorAcknowledged: body.editorAcknowledged,
+    serializedXmlRevision: body.serializedXmlRevision, persistenceStatus: body.persistenceStatus,
+    persistedRevision: body.persistedRevision, failureStage: body.failureStage, error: body.error
+  });
 }
-const pendingNativeExecutionAcks = new Map<string, PendingNativeExecutionAck>();
+
+function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[]): boolean {
+  const deletes = operations.filter((operation) => operation.op === "delete").length;
+  return deletes >= 2 || operations.length >= 10;
+}
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
+  const acknowledgements = deps.acknowledgements ?? acknowledgementsDefault;
   app.post("/api/copilot/intent/ack", async (req, res) => {
-    const requestId = typeof req.body?.requestId === "string" ? req.body.requestId : "";
-    const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    const pending = pendingNativeExecutionAcks.get(requestId);
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown> : {};
+    const requestId = typeof body.requestId === "string" ? body.requestId : "";
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+    const fingerprint = acknowledgementFingerprint(body);
+    const priorReceipt = acknowledgements.getReceipt(requestId);
+    if (priorReceipt) {
+      if (priorReceipt.fingerprint !== fingerprint) {
+        res.status(409).json({ outcome: "stale_context", reply: "This request already has a different final acknowledgement.", error: "The execution acknowledgement was already completed with different data." });
+        return;
+      }
+      res.status(priorReceipt.status).json(priorReceipt.body);
+      return;
+    }
+    const expired = acknowledgements.expire(Date.now(), ACK_TTL_MS);
+    for (const id of expired) await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
+    const pending = acknowledgements.getPending(requestId);
     if (!pending) {
-      res.status(404).json({ outcome: "stale_context", error: "The execution acknowledgement is unknown or expired." });
+      res.status(404).json({ outcome: "stale_context", reply: "This edit request is unknown or expired.", error: "The execution acknowledgement is unknown or expired." });
       return;
     }
-    if (pending.sessionId !== sessionId || req.body?.standalone !== pending.standalone ||
-        req.body?.documentRevision !== pending.documentRevision) {
+    if (pending.sessionId !== sessionId || body.standalone !== pending.standalone ||
+        body.documentRevision !== pending.documentRevision) {
       await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "request_context_mismatch" });
-      res.status(409).json({ outcome: "stale_context", error: "The acknowledgement does not match the original Copilot request." });
+      res.status(409).json({ outcome: "stale_context", reply: "The edit request no longer matches the current session or document.", error: "The acknowledgement does not match the original Copilot request." });
       return;
     }
-    const outcome = req.body?.outcome === "applied" ? "applied" : req.body?.outcome === "failed" ? "failed" : null;
-    const editorAcknowledged = req.body?.editorAcknowledged === true;
-    const serializedXmlRevision = typeof req.body?.serializedXmlRevision === "string" ? req.body.serializedXmlRevision : null;
-    const persistenceStatus = typeof req.body?.persistenceStatus === "string" ? req.body.persistenceStatus : "not_attempted";
-    const persistedRevision = typeof req.body?.persistedRevision === "string" ? req.body.persistedRevision : null;
-    const failureStage = req.body?.failureStage === "editor" || req.body?.failureStage === "persistence" ? req.body.failureStage : null;
-    const errorMessage = typeof req.body?.error === "string" ? req.body.error.slice(0, 1000) : null;
-    if (!outcome || (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision))) {
-      res.status(400).json({ outcome: "failed", error: "A final native-edit outcome requires a valid status and editor acknowledgement." });
+    const outcome = body.outcome === "applied" ? "applied" : body.outcome === "failed" ? "failed" : null;
+    const editorAcknowledged = body.editorAcknowledged === true;
+    const serializedXmlRevision = typeof body.serializedXmlRevision === "string" ? body.serializedXmlRevision : null;
+    const persistenceStatus = typeof body.persistenceStatus === "string" ? body.persistenceStatus : "not_attempted";
+    const persistedRevision = typeof body.persistedRevision === "string" ? body.persistedRevision : null;
+    const failureStage = body.failureStage === "editor" || body.failureStage === "persistence" ? body.failureStage : null;
+    const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
+    if (!outcome || (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) ||
+        (outcome === "failed" && !errorMessage && !failureStage)) {
+      res.status(400).json({ outcome: "failed", reply: "The final edit result was incomplete.", error: "A final outcome must include a valid status, and failures must include a failure stage or error." });
+      return;
+    }
+    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server") {
+      res.status(400).json({ outcome: "failed", reply: "Standalone file persistence is owned by the browser.", error: "Standalone acknowledgements must not claim a server-managed workspace save." });
       return;
     }
     if (outcome === "applied" && !pending.standalone) {
@@ -81,15 +180,17 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       if (persistenceStatus !== "saved" || !persistedRevision ||
           persistedRevision !== serializedXmlRevision || !authoritative ||
           authoritative.revision !== persistedRevision) {
+        const responseBody = { outcome: "stale_context", reply: "The saved workspace revision no longer matches this edit.", error: "The workspace's saved revision does not match the acknowledged native XML.", documentRevision: authoritative?.revision ?? null };
         await deps.writeLog("turn.native-edit.ack-rejected", {
           requestId, sessionId, reason: "workspace_persistence_revision_mismatch",
           serializedXmlRevision, persistedRevision, currentWorkspaceRevision: authoritative?.revision ?? null
         });
-        pendingNativeExecutionAcks.delete(requestId);
-        res.status(409).json({ outcome: "stale_context", error: "The workspace's saved revision no longer matches the acknowledged native XML.", documentRevision: authoritative?.revision ?? null });
+        acknowledgements.complete(requestId, { fingerprint, status: 409, body: responseBody, completedAt: Date.now() });
+        res.status(409).json(responseBody);
         return;
       }
     }
+    const responseBody = { outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."), requestId, documentRevision: serializedXmlRevision, persistedRevision, ...(errorMessage ? { error: errorMessage } : {}) };
     await deps.writeLog("turn.native-edit.final-outcome", {
       requestId, sessionId, standalone: pending.standalone,
       baseDocumentRevision: pending.documentRevision,
@@ -97,8 +198,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision,
       failureStage, error: errorMessage
     });
-    pendingNativeExecutionAcks.delete(requestId);
-    res.json({ outcome, requestId, documentRevision: serializedXmlRevision, persistedRevision });
+    acknowledgements.complete(requestId, { fingerprint, status: outcome === "applied" ? 200 : 200, body: responseBody, completedAt: Date.now() });
+    res.json(responseBody);
   });
   async function buildSystemMessage(standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
