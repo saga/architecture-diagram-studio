@@ -12,6 +12,7 @@ const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 interface Props {
   document: DiagramDocument;
+  onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string }) => void;
   xml: string;
   onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
@@ -31,11 +32,12 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-export default function DrawioFrame({ document, xml, onDocumentChange, onSelectionChange, cellEdit, theme }: Props) {
+export default function DrawioFrame({ document, xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentRef = useRef(document);
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
+  const onNativeEditResultRef = useRef(onNativeEditResult);
   const lastHandledCellEditRequestRef = useRef<number | null>(null);
   const pendingNativeEditsRef = useRef(new Map<number, { cellId: string; path: string; value: string; startedAt: number; beforeXml: string }>());
   const pendingSaveConfirmationsRef = useRef(new Map<number, { cellId: string; path: string; value: string; startedAt: number; beforeXml: string }>());
@@ -49,6 +51,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   documentRef.current = document;
   onDocumentChangeRef.current = onDocumentChange;
   onSelectionChangeRef.current = onSelectionChange;
+  onNativeEditResultRef.current = onNativeEditResult;
   const lastSent = useRef("");
   const seenEvents = useRef(new Set<string>());
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -228,6 +231,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
         if (data.success === true) {
+          onNativeEditResultRef.current?.({ requestId, success: true, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null });
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
@@ -240,12 +244,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "save" }), window.location.origin);
           recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId, cellId: data.cellId, property: data.path });
         } else {
+          const errorMessage = typeof data.error === "string" ? data.error : "Unknown property edit error";
+          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage });
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage: typeof data.error === "string" ? data.error : "Unknown property edit error"
+            errorMessage
           }, "error");
         }
       }
