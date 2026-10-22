@@ -13,6 +13,7 @@ import { toDrawioXml } from "../src/export/drawio";
 import { fromDrawioXml } from "../src/import/drawio";
 import { FIXTURES } from "../src/model/fixtures";
 import { isDrawioXmlEnvelope, isStudioProjectionCurrent, patchStudioDocumentXml } from "./drawio-xml-source";
+import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
 import { createEmptyDrawioDocument, normalizeNewDrawioFileName } from "./diagram-file";
 import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
@@ -534,7 +535,7 @@ app.post("/api/workspace/diagram/apply-template", async (req, res) => {
       const version: DiagramVersion = { id: "v-" + Date.now() + "-" + randomUUID().slice(0,8), workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, createdAt: now, label: "Applied template: " + key, document: laidOut, drawioXml: xml };
       const versions = await getDiagramVersions(); diagramVersions = retainRecentVersions([...versions, version]); await writeJsonAtomic(VERSIONS_FILE, diagramVersions);
       if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) { const target = await resolveWorkspaceFile(workspace.primaryDiagram); await writeTextAtomic(target.absolutePath, xml); }
-      workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: laidOut, drawioXml: xml, updatedAt: now }; await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: laidOut, drawioXml: xml, updatedAt: now }; await persistWorkspaceState(workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: now, event: "diagram.template.applied", workspaceId: workspace?.id, templateKey: key, versionId: version.id }) + "\n", "utf8");
       return { status: 200 as const, version, document: laidOut, revision: workspaceRevision(laidOut, xml), workspaceRevision: workspaceRevision(laidOut, xml), quality: evaluateLayout(laidOut) };
     });
@@ -627,7 +628,7 @@ app.post("/api/workspace/diagram/apply-proposal", async (req, res) => {
         await writeTextAtomic(absolutePath, xml);
       }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: proposal.document, drawioXml: xml, updatedAt: version.createdAt };
-      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({ timestamp: version.createdAt, event: "diagram.agent-edit.applied", workspaceId: workspace?.id, proposalId, versionId: version.id, label: version.label, qualityScore: quality.score }) + "\n", "utf8");
       diagramEditProposals.delete(proposalId);
@@ -716,7 +717,7 @@ app.put("/api/workspace/config", async (req, res) => {
           ...state, workspaceId: workspace.id, diagramPath: workspace.primaryDiagram,
           document: null, drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null
         };
-        await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+        await persistWorkspaceState(workspaceState);
         await writeLog("workspace.diagram.context-reset", {
           workspaceId: workspace.id, previousDiagram: previous?.primaryDiagram ?? null, activeDiagram: workspace.primaryDiagram
         });
@@ -784,7 +785,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
         workspaceId: workspace.id, diagramPath: workspace.primaryDiagram, document, drawioXml: xml,
         copilotSessionId: null, chatMessages: [], updatedAt: now
       };
-      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: now, event: "diagram.file.created", workspaceId: workspace.id, diagramPath: fileName,
@@ -866,7 +867,7 @@ app.put("/api/workspace/document", async (req, res) => {
           await writeLog("workspace.primary-diagram.saved", { workspaceId: workspace.id, path: workspace.primaryDiagram, xmlLength: drawioXml.length, versionId: version.id });
         }
         workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document, drawioXml, updatedAt: version.createdAt };
-        await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+        await persistWorkspaceState(workspaceState);
         await appendFile(APP_LOG_FILE, JSON.stringify({
           timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
           versionId: version.id, label, documentId: document.id, xmlLength: drawioXml.length,
@@ -898,7 +899,7 @@ app.put("/api/workspace/chat", async (req, res) => {
     await withDataWrite(async () => {
       const state = await getWorkspaceState();
       workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: copilotSessionId ?? state.copilotSessionId, chatMessages, updatedAt: new Date().toISOString() };
-      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await persistWorkspaceState(workspaceState);
       await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: new Date().toISOString(), event: "copilot.chat.persisted",
         sessionId: workspaceState.copilotSessionId, messageCount: chatMessages.length
@@ -995,7 +996,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
         await writeTextAtomic(absolutePath, version.drawioXml);
       }
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, document: version.document, drawioXml: version.drawioXml, updatedAt: version.createdAt };
-      await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+      await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
       await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: version.createdAt, event: "diagram.version.restored",
@@ -1050,7 +1051,7 @@ registerCopilotIntentRoute(app, {
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
-    await writeJsonAtomic(WORKSPACE_FILE, workspaceState);
+    await persistWorkspaceState(workspaceState);
   }),
   createDiagramTools: (_sessionId, onProposal, onApplied, onToolUse) => createDiagramAgentTools({
     getActiveDocument: async () => {
