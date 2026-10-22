@@ -111,6 +111,14 @@ function traceTitle(entry: DiagnosticEntry): string {
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
+/** Which side of the model routing the server process is on, as reported by /api/copilot/models. */
+type ModelRouting = {
+  mode?: "byok" | "github";
+  host?: string | null;
+  configuredModel?: string | null;
+  summary?: string;
+  modelConfiguredWithoutProvider?: boolean;
+};
 
 interface Props {
   page: Exclude<WorkspacePage, "diagram">;
@@ -164,12 +172,12 @@ export default function WorkspacePages(props: Props) {
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
   const [showLowLevel, setShowLowLevel] = useState(false);
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
-  const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([
-    { value: "claude-sonnet-5.5", label: "Claude Sonnet 5.5 (default)" },
-    { value: "gpt-5", label: "GPT-5" }
-  ]);
+  // Filled from /api/copilot/models; an empty list until then, because the runtime — not the browser —
+  // decides which model ids exist.
+  const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsMessage, setModelsMessage] = useState("");
+  const [modelRouting, setModelRouting] = useState<ModelRouting | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const significantTraces = useMemo(() => traceEntries.filter((entry) => !isLowLevelTrace(entry)), [traceEntries]);
   const lowLevelCount = traceEntries.length - significantTraces.length;
@@ -191,14 +199,20 @@ export default function WorkspacePages(props: Props) {
     if (modelsRefreshKey > 0) setModelsMessage("Re-reading the SDK model list…");
     fetch("/api/copilot/models" + (modelsRefreshKey > 0 ? "?refresh=1" : ""))
       .then(async (response) => {
-        const payload = await response.json() as { models?: Array<{ id?: string; name?: string; label?: string }>; error?: string };
+        const payload = await response.json() as { models?: Array<{ id?: string; name?: string; label?: string }>; defaultModel?: string; modelRouting?: ModelRouting; error?: string };
         if (!response.ok) throw new Error(payload.error || "The model list request failed");
+        if (!cancelled && payload.modelRouting) setModelRouting(payload.modelRouting);
         const options = (payload.models || [])
           .filter((model) => typeof model.id === "string" && model.id.length > 0)
           .map((model) => ({ value: model.id!, label: model.label || model.name || model.id! }));
         if (!cancelled && options.length) {
           const merged = [...options];
-          if (!merged.some((item) => item.value === "claude-sonnet-5.5")) merged.unshift({ value: "claude-sonnet-5.5", label: "Claude Sonnet 5.5 (default)" });
+          // The runtime default is whatever this server is actually configured with — a custom
+          // provider model, or the Copilot catalog default. It is never a hard-coded id.
+          const runtimeDefault = payload.defaultModel?.trim();
+          if (runtimeDefault && !merged.some((item) => item.value === runtimeDefault)) {
+            merged.unshift({ value: runtimeDefault, label: runtimeDefault + " (runtime default)" });
+          }
           if (aiModel && !merged.some((item) => item.value === aiModel)) merged.unshift({ value: aiModel, label: aiModel + " (current)" });
           setModelOptions(merged);
           setModelsMessage("Available models loaded from the local Copilot SDK.");
@@ -206,7 +220,9 @@ export default function WorkspacePages(props: Props) {
           setModelOptions((current) => aiModel && !current.some((item) => item.value === aiModel)
             ? [{ value: aiModel, label: aiModel + " (current)" }, ...current]
             : current);
-          setModelsMessage("The SDK returned no model list yet; built-in candidates are shown.");
+          setModelsMessage(payload.modelRouting?.mode === "byok"
+            ? "The custom provider publishes no model list; the configured model is used for every turn."
+            : "The SDK returned no model list yet; the server still uses its configured default model.");
         }
       })
       .catch((error: unknown) => {
@@ -351,7 +367,14 @@ export default function WorkspacePages(props: Props) {
                 style={{ width: "100%" }}
               />
             </label>
-            <p className="settings-description">{modelsMessage || "Defaults to Claude Sonnet 5.5; options come from the local Copilot SDK when available."}</p>
+            <p className="settings-description">{modelsMessage || "Options come from the local Copilot SDK; the server's configured model is used when nothing is selected."}</p>
+            {modelRouting && (
+              <p className={"settings-description settings-routing" + (modelRouting.modelConfiguredWithoutProvider ? " settings-routing-warning" : "")}>
+                {modelRouting.modelConfiguredWithoutProvider
+                  ? "Custom model " + (modelRouting.configuredModel || "") + " is configured, but no provider serves it: COPILOT_PROVIDER_BASE_URL is not set, so every turn runs on a GitHub-hosted model instead."
+                  : modelRouting.summary || ""}
+              </p>
+            )}
             <label className="settings-field">Thinking effort
               <Select value={reasoningEffort} onChange={(value: "high" | "max") => setReasoningEffort(value)} options={[{ value: "max", label: "Max — highest reasoning effort (default)" }, { value: "high", label: "High — high reasoning effort" }]} style={{ width: "100%" }} />
             </label>

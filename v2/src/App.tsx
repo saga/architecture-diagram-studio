@@ -61,12 +61,14 @@ function loadSavedAISettings(): SavedAISettings {  try {
     const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ai-provider");
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<SavedAISettings>;
-      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "claude-sonnet-5.5", reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max" };
+      // An empty model means "no explicit choice": the server's configured model is used instead of
+      // pinning a browser-side default that the Copilot runtime may not even have.
+      return { baseUrl: "copilot-sdk", model: typeof parsed.model === "string" && parsed.model !== "gpt-5" ? parsed.model : "", reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max" };
     }
   } catch {
     // The page can still use deterministic local rules when browser storage is unavailable.
   }
-  return { baseUrl: "copilot-sdk", model: "claude-sonnet-5.5", reasoningEffort: "max" };
+  return { baseUrl: "copilot-sdk", model: "", reasoningEffort: "max" };
 }
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -212,9 +214,13 @@ export default function App() {
       .then(async (payload) => {
         if (!active || !payload.config) return;
         if (Array.isArray(payload.config.layoutProfiles) && payload.config.layoutProfiles.length) setEnabledLayoutProfiles(payload.config.layoutProfiles);
-        // Migrate the previous browser-only model preference into the authoritative server JSONL config once.
+        // Migrate the previous browser-only model preference into the authoritative server JSONL config
+        // once. The model is only sent when the browser holds an explicit choice; otherwise the server
+        // keeps its own configured model, which is the one the Copilot runtime can actually serve.
         if (!payload.hasRuntimeSettings) {
-          const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: { model: savedAISettings.model, reasoningEffort: savedAISettings.reasoningEffort } }) });
+          const migratedConfig: Record<string, unknown> = { reasoningEffort: savedAISettings.reasoningEffort };
+          if (savedAISettings.model.trim()) migratedConfig.model = savedAISettings.model;
+          const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: migratedConfig }) });
           const migrated = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max" }; error?: string };
           if (!response.ok || !migrated.config) throw new Error(migrated.error || "Migrating the model settings failed");
           if (active) { setAiModel(migrated.config.model || ""); setReasoningEffort(migrated.config.reasoningEffort || "max"); }

@@ -154,7 +154,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       ? req.body.sessionId
       : randomUUID();
     const config = await deps.getStudioConfig();
-    const model = typeof req.body?.model === "string" && req.body.model.trim()
+    const requestedModel = typeof req.body?.model === "string" && req.body.model.trim()
       ? req.body.model.trim().slice(0, 100)
       : (config.model || deps.defaultModel);
     const requestedEffort = req.body?.reasoningEffort === "high" || req.body?.reasoningEffort === "max"
@@ -171,13 +171,18 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(400).json({ error: "Invalid diagram context or more than 200 nodes", sessionId });
       return;
     }
+    // A model id the runtime does not know is silently auto-routed to a catalog model, so the id is
+    // settled here — before the turn is logged or a session is opened — and the request carries the
+    // model that will actually run.
+    const modelChoice = await deps.copilot.resolveModel(requestedModel);
+    const model = modelChoice.model || requestedModel;
 
     const startedAt = Date.now();
     const requestId = randomUUID();
     // Tools outlive one request; bind the active context so targeting never uses a stale snapshot.
     contextBySession.set(sessionId, context);
     const nodeNames = (context.nodes as Array<{ id?: unknown; name?: unknown }>).slice(0, 80).map((node) => ({ id: typeof node.id === "string" ? node.id : null, name: typeof node.name === "string" ? node.name.slice(0, 120) : null }));
-    await deps.writeLog("request.received", { requestId, sessionId, model, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, nodeCount: (context.nodes as unknown[]).length, nodeNames });
+    await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, nodeCount: (context.nodes as unknown[]).length, nodeNames });
     if (!standalone) await deps.persistSessionId(sessionId);
     try {
       await deps.writeLog("request.session.acquire.started", { requestId, sessionId, model, standalone });
@@ -355,12 +360,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const actualModel = deps.copilot.lastObservedModel(sessionId);
       await deps.writeLog("turn.failed", {
-        requestId, sessionId, model, standalone, durationMs: Date.now() - startedAt,
+        requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, actualModel: actualModel ?? null,
+        provider: deps.copilot.providerInfo.mode, providerHost: deps.copilot.providerInfo.host ?? null,
+        standalone, durationMs: Date.now() - startedAt,
         errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: message, errorStack: error instanceof Error ? error.stack : null
       });
-      res.status(502).json({ error: describeCopilotFailure(message), sessionId });
+      res.status(502).json({ error: describeCopilotFailure(message, { requestedModel: model, actualModel }), sessionId });
     }
   });
 }

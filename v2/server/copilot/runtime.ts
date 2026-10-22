@@ -9,6 +9,7 @@ import type {
   SessionConfig,
   SessionEvent
 } from "@github/copilot-sdk";
+import { chooseRuntimeModel, readCopilotProvider, toProviderConfig, type CopilotProvider, type ModelChoice } from "./model-routing";
 
 export type Logger = (event: string, fields?: Record<string, unknown>) => Promise<void> | void;
 
@@ -26,6 +27,8 @@ export interface RuntimeSession {
   sdkSessionId: string;
   conversationId: string;
   model: string;
+  /** Model the runtime actually used for the last turn; differs from `model` when it auto-routed. */
+  observedModel?: string;
   configRevisionId: string;
   /** Effort the caller asked for; part of the cache key. */
   requestedEffort: "high" | "max";
@@ -59,6 +62,8 @@ export interface CopilotRuntimeOptions {
   idleTtlMs: number;
   baseDirectory?: string;
   modelsCacheTtlMs?: number;
+  /** Custom-provider configuration; read from the environment when omitted. */
+  provider?: CopilotProvider;
 }
 
 const EFFORT_ORDER = ["max", "xhigh", "high", "medium", "low"] as const;
@@ -102,13 +107,20 @@ export class CopilotRuntime {
   private readonly turnLocks = new Map<string, Promise<void>>();
   private sweepTimer: NodeJS.Timeout | null = null;
   private stopping = false;
+  private readonly provider: CopilotProvider;
 
   constructor(private readonly options: CopilotRuntimeOptions) {
+    this.provider = options.provider || readCopilotProvider();
     if (options.idleTtlMs > 0) {
       const interval = Math.min(Math.max(options.idleTtlMs, 60_000), 5 * 60_000);
       this.sweepTimer = setInterval(() => { void this.sweepIdleSessions(); }, interval);
       this.sweepTimer.unref();
     }
+  }
+
+  /** Custom-provider state of this process, for health output and failure messages. */
+  get providerInfo(): CopilotProvider {
+    return this.provider;
   }
 
   get activeSessionCount(): number {
@@ -166,7 +178,12 @@ export class CopilotRuntime {
       this.client = client;
       this.clientStart = null;
       this.watchLifecycle(client);
-      await this.options.log("client.started", { defaultModel: this.options.defaultModel });
+      await this.options.log("client.started", {
+        defaultModel: this.options.defaultModel,
+        provider: this.provider.mode,
+        providerHost: this.provider.host ?? null,
+        providerModel: this.provider.model ?? null
+      });
       return client;
     })();
     return this.clientStart;
@@ -245,6 +262,9 @@ export class CopilotRuntime {
 
   /** Maps the requested effort onto what the chosen model actually supports. */
   async resolveEffort(model: string, requested: "high" | "max"): Promise<Effort | undefined> {
+    // A custom provider publishes no catalog, so there is nothing to map the effort onto; the
+    // runtime applies the provider's own default instead of guessing a level it cannot support.
+    if (this.provider.mode === "byok") return undefined;
     const supported = (await this.listModels().catch(() => []))
       .find((item) => item.id === model)?.supportedReasoningEfforts || [];
     for (const effort of [requested, ...EFFORT_ORDER]) {
@@ -252,6 +272,31 @@ export class CopilotRuntime {
     }
     await this.options.log("models.effort.unresolved", { model, requested, supported: supported.length });
     return undefined;
+  }
+
+  /**
+   * Resolves the model id a turn will actually run on.
+   *
+   * A model the runtime does not know is not rejected: it silently falls back to automatic routing
+   * and bills whichever catalog model it picks. Choosing the id here keeps the turn and the bill on
+   * the same model, and records every substitution so a mismatch is diagnosable after the fact.
+   */
+  async resolveModel(requested: string): Promise<ModelChoice> {
+    const available = this.provider.mode === "byok"
+      ? []
+      : await this.listModels().then((models) => models.map((model) => model.id)).catch(() => []);
+    const choice = chooseRuntimeModel({ requested, provider: this.provider, available });
+    if (choice.substituted) {
+      await this.options.log("model.substituted", {
+        requested, model: choice.model, reason: choice.reason, available: choice.available.slice(0, 12)
+      });
+    }
+    return choice;
+  }
+
+  /** Last model the runtime reported for a conversation, which is not always the requested one. */
+  lastObservedModel(conversationId: string): string | undefined {
+    return this.sessions.get(conversationId)?.observedModel;
   }
 
   /** Returns a session matching the requested conversation, model, and configuration revision. */
@@ -436,8 +481,12 @@ export class CopilotRuntime {
 
   private async openSession(request: SessionRequest, prepared: SessionPreparation): Promise<RuntimeSession> {
     const effort = request.requestedEffort;
+    // The runtime only leaves the Copilot API when the session itself declares a custom provider;
+    // the CLI environment alone is not enough for sessions the SDK hosts over RPC.
+    const providerConfig = toProviderConfig(this.provider);
     const base: ResumeSessionConfig = {
       streaming: true,
+      ...(providerConfig ? { provider: providerConfig } : {}),
       availableTools: new ToolSet().addCustom("*"),
       tools: prepared.tools,
       systemMessage: { content: prepared.systemMessage },
@@ -520,6 +569,10 @@ export class CopilotRuntime {
   private attachEvents(runtimeSession: RuntimeSession): () => void {
     try {
       return runtimeSession.session.on((event: SessionEvent) => {
+        // The runtime announces the model it settled on before the first token; keeping it lets a
+        // quota failure name the model that was actually billed instead of the one that was asked for.
+        const observed = observedModelOf(event);
+        if (observed) runtimeSession.observedModel = observed;
         void this.options.log("sdk.event", { conversationId: runtimeSession.conversationId, ...compactEvent(event) });
       });
     } catch (error) {
@@ -559,10 +612,35 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The model the runtime settled on, from either the auto-routing decision or the first turn event. */
+function observedModelOf(event: SessionEvent): string | undefined {
+  const type = event.type as string;
+  const data = event.data as { chosenModel?: unknown; model?: unknown } | undefined;
+  if (type === "session.auto_mode_resolved" && typeof data?.chosenModel === "string") return data.chosenModel;
+  if (type === "model.turn_started" && typeof data?.model === "string") return data.model;
+  return undefined;
+}
+
+export interface FailureContext {
+  /** Model the studio asked for. */
+  requestedModel?: string;
+  /** Model the runtime actually ran, when it announced one. */
+  actualModel?: string;
+}
+
 /** One user-facing sentence per failure class; the raw SDK message stays in the JSONL log. */
-export function describeCopilotFailure(message: string): string {
+export function describeCopilotFailure(message: string, context: FailureContext = {}): string {
   if (/availableTools/i.test(message)) return "The Copilot session is missing its tool configuration, so this request was not executed. Restart the copilot service and try again.";
-  if (/quota|rate limit|402/i.test(message)) return "GitHub Copilot quota is exhausted or rate limited, so this request was not executed. Switch accounts or try again later.";
+  if (/quota|rate limit|402/i.test(message)) {
+    const billed = context.actualModel;
+    const drifted = Boolean(billed && context.requestedModel && billed !== context.requestedModel);
+    return "GitHub Copilot quota is exhausted or rate limited"
+      + (billed ? " for " + billed : "")
+      + ", so this request was not executed."
+      + (drifted
+        ? " The runtime routed the turn to " + billed + " instead of " + context.requestedModel + ", which means no custom model provider is active for this server process."
+        : " Switch accounts or try again later.");
+  }
   if (/not logged in|authentication|401|unauthorized/i.test(message)) return "The local Copilot identity is signed out or expired, so this request was not executed. Run copilot login in a terminal first.";
   if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "The selected model is unavailable, so this request was not executed. Pick another model under Settings.";
   if (/timeout|timed out/i.test(message)) return "Copilot did not answer in time, so this request was not executed. Shorten the instruction and try again.";
