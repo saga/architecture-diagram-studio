@@ -139,10 +139,10 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
       contentType: "application/json",
       body: JSON.stringify({
         commands: [],
-        reply: "Added bbb after Database and connected it.",
+        reply: "The edit is accepted; please confirm the preview before it is written to the canvas.",
         nativeEdits: {
           operations: [
-            { op: "add_node_after", target: "Database", cellId: observedCellId, targetLabel: "Database", newLabel: "bbb" }
+            { op: "add_node_after", target: observedCellId, cellId: observedCellId, targetLabel: "Database", newLabel: "bbb" }
           ],
           summary: "Add “bbb” after “Database” and connect it",
           requiresClientExecution: true
@@ -163,7 +163,8 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 
   const lastMessage = page.locator(".gemini-message.assistant").last();
   await expect(lastMessage).toContainText("Applied 1 native change");
-  await expect(lastMessage).toContainText("bbb");
+  await expect(lastMessage).toContainText("Add “bbb” after “Database” and connect it");
+  await expect(lastMessage).not.toContainText(/preview|confirm/i);
   expect(seenPrompt).toContain("Database");
 
   await expect.poll(async () => {
