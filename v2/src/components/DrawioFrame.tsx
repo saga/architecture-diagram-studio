@@ -129,7 +129,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
     // attribute without touching cell styles. Compressed pages use the graph API above.
     const themedXml = applyDrawioThemeBackground(xml, palette.canvas);
     const appliedKey = theme + ":" + palette.canvas;
-    if (editorReady && themedXml !== xml && lastThemeAppliedRef.current !== appliedKey) {
+    if (editorReady && themedXml !== xml) {
       lastThemeAppliedRef.current = appliedKey;
       recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
         theme, background: palette.canvas, xmlChanged: true
