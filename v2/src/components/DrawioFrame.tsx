@@ -268,12 +268,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
         const computed = appShell ? window.parent.getComputedStyle(appShell) : null;
         const canvas = computed?.getPropertyValue("--theme-canvas").trim() || "#ffffff";
-        iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
-          event: "studioSetBackground",
-          ...themeBackgroundRef.current,
-          background: themeBackgroundRef.current.background || canvas,
-          restore: themeRef.current === "editorial"
-        }), window.location.origin);
+        // Theme is presentation-only; do not modify Draw.io graph background on init.
+
       }
       if (data.event === "init") {
         recordDiagnostic("drawio.handshake.ready", "Draw.io embed API initialised; documents can be loaded safely", {
