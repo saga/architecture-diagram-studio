@@ -82,36 +82,49 @@
             index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
             visible: item.visible, collapsed: item.collapsed, connectable: item.connectable };
         });
+        var batchResults = [];
+        var failedIndex = -1;
         activeModel.beginUpdate();
         try {
           operations.forEach(function (operation, index) {
+            failedIndex = index;
             if (!operation || typeof operation.cellId !== "string" || typeof operation.path !== "string" ||
                 typeof operation.value !== "string" || operation.path === "cell:batch" || operation.cellId === "__batch__" || operation.cellId === "__selection__") {
               throw new Error("Batch operation " + (index + 1) + " has an invalid or nested operation payload");
             }
             editCell({ cellId: operation.cellId, pageId: request.pageId, path: operation.path, value: operation.value });
+            batchResults.push({ index: index + 1, cellId: operation.cellId, path: operation.path, value: operation.value, success: true });
           });
         } catch (error) {
+          var rollbackErrors = [];
           snapshots.forEach(function (snapshot) {
-            var item = snapshot.cell;
-            if (activeModel.getCell(item.id) !== item && snapshot.parent) {
-              activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
+            try {
+              var item = snapshot.cell;
+              if (activeModel.getCell(item.id) !== item && snapshot.parent) {
+                activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
+              }
+              activeModel.setValue(item, snapshot.value);
+              activeModel.setStyle(item, snapshot.style);
+              if (snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
+              activeModel.setTerminal(item, snapshot.source || null, true);
+              activeModel.setTerminal(item, snapshot.target || null, false);
+              if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
+              if (typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
+              if (typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
+              if (typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
+            } catch (rollbackError) {
+              rollbackErrors.push({ cellId: snapshot.cell.id, error: rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError) });
             }
-            activeModel.setValue(item, snapshot.value);
-            activeModel.setStyle(item, snapshot.style);
-            if (snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
-            activeModel.setTerminal(item, snapshot.source || null, true);
-            activeModel.setTerminal(item, snapshot.target || null, false);
-            if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
-            if (typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
-            if (typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
-            if (typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
           });
-          throw new Error("Batch rolled back after an operation failed: " + (error && error.message ? error.message : String(error)));
+          var failure = new Error("Batch rolled back after operation " + (failedIndex + 1) + " failed: " + (error && error.message ? error.message : String(error)));
+          failure.batchResults = batchResults;
+          failure.failedIndex = failedIndex;
+          failure.rollbackErrors = rollbackErrors;
+          throw failure;
         } finally { activeModel.endUpdate(); }
         if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
         if (typeof activeGraph.refresh === "function") activeGraph.refresh();
-        return;
+        return { batchResults: batchResults };
       }
       if (request.cellId === "__selection__" && /^(cell:align:|cell:distribute:|cell:group$|cell:ungroup$)/.test(selectionOperation)) {
         var selected = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
@@ -316,11 +329,15 @@
       if (!request || typeof request !== "object") return;
       if (request.event === "studioPropertyEditRequest") {
         try {
-          editCell(request);
-          publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path });
+          var editResult = editCell(request);
+          publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path,
+            batchResults: editResult && editResult.batchResults || null });
         } catch (error) {
           publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path,
-            error: error && error.message ? String(error.message) : String(error) });
+            error: error && error.message ? String(error.message) : String(error),
+            batchResults: error && error.batchResults || null,
+            failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null,
+            rollbackErrors: error && error.rollbackErrors || [] });
         }
       } else if (request.event === "studioSetBackground") {
         var backgroundGraph = currentGraph();
