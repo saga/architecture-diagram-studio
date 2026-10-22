@@ -3,13 +3,13 @@
 - 评审对象：`v2/`（React 19 + Vite + antd 6 + 本地 bundled draw.io v32.0.2）
 - 评审方式：**改造前的历史只读分析，不是当前代码复审，也不是当前实施清单。**
 - 对照基线：`ARCHITECTURE-V2.md`（2026-10-20 的旧版本）
-- 当前决策：以 `docs/adr/0006-drawio-xml-single-source-of-truth.md` 和 `docs/adr/0008-native-drawio-is-the-only-diagram-canvas.md` 为准。本文中关于语义模型为真源、Studio SVG 画布、旧文件路径/行号和未实现能力的描述均属于历史状态，不应作为当前架构事实。
+- 当前决策：以 `docs/adr/0011-native-drawio-only-model.md` 为准；V2 已完成移除语义图模型和自定义布局管线。本文中关于语义模型为真源、Studio SVG 画布、旧文件路径/行号和未实现能力的描述均属于历史状态，不应作为当前架构事实。
 
 ---
 
 ## 状态说明（2026-10-22）
 
-本文保留了改造前的评审证据和旧代码行号。以下旧结论中凡称 `DiagramDocument` 为唯一真源、把 Studio/Freeform 当成现行画布，均已被 ADR-0006 与 ADR-0008 取代；不得把历史基线描述当作当前架构事实。当前实现状态以 `v2/README.md`、`AGENTS.md` 和 ADR-0006 至 ADR-0008 为准。文中后续的修复记录仍需结合最新代码与 CI 复核。
+本文保留了改造前的评审证据和旧代码行号。以下旧结论中凡称 `DiagramDocument` 为唯一真源、把 Studio/Freeform 当成现行画布，均已被 ADR-0006 与 ADR-0008 取代；不得把历史基线描述当作当前架构事实。当前实现状态以 `v2/README.md`、`ARCHITECTURE-V2.md` 和 ADR-0011 为准。文中后续的修复记录仍需结合最新代码与 CI 复核。
 
 ## 0. 一句话结论
 
