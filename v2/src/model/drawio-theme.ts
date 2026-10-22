@@ -150,13 +150,13 @@ export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: D
 export function applyDrawioThemeBackgroundReversible(xml: string, background: string, theme: ThemeName): string {
   const color = safeColor(background);
   if (!color) return xml;
-  return xml.replace(/<mxGraphModel\\b([^<>]*?)(\\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
+  return xml.replace(/<mxGraphModel\b([^<>]*?)(\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
     const read = (key: string) => {
-      const match = new RegExp("\\\\b" + key + "=(['"])([\\s\\S]*?)\\\\1").exec(attributes);
+      const match = new RegExp("\\b" + key + "=(['"])([\s\S]*?)\\1").exec(attributes);
       return match?.[2] ?? null;
     };
     const write = (attrs: string, key: string, value: string | null) => {
-      const pattern = new RegExp("\\\\s+" + key + "=(['"])[^'"]*\\\\1", "i");
+      const pattern = new RegExp("\\s+" + key + "=(['"])[^'"]*\\1", "i");
       return value === null ? attrs.replace(pattern, "") : pattern.test(attrs)
         ? attrs.replace(pattern, " " + key + '="' + value + '"')
         : attrs + " " + key + '="' + value + '"';
