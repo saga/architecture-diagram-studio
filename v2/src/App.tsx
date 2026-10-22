@@ -1229,7 +1229,7 @@ export default function App() {
               </UiSelect>
             </label>
             <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={!studioEditingSafe || isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
-            <div className="segmented"><UiButton disabled={!studioEditingSafe || Boolean(previewDocument)} title={!studioEditingSafe ? "This XML contains content that the Studio projection cannot safely round-trip. Use native Draw.io." : ""} className={viewMode === "studio" ? "selected" : ""} onClick={() => setViewMode("studio")}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")} title="Freeform editing in the embedded Draw.io canvas">Freeform</UiButton></div>
+            <div className="segmented"><UiButton disabled={Boolean(previewDocument)} title={!studioEditingSafe ? "Studio is available in read-only projection mode because this XML cannot be safely round-tripped." : ""} className={viewMode === "studio" ? "selected" : ""} onClick={() => { setViewMode("studio"); if (!studioEditingSafe) setLastAction("Studio projection opened read-only; the native Draw.io XML remains authoritative."); }}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")} title="Freeform editing in the embedded Draw.io canvas">Freeform</UiButton></div>
           </div>
         </div>
 
