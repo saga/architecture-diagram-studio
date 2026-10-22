@@ -308,17 +308,23 @@ button:disabled { opacity: .58; cursor: wait; }
 .trace-error .trace-entry-rail span { border-color: #c35e5e; background: #fff1f1; }
 .trace-warn .trace-entry-rail span { border-color: #b88745; background: #fff8eb; }
 .trace-entry-content { min-width: 0; flex: 1; }
-/* One line per event: message carries the meaning, the event id and time sit as meta on the right. */
-.trace-entry-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.trace-entry-row code { flex: 0 0 auto; color: #7d8899; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.trace-entry-row time { flex: 0 0 auto; color: #9aa4b2; font-size: 9px; font-variant-numeric: tabular-nums; }
+/* One line per event. Every piece of text in the row uses the UI font: the message carries the
+   meaning, the timestamp is numeric meta on the right. Raw event ids live in the details panel. */
+.trace-entry-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.trace-entry-row time { flex: 0 0 auto; color: #9aa4b2; font-family: inherit; font-size: 11px; font-variant-numeric: tabular-nums; }
 .trace-entry-toggle { flex: 0 0 auto; display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: #8b97a7; font-size: 14px; line-height: 1; cursor: pointer; transition: transform .15s, background .15s, color .15s; }
 .trace-entry-toggle:hover { background: #eef1f7; color: #3d4d65; }
 .trace-entry-toggle.open { transform: rotate(90deg); color: #3e52af; }
-.trace-level { border-radius: 4px; padding: 3px 5px; font: 7px ui-monospace, monospace; letter-spacing: .4px; background: #edf6f1; color: #48856e; }
+.trace-level { border-radius: 4px; padding: 3px 5px; font-family: inherit; font-size: 9px; font-weight: 600; letter-spacing: .4px; background: #edf6f1; color: #48856e; }
 .level-error { background: #fff0f0; color: #b64d4d; } .level-warn { background: #fff5e5; color: #a97736; } .level-debug { background: #eff1f5; color: #7b8797; }
 .trace-entry-message { flex: 1 1 auto; min-width: 0; color: #3f4d61; font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.trace-entry-message.is-event { color: #5f6e82; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.trace-entry-message.is-event { color: #5f6e82; }
+.trace-entry-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; color: #8b97a7; font-size: 10px; }
+.trace-entry-meta code { color: #53647b; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.trace-entry-meta code + span { margin-left: 7px; }
+.trace-entry-details-content { display: flex; flex-direction: column; gap: 6px; margin-top: 11px; }
+.trace-entry-details-content strong { color: #7d8899; font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; }
+.trace-entry-details-content .trace-entry-details { margin: 0 0 4px; }
 .trace-entry-details { margin: 11px 0 0; max-height: 320px; overflow: auto; padding: 13px; border: 1px solid #e6eaf0; border-radius: 7px; background: #fbfcfe; color: #53647b; font: 10px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .trace-empty { display: flex; flex-direction: column; align-items: center; padding: 78px 20px; text-align: center; color: #8b97a7; }
 .trace-empty-icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #e0e5ee; border-radius: 14px; background: #fff; color: #7588bd; font-size: 24px; }
@@ -547,12 +553,15 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .workspace-page .page-hero h1,
 .app-shell .workspace-page .settings-card-heading h2,
 .app-shell .workspace-page .gemini-welcome h2,
-.app-shell .workspace-page .trace-entry-row code { color: var(--theme-secondary); }
+.app-shell .workspace-page .trace-entry-meta code { color: var(--theme-secondary); }
 .app-shell .workspace-page .page-hero p,
 .app-shell .workspace-page .settings-description,
 .app-shell .workspace-page .gemini-message-text { color: var(--theme-secondary); }
 .app-shell .workspace-page .trace-entry-message { color: var(--theme-text); }
 .app-shell .workspace-page .trace-entry-message.is-event { color: var(--theme-secondary); }
+.app-shell .workspace-page .trace-entry-row time,
+.app-shell .workspace-page .trace-entry-meta,
+.app-shell .workspace-page .trace-entry-details-content strong { color: var(--theme-muted); }
 .app-shell .workspace-page .settings-card,
 .app-shell .workspace-page .gemini-chat { background: var(--theme-panel); color: var(--theme-text); border-color: var(--theme-border); }
 .app-shell .workspace-page .settings-field,

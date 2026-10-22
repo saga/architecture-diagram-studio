@@ -156,9 +156,16 @@ function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <Button {...(props as any)} htmlType={type === "submit" ? "submit" : "button"} />;
 }
 
+/**
+ * Numeric timestamps keep every row on the same font: the locale format renders CJK date text
+ * ("2026年10月22日") that falls back to a different family than the Latin event text around it.
+ */
 function formattedTime(timestamp: string): string {
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? timestamp : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+  if (Number.isNaN(date.getTime())) return timestamp;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+    + " " + pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
 }
 
 export default function WorkspacePages(props: Props) {
@@ -304,9 +311,13 @@ export default function WorkspacePages(props: Props) {
                 <div className="trace-entry-content">
                   <div className="trace-entry-row">
                     <span className={"trace-level level-" + entry.level}>{entry.level.toUpperCase()}</span>
-                    <span className={"trace-entry-message" + (title === entry.event ? " is-event" : "")} title={title}>{title}</span>
-                    {title !== entry.event && <code>{entry.event}</code>}
-                    <time>{formattedTime(entry.timestamp)}</time>
+                    {/* The message is the human sentence for this event; the raw event id only shows up
+                        when no sentence exists, and otherwise stays in the expanded details. */}
+                    <span
+                      className={"trace-entry-message" + (title === entry.event ? " is-event" : "")}
+                      title={title === entry.event ? title : title + " · " + entry.event}
+                    >{title}</span>
+                    <time dateTime={entry.timestamp}>{formattedTime(entry.timestamp)}</time>
                     <button
                       type="button"
                       className={"trace-entry-toggle" + (expandedTraceId === entry.id ? " open" : "")}
@@ -317,6 +328,7 @@ export default function WorkspacePages(props: Props) {
                     >›</button>
                   </div>
                   {expandedTraceId === entry.id && <div className="trace-entry-details-content">
+                        <div className="trace-entry-meta"><span>Event</span><code>{entry.event}</code><span>Level</span><code>{entry.level}</code></div>
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
