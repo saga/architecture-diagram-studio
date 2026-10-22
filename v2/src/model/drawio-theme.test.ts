@@ -53,6 +53,18 @@ describe("native Draw.io theme adapter", () => {
     expect(themed).not.toContain("studioThemeAppliedFillColor");
   });
 
+  it("keeps HTML label styles inside the value attribute untouched", () => {
+    const label = "&lt;div style='font-family:Arial;font-size:13px'&gt;API Service&lt;/div&gt;";
+    const source = '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="' + label + '" style="rounded=1;fillColor=#ffffff;strokeColor=#7e8ea6;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
+    const themed = applyDrawioThemeBackgroundReversible(source, "#101a2b", "midnight");
+
+    // The theme only touches the graph background; label CSS and cell styles stay byte-identical.
+    expect(themed).toContain('value="' + label + '"');
+    expect(themed).toContain('style="rounded=1;fillColor=#ffffff;strokeColor=#7e8ea6;"');
+    expect(themed).not.toContain("font-family:Arial=1");
+    expect(themed).not.toContain("font-size:13px=1");
+  });
+
   it("restores the original model background when returning to Editorial", () => {
     const source = '<mxfile><diagram><mxGraphModel background="#fefefe"><root/></mxGraphModel></diagram></mxfile>';
     const themed = applyDrawioThemeBackgroundReversible(source, "#101a2b", "youth");

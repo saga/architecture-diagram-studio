@@ -1,4 +1,5 @@
 import type { DiagramDocument } from "./types";
+import { encodeXmlAttribute, findXmlAttribute } from "./drawio-attributes";
 import { validateDrawioXmlDocument } from "./drawio-xml-schema";
 export { DrawioXmlElementSchema, MxCellSchema, MxGeometrySchema, MxGraphModelSchema, MxLibrarySchema, MxLibraryEntrySchema, MxRootSchema, MxfileSchema, DrawioDiagramPageSchema, DrawioXmlRootSchema, DrawioDiagramXmlSchema, validateDrawioXmlDocument, validateDrawioXmlFile } from "./drawio-xml-schema";
 
@@ -105,21 +106,25 @@ function parseRootSlice(xml: string): RootSlice | null {
 }
 
 function stripThemeMetadata(raw: string): string {
-  return raw.replace(/(\sstyle=(["']))([\s\S]*?)\2/, (_match, prefix: string, _quote: string, style: string) =>
-    prefix + style.replace(/(?:^|;)studioTheme(?:Original|Applied|Override)[A-Za-z]+=[^;]*/g, "").replace(/^;+|;+$/g, "") + '"'
-  );
+  // Read the real style attribute; a cell label may contain its own `style='…'` text.
+  const style = findXmlAttribute(raw, "style");
+  if (!style) return raw;
+  const stripped = style.value
+    .replace(/(?:^|;)studioTheme(?:Original|Applied|Override)[A-Za-z]+=[^;]*/g, "")
+    .replace(/^;+|;+$/g, "");
+  return raw.slice(0, style.index) + stripped + raw.slice(style.index + style.length);
 }
 
 function mergeThemeMetadata(sourceCell: string, nextCell: string): string {
-  const sourceStyle = /\bstyle=(["'])([\s\S]*?)\1/.exec(sourceCell);
-  const nextStyle = /\bstyle=(["'])([\s\S]*?)\1/.exec(nextCell);
+  const sourceStyle = findXmlAttribute(sourceCell, "style");
+  const nextStyle = findXmlAttribute(nextCell, "style");
   if (!sourceStyle || !nextStyle) return nextCell;
   const parse = (raw: string) => new Map(raw.split(";").filter(Boolean).map((entry) => {
     const index = entry.indexOf("=");
     return index < 0 ? [entry, "1"] : [entry.slice(0, index), entry.slice(index + 1)];
   }));
-  const source = parse(sourceStyle[2]);
-  const next = parse(nextStyle[2]);
+  const source = parse(sourceStyle.value);
+  const next = parse(nextStyle.value);
   const keys = ["fillColor", "strokeColor", "fontColor", "startFillColor", "endFillColor"];
   for (const key of keys) {
     const suffix = key[0].toUpperCase() + key.slice(1);
@@ -151,8 +156,7 @@ function mergeThemeMetadata(sourceCell: string, nextCell: string): string {
     if (sourceValue !== nextValue) next.set(overrideKey, "1");
   }
   const mergedStyle = [...next].map(([key, value]) => key + "=" + value).join(";") + ";";
-  const escaped = mergedStyle.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return nextCell.slice(0, nextStyle.index) + 'style="' + escaped + '"' + nextCell.slice(nextStyle.index + nextStyle[0].length);
+  return nextCell.slice(0, nextStyle.index) + encodeXmlAttribute(mergedStyle) + nextCell.slice(nextStyle.index + nextStyle.length);
 }
 
 function styleOf(raw: string): string {

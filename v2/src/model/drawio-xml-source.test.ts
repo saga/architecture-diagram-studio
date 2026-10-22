@@ -75,4 +75,23 @@ describe("Draw.io XML is the authoritative source", () => {
     expect(canApplySemanticEdits(multiPage, singlePage, document)).toBe(false);
     expect(patchDrawioXml(multiPage, singlePage, document)).toBeNull();
   });
+
+  it("keeps HTML label styles intact when a semantic edit patches a cell", () => {
+    const document = FIXTURES.c4();
+    const source = toDrawioXml(document);
+    expect(source).toContain("&lt;div style='font-family:Arial, Helvetica, sans-serif;");
+
+    const next = structuredClone(document);
+    next.nodes[0].technology = "Rust";
+    const patched = patchDrawioXml(source, toDrawioXml(next), document);
+
+    expect(patched).not.toBeNull();
+    // The label CSS must survive as text. A `style=` search over the whole tag would
+    // read this inline CSS as the cell style and reserialize it as key=1 pairs.
+    expect(patched).toContain("&lt;div style='font-family:Arial, Helvetica, sans-serif;");
+    expect(patched).not.toContain("&lt;div style=\"");
+    expect(patched).not.toContain("sans-serif=1");
+    expect(patched).not.toContain("font-size:13px=1");
+    expect(patched).toContain("Rust");
+  });
 });

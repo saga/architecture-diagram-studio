@@ -98,9 +98,16 @@ function redactTerminalData(value: unknown, depth = 0): unknown {
   return String(value);
 }
 
+// The UI test suite runs the same two processes on dedicated ports with an isolated
+// data directory, so these defaults stay unchanged for normal development.
+const apiTarget = process.env.STUDIO_API_URL || "http://127.0.0.1:4175";
+const webPort = Number(process.env.STUDIO_WEB_PORT || 5174);
+const previewPort = Number(process.env.STUDIO_PREVIEW_PORT || 4174);
+const apiProxy = { "/api/copilot": apiTarget, "/api/workspace": apiTarget };
+
 export default defineConfig({
   plugins: [react(), terminalDiagnostics()],
-  server: { host: "0.0.0.0", port: 5174, proxy: { "/api/copilot": "http://127.0.0.1:4175", "/api/workspace": "http://127.0.0.1:4175" } },
-  preview: { host: "0.0.0.0", port: 4174, proxy: { "/api/copilot": "http://127.0.0.1:4175", "/api/workspace": "http://127.0.0.1:4175" } },
+  server: { host: "0.0.0.0", port: webPort, strictPort: Boolean(process.env.STUDIO_WEB_PORT), proxy: apiProxy },
+  preview: { host: "0.0.0.0", port: previewPort, strictPort: Boolean(process.env.STUDIO_PREVIEW_PORT), proxy: apiProxy },
   build: { target: "es2022", sourcemap: true }
 });
