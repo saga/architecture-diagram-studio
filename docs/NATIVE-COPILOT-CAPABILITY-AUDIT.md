@@ -9,7 +9,7 @@
 
 The seven-operation allowlist is deliberately narrower than Draw.io's native API and should remain so. The substantive problems were in state binding and completion semantics, not simply a short schema: server target resolution depended on the model-facing cell list, a request did not carry a verifiable source revision, move compilation used stale coordinates, and the UI could report success before native XML serialization and workspace persistence had completed.
 
-Those paths have now been tightened. The remaining major architectural gap is that the HTTP API still returns a *command/plan* rather than ADR-0010's discriminated final outcome, and the browser's final execution/persistence result is not posted back to the server as a final audit event. Broader native operations also remain intentionally unexposed.
+Those paths have now been tightened, and the browser now posts a correlated final execution/persistence acknowledgement to the server. The initial HTTP response is explicitly `command_ready`, not `applied`; the acknowledgement endpoint records a final `applied` or `failed` outcome. The remaining contract gap is that clarification, unsupported, stale-context and no-operation replies are not yet represented by one complete discriminated outcome union. Broader native operations also remain intentionally unexposed.
 
 ## Findings and code changes
 
@@ -31,7 +31,7 @@ Relevant code: `v2/server/copilot/intent-route.ts`, `v2/server/copilot-server.ts
 
 **Before:** the browser converted a requested delta into absolute coordinates from the XML snapshot captured before the model call. If a person moved the cell while the model was thinking, the generated absolute coordinates could overwrite that more recent edit.
 
-**Changed:** `move` is now one `geometry:translate` bridge step. The local Draw.io plugin adds the bounded delta to the current `mxGeometry` at execution time. A client-side target/page preflight remains as a second guard; it does not replace server validation.
+**Changed:** `move` is now one `geometry:translate` bridge step. The local Draw.io plugin adds the bounded delta to the current `mxGeometry` at execution time. Server resolution now rejects `move` and `resize` on connector cells because edge geometry represents routing/label offsets rather than node position/size. A client-side target/page preflight remains as a second guard; it does not replace server validation.
 
 Relevant code: `v2/src/model/native-edit-operations.ts`, `v2/plugins/studio-selection-plugin.js`.
 
@@ -39,7 +39,7 @@ Relevant code: `v2/src/model/native-edit-operations.ts`, `v2/plugins/studio-sele
 
 **Before:** the bridge acknowledged an in-memory graph mutation and the chat could immediately print success while XML serialization and workspace persistence were still asynchronous.
 
-**Changed:** for batch edits, the bridge waits for Draw.io's save/autosave XML event and returns the serialized XML with its acknowledgement. Workspace mode then waits for the revision-checked persistence call before resolving the Copilot edit as successful. A persistence error is reported separately from an editor rejection; it does not falsely claim that the edit was never applied. Late acknowledgements after the UI timeout do not turn the chat message into a late success.
+**Changed:** for batch edits, the bridge waits for Draw.io's save/autosave XML event and returns the serialized XML with its acknowledgement. Workspace mode then waits for the revision-checked persistence call before resolving the Copilot edit as successful. The browser posts a second, correlated acknowledgement to `/api/copilot/intent/ack`; the server checks the saved workspace revision before recording the final outcome. A persistence error is reported separately from an editor rejection; it does not falsely claim that the edit was never applied. Late acknowledgements after the UI timeout still reach the server for audit but do not turn the chat message into a late success. The final server log is client-reported evidence from this local single-user UI, not independent proof suitable for a regulated audit trail.
 
 Relevant code: `v2/src/components/DrawioFrame.tsx`, `v2/src/App.tsx`, `v2/src/hooks/useCopilotIntent.ts`.
 
@@ -66,7 +66,7 @@ Draw.io has multiple layers of capability: its standard iframe JSON protocol (lo
 | Select an existing cell | Selection bridge | `select` | Covered |
 | Rename a cell | `label` | `set_label` | Covered |
 | Color a cell | `style:<key>` | `set_style` limited to fill, stroke, font color | Correctly restricted; arbitrary keys would be unsafe |
-| Move / resize | Native geometry | `move`, `resize` | Covered; move now uses a live delta |
+| Move / resize a node | Native geometry | `move`, `resize` | Covered for vertices; server rejects edges until routing-specific semantics exist |
 | Delete a cell | Native remove | `delete` | Covered with batch rollback for affected cells/edges |
 | Add a node connected to a target | Plugin inserts a vertex and an edge together | `add_node_after` | Basic path covered, but shape type and edge details are fixed |
 | Add an independent edge / reconnect an existing edge | Plugin internals can manipulate edge terminals | None | **Functional gap**: no first-class `add_edge` or `set_edge_endpoints` operation |
@@ -95,14 +95,15 @@ The current seven operations should not be expanded with a generic `set_property
 | mxGraph mutation, rollback and serialization | Draw.io plugin | Appropriate; the server cannot call the in-iframe graph model directly |
 | Workspace optimistic save and immutable XML versions | Server | Server save path; Copilot waits for persistence before showing success |
 | Standalone file-system write | Browser File System Access API | Appropriate for a user-selected local file; never route it through workspace persistence |
-| Final native execution/persistence audit event | **Server API + browser acknowledgement** | **Gap:** the browser knows the final result, but the current intent HTTP response ends before execution and the final result is not sent back as a correlated server acknowledgement |
+| Final native execution/persistence audit event | **Server API + browser acknowledgement** | Correlated acknowledgement endpoint now records applied/failed and revision data; route-level tests and a stronger trust model remain outstanding |
 
 ### Follow-up architecture work
 
-1. Add a small acknowledgement endpoint keyed by a server-generated operation/request ID. The browser should post editor result, serialized-document hash, workspace save result/revision (or standalone save result), and failure stage. The server should correlate it with the model turn and log a final outcome. This is needed before treating the current logs as complete end-to-end audit evidence.
-2. Upgrade the response from optional `nativeEdits` plus free-form `reply` to a discriminated outcome (at least `command_ready`, `stale_context`, `needs_clarification`, `unsupported`, `failed`; only the browser acknowledgement can yield final `applied`). This aligns the API with ADR-0010 section 7.
+1. The correlated acknowledgement endpoint is now implemented. Add route-level tests for success, native rejection, persistence failure, acknowledgement replay/expiry, and a workspace revision mismatch between save and acknowledgement.
+2. Complete the result union beyond `command_ready` / `applied` / `failed`: `stale_context`, `needs_clarification`, `unsupported` and non-edit replies should use explicit outcomes as well. This is still required by ADR-0010 section 7.
 3. Consider re-reading the actual active diagram file from disk when obtaining the workspace snapshot if V2 is expected to tolerate edits made by another process while it remains open. The current snapshot accessor validates the server's stored workspace state; it is not itself a guaranteed filesystem change detector.
-4. Add route-level tests for forged/mismatched XML revision, stale workspace revision before and after model latency, a duplicate label beyond the first 200 cells, page mismatch, and standalone/workspace context isolation. The current unit and E2E tests are useful but do not yet cover the whole HTTP-to-SDK contract.
+4. Add route-level tests for forged/mismatched XML revision, stale workspace revision before and after model latency, a duplicate label beyond the first 200 cells, page mismatch, edge-vs-vertex operation type checks, and standalone/workspace context isolation. The current unit and E2E tests are useful but do not yet cover the whole HTTP-to-SDK contract.
+5. Standalone execution receipts explicitly say persistence is not managed by the server. If product expectations require server-visible local-file save state, add a browser-owned save acknowledgement; do not imply that an editor serialization proves the user's local file was written.
 
 ## ADR alignment matrix
 
@@ -111,7 +112,7 @@ The current seven operations should not be expanded with a generic `set_property
 | ADR-0011: one native Draw.io model; no `DiagramDocument` editing round-trip | Aligned; keep it that way |
 | ADR-0012: typed revision-bound native operation plans, no raw XML replacement, no parallel graph model | Mostly aligned; current Copilot operations now carry a revision/page and the plugin operates on native mxCells |
 | ADR-0010 sections 1–6: unified server interpretation, validated revision/page, constrained bridge and explicit acknowledgement | Improved and largely aligned for the native-edit path; route-level coverage still needed |
-| ADR-0010 section 7: server-visible discriminated final outcome and complete audit of editor + persistence result | **Not complete**; frontend gates its user-facing success but server does not yet receive the final ack |
+| ADR-0010 section 7: server-visible discriminated final outcome and complete audit of editor + persistence result | **Partially aligned**; server now receives a correlated final applied/failed acknowledgement, but the full outcome union and route-level tests are incomplete |
 | ADR-0010 checklist: mode parity, broad operation examples (alignment/grouping/relation edits), failure and E2E coverage | **Not complete**; current allowlist is intentionally smaller and must be described as such |
 
 ## Verification status
