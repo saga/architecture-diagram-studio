@@ -37,6 +37,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const lastHandledCellEditRequestRef = useRef<number | null>(null);
+  const pendingNativeEditsRef = useRef(new Map<number, { cellId: string; path: string; value: string; startedAt: number; beforeXml: string }>());
+  const pendingSaveConfirmationsRef = useRef(new Map<number, { cellId: string; path: string; value: string; startedAt: number; beforeXml: string }>());
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   const themeRef = useRef(theme);
@@ -183,8 +185,10 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       value: cellEdit.value
     }), window.location.origin);
     recordDiagnostic("drawio.selection.property.requested", "Sent a native property edit through the Draw.io plugin bridge", {
-      cellId: cellEdit.cellId, property: cellEdit.path, requestId: cellEdit.requestId
+      cellId: cellEdit.cellId, property: cellEdit.path, value: cellEdit.value, requestId: cellEdit.requestId,
+      pageId: cellEdit.pageId, xmlLengthBefore: xml.length
     });
+    pendingNativeEditsRef.current.set(cellEdit.requestId, { cellId: cellEdit.cellId, path: cellEdit.path, value: cellEdit.value, startedAt: Date.now(), beforeXml: xml });
   }, [cellEdit, editorReady, bridgeReady]);
 
   useLayoutEffect(() => {
@@ -224,16 +228,23 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
         if (data.success === true) {
-          recordDiagnostic("drawio.selection.property.updated", "Updated a selected native Draw.io cell property", {
-            cellId: data.cellId, property: data.path, requestId
+          const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
+          if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
+            cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
+            durationMs: pending ? Date.now() - pending.startedAt : null, xmlLengthBefore: pending?.beforeXml.length ?? null
           });
+          if (requestId !== null && pending) pendingSaveConfirmationsRef.current.set(requestId, pending);
           // Programmatic graph-model edits do not always trigger Draw.io's autosave event.
           // Ask the native editor to serialize the current XML through its standard save protocol.
           iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "save" }), window.location.origin);
-          recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId });
+          recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId, cellId: data.cellId, property: data.path });
         } else {
-          recordDiagnostic("drawio.selection.property.update.failed", "Could not update a selected native Draw.io cell property", {
-            cellId: data.cellId, property: data.path, requestId,
+          const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
+          if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
+            cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
+            durationMs: pending ? Date.now() - pending.startedAt : null,
             errorMessage: typeof data.error === "string" ? data.error : "Unknown property edit error"
           }, "error");
         }
@@ -283,6 +294,16 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           // Studio projection. In that case keep the old projection and persist the complete XML.
           const next = fromDrawioXml(data.xml, currentDocument);
           const projection = next === currentDocument ? currentDocument : next;
+          const pendingSaves = Array.from(pendingSaveConfirmationsRef.current.entries());
+          for (const [requestId, pending] of pendingSaves) {
+            const changed = data.xml !== pending.beforeXml;
+            recordDiagnostic(changed ? "drawio.selection.property.save_confirmed" : "drawio.selection.property.save_unchanged",
+              changed ? "Native Draw.io serialization confirmed XML changed after the acknowledged edit" : "Native Draw.io serialized XML but no XML difference from the edit baseline was observed",
+              { requestId, cellId: pending.cellId, property: pending.path, value: pending.value,
+                durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
+                xmlChanged: changed, saveEvent: data.event });
+            pendingSaveConfirmationsRef.current.delete(requestId);
+          }
           recordDiagnostic("drawio.document.saved", "Native Draw.io XML autosave captured as the authoritative source", {
             event: data.event, xmlLength: data.xml.length, projectionMapped: next !== currentDocument,
             nodeCount: projection.nodes.length, relationCount: projection.relations.length
