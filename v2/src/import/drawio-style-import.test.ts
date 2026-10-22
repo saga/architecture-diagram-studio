@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { nodeVisualStyleFromDrawio, relationVisualStyleFromDrawio } from "./drawio";
 import { diagramPalette } from "../design/render-spec";
-import { fromDrawioXml } from "./drawio";
+import { fromDrawioXml, roleFromStyle } from "./drawio";
 import { toDrawioXml } from "../export/drawio";
+import { getDrawioXmlDiagnostics } from "../model/drawio-xml-source";
 import { FIXTURES } from "../model/fixtures";
 import type { DiagramDocument } from "../model/types";
 
@@ -85,6 +86,51 @@ describe("Draw.io style import parity", () => {
     expect(imported.nodes.some((node) => node.name === "New node")).toBe(false);
     const exported = toDrawioXml(imported);
     expect(exported).toContain('parent="container"><mxGeometry x="10" y="20"');
+  });
+
+  it("maps common Draw.io shapes to coarse semantic roles", () => {
+    expect(roleFromStyle("shape=umlActor;")).toBe("actor");
+    expect(roleFromStyle("shape=cloud;")).toBe("external");
+    expect(roleFromStyle("shape=table;")).toBe("data");
+    expect(roleFromStyle("shape=mxgraph.flowchart.decision;")).toBe("decision");
+  });
+
+  it("recognizes native UML lifelines as a sequence diagram", () => {
+    const base: DiagramDocument = {
+      ...FIXTURES.c4(), id: "native-sequence", title: "Native sequence",
+      nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+    };
+    const xml = '<mxfile><diagram id="seq" name="Sequence"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="participant-a" value="Client" style="shape=umlLifeline;" vertex="1" parent="1"><mxGeometry x="100" y="30" width="90" height="300" as="geometry"/></mxCell>' +
+      '<mxCell id="participant-b" value="API" style="shape=umlLifeline;" vertex="1" parent="1"><mxGeometry x="300" y="30" width="90" height="300" as="geometry"/></mxCell>' +
+      '<mxCell id="message-1" value="request" edge="1" parent="1" source="participant-a" target="participant-b"><mxGeometry relative="1" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, base);
+    expect(imported.kind).toBe("sequence");
+    expect(imported.sequence?.participants).toEqual(["participant-a", "participant-b"]);
+    expect(imported.nodes.every((node) => node.role === "actor")).toBe(true);
+  });
+
+  it("persists Studio layout configuration in the authoritative Draw.io XML", () => {
+    const document = FIXTURES.c4();
+    document.layout = {
+      ...document.layout, profile: "dagre-layered", direction: "DOWN", routing: "curved",
+      nodeSpacing: 76, layerSpacing: 132, boundaryPadding: 44, externalSide: "LEFT", storageSide: "RIGHT"
+    };
+    const xml = toDrawioXml(document);
+    const restored = fromDrawioXml(xml, { ...FIXTURES.c4(), layout: { ...FIXTURES.c4().layout } });
+    expect(restored.layout).toEqual(document.layout);
+  });
+
+  it("warns on multi-page XML and explains non-diagram Draw.io files", () => {
+    const singlePage = toDrawioXml(FIXTURES.c4());
+    const secondPage = '<diagram id="second-page" name="Second page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>';
+    const diagnostics = getDrawioXmlDiagnostics(singlePage.replace("</mxfile>", secondPage + "</mxfile>"));
+    expect(diagnostics.pageCount).toBe(2);
+    expect(diagnostics.warnings.some((warning) => warning.includes("only the first page"))).toBe(true);
+    expect(getDrawioXmlDiagnostics("<mxlibrary>[]</mxlibrary>").issues[0]).toContain("custom shape library");
+    expect(getDrawioXmlDiagnostics("<templates/>").issues[0]).toContain("template index");
   });
 
   it("doesn't freeze the generated theme defaults as custom overrides", () => {
