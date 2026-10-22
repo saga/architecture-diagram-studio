@@ -274,15 +274,18 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
 }
 
 /** One-line, user-facing description of a planned operation. */
-export function describeNativeEditOperation(operation: NativeEditOperation): string {
+export function describeNativeEditOperation(operation: NativeEditOperation & { targetLabel?: string }): string {
+  const target = typeof operation.targetLabel === "string" && operation.targetLabel.trim()
+    ? operation.targetLabel.trim()
+    : operation.target;
   switch (operation.op) {
-    case "select": return `Select “${operation.target}”`;
-    case "set_label": return `Rename “${operation.target}” to “${operation.label}”`;
-    case "set_style": return `Set ${operation.key} of “${operation.target}” to ${operation.color}`;
-    case "move": return `Move “${operation.target}” by ${operation.dx}, ${operation.dy}`;
-    case "resize": return `Resize “${operation.target}” to ${operation.width} × ${operation.height}`;
-    case "delete": return `Delete “${operation.target}”`;
-    case "add_node_after": return `Add “${operation.newLabel}” after “${operation.target}” and connect it`;
+    case "select": return `Select “${target}”`;
+    case "set_label": return `Rename “${target}” to “${operation.label}”`;
+    case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
+    case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
+    case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
+    case "delete": return `Delete “${target}”`;
+    case "add_node_after": return `Add “${operation.newLabel}” after “${target}” and connect it`;
   }
 }
 
