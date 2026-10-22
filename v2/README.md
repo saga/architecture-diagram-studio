@@ -61,13 +61,13 @@ The V2 workspace uses `antd` for shared enterprise controls and theme tokens, wi
 
 ## Workspace pages and diagnostics
 
-The top navigation separates **Diagram**, **Layout Copilot**, **Agent 轨迹**, and **配置**. Copilot has a dedicated conversation page; proposed layout changes remain previews until applied. The trace page reads structured application events from the server and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. This application log is separate from the full Copilot SDK session audit log.
+The top navigation separates **Diagram**, **Agent 轨迹**, and **配置**. Copilot is the right-panel **Copilot** tab on the diagram page rather than a separate top-level page, so the canvas stays visible while you talk to it; proposed layout changes remain previews until applied. The trace page reads structured application events from the server and includes request phases, layout timings, Draw.io initialization, imports/exports, and runtime errors. This application log is separate from the full Copilot SDK session audit log.
 
 Browser diagnostics are sent to the local server and persisted as application events. The UI telemetry redacts credential-like fields; server Copilot audit logs retain user request text and the submitted diagram context, while native Draw.io XML is preserved in document version snapshots. Treat local logs and snapshots as potentially sensitive project data.
 
 ### Draw.io initialization troubleshooting
 
-The native iframe waits for the Draw.io embed API's `init` event before sending the XML document. The iframe's browser `load` event alone does not mean the editor API is ready. If initialization does not finish, the editor shows a timeout with a retry action. In the **配置** page, use **检查本地 Draw.io** to verify `/drawio/studio-bundle.json` and `/drawio/index.html`; then review `drawio.handshake.*` and `drawio.init.timeout` entries in Agent 轨迹 alongside the terminal output.
+The native iframe waits for the Draw.io embed API's `init` event before sending the XML document. The iframe's browser `load` event alone does not mean the editor API is ready. If initialization does not finish, the editor shows a timeout with a retry action. In the **配置** page, use **检查本地 Draw.io** to verify `/drawio/studio-bundle.json` and `/drawio/index.html`; then review `drawio.handshake.*` and `drawio.init.timeout` entries in Agent 轨迹 (enable **Show low-level events**, which is off by default) alongside the terminal output.
 
 ## Interface themes and native editor interaction
 

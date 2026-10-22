@@ -13,12 +13,13 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test.describe("工作区导航与外观", () => {
-  test("顶栏在 Diagram / Layout Copilot / Agent traces / Settings 之间切换", async ({ page }) => {
+  test("顶栏在 Diagram / Agent traces / Settings 之间切换，Copilot 由右侧面板进入", async ({ page }) => {
     const nav = page.locator('nav[aria-label="Workspace pages"]');
     await expect(nav.getByRole("button", { name: "Diagram" })).toHaveAttribute("aria-current", "page");
 
-    await nav.getByRole("button", { name: "Layout Copilot" }).click();
-    await expect(nav.getByRole("button", { name: "Layout Copilot" })).toHaveAttribute("aria-current", "page");
+    // The top bar no longer duplicates the Copilot entry; it is the right-panel tab.
+    await expect(nav.getByRole("button", { name: "Layout Copilot" })).toHaveCount(0);
+    await page.locator(".right-tabs").getByRole("tab", { name: "Copilot" }).click();
     await expect(page.locator(".right-copilot-panel")).toBeVisible();
     await expect(page.locator(".right-tabs").getByRole("tab", { name: "Copilot" })).toHaveAttribute("aria-selected", "true");
 
@@ -28,13 +29,15 @@ test.describe("工作区导航与外观", () => {
     await nav.getByRole("button", { name: "Agent traces" }).click();
     await expect(page.locator(".traces-workspace")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Agent trace" })).toBeVisible();
-    await expect(page.locator(".trace-metrics")).toContainText("All events");
+    await expect(page.locator(".trace-filters")).toContainText("Copilot");
+    await expect(page.locator(".trace-noise-toggle")).toContainText("low-level events");
 
     await nav.getByRole("button", { name: "Settings" }).click();
     await expect(page.locator(".settings-workspace")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Back to diagram" })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Back to diagram" }).click();
+    await nav.getByRole("button", { name: "Diagram" }).click();
     await expect(page.locator(".canvas-stage")).toBeVisible();
     await expect(nav.getByRole("button", { name: "Diagram" })).toHaveAttribute("aria-current", "page");
   });

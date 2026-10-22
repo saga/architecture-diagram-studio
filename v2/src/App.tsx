@@ -1246,10 +1246,10 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span className="crumb-sep">/</span><strong>{projectWorkspace?.primaryDiagram || document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
+        <div className="document-breadcrumb"><strong>{projectWorkspace?.primaryDiagram || document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
-          {([["diagram", "Diagram"], ["copilot", "Layout Copilot"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
-            <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "diagram" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "diagram" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
+          {([["diagram", "Diagram"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
+            <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
         <label className="theme-selector" title="Switch the color theme of the whole workspace">
@@ -1280,7 +1280,8 @@ export default function App() {
           event.currentTarget.value = "";
           if (file) void openStandaloneDiagram(file);
         }} />
-        {activePage === "diagram" ? <div className="topbar-actions">
+        <div className="topbar-actions">
+          {activePage === "diagram" && <>
           <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canUndo || Boolean(previewDocument)} onClick={undoDocument}>Undo</UiButton>
           <UiButton className="button button-quiet" disabled={!semanticEditingSafe || !canRedo || Boolean(previewDocument)} onClick={redoDocument}>Redo</UiButton>
           <UiButton className="button button-quiet" title="Reload the built-in sample" disabled={!semanticEditingSafe} onClick={resetDiagram}>Reset</UiButton>
@@ -1288,8 +1289,8 @@ export default function App() {
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
           {standaloneFileName && <UiButton className="button button-secondary" title="Browse, compare and restore local Draw.io XML snapshots" onClick={openStandaloneHistory}>Local history</UiButton>}
-          
-        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("diagram")}>Back to diagram</UiButton></div>}
+          </>}
+        </div>
       </header>
 
       {activePage === "diagram" ? (

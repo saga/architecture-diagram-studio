@@ -286,33 +286,32 @@ button:disabled { opacity: .58; cursor: wait; }
 .copilot-preview-actions { margin: 0 clamp(14px, 4vw, 54px) 10px; }
 .copilot-preview-actions .preview-pill { margin-bottom: 7px; }
 
-.trace-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-.trace-metrics > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; border: 1px solid #e6eaf0; border-radius: 10px; padding: 17px 19px; background: #fff; }
-.trace-metrics span { color: #8692a2; font-size: 10px; }
-.trace-metrics strong { font: 26px ui-monospace, SFMono-Regular, Menlo, monospace; color: #34465e; }
-.trace-metrics small { color: #a0a9b6; font-size: 9px; line-height: 1.5; }
-.trace-metrics .has-errors strong { color: #bf4e4e; }
 .trace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 0 13px; border-bottom: 1px solid #e3e8ef; }
 .trace-filters { display: flex; flex-wrap: wrap; gap: 5px; }
 .trace-filters button { border: 1px solid transparent; border-radius: 6px; background: transparent; color: #798699; padding: 7px 10px; font-size: 10px; }
 .trace-filters button.active { border-color: #dbe2ff; background: #f0f3ff; color: #3e52af; font-weight: 650; }
-.trace-toolbar > span { color: #9ba5b2; font-size: 9px; text-align: right; }
-.trace-list { padding: 7px 0 22px; }
-.trace-entry { display: flex; gap: 13px; padding: 18px 0 19px; border-bottom: 1px solid #e8ecf2; }
+.trace-noise-toggle { flex: 0 0 auto; border: 1px dashed #d9e0ea; border-radius: 6px; background: transparent; color: #8b97a7; padding: 6px 9px; font-size: 9px; white-space: nowrap; }
+.trace-noise-toggle:hover { border-color: #c2cddd; color: #5f6e82; }
+.trace-noise-toggle.active { border-style: solid; border-color: #dbe2ff; background: #f0f3ff; color: #3e52af; }
+.trace-list { padding: 4px 0 22px; }
+.trace-entry { display: flex; gap: 13px; padding: 11px 0; border-bottom: 1px solid #e8ecf2; }
 .trace-entry-rail { width: 12px; flex: 0 0 12px; position: relative; display: flex; justify-content: center; }
-.trace-entry-rail:before { content: ""; position: absolute; top: 13px; bottom: -30px; width: 1px; background: #dde3ed; }
+.trace-entry-rail:before { content: ""; position: absolute; top: 13px; bottom: -18px; width: 1px; background: #dde3ed; }
 .trace-entry:last-child .trace-entry-rail:before { display: none; }
 .trace-entry-rail span { margin-top: 4px; width: 8px; height: 8px; border: 2px solid #a4b0c2; background: #f6f7f9; border-radius: 50%; z-index: 1; }
 .trace-error .trace-entry-rail span { border-color: #c35e5e; background: #fff1f1; }
 .trace-warn .trace-entry-rail span { border-color: #b88745; background: #fff8eb; }
 .trace-entry-content { min-width: 0; flex: 1; }
-.trace-entry-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.trace-entry-head code { color: #34465e; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.trace-entry-head time { margin-left: auto; color: #9aa4b2; font-size: 9px; }
-.trace-entry-head button { border: 0; background: transparent; color: #7b8bb1; font-size: 9px; padding: 4px; }
+/* One line per event: message carries the meaning, the event id and time sit as meta on the right. */
+.trace-entry-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.trace-entry-row code { flex: 0 0 auto; color: #7d8899; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.trace-entry-row time { flex: 0 0 auto; color: #9aa4b2; font-size: 9px; font-variant-numeric: tabular-nums; }
+.trace-entry-toggle { flex: 0 0 auto; display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: #8b97a7; font-size: 14px; line-height: 1; cursor: pointer; transition: transform .15s, background .15s, color .15s; }
+.trace-entry-toggle:hover { background: #eef1f7; color: #3d4d65; }
+.trace-entry-toggle.open { transform: rotate(90deg); color: #3e52af; }
 .trace-level { border-radius: 4px; padding: 3px 5px; font: 7px ui-monospace, monospace; letter-spacing: .4px; background: #edf6f1; color: #48856e; }
 .level-error { background: #fff0f0; color: #b64d4d; } .level-warn { background: #fff5e5; color: #a97736; } .level-debug { background: #eff1f5; color: #7b8797; }
-.trace-entry-message { margin-top: 7px; color: #6b798d; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.trace-entry-message { flex: 1 1 auto; min-width: 0; color: #3f4d61; font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trace-entry-details { margin: 11px 0 0; max-height: 320px; overflow: auto; padding: 13px; border: 1px solid #e6eaf0; border-radius: 7px; background: #fbfcfe; color: #53647b; font: 10px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .trace-empty { display: flex; flex-direction: column; align-items: center; padding: 78px 20px; text-align: center; color: #8b97a7; }
 .trace-empty-icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #e0e5ee; border-radius: 14px; background: #fff; color: #7588bd; font-size: 24px; }
@@ -368,7 +367,6 @@ button:disabled { opacity: .58; cursor: wait; }
   .workspace-nav button { padding: 7px 5px; font-size: 8px; }
   .settings-grid { grid-template-columns: minmax(0, 1fr); }
   .settings-logs-card { grid-column: auto; }
-  .trace-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .preview-toolbar-actions { display: flex; gap: 5px; align-items: center; }
@@ -538,20 +536,17 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .workspace-page .page-hero h1,
 .app-shell .workspace-page .settings-card-heading h2,
 .app-shell .workspace-page .gemini-welcome h2,
-.app-shell .workspace-page .trace-entry-head code { color: var(--theme-text); }
+.app-shell .workspace-page .trace-entry-row code { color: var(--theme-secondary); }
 .app-shell .workspace-page .page-hero p,
 .app-shell .workspace-page .settings-description,
-.app-shell .workspace-page .trace-entry-message,
 .app-shell .workspace-page .gemini-message-text { color: var(--theme-secondary); }
+.app-shell .workspace-page .trace-entry-message { color: var(--theme-text); }
 .app-shell .workspace-page .settings-card,
-.app-shell .workspace-page .gemini-chat,
-.app-shell .workspace-page .trace-metrics > div { background: var(--theme-panel); color: var(--theme-text); border-color: var(--theme-border); }
+.app-shell .workspace-page .gemini-chat { background: var(--theme-panel); color: var(--theme-text); border-color: var(--theme-border); }
 .app-shell .workspace-page .settings-field,
 .app-shell .workspace-page .settings-security-note span,
 .app-shell .workspace-page .settings-terminal-note span,
-.app-shell .workspace-page .trace-metrics span,
-.app-shell .workspace-page .trace-metrics small,
-.app-shell .workspace-page .trace-toolbar > span { color: var(--theme-muted); }
+.app-shell .workspace-page .trace-noise-toggle { color: var(--theme-muted); }
 .app-shell .workspace-page .settings-field input:not(.ant-select-input),
 .app-shell .workspace-page .gemini-composer,
 .app-shell .workspace-page .gemini-composer textarea { background: var(--theme-input-bg); color: var(--theme-input-text); border-color: var(--theme-border); }
@@ -561,7 +556,9 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .workspace-page .prompt-suggestions button { background: var(--theme-nav-bg); border-color: var(--theme-border); color: var(--theme-secondary); }
 .app-shell .workspace-page .trace-filters button.active { background: var(--theme-soft); color: var(--theme-accent); border-color: var(--theme-border); }
 .app-shell .workspace-page .trace-entry { border-color: var(--theme-border); }
-.app-shell .workspace-page .trace-entry-head button { color: var(--theme-accent); }
+.app-shell .workspace-page .trace-entry-toggle { color: var(--theme-muted); }
+.app-shell .workspace-page .trace-entry-toggle:hover { background: var(--theme-soft); color: var(--theme-text); }
+.app-shell .workspace-page .trace-entry-toggle.open { color: var(--theme-accent); }
 .app-shell .workspace-page .gemini-composer-footer button { background: var(--theme-accent); color: #fff; }
 .app-shell .workspace-page .gemini-privacy-note,
 .app-shell .workspace-page .page-eyebrow { color: var(--theme-muted); }
@@ -636,7 +633,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell[data-theme="midnight"] .workspace-page .gemini-welcome p,
 .app-shell[data-theme="midnight"] .workspace-page .gemini-message-role,
 .app-shell[data-theme="midnight"] .workspace-page .settings-card-heading p,
-.app-shell[data-theme="midnight"] .workspace-page .trace-entry-head time { color: #b1bfd4; }
+.app-shell[data-theme="midnight"] .workspace-page .trace-entry-row time { color: #b1bfd4; }
 .app-shell[data-theme="midnight"] .workspace-page .settings-security-note strong,
 .app-shell[data-theme="midnight"] .workspace-page .settings-terminal-note strong { color: #d2dced; }
 .app-shell[data-theme="midnight"] .workspace-page .trace-empty h2 { color: #edf3ff; }
@@ -902,7 +899,6 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .app-shell .trace-empty h2,
 .app-shell .drawio-missing h3,
 .app-shell .metric strong,
-.app-shell .trace-metrics strong,
 .app-shell .quality-score,
 .app-shell .brand-name {
   font-size: var(--font-large) !important;

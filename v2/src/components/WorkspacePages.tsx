@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
-import { Button, Checkbox, Collapse, Input, Select } from "antd";
+import { Button, Checkbox, Input, Select } from "antd";
 import type { DiagramDocument } from "../model/types";
 import { LAYOUT_PROFILES } from "../layout/profiles";
 import type { DiagnosticEntry } from "../diagnostics";
@@ -70,6 +70,29 @@ function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChan
 
 export type WorkspacePage = "diagram" | "copilot" | "traces" | "settings";
 type TraceFilter = "all" | "copilot" | "layout" | "drawio" | "error";
+
+/**
+ * Bookkeeping events that fire constantly and never explain what the agent did.
+ * They stay one click away behind "Show low-level events"; warnings and errors are
+ * never treated as low-level, so a broken handshake is still visible by default.
+ */
+const LOW_LEVEL_EVENT_PREFIXES = ["drawio.message.", "drawio.bundle.check.", "drawio.handshake.", "ui.theme."];
+const LOW_LEVEL_EVENTS = new Set([
+  "app.started",
+  "workspace.hydrated",
+  "navigation.opened",
+  "drawio.iframe.loaded",
+  "drawio.bridge.ready",
+  "drawio.plugin.bridge.ready",
+  "drawio.document.load.sent"
+]);
+
+function isLowLevelTrace(entry: DiagnosticEntry): boolean {
+  if (entry.level === "error" || entry.level === "warn") return false;
+  if (LOW_LEVEL_EVENTS.has(entry.event)) return true;
+  return LOW_LEVEL_EVENT_PREFIXES.some((prefix) => entry.event.startsWith(prefix));
+}
+
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
 
@@ -123,6 +146,8 @@ export default function WorkspacePages(props: Props) {
   } = props;
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
+  const [showLowLevel, setShowLowLevel] = useState(false);
+  const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([
     { value: "claude-sonnet-5.5", label: "Claude Sonnet 5.5 (default)" },
     { value: "gpt-5", label: "GPT-5" }
@@ -130,14 +155,14 @@ export default function WorkspacePages(props: Props) {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsMessage, setModelsMessage] = useState("");
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
-  const filteredTraces = useMemo(() => traceEntries.filter((entry) => {
+  const significantTraces = useMemo(() => traceEntries.filter((entry) => !isLowLevelTrace(entry)), [traceEntries]);
+  const lowLevelCount = traceEntries.length - significantTraces.length;
+  const filteredTraces = useMemo(() => (showLowLevel ? traceEntries : significantTraces).filter((entry) => {
     if (traceFilter === "all") return true;
     if (traceFilter === "error") return entry.level === "error" || entry.level === "warn";
     return entry.event.toLowerCase().includes(traceFilter);
-  }), [traceEntries, traceFilter]);
+  }), [traceEntries, significantTraces, showLowLevel, traceFilter]);
   const errorCount = traceEntries.filter((entry) => entry.level === "error").length;
-  const copilotCount = traceEntries.filter((entry) => entry.event.toLowerCase().includes("copilot")).length;
-  const layoutCount = traceEntries.filter((entry) => entry.event.toLowerCase().includes("layout")).length;
 
   useEffect(() => {
     if (page === "copilot") chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -227,19 +252,15 @@ export default function WorkspacePages(props: Props) {
             <div className="page-hero-actions"><UiButton type="button" className="button button-secondary" onClick={() => window.location.reload()}>Reload page</UiButton><UiButton type="button" className="button button-quiet" onClick={refreshTraces}>Refresh trace</UiButton></div>
           </div>
 
-          <div className="trace-metrics">
-            <div><span>All events</span><strong>{traceEntries.length}</strong></div>
-            <div><span>Copilot steps</span><strong>{copilotCount}</strong></div>
-            <div><span>Layout steps</span><strong>{layoutCount}</strong></div>
-            <div className={errorCount ? "has-errors" : ""}><span>Errors</span><strong>{errorCount}</strong></div>
-          </div>
-
           <div className="trace-toolbar">
             <div className="trace-filters">
               {([["all", "All"], ["copilot", "Copilot"], ["layout", "Layout"], ["drawio", "Draw.io"], ["error", "Warnings / errors"]] as Array<[TraceFilter, string]>).map(([value, label]) =>
                 <UiButton type="button" key={value} className={traceFilter === value ? "active" : ""} onClick={() => setTraceFilter(value)}>{label}</UiButton>
               )}
             </div>
+            <button type="button" className={"trace-noise-toggle" + (showLowLevel ? " active" : "")} aria-pressed={showLowLevel} onClick={() => setShowLowLevel(!showLowLevel)}>
+              {showLowLevel ? "Hide" : "Show"} low-level events · {lowLevelCount}
+            </button>
           </div>
 
           <div className="trace-list">
@@ -247,18 +268,21 @@ export default function WorkspacePages(props: Props) {
               <article className={"trace-entry trace-" + entry.level} key={entry.id}>
                 <div className="trace-entry-rail"><span /></div>
                 <div className="trace-entry-content">
-                  <div className="trace-entry-head">
+                  <div className="trace-entry-row">
                     <span className={"trace-level level-" + entry.level}>{entry.level.toUpperCase()}</span>
-                    <code>{entry.event}</code><time>{formattedTime(entry.timestamp)}</time>
+                    <span className="trace-entry-message" title={entry.message}>{entry.message}</span>
+                    <code>{entry.event}</code>
+                    <time>{formattedTime(entry.timestamp)}</time>
+                    <button
+                      type="button"
+                      className={"trace-entry-toggle" + (expandedTraceId === entry.id ? " open" : "")}
+                      aria-expanded={expandedTraceId === entry.id}
+                      aria-label={expandedTraceId === entry.id ? "Hide event details" : "Show event details"}
+                      title={expandedTraceId === entry.id ? "Hide event details" : "Show event details"}
+                      onClick={() => setExpandedTraceId(expandedTraceId === entry.id ? null : entry.id)}
+                    >›</button>
                   </div>
-                  <div className="trace-entry-message">{entry.message}</div>
-                  <Collapse
-                    size="small"
-                    ghost
-                    items={[{
-                      key: entry.id,
-                      label: "Request prompt / response / event details",
-                      children: <div className="trace-entry-details-content">
+                  {expandedTraceId === entry.id && <div className="trace-entry-details-content">
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
@@ -273,12 +297,10 @@ export default function WorkspacePages(props: Props) {
                         </>}
                         <strong>All event details</strong>
                         <pre className="trace-entry-details">{JSON.stringify(entry.details, null, 2)}</pre>
-                      </div>
-                    }]}
-                  />
+                      </div>}
                 </div>
               </article>
-            )) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Open Studio or Layout Copilot and do something — events appear here automatically. Draw.io initialisation and errors are recorded too.</p><UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton></div>}
+            )) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Copilot turns, layout runs, saves and errors appear here automatically. Low-level Draw.io handshake noise stays hidden until you ask for it.</p>{traceFilter !== "all" && <UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton>}</div>}
           </div>
         </div>
       </main>
@@ -324,7 +346,7 @@ export default function WorkspacePages(props: Props) {
             <div className="settings-status-line"><span className={"settings-status-dot status-" + drawioStatus} /><strong>{drawioStatus === "ready" ? "Local assets available" : drawioStatus === "checking" ? "Checking…" : drawioStatus === "missing" ? "Assets missing or checksum mismatch" : drawioStatus === "error" ? "Check failed" : "Not checked yet"}</strong></div>
             <p className="settings-description">{drawioStatusMessage || "Checks the response status, version manifest, and SHA-256 of /drawio/studio-bundle.json and /drawio/index.html."}</p>
             <UiButton type="button" className="button button-secondary" onClick={checkDrawioStatus} disabled={drawioStatus === "checking"}>{drawioStatus === "checking" ? "Checking…" : "Check local Draw.io"}</UiButton>
-            <div className="settings-terminal-note"><strong>Stuck on Loading…</strong><span>Look at drawio.handshake.* and drawio.init.timeout in the agent trace first, then at the [studio:v2] JSON output in the terminal that started the dev server. No document XML is sent before initialisation succeeds.</span></div>
+            <div className="settings-terminal-note"><strong>Stuck on Loading…</strong><span>Turn on “Show low-level events” on the Agent trace page and look at drawio.handshake.* and drawio.init.timeout first, then at the [studio:v2] JSON output in the terminal that started the dev server. No document XML is sent before initialisation succeeds.</span></div>
           </section>
 
           <section className="settings-card settings-logs-card">
