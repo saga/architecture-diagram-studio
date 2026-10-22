@@ -94,6 +94,7 @@ function validateResponse(value: unknown): AIIntentResponse {
       }
       return { outcome: "applied", reply: reply || "The diagram change was applied.", requestId: item.requestId, documentRevision: item.documentRevision,
         ...(typeof item.persistedRevision === "string" || item.persistedRevision === null ? { persistedRevision: item.persistedRevision as string | null } : {}),
+        ...(typeof item.versionId === "string" || item.versionId === null ? { versionId: item.versionId as string | null } : {}),
         ...metadata };
   }
 }
