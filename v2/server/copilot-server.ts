@@ -224,7 +224,7 @@ function workspaceStateMatchesActiveDiagram(state: WorkspaceState, workspace: Pr
 
 /** If a primary file exists but its content is not hydrated, semantic mutations must wait. */
 function hasUnloadedPrimaryDiagramXml(state: WorkspaceState, workspace: ProjectWorkspace | null): boolean {
-  return Boolean(workspace?.primaryDiagram && /.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram) && typeof state.drawioXml !== "string");
+  return Boolean(workspace?.primaryDiagram && /\.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram) && typeof state.drawioXml !== "string");
 }
 async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
