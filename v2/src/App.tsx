@@ -1211,7 +1211,7 @@ export default function App() {
           <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
-          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} title={!studioEditingSafe ? "Studio projection is read-only for this native XML; the original XML remains preserved." : undefined} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Freeform editor" : "Studio canvas"}</UiButton>
+          
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to canvas</UiButton></div>}
       </header>
 
@@ -1270,71 +1270,13 @@ export default function App() {
               </UiSelect>
             </label>
             <UiButton className="toolbar-button" onClick={() => void runLayout()} disabled={!studioEditingSafe || isLayoutting || Boolean(previewDocument)}><span>{isLayoutting ? <i className="spinner" /> : "⌁"}</span>{isLayoutting ? "Computing…" : "Auto layout"}</UiButton>
-            <div className="segmented"><UiButton disabled={Boolean(previewDocument)} title={!studioEditingSafe ? "Studio is available in read-only projection mode because this XML cannot be safely round-tripped." : ""} className={viewMode === "studio" ? "selected" : ""} onClick={() => { setViewMode("studio"); if (!studioEditingSafe) setLastAction("Studio projection opened read-only; the native Draw.io XML remains authoritative."); }}>Studio</UiButton><UiButton disabled={Boolean(previewDocument)} className={viewMode === "drawio" ? "selected" : ""} onClick={() => setViewMode("drawio")} title="Freeform editing in the embedded Draw.io canvas">Freeform</UiButton></div>
+            
           </div>
         </div>
 
         <div className={"canvas-stage " + (viewMode === "drawio" ? "native-mode" : "")}>
           {!studioEditingSafe && <div className="drawio-source-banner" role="status">This diagram is preserved as native Draw.io XML. Its cells, styles, labels, pages or hierarchy cannot all be represented safely by the Studio projection, so semantic editing and automatic layout are disabled to prevent data loss. Use the native Draw.io editor; the full XML remains the saved source of truth.</div>}
-          {viewMode === "studio" ? (
-            <DiagramCanvas document={visibleDocument} zoom={studioZoom} viewResetToken={canvasViewResetToken} selectedNodeId={selectedNodeId}
-              selectedRelationId={selectedRelationId} connectionSourceId={connectionSourceId} onConnectionSourceChange={setConnectionSourceId}
-              onSelectNode={selectNode} onSelectRelation={selectRelation}
-              onCreateRelation={(sourceId, targetId) => { void createRelation(sourceId, targetId); }}
-              onReconnectRelation={(relationId, endpoint, nodeId) => {
-                const relation = visibleDocument.relations.find((item) => item.id === relationId);
-                if (!relation) return;
-                void changeRelationEndpoints(relationId,
-                  endpoint === "source" ? nodeId : relation.source,
-                  endpoint === "target" ? nodeId : relation.target);
-              }}
-              onRenameNode={renameNode} onUpdateRelationLabel={updateRelationLabel} onUpdateSequenceFragment={updateSequenceFragment} onUpdateBoundary={updateBoundary}
-              onContextMenu={(target, x, y) => {
-                if (target.kind === "node") { setSelectedNodeId(target.id || null); setSelectedRelationId(null); }
-                if (target.kind === "relation") setSelectedRelationId(target.id || null);
-                setCanvasMenu({ x, y, kind: target.kind, id: target.id });
-              }}
-              onMoveNode={(id, x, y) => {
-                // The drop is applied locally and committed right away. The server call used to own this step,
-                // so a slow or unreachable API made the node fall back into its previous spot on release,
-                // which reads as "drag it apart and it snaps back"; moveNode is pure geometry, so both sides compute the same result.
-                const moved = moveNode(visibleDocument, id, x, y);
-                if (previewDocument) {
-                  setPreviewDocument(moved);
-                  setPreviewSummary((summary) => summary ? summary + "; node positions adjusted manually in the preview" : "Node positions adjusted manually in the preview");
-                } else {
-                  commitDocument(moved, "Node moved manually; its position is now locked");
-                }
-                void fetch("/api/workspace/diagram/move-node", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ document: visibleDocument, id, x, y })
-                }).then(async (response) => {
-                  const payload = await response.json() as { document?: DiagramDocument; error?: string };
-                  if (!response.ok || !payload.document) throw new Error(payload.error || "Node move failed");
-                  const settled = payload.document.nodes.find((node) => node.id === id);
-                  const local = moved.nodes.find((node) => node.id === id);
-                  if (!settled || !local || (settled.x === local.x && settled.y === local.y)) return;
-                  // The server only disagrees when its conflict search had to nudge the node; adopt that spot
-                  // without creating a second undo step for the same drag.
-                  if (previewDocument) setPreviewDocument(payload.document);
-                  else replaceDocument(payload.document);
-                  recordDiagnostic("diagram.node-move.reconciled", "Server nudged the node position per its conflict rules", {
-                    documentId: payload.document.id, nodeId: id, localX: local.x, localY: local.y, serverX: settled.x, serverY: settled.y
-                  });
-                }).catch((error: unknown) => {
-                  recordDiagnostic("diagram.node-move.sync-failed", "Node position could not be synced to the server; kept locally", {
-                    documentId: visibleDocument.id, nodeId: id, errorMessage: error instanceof Error ? error.message : String(error)
-                  }, "warn");
-                });
-              }} />
-          ) : (
-            <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
-          )}
-          {viewMode === "studio" && <div className="zoom-indicator">
-            <UiButton type="button" className="zoom-control" aria-label="Zoom out" disabled={studioZoom <= 0.5} onClick={() => setStudioZoom((zoom) => Math.max(0.5, Math.round((zoom - 0.1) * 10) / 10))}>−</UiButton>
-            <UiButton type="button" className="zoom-percent" aria-label="Reset canvas view" title="Reset pan and zoom" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); }}>{Math.round(studioZoom * 100)}%</UiButton>
-            <UiButton type="button" className="zoom-control" aria-label="Zoom in" disabled={studioZoom >= 1.8} onClick={() => setStudioZoom((zoom) => Math.min(1.8, Math.round((zoom + 0.1) * 10) / 10))}>＋</UiButton>
-          </div>}
+                      <DrawioFrame document={document} xml={drawioXml} theme={uiTheme} onDocumentChange={(next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />}
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right"><span>{visibleDocument.nodes.length} nodes</span><span>{visibleDocument.relations.length} relations</span></div></div>
       </main>
