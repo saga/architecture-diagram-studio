@@ -57,31 +57,53 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     setChatBusy(true);
     try {
       if (!workspaceContentReady && !standaloneMode) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
-      // Precise standalone moves operate on the authoritative native XML, never the lossy projection.
+      // Standalone edits operate on the authoritative Draw.io XML and are applied by
+      // the native editor bridge, which marks the editor dirty and requests serialization.
       if (standaloneMode && applyNativeCellEdit) {
-        const move = text.match(/(?:move|将|把)?\s*[“"']?(.+?)[”"']?\s*(?:向下移动|下移|move down|down)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i)
-          || text.match(/(?:move|将|把)\s*[“"']?(.+?)[”"']?\s*(?:down|向下)\s*(\d+(?:\.\d+)?)\s*(?:px|pixels?|像素)?/i);
-        if (move) {
-          const targetName = move[1].trim().replace(/^(?:the|node|element|元素|节点)\s+/i, "").replace(/[。.!！]+$/, "");
-          const delta = Number(move[2]);
-          const parsed = new DOMParser().parseFromString(drawioXml, "application/xml");
-          if (parsed.querySelector("parsererror")) throw new Error("The authoritative Draw.io XML could not be parsed; no edit was applied.");
-          const cell = Array.from(parsed.getElementsByTagName("mxCell")).find((item) => {
-            const owner = item.parentElement;
-            const value = item.getAttribute("value") || item.getAttribute("label")
-              || owner?.getAttribute("label") || owner?.getAttribute("value") || "";
-            const clean = value.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
-            return clean.localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0;
-          });
-          if (!cell) throw new Error("Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
+        const parsed = new DOMParser().parseFromString(drawioXml, "application/xml");
+        if (parsed.querySelector("parsererror")) throw new Error("The authoritative Draw.io XML could not be parsed; no edit was applied.");
+        const normalized = text.trim();
+        const move = normalized.match(/(?:move|将|把)?\\s*[“"']?(.+?)[”"']?\\s*(向上移动|上移|向下移动|下移|向左移动|左移|向右移动|右移|move up|move down|move left|move right|up|down|left|right)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:px|pixels?|像素)?/i);
+        const rename = normalized.match(/(?:rename|change|set|把|将)?\\s*[“"']?(.+?)[”"']?\\s*(?:重命名为|改名为|名称改为|改成|命名为|rename to|to)\\s*[“"']?(.+?)[”"']?$/i);
+        const recolor = normalized.match(/(?:change|set|make|把|将)?\\s*[“"']?(.+?)[”"']?\\s*(?:fill|fill color|background|stroke|stroke color|border|颜色|填充色|边框色)\\s*(?:to|为|改成|设置为)?\\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|red|blue|green|black|white|orange|purple|灰色|红色|蓝色|绿色|黑色|白色|橙色|紫色)\\s*$/i);
+        const cells = Array.from(parsed.getElementsByTagName("mxCell"));
+        const labelOf = (cell: Element) => {
+          const owner = cell.parentElement;
+          return (cell.getAttribute("value") || cell.getAttribute("label") || owner?.getAttribute("label") || owner?.getAttribute("value") || "")
+            .replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
+        };
+        const targetName = (move?.[1] || rename?.[1] || recolor?.[1] || "").trim().replace(/^(?:the|node|element|元素|节点)\\s+/i, "").replace(/[。.!！]+$/, "");
+        if (move || rename || recolor) {
+          const matches = cells.filter((cell) => labelOf(cell).localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0 && cell.getAttribute("vertex") !== "0" && cell.getAttribute("edge") !== "1");
+          if (matches.length !== 1) throw new Error(matches.length ? "The label “" + targetName + "” is ambiguous (" + matches.length + " matching cells). Select a specific element or use a unique label." : "Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
+          const cell = matches[0];
           const id = cell.getAttribute("id");
           const geometry = cell.getElementsByTagName("mxGeometry")[0];
-          const rawY = geometry?.getAttribute("y");
-          const y = rawY === null || rawY === undefined ? NaN : Number(rawY);
-          if (!id || !geometry || !Number.isFinite(y) || !Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("The target element has no explicit Y coordinate or the requested distance is invalid.");
-          applyNativeCellEdit(id, "geometry:y", String(y + delta));
-          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "Requested native Draw.io move: “" + targetName + "” down " + delta + " px. The editor will autosave the XML; verify the updated element on the canvas." }]);
-          recordDiagnostic("copilot.standalone.native-edit.requested", "Requested a precise move through the native Draw.io bridge", { targetName, cellId: id, previousY: y, nextY: y + delta, deltaY: delta, xmlLength: drawioXml.length });
+          if (!id) throw new Error("The target element has no stable Draw.io cell ID.");
+          let path = "", value = "", summary = "";
+          if (move) {
+            const direction = move[2].toLowerCase(), delta = Number(move[3]);
+            if (!Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("Move distance must be between 0 and 10000 pixels.");
+            const axis = direction.includes("left") || direction.includes("右") || direction.includes("左") ? "x" : "y";
+            const sign = direction.includes("up") || direction.includes("上") || direction.includes("left") || direction.includes("左") ? -1 : 1;
+            const raw = geometry?.getAttribute(axis), coordinate = raw === null || raw === undefined ? NaN : Number(raw);
+            if (!geometry || !Number.isFinite(coordinate)) throw new Error("The target element has no explicit " + axis.toUpperCase() + " coordinate.");
+            path = "geometry:" + axis; value = String(coordinate + sign * delta);
+            summary = "Move “" + targetName + "” " + direction + " " + delta + " px";
+          } else if (rename) {
+            const newName = rename[2].trim().replace(/^[“"']|[”"']$/g, "");
+            if (!newName || newName.length > 500) throw new Error("The new label must contain 1–500 characters.");
+            path = "label"; value = newName; summary = "Rename “" + targetName + "” to “" + newName + "”";
+          } else if (recolor) {
+            const property = recolor[0].toLowerCase();
+            const colorProperty = /stroke|border|边框/.test(property) ? "strokeColor" : "fillColor";
+            const rawColor = recolor[2].toLowerCase();
+            const colorMap: Record<string, string> = { red: "#ff0000", blue: "#0000ff", green: "#008000", black: "#000000", white: "#ffffff", orange: "#ffa500", purple: "#800080", "灰色": "#808080", "红色": "#ff0000", "蓝色": "#0000ff", "绿色": "#008000", "黑色": "#000000", "白色": "#ffffff", "橙色": "#ffa500", "紫色": "#800080" };
+            path = "style:" + colorProperty; value = colorMap[rawColor] || rawColor; summary = "Set " + colorProperty + " of “" + targetName + "” to " + value;
+          }
+          recordDiagnostic("copilot.standalone.native-edit.validated", "Validated a standalone native Draw.io edit against the authoritative XML", { cellId: id, targetName, operation: move ? "move" : rename ? "rename" : "recolor", path, value, xmlLength: drawioXml.length });
+          applyNativeCellEdit(id, path, value);
+          setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: summary + ". The native editor has been asked to apply the change and autosave; check Agent traces for the editor acknowledgement." }]);
           return;
         }
       }
