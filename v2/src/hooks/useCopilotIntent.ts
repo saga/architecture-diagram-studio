@@ -128,8 +128,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           setMessages((items) => [...items, {
             role: "assistant",
             id: Date.now() + 1,
-            text: (plan.reply && plan.reply !== plan.nativeEdits?.summary ? plan.reply + " " : "") +
-              "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
+            // Native edit status is derived from the editor acknowledgement, never from model-generated prose.
+            text: "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
               operations.map(describeNativeEditOperation).join("; ") + "."
           }]);
         } else {
