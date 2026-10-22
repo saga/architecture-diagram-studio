@@ -104,6 +104,17 @@ const pendingAgentSelections = new Map<string, { cellId: string; pageId: string 
 const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOperation[]; summary: string }>();
 const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 const pendingNativeProposals = new Map<string, PendingNativeProposal>();
+type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
+const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
+const conflictingTerminalIntents = new Set<string>();
+
+function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): void {
+  if (pendingTerminalIntents.has(sessionId)) {
+    conflictingTerminalIntents.add(sessionId);
+    throw new Error("The model called more than one final intent tool in a turn. No operation will be dispatched.");
+  }
+  pendingTerminalIntents.set(sessionId, kind);
+}
 
 /**
  * The select and native-edit tools must see the elements of the *current* request.
@@ -341,6 +352,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           ...(typeof args.question === "string" && args.question.trim() ? { question: args.question.trim().slice(0, 1000) } : {}),
           ...(typeof args.reason === "string" && args.reason.trim() ? { reason: args.reason.trim().slice(0, 1000) } : {})
         } as ReportedNoEditOutcome;
+        registerTerminalIntent(sessionId, "no_mutation");
         pendingReportedOutcomes.set(sessionId, report);
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
         return { recorded: true, outcome: report.outcome };
@@ -376,6 +388,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           throw new Error(resolved.error);
         }
         const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
+        registerTerminalIntent(sessionId, "native_edit");
         pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
@@ -559,6 +572,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
+        pendingTerminalIntents.delete(sessionId);
+        conflictingTerminalIntents.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -611,14 +626,32 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
+        const terminalConflict = conflictingTerminalIntents.has(sessionId);
+        pendingTerminalIntents.delete(sessionId);
+        conflictingTerminalIntents.delete(sessionId);
         return {
-          capturedSelection, capturedNativeEdits, capturedReportedOutcome, modelText,
+          capturedSelection, capturedNativeEdits, capturedReportedOutcome, terminalConflict, modelText,
           session: turn.session,
           usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
         };
       });
 
       contextBySession.delete(sessionId);
+      if (plan.terminalConflict) {
+        pendingNativeEdits.delete(sessionId);
+        pendingAgentSelections.delete(sessionId);
+        pendingReportedOutcomes.delete(sessionId);
+        await deps.writeLog("turn.failed", {
+          requestId, sessionId, reason: "conflicting_terminal_tools", durationMs: Date.now() - startedAt
+        });
+        res.status(200).json({
+          outcome: "failed",
+          reply: "Copilot returned conflicting final actions. No diagram changes were dispatched; submit the request again.",
+          error: "More than one terminal intent tool was called in the same model turn.",
+          requestId, sessionId
+        });
+        return;
+      }
       if (!standalone) {
         const authoritative = await deps.getWorkspaceDiagramSnapshot();
         if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
@@ -715,6 +748,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       pendingNativeEdits.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
+      pendingTerminalIntents.delete(sessionId);
+      conflictingTerminalIntents.delete(sessionId);
       const message = error instanceof Error ? error.message : String(error);
       const actualModel = deps.copilot.lastObservedModel(sessionId);
       const noMutationOutcome = classifyNoMutationFailure(message);
@@ -763,6 +798,7 @@ function createSelectDiagramElementTool(sessionId: string) {
         throw new Error(matches.length > 1 ? "The element label is ambiguous; provide its exact cell ID." : "The element was not found in the supplied diagram context. No selection changed.");
       }
       const selected = { cellId: matches[0].id, pageId: typeof source.activePageId === "string" ? source.activePageId : typeof source.selectedCell?.pageId === "string" ? source.selectedCell.pageId : null, label: typeof matches[0].name === "string" ? matches[0].name : matches[0].id };
+      registerTerminalIntent(sessionId, "selection");
       pendingAgentSelections.set(sessionId, selected);
       return { selected: true, ...selected, documentChanged: false };
     }
