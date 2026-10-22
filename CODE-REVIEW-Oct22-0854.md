@@ -421,3 +421,26 @@ git clone --depth 1 -b dev https://github.com/jgraph/drawio-diagrams /tmp/dd
 
 - `DRAWIO-DIAGRAM-TYPE-READINESS-REPORT.md`（07:54）：**已完全过期**。它主张"双轨 / NativeDocument"，而 ADR-0006 明确否决了这个方案，并选择了"XML 唯一真相源 + 语义投影"。不要按它改。
 - `DRAWIO-DIAGRAMS-CORPUS-COMPATIBILITY-REPORT.md`（08:30）：P0-2/3/4 仍然有效，P0-1 的影响面被低估了（当时只看到"强制切 Freeform"，没看到服务端门禁和主题选择器）。以本报告为准。
+
+
+---
+
+## 12. 2026-10-22 后续处置更新
+
+本报告基于旧 HEAD `27040a7`，其中的测试计数和“当前编辑能力为 0”的结论只描述当时状态，**不能直接当成当前主分支的状态**。随后已将发现逐项对照当前代码并实施以下修改：
+
+| 原报告发现 | 后续处置 |
+|---|---|
+| P0-1：`parseRootSlice()` 合并多个 cell | 已换成带引号状态的标签扫描；补最小自闭合 cell 测试，并增加旧版 Studio 默认 layer cell 的兼容迁移。 |
+| P0-2：边依赖 XML 顺序 | 已拆分顶点与边的导入阶段，边使用完整顶点索引解析。 |
+| P0-3：嵌套坐标错误 | 已累加祖先坐标，并在语义投影中记录 `parentId`，导出时恢复父级相对坐标。 |
+| P0-4：空文本生成 `New node` | 无文本且没有既有语义的 cell 不再生成语义节点，原生 XML 内容仍保留。 |
+| P1-1：schema warnings 未消费、多页静默丢弃 | 已在 workspace hydration、打开文件和工具栏导入时显示诊断并记录到 Agent traces；多页会明确提示“Studio 仅投影第一页”，完整 XML 仍作为唯一事实源保留。多页完整页选择器尚未实现，Studio 语义编辑仍应被安全门禁拒绝。 |
+| P1-2：主题选择被弹回 | 已调整同步 effect，UI 主题单独变化时不再触发文档主题的反向同步。 |
+| P1-3：布局配置保存后丢失 | Studio 的布局配置现在写入默认 layer cell（`mxCell id="1"`）的 `studioLayout*` style 元数据，并从同一 XML 读取；没有引入第二份持久化 source。对默认 layer cell 完全符合旧版 Studio 格式的文件提供有限迁移。 |
+| P1-5：形状语义大面积落入 `domain` | 已补 actor/UML lifeline、cloud、table、database/cylinder、decision、document 等常见形状映射。映射是语义近似，不能替代原生 shape 的无损编辑。 |
+| P1-6：原生时序图不识别 | 已识别原生 UML lifeline/actor 结构，并补测试。 |
+| P2：形状库/模板索引错误信息不清楚 | 导入诊断会明确区分 `<mxlibrary>` 形状库和 `<templates>` 索引文件。 |
+| 复审提到的测试问题 | 已修正 sequence fragment 的过期断言、macOS canonical realpath 断言；`parseAIIntentPlan()` 改为复用完整计划验证逻辑，避免丢弃直接应用回执。 |
+
+新增了相关回归用例，但本次没有重新运行全量 Vitest 或 619 个 Draw.io 语料文件。因此，不能据此声称全量测试已通过，也不能声称新的语料映射率已经达到原报告提出的目标。剩余验证重点是实跑语料、检查 XML 往返保真度及验证多页文件的原生编辑链路。
