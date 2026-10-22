@@ -261,7 +261,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
   const confirmProposal = useCallback(async (proposalId: string) => {
     if (chatBusy || !proposalId) return;
-    const startedAt = Date.now();
     setChatBusy(true);
     setMessages((items) => items.map((message) => message.proposal?.id === proposalId
       ? { ...message, proposal: undefined, text: message.text + "\n\nConfirmation submitted; validating the current diagram revision…" }
