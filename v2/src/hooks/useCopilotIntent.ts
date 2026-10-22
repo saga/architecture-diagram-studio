@@ -9,6 +9,7 @@ type PersistDocument = (document: DiagramDocument, xml: string, label?: string) 
 
 interface CopilotIntentOptions {
   projectWorkspace: Workspace;
+  standaloneMode: boolean;
   chatInput: string;
   chatBusy: boolean;
   workspaceContentReady: boolean;
@@ -33,13 +34,13 @@ interface CopilotIntentOptions {
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
-    projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
+    projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
     setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode, onAppliedEdit
   } = options;
 
   return useCallback(async (promptOverride?: string) => {
-    if (!projectWorkspace) { setWorkspaceSetupOpen(true); return; }
+    if (!projectWorkspace && !standaloneMode) { setWorkspaceSetupOpen(true); return; }
     const text = (promptOverride ?? chatInput).trim();
     if (!text || chatBusy) return;
     const startedAt = Date.now();
@@ -52,8 +53,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     if (!promptOverride) setChatInput("");
     setChatBusy(true);
     try {
-      if (!workspaceContentReady) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
-      await persistDocumentNow(document, drawioXml, "Before Copilot request");
+      if (!workspaceContentReady && !standaloneMode) throw new Error("The project diagram has not finished loading; no Agent request was sent.");
+      if (!standaloneMode) await persistDocumentNow(document, drawioXml, "Before Copilot request");
       let effectiveText = text;
       let modelReply = "";
       if (aiModel.trim()) {
@@ -61,7 +62,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           sessionId: copilotSessionId, model: aiModel.trim(), reasoningEffort, provider: "github-copilot-sdk", inputLength: text.length, nodeCount: Math.min(document.nodes.length, 80)
         });
         const plan = await requestAIIntentPlan(
-          { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId },
+          { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
           text,
           {
             kind: document.kind, title: document.title,
@@ -111,7 +112,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         effectiveText = plan.commands.join("; ");
       }
-      const applyResponse = await fetch("/api/workspace/intent/apply", {
+      const applyResponse = await fetch(standaloneMode ? "/api/diagram/intent/apply" : "/api/workspace/intent/apply", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ document, prompt: effectiveText }), signal: AbortSignal.timeout(70_000)
       });
@@ -156,7 +157,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       setChatBusy(false);
     }
   }, [
-    projectWorkspace, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
+    projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
     setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, setViewMode, onAppliedEdit
   ]);
