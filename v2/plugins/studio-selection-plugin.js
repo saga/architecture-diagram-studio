@@ -56,6 +56,79 @@
       // Resolve it per request rather than retaining the model from plugin startup.
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
+      var selectionOperation = String(request.path || "");
+      if (request.cellId === "__selection__" && /^(cell:align:|cell:distribute:|cell:group$|cell:ungroup$)/.test(selectionOperation)) {
+        var selected = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
+        var vertices = selected.filter(function (item) { return item && item.vertex && item.geometry && item.id !== "0" && item.id !== "1"; });
+        if (selectionOperation === "cell:group" || selectionOperation === "cell:ungroup") {
+          if (selected.length < (selectionOperation === "cell:group" ? 2 : 1)) throw new Error("Select at least two cells to group, or a group to ungroup");
+          activeModel.beginUpdate();
+          try {
+            if (selectionOperation === "cell:group") {
+              if (typeof activeGraph.groupCells !== "function") throw new Error("This Draw.io build does not expose groupCells");
+              activeGraph.groupCells(null, 0, selected);
+            } else {
+              var groups = selected.filter(function (item) { return item && typeof activeGraph.isValidRoot === "function" && activeGraph.isValidRoot(item); });
+              if (!groups.length) throw new Error("Select a group cell to ungroup");
+              if (typeof activeGraph.ungroupCells !== "function") throw new Error("This Draw.io build does not expose ungroupCells");
+              activeGraph.ungroupCells(groups);
+            }
+          } finally { activeModel.endUpdate(); }
+          if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+          if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+          return;
+        }
+        if (vertices.length < 2) throw new Error("Select at least two vertex cells to align or distribute");
+        var alignMode = selectionOperation.slice("cell:align:".length);
+        var distributeMode = selectionOperation.slice("cell:distribute:".length);
+        var isAlign = selectionOperation.indexOf("cell:align:") === 0;
+        if ((isAlign && ["left", "right", "top", "bottom", "center", "middle"].indexOf(alignMode) < 0) ||
+            (!isAlign && ["horizontal", "vertical"].indexOf(distributeMode) < 0)) throw new Error("Unsupported selection layout operation");
+        var snapshots = vertices.map(function (item) { return { cell: item, geometry: item.geometry.clone() }; });
+        activeModel.beginUpdate();
+        try {
+          if (isAlign) {
+            var bounds = vertices.map(function (item) { return item.geometry; });
+            var left = Math.min.apply(Math, bounds.map(function (g) { return g.x; }));
+            var top = Math.min.apply(Math, bounds.map(function (g) { return g.y; }));
+            var right = Math.max.apply(Math, bounds.map(function (g) { return g.x + g.width; }));
+            var bottom = Math.max.apply(Math, bounds.map(function (g) { return g.y + g.height; }));
+            vertices.forEach(function (item) {
+              var g = item.geometry.clone();
+              if (alignMode === "left") g.x = left;
+              else if (alignMode === "right") g.x = right - g.width;
+              else if (alignMode === "top") g.y = top;
+              else if (alignMode === "bottom") g.y = bottom - g.height;
+              else if (alignMode === "center") g.x = left + (right - left - g.width) / 2;
+              else g.y = top + (bottom - top - g.height) / 2;
+              activeModel.setGeometry(item, g);
+            });
+          } else {
+            var axis = distributeMode === "horizontal" ? "x" : "y";
+            var extent = distributeMode === "horizontal" ? "width" : "height";
+            var sorted = vertices.slice().sort(function (a, b) { return a.geometry[axis] - b.geometry[axis]; });
+            var first = sorted[0].geometry[axis];
+            var lastCell = sorted[sorted.length - 1].geometry;
+            var last = lastCell[axis] + lastCell[extent];
+            var totalSize = sorted.reduce(function (sum, item) { return sum + item.geometry[extent]; }, 0);
+            var gap = (last - first - totalSize) / (sorted.length - 1);
+            if (!Number.isFinite(gap) || gap < 0) throw new Error("Selected cells do not have enough space for even distribution");
+            var cursor = first;
+            sorted.forEach(function (item) {
+              var g = item.geometry.clone();
+              g[axis] = cursor;
+              activeModel.setGeometry(item, g);
+              cursor += g[extent] + gap;
+            });
+          }
+        } catch (error) {
+          snapshots.forEach(function (snapshot) { activeModel.setGeometry(snapshot.cell, snapshot.geometry); });
+          throw error;
+        } finally { activeModel.endUpdate(); }
+        if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+        if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+        return;
+      }
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
       var requestedPage = request.pageId;
