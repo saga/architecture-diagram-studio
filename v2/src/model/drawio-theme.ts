@@ -65,7 +65,7 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
 }
 
 /** Reversible background theme adapter; explicit user changes are preserved as overrides. */
-export function applyDrawioThemeBackgroundReversible(xml: string, background: string, theme: ThemeName): string {
+export function applyDrawioThemeBackgroundReversible(xml: string, background: string, theme: "editorial" | "youth" | "warm" | "midnight"): string {
   const color = safeColor(background);
   if (!color) return xml;
   return xml.replace(/<mxGraphModel\b([^<>]*?)(\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
