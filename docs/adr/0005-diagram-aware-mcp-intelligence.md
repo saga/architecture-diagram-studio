@@ -6,14 +6,14 @@
 
 ## Context
 
-V2 owns a semantic `DiagramDocument`, deterministic layout and quality operations, native Draw.io import/export, workspace retrieval, version snapshots and a Copilot SDK service. Diagram intelligence is an internal Studio capability and must not create a second externally registered MCP tool surface.
+V2 derives a partial semantic `DiagramDocument` projection from authoritative Draw.io XML and provides deterministic layout/quality operations, workspace retrieval, XML version snapshots and a Copilot SDK service. Diagram intelligence is an internal Studio capability and must not create a second externally registered MCP tool surface.
 
 The agreed scope is F1–F11. Mermaid import and semantic conversion remain explicitly excluded.
 
 ## Decision
 
 1. **F1 — Design references.** Internal Copilot tools provide focused guidance on the semantic model, Draw.io XML conventions, C4, sequence diagrams, layout profiles, templates and validation rules.
-2. **F2 — Diagram inspection.** Inspect the active persisted semantic document, including bounded nodes, relationships, boundaries, layout and flow/sequence metadata.
+2. **F2 — Diagram inspection.** Inspect the active XML-derived semantic projection, including bounded nodes, relationships, boundaries, layout and flow/sequence metadata.
 3. **F3 — Quality evaluation.** Reuse the authoritative server-side quality evaluator; do not duplicate quality logic.
 4. **F4 — Governed edits.** The default path generates a non-persistent, revision-bound proposal for explicit confirmation. A focused change explicitly requested by the user may be applied directly only after inspecting the active document and exact revision; the server revalidates the source/semantic contract and creates a version. Semantic layout-quality gates apply only when the operation actually uses semantic layout.
 5. **F5/F7 — Workspace examples.** Search bounded, workspace-local diagrams and documents as evidence for style and component choices. Reuse path guards and treat retrieved content as untrusted input.
