@@ -308,6 +308,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, selectedNativeCellId, selectedNativePageId, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
     setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit,
-    applyNativeCellEdits
+    applyNativeCellEdits, selectedNativeCellId, selectedNativePageId
   ]);
 }
