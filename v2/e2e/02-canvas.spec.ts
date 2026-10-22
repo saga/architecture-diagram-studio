@@ -26,7 +26,7 @@ function cellX(xml: string, fragment: string): number | null {
   }
   const escaped = fragment.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
   const cells = Array.from(source.matchAll(/<mxCell\b([^>]*)>([\s\S]*?)<\/mxCell>/g));
-  const cell = cells.find((match) => new RegExp('\bid="[^"]*' + escaped + '[^"]*"').test(match[1]));
+  const cell = cells.find((match) => new RegExp("\\bid=\"[^\"]*" + escaped + "[^\"]*").test(match[1]));
   if (!cell) return null;
   const geometry = /<mxGeometry\b([^>]*)\/?\s*>/.exec(cell[2]);
   const x = geometry && /\bx="([-.\d]+)"/.exec(geometry[1]);
@@ -64,7 +64,7 @@ test.describe("原生画布", () => {
     await expect
       .poll(async () => cellX(await readWorkspaceXml(workspace), "client"), { timeout: 30_000, intervals: [500] })
       .not.toBe(beforeX);
-    await expect(page.locator(".status-left")).toContainText("Synced changes from native Draw.io");
+    await expect(page.locator(".status-left")).toContainText("Synced native Draw.io changes");
   });
 
   test("刷新页面后画布恢复到拖动后的版本", async ({ page }) => {
@@ -97,7 +97,7 @@ test.describe("原生画布", () => {
     const inspector = page.locator(".native-inspector");
     await expect(inspector).toBeVisible();
     await expect(inspector.locator(".native-inspector-heading")).toContainText("Element properties");
-    // The inspector reads the native XML, not the semantic projection.
+    // The inspector reads and writes the native XML directly.
     // The native XML value may contain HTML label markup; the inspector deliberately
     // preserves it rather than silently flattening or rewriting user content.
     await expect(inspector.locator(".native-property-field textarea").first()).toHaveValue(/Database/);
