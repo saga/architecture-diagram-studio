@@ -45,7 +45,7 @@ test.describe("版本历史与文件交换", () => {
     await page.getByRole("button", { name: "Export" }).click();
     const download = await downloadPromise;
 
-    // The file name follows the document title, which the projection derives from the XML.
+    // The exported file name follows the active native Draw.io file.
     expect(download.suggestedFilename()).toMatch(/\.drawio$/);
     const exported = await readFile((await download.path())!, "utf8");
     expect(exported).toContain("<mxfile");
