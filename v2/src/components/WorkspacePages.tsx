@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
-import { Button, Checkbox, Input, Select } from "antd";
+import { Button, Checkbox, Collapse, Input, Select } from "antd";
 import type { DiagramDocument } from "../model/types";
 import { LAYOUT_PROFILES } from "../layout/profiles";
 import type { DiagnosticEntry } from "../diagnostics";
@@ -123,7 +123,6 @@ export default function WorkspacePages(props: Props) {
   } = props;
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
-  const [detailsOpen, setDetailsOpen] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([
     { value: "claude-sonnet-5.5", label: "Claude Sonnet 5.5 (default)" },
     { value: "gpt-5", label: "GPT-5" }
@@ -251,10 +250,32 @@ export default function WorkspacePages(props: Props) {
                   <div className="trace-entry-head">
                     <span className={"trace-level level-" + entry.level}>{entry.level.toUpperCase()}</span>
                     <code>{entry.event}</code><time>{formattedTime(entry.timestamp)}</time>
-                    <UiButton type="button" onClick={() => setDetailsOpen((current) => current === entry.id ? null : entry.id)}>{detailsOpen === entry.id ? "Hide details" : "Show details"}</UiButton>
                   </div>
                   <div className="trace-entry-message">{entry.message}</div>
-                  {detailsOpen === entry.id && <pre className="trace-entry-details">{JSON.stringify(entry.details, null, 2)}</pre>}
+                  <Collapse
+                    size="small"
+                    ghost
+                    items={[{
+                      key: entry.id,
+                      label: "Request prompt / response / event details",
+                      children: <div className="trace-entry-details-content">
+                        {typeof entry.details.requestPrompt === "string" && <>
+                          <strong>Request prompt</strong>
+                          <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
+                        </>}
+                        {typeof entry.details.responseText === "string" && <>
+                          <strong>Model response</strong>
+                          <pre className="trace-entry-details">{entry.details.responseText || "(empty response text)"}</pre>
+                        </>}
+                        {entry.details.response !== undefined && <>
+                          <strong>Raw response</strong>
+                          <pre className="trace-entry-details">{JSON.stringify(entry.details.response, null, 2)}</pre>
+                        </>}
+                        <strong>All event details</strong>
+                        <pre className="trace-entry-details">{JSON.stringify(entry.details, null, 2)}</pre>
+                      </div>
+                    }]}
+                  />
                 </div>
               </article>
             )) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Open Studio or Layout Copilot and do something — events appear here automatically. Draw.io initialisation and errors are recorded too.</p><UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton></div>}
