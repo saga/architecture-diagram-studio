@@ -9,3 +9,4 @@
 | [0005](./0005-diagram-aware-mcp-intelligence.md) | Server-Side Diagram Intelligence and Governed Agent Edits | Accepted |
 | [0006](./0006-drawio-xml-single-source-of-truth.md) | Draw.io XML as the Single Source of Truth | Accepted |
 | [0007](./0007-unified-theme-adapter-for-native-drawio.md) | Unified Theme Adapter for Native Draw.io | Accepted |
+| [0008](./0008-native-drawio-is-the-only-diagram-canvas.md) | Native Draw.io as the Only Diagram Canvas | Accepted |
