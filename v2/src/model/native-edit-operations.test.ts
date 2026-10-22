@@ -142,6 +142,22 @@ describe("toNativeCellEdits", () => {
     ]);
   });
 
+  it("maps rename, delete and resize directly to native-cell bridge operations", () => {
+    const operations: ResolvedNativeEditOperation[] = [
+      { op: "set_label", target: "Database", cellId: "db", label: "Database", label: "Data Store" },
+      { op: "delete", target: "Obsolete", cellId: "obsolete", label: "Obsolete" },
+      { op: "resize", target: "Database", cellId: "db", label: "Database", width: 220, height: 90 }
+    ];
+    const plan = toNativeCellEdits(operations, XML);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.edits).toEqual([
+      { cellId: "db", path: "label", value: "Data Store" },
+      { cellId: "obsolete", path: "cell:delete", value: "true" },
+      { cellId: "db", path: "geometry:size", value: "220,90" }
+    ]);
+  });
+
   it("turns a move delta into absolute coordinates from the authoritative XML", () => {
     const plan = toNativeCellEdits([{ op: "move", target: "Database", cellId: "db", label: "Database", dx: -20, dy: 15 }], XML);
     expect(plan.ok).toBe(true);
