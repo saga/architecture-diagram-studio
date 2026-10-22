@@ -110,9 +110,13 @@ type TraceTokenUsage = {
   reasoning: number | null;
   premiumRequestCost: number | null;
   totalNanoAiu: number | null;
-  contextTokens: number | null;
-  contextLimit: number | null;
-  contextPercent: number | null;
+};
+
+type TraceContextUsage = {
+  currentTokens: number | null;
+  tokenLimit: number | null;
+  messagesLength: number | null;
+  percent: number | null;
 };
 
 function traceTokenUsage(entry: DiagnosticEntry): TraceTokenUsage | null {
@@ -138,22 +142,33 @@ function traceTokenUsage(entry: DiagnosticEntry): TraceTokenUsage | null {
   const output = read(value, "outputTokens") ?? sumModelField("outputTokens");
   const total = read(value, "totalTokens") ?? (input !== null && output !== null ? input + output : null);
   const calls = read(value, "modelCalls") ?? read(value, "calls") ?? (modelCalls.length ? modelCalls.length : null);
-  const context = entry.details.contextUsage && typeof entry.details.contextUsage === "object"
-    ? entry.details.contextUsage as Record<string, unknown> : {};
   const result: TraceTokenUsage = {
     input, output, total, calls,
     cachedInput: read(value, "cachedInputTokens"),
     cacheWrite: read(value, "cacheWriteTokens"),
     reasoning: read(value, "reasoningTokens"),
     premiumRequestCost: read(value, "premiumRequestCost"),
-    totalNanoAiu: read(value, "totalNanoAiu"),
-    contextTokens: read(context, "currentTokens"),
-    contextLimit: read(context, "tokenLimit"),
-    contextPercent: read(context, "percent")
+    totalNanoAiu: read(value, "totalNanoAiu")
   };
   const hasUsage = [result.input, result.output, result.total, result.cachedInput, result.cacheWrite,
     result.reasoning, result.premiumRequestCost, result.totalNanoAiu].some((item) => item !== null);
   return hasUsage ? result : null;
+}
+
+function traceContextUsage(entry: DiagnosticEntry): TraceContextUsage | null {
+  const raw = entry.details.contextUsage;
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const read = (key: string): number | null =>
+    typeof value[key] === "number" && Number.isFinite(value[key]) && (value[key] as number) >= 0
+      ? value[key] as number : null;
+  const result: TraceContextUsage = {
+    currentTokens: read("currentTokens"),
+    tokenLimit: read("tokenLimit"),
+    messagesLength: read("messagesLength"),
+    percent: read("percent")
+  };
+  return Object.values(result).some((item) => item !== null) ? result : null;
 }
 
 function formatTokenCount(value: number): string {
@@ -423,10 +438,14 @@ export default function WorkspacePages(props: Props) {
                           {usage.reasoning !== null && <><span>Reasoning tokens</span><code>{formatTokenCount(usage.reasoning)}</code></>}
                           {usage.premiumRequestCost !== null && <><span>Premium request cost</span><code>{formatUsageAmount(usage.premiumRequestCost)}</code></>}
                           {usage.totalNanoAiu !== null && <><span>Total nano-AIU</span><code>{formatUsageAmount(usage.totalNanoAiu)}</code></>}
-                          {usage.contextTokens !== null && <><span>Context tokens</span><code>{formatTokenCount(usage.contextTokens)}</code></>}
-                          {usage.contextLimit !== null && <><span>Context limit</span><code>{formatTokenCount(usage.contextLimit)}</code></>}
-                          {usage.contextPercent !== null && <><span>Context usage</span><code>{usage.contextPercent}%</code></>}
                         </div>}
+                        {traceContextUsage(entry) && <div className="trace-entry-meta trace-context-usage">
+                          <strong>Context window</strong>
+                          {traceContextUsage(entry)!.currentTokens !== null && <><span>Current tokens</span><code>{formatTokenCount(traceContextUsage(entry)!.currentTokens!)}</code></>}
+                          {traceContextUsage(entry)!.tokenLimit !== null && <><span>Limit</span><code>{formatTokenCount(traceContextUsage(entry)!.tokenLimit!)}</code></>}
+                          {traceContextUsage(entry)!.percent !== null && <><span>Occupied</span><code>{traceContextUsage(entry)!.percent}%</code></>}
+                          {traceContextUsage(entry)!.messagesLength !== null && <><span>Messages</span><code>{formatTokenCount(traceContextUsage(entry)!.messagesLength!)}</code></>}
+                        </div>
                         {typeof entry.details.requestPrompt === "string" && <>
                           <strong>Request prompt</strong>
                           <pre className="trace-entry-details">{entry.details.requestPrompt}</pre>
