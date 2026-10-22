@@ -1,13 +1,9 @@
 import { inflateSync, unzlibSync } from "fflate";
-import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { parseDrawioXml as parseXmlDocument, serializeDrawioXml } from "../model/drawio-xml-dom";
 import { validateDrawioXmlDocument } from "../model/drawio-xml-schema";
 import type { DiagramDocument, DiagramNode, DiagramRelation, NodeRole, NodeVisualStyle, RelationVisualStyle, Point, SequenceFragment } from "../model/types";
 import { diagramPalette, nodeVisualDefaults, relationVisualDefaults } from "../design/render-spec";
 
-// xmldom ships its own module-local DOM types, which do not unify with lib.dom. This module reads the
-// parsed tree as a lib.dom document, so the two crossings below are explicit casts rather than a
-// re-typed walker.
-type XmldomSerializerNode = Parameters<InstanceType<typeof XMLSerializer>["serializeToString"]>[0];
 
 function decodeHtmlEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity: string) => {
@@ -161,14 +157,7 @@ export function relationVisualStyleFromDrawio(style: string, kind: DiagramRelati
 function parseDrawioXml(xml: string): Document | null {
   if (!validateDrawioXmlDocument(xml).success) return null;
   const parse = (source: string): Document | null => {
-    const errors: string[] = [];
-    try {
-      const parser = new DOMParser({ locator: false, onError: (level, message) => { if (level !== "warning") errors.push(message); } });
-      const result = parser.parseFromString(source, "application/xml");
-      // @xmldom/xmldom 0.9.x exposes module-local DOM types, not lib.dom's Document.
-      // Cast only at this parser boundary; downstream traversal treats it as read-only.
-      return errors.length || !result.documentElement ? null : result as unknown as Document;
-    } catch { return null; }
+    try { return parseXmlDocument(source); } catch { return null; }
   };
 
   const parsed = parse(xml);
@@ -182,7 +171,7 @@ function parseDrawioXml(xml: string): Document | null {
   const embeddedModel = directChild(diagram, "mxGraphModel");
   // XMLSerializer has the same module-local DOM type mismatch in xmldom 0.9.x.
   // The explicit cast stays at the boundary; the original mxfile XML remains authoritative.
-  if (embeddedModel) return parse(new XMLSerializer().serializeToString(embeddedModel as unknown as XmldomSerializerNode));
+  if (embeddedModel) return parse(serializeDrawioXml(embeddedModel as unknown as Document));
 
   const payload = diagram.textContent?.trim();
   if (!payload) return null;
