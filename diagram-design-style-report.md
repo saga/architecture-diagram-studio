@@ -1,5 +1,7 @@
 # diagram-design 风格与布局深度分析报告
 
+> **历史设计研究与建议（2026-10-22）**。本文分析了当时的 SVG/Canvas 实现并保留了原始文件路径。V2 当前只有原生 Draw.io 画布；关于 `DiagramCanvas`、SVG label mask 或 SVG 可访问性的建议属于旧实现背景，不是当前生产 UI 的实现描述。当前架构以 ADR-0006/0008 和 `v2/README.md` 为准。
+
 > 本地仓库：`/Users/saga/code-repos/diagram-design`  
 > 在线 gallery：`https://cathrynlavery.github.io/diagram-design/`  
 > 目标系统：`architecture-diagram-studio` V2 自动布局与 Draw.io 导出链路  
