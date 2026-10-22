@@ -15,7 +15,7 @@ The agreed scope is F1–F11. Mermaid import and semantic conversion remain expl
 1. **F1 — Design references.** Internal Copilot tools provide focused guidance on the semantic model, Draw.io XML conventions, C4, sequence diagrams, layout profiles, templates and validation rules.
 2. **F2 — Diagram inspection.** Inspect the active persisted semantic document, including bounded nodes, relationships, boundaries, layout and flow/sequence metadata.
 3. **F3 — Quality evaluation.** Reuse the authoritative server-side quality evaluator; do not duplicate quality logic.
-4. **F4 — Governed edits.** Generate non-persistent, revision-bound proposals. The Studio UI obtains explicit user confirmation; the server revalidates the current revision, semantic invariants, layout allowlist and quality regression before saving a new version.
+4. **F4 — Governed edits.** The default path generates a non-persistent, revision-bound proposal for explicit confirmation. A focused change explicitly requested by the user may be applied directly only after inspecting the active document and exact revision; the server revalidates the source/semantic contract and creates a version. Semantic layout-quality gates apply only when the operation actually uses semantic layout.
 5. **F5/F7 — Workspace examples.** Search bounded, workspace-local diagrams and documents as evidence for style and component choices. Reuse path guards and treat retrieved content as untrusted input.
 6. **F6 — Composable workflow.** Support inspect → retrieve references/examples → propose → evaluate → user confirmation → apply → inspect/evaluate using small internal tools, without adding another workflow engine.
 7. **F8 — Mermaid.** Deferred. Do not imply that Mermaid source is converted into the Studio semantic model.
@@ -27,9 +27,9 @@ The agreed scope is F1–F11. Mermaid import and semantic conversion remain expl
 
 - The Studio server is authoritative for diagram state, layout, validation, quality, snapshots and persistence. UI and Copilot SDK tools reuse the same domain services.
 - There is no standalone MCP server or externally registered MCP tool surface for workspace or diagram operations.
-- All mutations require UI confirmation, a current semantic/XML revision, server-side validation, a quality gate and a new snapshot.
+- All mutations require a current XML revision, server-side validation and a new snapshot. Broad redesigns, ambiguous edits, bulk destructive operations, template replacement and version restore require explicit confirmation. A focused, explicit user request may be applied directly after inspection. Quality gates apply to operations that use semantic layout, not every native XML edit.
 - Keep inputs/results bounded. Validate workspace paths, reject symlink escapes and treat project text as untrusted data. Do not add arbitrary shell execution or arbitrary filesystem writes.
-- Preserve the single workspace configuration, semantic model and authoritative quality implementation.
+- Preserve the single workspace configuration, derived semantic projection and authoritative quality implementation.
 
 ## Alternatives considered
 
@@ -42,6 +42,6 @@ The agreed scope is F1–F11. Mermaid import and semantic conversion remain expl
 ## Consequences
 
 - Internal Copilot SDK tools provide references, inspection, quality assessment, example search, edit proposals, templates, semantic diffs, version listing and restore proposals.
-- The UI is the confirmation surface; the model cannot independently commit a mutation.
+- The UI is the review/confirmation surface for proposals that require review; the model cannot independently commit a mutation. The trusted server may directly apply a focused user-requested change only under the revision and validation rules above.
 - Mermaid import/conversion remains unsupported.
 - A capability counts as implemented only when its tool, validation, persistence semantics, documentation and tests agree.
