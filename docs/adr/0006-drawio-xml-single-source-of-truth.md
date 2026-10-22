@@ -1,6 +1,6 @@
 # ADR-0006: Draw.io XML as the Single Source of Truth
 
-- Status: Accepted
+- Status: Superseded by [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md)
 - Date: 2026-10-22
 - Supersedes: the semantic-source-of-truth wording in `ARCHITECTURE-V2.md` and earlier design notes where it conflicts with this decision.
 
@@ -10,9 +10,11 @@ The Studio originally modeled C4, flowchart and sequence diagrams in `DiagramDoc
 
 Supporting all diagram types must not mean rebuilding mxGraph's data model inside this application or choosing between two independent document representations.
 
-## Decision
+## Historical Decision (superseded where it retains a semantic projection)
 
-**The native Draw.io XML (`mxfile`) is the only authoritative source of truth for every diagram.**
+**The native Draw.io XML (`mxfile`) remains the only authoritative source of truth for every diagram.**
+
+ADR-0011 removes the parallel `DiagramDocument` model rather than keeping it as an optional projection. The rules below are historical context; if they imply retaining `DiagramDocument`, semantic completeness gates, or semantic-only editing, ADR-0011 takes precedence.
 
 1. The complete XML document, including all pages and metadata, is the durable source for editing, autosave, recovery, export and workspace-file writes. Workspace-backed documents also persist XML in version snapshots; standalone files persist through their selected local-file autosave/export path and are outside workspace history.
 2. `DiagramDocument` is a derived, partial projection for supported C4/flowchart/sequence semantic operations. It is not a second source of truth and must never replace the original XML wholesale.
