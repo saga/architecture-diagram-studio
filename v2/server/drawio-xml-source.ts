@@ -1,17 +1,11 @@
 import type { DiagramDocument } from "../src/model/types";
 import { toDrawioXml } from "../src/export/drawio";
 import { canEditInStudio, patchDrawioXml } from "../src/model/drawio-xml-source";
+import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
 
-/** XML persistence is format-level validation; semantic rules belong to explicit semantic operations. */
+/** Persistence uses the same Zod schema as browser import; semantic completeness is a separate gate. */
 export function isDrawioXmlEnvelope(xml: string): boolean {
-  const value = xml.trim();
-  if (!value || /<!DOCTYPE/i.test(value)) return false;
-  const root = value.match(/^(?:<\?xml\b[^?]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<(mxfile|mxGraphModel)\b/);
-  if (!root) return false;
-  if (root[1] === "mxfile") {
-    return /<\/mxfile>\s*$/.test(value) && /<diagram\b/.test(value) && /<\/diagram>/.test(value);
-  }
-  return /<\/mxGraphModel>\s*$/.test(value) && /<root\b/.test(value) && /<\/root>/.test(value);
+  return validateDrawioXmlDocument(xml).success;
 }
 
 /** Reject a semantic operation unless the persisted XML is exactly represented by the projection. */
