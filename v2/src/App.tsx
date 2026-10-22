@@ -1183,7 +1183,7 @@ export default function App() {
               <UiButton type="button" className="preview-discard" onClick={discardPreview}>Discard preview</UiButton>
               <UiButton type="button" className="preview-accept" onClick={acceptPreview}>Apply changes</UiButton>
             </div>}
-            {document.kind === "sequence" && <UiButton className="toolbar-button" onClick={() => addSequenceFragment()} disabled={Boolean(previewDocument)}>＋ Sequence fragment</UiButton>}
+            
             <label className="layout-profile-control" title="Choose the auto-layout algorithm">
               <span>Algorithm</span>
               <UiSelect className="text-field" aria-label="Auto-layout algorithm" value={LAYOUT_PROFILES.some((profile) => profile.value === document.layout.profile) ? document.layout.profile : (enabledLayoutProfiles[0] || "elk-layered") }
