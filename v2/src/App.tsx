@@ -239,9 +239,8 @@ export default function App() {
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic: recordDiagnostic });
 
-  useEffect(() => {
-    if (serverHydrated && !studioEditingSafe && viewMode !== "drawio") setViewMode("drawio");
-  }, [serverHydrated, studioEditingSafe, viewMode]);
+  // Do not forcibly switch the user's view on every render. Unsupported native XML
+  // disables semantic edits, but the user can still inspect the Studio projection.
 
   useEffect(() => {
     let active = true;
@@ -525,19 +524,13 @@ export default function App() {
     setRevision((value) => value + 1);
   }, [document, drawioXml, studioEditingSafe]);
 
-  // Hydrate first so a legacy document's native XML is available before its appearance is migrated.
-  // Read the existing XML into visualStyle before regenerating it; do not discard unmodelled XML merely
-  // because an older workspace snapshot predates the shared rendering-theme field.
+  // The color theme is a workspace/UI preference, not a property of an individual diagram.
+  // In particular, never synchronize it back from an imported document: doing so made every
+  // theme selection immediately revert to the document's previous renderTheme.
   useEffect(() => {
-    if (!serverHydrated) return;
-    if (!document.renderTheme) {
-      const themedDocument = { ...document, renderTheme: uiTheme };
-      const imported = nativeXmlOverride ? fromDrawioXml(nativeXmlOverride, themedDocument) : themedDocument;
-      replaceDocument({ ...imported, renderTheme: uiTheme });
-    } else if (document.renderTheme !== uiTheme) {
-      setUiTheme(document.renderTheme);
-    }
-  }, [serverHydrated, document, nativeXmlOverride, replaceDocument, studioEditingSafe]);
+    if (!serverHydrated || document.renderTheme) return;
+    replaceDocument({ ...document, renderTheme: uiTheme });
+  }, [serverHydrated, document, uiTheme, replaceDocument]);
 
   /**
    * Heals a document that is already broken on disk or in the browser draft: an earlier build could persist
@@ -1099,7 +1092,7 @@ export default function App() {
           <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as UiTheme;
             setUiTheme(nextTheme);
-            if (studioEditingSafe) replaceDocument({ ...document, renderTheme: nextTheme });
+            try { window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme", nextTheme); window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme-version", "2"); } catch { /* Theme preference is optional when storage is unavailable. */ }
           }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
@@ -1131,7 +1124,7 @@ export default function App() {
           <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
-          <UiButton className="button button-primary" disabled={!studioEditingSafe || Boolean(previewDocument)} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Freeform editor" : "Studio canvas"}</UiButton>
+          <UiButton className="button button-primary" disabled={Boolean(previewDocument)} title={!studioEditingSafe ? "Studio projection is read-only for this native XML; the original XML remains preserved." : undefined} onClick={() => setViewMode(viewMode === "studio" ? "drawio" : "studio")}><span className="button-icon">◇</span>{viewMode === "studio" ? "Freeform editor" : "Studio canvas"}</UiButton>
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to canvas</UiButton></div>}
       </header>
 
