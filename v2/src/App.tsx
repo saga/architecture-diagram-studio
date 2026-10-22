@@ -1048,7 +1048,10 @@ export default function App() {
                 const result = await response.json() as { error?: string; files?: WorkspaceFile[]; workspace?: ProjectWorkspace };
                 if (!response.ok || !result.workspace) throw new Error(result.error || "Directory scan failed");
                 setWorkspaceFiles(result.files || []);
-                const keptPrimary = projectWorkspace?.rootPath === result.workspace.rootPath ? projectWorkspace.primaryDiagram : null;
+                const currentWorkspace = projectWorkspace;
+                const keptPrimary = currentWorkspace && currentWorkspace.rootPath === result.workspace.rootPath
+                  ? currentWorkspace.primaryDiagram
+                  : null;
                 if (keptPrimary) setWorkspacePrimaryDiagram(keptPrimary);
                 else if (!(result.files || []).some((file) => file.path === workspacePrimaryDiagram)) setWorkspacePrimaryDiagram("");
               } catch (error) { setWorkspaceError(error instanceof Error ? error.message : String(error)); }
