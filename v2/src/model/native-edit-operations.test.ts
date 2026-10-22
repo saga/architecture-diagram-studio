@@ -129,8 +129,8 @@ describe("toNativeCellEdits", () => {
   it("maps operations onto bridge paths", () => {
     const operations: ResolvedNativeEditOperation[] = [
       { op: "select", target: "Database", cellId: "db", targetLabel: "Database" },
-      { op: "set_style", target: "Database", cellId: "db", label: "Database", key: "fillColor", color: "#ff0000" },
-      { op: "add_node_after", target: "Database", cellId: "db", label: "Database", newLabel: "bbb" }
+      { op: "set_style", target: "Database", cellId: "db", targetLabel: "Database", key: "fillColor", color: "#ff0000" },
+      { op: "add_node_after", target: "Database", cellId: "db", targetLabel: "Database", newLabel: "bbb" }
     ];
     const plan = toNativeCellEdits(operations, XML);
     expect(plan.ok).toBe(true);
@@ -146,7 +146,7 @@ describe("toNativeCellEdits", () => {
     const operations: ResolvedNativeEditOperation[] = [
       { op: "set_label", target: "Database", cellId: "db", targetLabel: "Database", label: "Data Store" },
       { op: "delete", target: "Obsolete", cellId: "obsolete", targetLabel: "Obsolete" },
-      { op: "resize", target: "Database", cellId: "db", label: "Database", width: 220, height: 90 }
+      { op: "resize", target: "Database", cellId: "db", targetLabel: "Database", width: 220, height: 90 }
     ];
     const plan = toNativeCellEdits(operations, XML);
     expect(plan.ok).toBe(true);
