@@ -71,19 +71,9 @@ export function parseAIIntentPlan(raw: string): AIIntentPlan {
   } catch {
     throw new Error("The model did not return valid JSON; nothing was applied");
   }
-  if (!parsed || typeof parsed !== "object") throw new Error("The model plan has an invalid shape");
-  const value = parsed as { commands?: unknown; reply?: unknown };
-  const rawCommands = Array.isArray(value.commands)
-    ? value.commands.filter((command): command is string => typeof command === "string" && command.trim().length > 0).map((command) => command.trim())
-    : [];
-  if (rawCommands.length > 6) throw new Error("The model plan exceeds 6 commands; nothing was applied");
-  if (rawCommands.some((command) => !ALLOWED_COMMANDS.has(command))) {
-    throw new Error("The model plan contains a command outside the whitelist; nothing was applied");
-  }
-  return {
-    commands: rawCommands,
-    reply: typeof value.reply === "string" ? value.reply.trim().slice(0, 500) : ""
-  };
+  // Keep model text parsing aligned with the validated SDK response path, including
+  // server-applied operation receipts; a receipt must not be silently dropped.
+  return validatePlan(parsed);
 }
 
 function validatePlan(value: unknown): AIIntentPlan {
