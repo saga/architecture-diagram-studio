@@ -70,6 +70,7 @@ export type CopilotIntentResponse =
       requestId: string;
       documentRevision: string;
       persistedRevision?: string | null;
+      versionId?: string | null;
     })
   | (OutcomeBase & { outcome: "answered" })
   | (OutcomeBase & {
