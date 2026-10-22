@@ -8,6 +8,16 @@
 
 ---
 
+
+## 当前可复用的设计输入（ADR-0012）
+
+本报告的代码路径、分层方案和分阶段估算是历史评估，不直接迁移到当前 V2。仍有用的是对未知 shape、嵌套 cell、多页、XML metadata 和目标操作安全性的分析。后续能力按以下边界重用这些结论：
+
+- 形状、容器与多页兼容继续由原生 Draw.io 和开放 XML schema 负责，不要求 Studio 理解全部 shape 才能打开或编辑。
+- 布局、routing、风格规则如果未来有明确需求，应通过 `NativeDiagramOperationProvider` 将结果表达为有 revision/page 范围的类型化原生操作；不迁移旧的 `DiagramDocument` / SVG / ELK-Dagre 生产链路。
+- 几何、对比度、可访问性等检查应通过 `NativeDiagramAnalysisProvider` 返回诊断，不应默认为所有原生保存增加语义质量门。
+- 当前只有扩展契约，没有内置布局或质量 provider。详见 [ADR-0012](./adr/0012-native-diagram-extension-contracts.md) 与 [当前 V2 架构](../ARCHITECTURE-V2.md)。
+
 ## 0. 决策与结论
 
 **历史方案（不再是现行设计）**：本报告曾建议从 XML 派生只读 `DiagramDocument` 投影。该建议已被 ADR-0011 取代；现行 V2 直接对原生 mxCell 执行窄范围、类型化操作，不生成第二张图模型。
