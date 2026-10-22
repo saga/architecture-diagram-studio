@@ -506,6 +506,42 @@ app.post("/api/workspace/diagram/export-drawio", async (req, res) => {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
+app.post("/api/diagram/intent/apply", async (req, res) => {
+  const document = req.body?.document;
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  if (!isDiagramDocument(document) || !prompt || prompt.length > 4000) {
+    res.status(400).json({ error: "Invalid diagram or layout intent" });
+    return;
+  }
+  const startedAt = Date.now();
+  try {
+    // This endpoint deliberately does not read or write workspace state. It is for a
+    // standalone file supplied by the caller and returns a proposed semantic projection.
+    const config = await getStudioConfig();
+    const interpreted = interpretIntent(document, prompt);
+    if (interpreted.requiresLayout && interpreted.document.kind !== "sequence" && resultProfileDisabled(interpreted.document, config.layoutProfiles)) {
+      res.status(400).json({ error: `Layout algorithm ${interpreted.document.layout.profile} is disabled in the config` });
+      return;
+    }
+    const result = interpreted.requiresLayout
+      ? { ...interpreted, document: await layoutDiagram(interpreted.document) }
+      : interpreted;
+    await writeLog("standalone.intent.completed", {
+      documentId: document.id, changed: result.changed, requiresLayout: result.requiresLayout,
+      durationMs: Date.now() - startedAt, nodeCount: result.document.nodes.length,
+      relationCount: result.document.relations.length, summary: result.summary
+    });
+    res.json(result);
+  } catch (error) {
+    await writeLog("standalone.intent.failed", {
+      documentId: document.id, durationMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.post("/api/workspace/intent/apply", async (req, res) => {
   const document = req.body?.document;
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
