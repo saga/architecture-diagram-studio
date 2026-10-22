@@ -155,7 +155,7 @@ export function applyDrawioThemeBackgroundReversible(xml: string, background: st
   if (!color) return xml;
   return xml.replace(/<mxGraphModel\b([^<>]*?)(\/?)>/g, (_tag, attributes: string, selfClosing: string) => {
     const read = (key: string) => {
-      const match = new RegExp(key + '"([^"]*)"').exec(attributes);
+      const match = new RegExp(key + '="([^"]*)"').exec(attributes);
       return match?.[2] ?? null;
     };
     const write = (attrs: string, key: string, value: string | null) => {
