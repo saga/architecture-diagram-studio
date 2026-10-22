@@ -160,6 +160,9 @@ export default function App() {
     }
   });
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [localHistoryOpen, setLocalHistoryOpen] = useState(false);
+  const [localHistoryEntries, setLocalHistoryEntries] = useState<Array<{ id: string; createdAt: string; label: string; xml: string }>>([]);
+  const [localHistorySelectedId, setLocalHistorySelectedId] = useState<string | null>(null);
   const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
   const [versionEntries, setVersionEntries] = useState<VersionSummary[]>([]);
   const [revision, setRevision] = useState(1);
@@ -986,6 +989,54 @@ export default function App() {
     }
   }
 
+  function openStandaloneHistory() {
+    if (!standaloneFileName) return;
+    const fileKey = standaloneFileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const historyKey = "architecture-diagram-studio:v2:standalone-history:" + fileKey;
+    try {
+      const parsed: unknown = JSON.parse(window.localStorage.getItem(historyKey) || "[]");
+      const entries = Array.isArray(parsed) ? parsed.filter((item): item is { id: string; createdAt: string; label: string; xml: string } =>
+        !!item && typeof item === "object" && typeof item.id === "string" && typeof item.createdAt === "string" &&
+        typeof item.label === "string" && typeof item.xml === "string") : [];
+      setLocalHistoryEntries(entries.slice(-100));
+      setLocalHistorySelectedId(entries.at(-1)?.id ?? null);
+      setLocalHistoryOpen(true);
+    } catch (error) {
+      recordDiagnostic("copilot.standalone.history.read.failed", "Could not read local standalone diagram history", {
+        fileName: standaloneFileName, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+      setLastAction("Could not read local history");
+    }
+  }
+
+  function restoreStandaloneHistory(entry: { id: string; createdAt: string; label: string; xml: string }) {
+    if (!standaloneFileName || !isDrawioXmlDocument(entry.xml)) {
+      setLastAction("History restore cancelled: snapshot is not valid Draw.io XML");
+      return;
+    }
+    const currentXml = drawioXml;
+    const fileKey = standaloneFileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const historyKey = "architecture-diagram-studio:v2:standalone-history:" + fileKey;
+    try {
+      const parsed: unknown = JSON.parse(window.localStorage.getItem(historyKey) || "[]");
+      const entries = Array.isArray(parsed) ? parsed as Array<{ id: string; createdAt: string; label: string; xml: string }> : [];
+      entries.push({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), label: "Before restore: " + entry.label, xml: currentXml });
+      window.localStorage.setItem(historyKey, JSON.stringify(entries.slice(-100)));
+    } catch (error) {
+      setLastAction("History restore cancelled because the current XML could not be backed up");
+      recordDiagnostic("copilot.standalone.history.restore.backup-failed", "Could not back up current XML before restoring history", {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+      return;
+    }
+    setNativeXmlOverride(entry.xml);
+    setLocalHistoryOpen(false);
+    setLastAction("Restored local snapshot: " + entry.label);
+    recordDiagnostic("copilot.standalone.history.restored", "Restored a validated local Draw.io XML snapshot", {
+      fileName: standaloneFileName, snapshotId: entry.id, xmlLength: entry.xml.length, previousXmlLength: currentXml.length
+    });
+  }
+
   async function restoreVersion(versionId: string) {
     try {
       const response = await fetch("/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
@@ -1111,6 +1162,35 @@ export default function App() {
           </div>
         </div>
       </Modal>
+      <Modal title={"Local Draw.io history · " + (standaloneFileName || "")} open={localHistoryOpen} onCancel={() => setLocalHistoryOpen(false)} footer={null} width={900}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(0, 2fr)", gap: 16, maxHeight: "65vh" }}>
+          <div style={{ overflowY: "auto" }}>
+            {localHistoryEntries.length === 0 ? <p>No local snapshots saved yet. A snapshot is created before each Copilot edit.</p> : [...localHistoryEntries].reverse().map((entry) => (
+              <button key={entry.id} type="button" onClick={() => setLocalHistorySelectedId(entry.id)}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: 10, border: "1px solid var(--border, #e5e7eb)", borderRadius: 6, marginBottom: 8, background: localHistorySelectedId === entry.id ? "var(--surface-selected, #eef2ff)" : "transparent", color: "inherit" }}>
+                <strong>{entry.label}</strong><div style={{ fontSize: 12, opacity: 0.7 }}>{new Date(entry.createdAt).toLocaleString()}</div><div style={{ fontSize: 12, opacity: 0.7 }}>{entry.xml.length.toLocaleString()} XML characters</div>
+              </button>
+            ))}
+          </div>
+          <div style={{ minWidth: 0, overflowY: "auto" }}>
+            {(() => {
+              const selected = localHistoryEntries.find((entry) => entry.id === localHistorySelectedId);
+              if (!selected) return <p>Select a snapshot to inspect it.</p>;
+              const current = drawioXml;
+              const selectedLines = selected.xml.split(/\r?\n/);
+              const currentLines = current.split(/\r?\n/);
+              const firstDifference = selectedLines.findIndex((line, index) => line !== currentLines[index]);
+              return <>
+                <strong>Snapshot comparison</strong>
+                <p>Current XML: {current.length.toLocaleString()} characters · Snapshot: {selected.xml.length.toLocaleString()} characters · {selected.xml === current ? "identical" : "different"}.</p>
+                <p>First differing line: {firstDifference < 0 ? "none" : firstDifference + 1}. XML snapshots are compared as text; compressed multi-page payloads may appear as a single line.</p>
+                <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 280, overflowY: "auto", fontSize: 11 }}>{selectedLines.slice(Math.max(0, firstDifference - 2), Math.max(0, firstDifference - 2) + 12).join("\n") || selected.xml.slice(0, 2000)}</pre>
+                <Button type="primary" onClick={() => restoreStandaloneHistory(selected)}>Restore snapshot</Button>
+              </>;
+            })()}
+          </div>
+        </div>
+      </Modal>
       <Modal title="Server version history" open={versionHistoryOpen} onCancel={() => setVersionHistoryOpen(false)} footer={null} width={760}>
         <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
           {versionHistoryLoading ? <p>Loading version history…</p> : versionEntries.length === 0 ? <p>The server has no saved versions yet.</p> : [...versionEntries].reverse().map((version) => (
@@ -1171,6 +1251,7 @@ export default function App() {
           <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => importFileRef.current?.click()}><span className="button-icon">↑</span>Import</UiButton>
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
+          {standaloneFileName && <UiButton className="button button-secondary" title="Browse, compare and restore local Draw.io XML snapshots" onClick={openStandaloneHistory}>Local history</UiButton>}
           
         </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("diagram")}>Back to diagram</UiButton></div>}
       </header>
