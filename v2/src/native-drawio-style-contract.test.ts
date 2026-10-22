@@ -86,4 +86,4 @@ describe("native Draw.io style and geometry contract", () => {
     expect(xml).toContain(`id="${actor.id}__studioAccent"`);
     expect(xml).toContain(`rounded=1;arcSize=${RENDER_METRICS.node.pillArcSize};whiteSpace=wrap;html=1;fillColor=${paint.accent}`);
   });
-}
+});
