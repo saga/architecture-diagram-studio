@@ -140,4 +140,55 @@ test.describe("原生画布", () => {
       throw new Error(String(error) + "\\nNative property diagnostics: " + JSON.stringify(diagnostics));
     }
   });
+  test("原生批量编辑逐步执行，失败时回滚并报告失败步骤", async ({ page }) => {
+    const before = await readWorkspaceXml(workspace);
+    const databaseCell = Array.from(before.matchAll(/<mxCell\\b([^>]*)>/g))
+      .find((match) => /\\bvalue="Database"/.test(match[1]));
+    expect(databaseCell, "fixture must contain the Database cell").toBeTruthy();
+    const databaseId = /\\bid="([^"]+)"/.exec(databaseCell![1])?.[1];
+    expect(databaseId).toBeTruthy();
+
+    const result = await page.evaluate(async (cellId) => {
+      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
+      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
+      const requestId = 938271;
+      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", receive);
+          reject(new Error("Timed out waiting for native batch acknowledgement"));
+        }, 8000);
+        const receive = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return;
+          let data: Record<string, unknown>;
+          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
+          catch { return; }
+          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener("message", receive);
+          resolve(data);
+        };
+        window.addEventListener("message", receive);
+      });
+      frame.contentWindow.postMessage(JSON.stringify({
+        event: "studioPropertyEditRequest", requestId, cellId: "__batch__", path: "cell:batch",
+        value: JSON.stringify([
+          { cellId, path: "label", value: "Database changed temporarily" },
+          { cellId, path: "geometry:size", value: "240,100" },
+          { cellId: "missing-cell-for-rollback-test", path: "label", value: "Must fail" }
+        ])
+      }), window.location.origin);
+      return response;
+    }, databaseId!);
+
+    expect(result.success).toBe(false);
+    expect(result.batchRolledBack).toBe(true);
+    expect(result.failedIndex).toBe(2);
+    expect(Array.isArray(result.batchResults)).toBe(true);
+    expect((result.batchResults as Array<{ success: boolean }>).map((step) => step.success)).toEqual([true, true, false]);
+    expect(result.rollbackErrors).toEqual([]);
+    expect(await readWorkspaceXml(workspace)).toBe(before);
+    await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
+    await expect(nativeFrame(page).getByText("Database changed temporarily", { exact: true })).toHaveCount(0);
+  });
+
 });
