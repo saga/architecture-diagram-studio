@@ -46,6 +46,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   const [available, setAvailable] = useState<boolean | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
+  const [bridgeReady, setBridgeReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
@@ -116,23 +117,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
     const themedXml = applyDrawioThemeBackgroundReversible(xml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
 
-    // Use Draw.io's own graph view API as the visual adapter. This also covers
-    // compressed <diagram> payloads where no mxGraphModel tag is visible in XML.
-    const editorWindow = iframeRef.current?.contentWindow as (Window & {
-      editorUi?: { editor?: { graph?: {
-        background?: string;
-        refresh?: () => void;
-        view?: { validateBackground?: () => void };
-      } } };
-    }) | null;
-    const graph = editorWindow?.editorUi?.editor?.graph;
-    if (graph) {
-      const storedBackground = /\bstudioThemeOriginalBackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
-      const explicitBackground = /\bbackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
-      graph.background = theme === "editorial" ? (storedBackground && storedBackground !== "__none__" ? storedBackground : explicitBackground || palette.canvas) : palette.canvas;
-      graph.view?.validateBackground?.();
-      graph.refresh?.();
-    }
+    // The Draw.io plugin bridge owns graph internals; window.editorUi is not a public API.
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
+      event: "studioSetBackground",
+      restore: theme === "editorial",
+      background: palette.canvas
+    }), window.location.origin);
 
     // For uncompressed XML pages, persist the corresponding mxGraphModel background
     // attribute without touching cell styles. Compressed pages use the graph API above.
@@ -165,41 +155,22 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
 
   useEffect(() => {
-    if (!cellEdit || !editorReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
-    const frameWindow = iframeRef.current?.contentWindow as (Window & {
-      studioDrawioBridge?: {
-        applyCellEdit: (edit: CellPropertyEdit) => {
-          ok: boolean; error?: string; stalePage?: boolean; pageId?: string | null;
-        };
-      };
-    }) | null;
-    const bridge = frameWindow?.studioDrawioBridge;
-    if (!bridge || typeof bridge.applyCellEdit !== "function") {
-      lastHandledCellEditRequestRef.current = cellEdit.requestId;
-      const message = "The local Draw.io property bridge is unavailable. Rebuild the pinned Draw.io bundle and reload the editor.";
-      setStartupError(message);
-      recordDiagnostic("drawio.selection.bridge.unavailable", message, { cellId: cellEdit.cellId, property: cellEdit.path }, "error");
-      return;
-    }
-
-    const result = bridge.applyCellEdit(cellEdit);
+    if (!cellEdit || !editorReady || !bridgeReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
+    const target = iframeRef.current?.contentWindow;
+    if (!target) return;
     lastHandledCellEditRequestRef.current = cellEdit.requestId;
-    if (!result.ok) {
-      recordDiagnostic(
-        result.stalePage ? "drawio.selection.property.stale-page" : "drawio.selection.property.update.failed",
-        result.error || "Could not update the selected native Draw.io cell property",
-        { cellId: cellEdit.cellId, property: cellEdit.path, requestedPageId: cellEdit.pageId, currentPageId: result.pageId ?? null },
-        result.stalePage ? "warn" : "error"
-      );
-      return;
-    }
-    setStartupError(null);
-    recordDiagnostic("drawio.selection.property.updated", "Updated a selected native Draw.io cell property", {
-      cellId: cellEdit.cellId, property: cellEdit.path, pageId: result.pageId ?? null
+    target.postMessage(JSON.stringify({
+      event: "studioPropertyEditRequest",
+      requestId: cellEdit.requestId,
+      cellId: cellEdit.cellId,
+      pageId: cellEdit.pageId,
+      path: cellEdit.path,
+      value: cellEdit.value
+    }), window.location.origin);
+    recordDiagnostic("drawio.selection.property.requested", "Sent a selected-cell property edit to the native Draw.io bridge", {
+      cellId: cellEdit.cellId, property: cellEdit.path, requestId: cellEdit.requestId
     });
-  }, [cellEdit, editorReady]);
-
-
+  }, [cellEdit, editorReady, bridgeReady]);
 
 
   useLayoutEffect(() => {
@@ -226,10 +197,21 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         });
       }
 
+      if (data.event === "studioBridgeReady") {
+        setBridgeReady(true);
+        recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
+      }
       if (data.event === "studioSelectionChanged") {
         const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
         const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
         onSelectionChangeRef.current(cellId, pageId);
+      }
+      if (data.event === "studioPropertyEditResult") {
+        const requestId = typeof data.requestId === "number" ? data.requestId : null;
+        recordDiagnostic(data.success === true ? "drawio.selection.property.updated" : "drawio.selection.property.update.failed",
+          data.success === true ? "Updated a selected native Draw.io cell property" : "Could not update the selected native Draw.io cell property",
+          { requestId, cellId: data.cellId, property: data.path, errorMessage: data.success === true ? undefined : data.error },
+          data.success === true ? "info" : "error");
       }
       if (data.event === "configure") {
         recordDiagnostic("drawio.handshake.configure", "Draw.io requested configuration");
@@ -238,7 +220,16 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           config: { defaultFonts: ["Inter", "Arial"], defaultPageFormat: "A4", autosave: 1, noSaveBtn: true, noExitBtn: true }
         }), window.location.origin);
       }
+      if (data.event === "load") {
+        const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
+        const computed = appShell ? window.parent.getComputedStyle(appShell) : null;
+        const canvas = computed?.getPropertyValue("--theme-canvas").trim() || "#ffffff";
+        iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
+          event: "studioSetBackground", restore: theme === "editorial", background: canvas
+        }), window.location.origin);
+      }
       if (data.event === "init") {
+        setBridgeReady(false);
         recordDiagnostic("drawio.handshake.ready", "Draw.io embed API initialised; documents can be loaded safely", {
           iframeLoaded: iframeLoadedRef.current, origin: event.origin
         });
