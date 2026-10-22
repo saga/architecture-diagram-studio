@@ -121,8 +121,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     const themedXml = applyDrawioThemeBackgroundReversible(xml, palette.canvas, theme as "editorial" | "youth" | "warm" | "midnight");
 
     // The Draw.io plugin bridge owns graph internals; window.editorUi is not a public API.
-    const storedBackground = /\\bstudioThemeOriginalBackground=(["'])(.*?)\\1/.exec(themedXml)?.[2];
-    const explicitBackground = /\\bbackground=(["'])(.*?)\\1/.exec(themedXml)?.[2];
+    const storedBackground = /\bstudioThemeOriginalBackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
+    const explicitBackground = /\bbackground=(["'])(.*?)\1/.exec(themedXml)?.[2];
     iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
       event: "studioSetBackground",
       restore: theme === "editorial",
