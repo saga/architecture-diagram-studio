@@ -20,6 +20,8 @@ type NativeEditResult = {
   batchRolledBack?: boolean | null;
   /** XML returned by the native Draw.io save protocol after a Copilot batch. */
   serializedXml?: string;
+  /** Set by the host when the editor accepted the edit but required persistence failed. */
+  failureStage?: "editor" | "persistence";
 };
 type PendingNativeEdit = { cellId: string; path: string; value: string; startedAt: number; beforeXml: string };
 type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult };
