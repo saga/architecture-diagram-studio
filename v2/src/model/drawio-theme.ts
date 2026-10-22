@@ -102,14 +102,14 @@ function themedColor(key: typeof COLOR_KEYS[number], edge: boolean, palette: Dra
  * explicit override and is never recoloured by subsequent theme changes.
  */
 export function applyDrawioThemeStyles(xml: string, theme: ThemeName, palette: DrawioThemePalette): string {
-  if (!/<mxGraphModel\\b/.test(xml) || /<diagram\\b[^>]*>\\s*[A-Za-z0-9+/]{80,}={0,2}\\s*<\\/diagram>/i.test(xml)) return xml;
+  if (!/<mxGraphModel\b/.test(xml) || /<diagram\b[^>]*>\s*[A-Za-z0-9+/]{80,}={0,2}\s*<\/diagram>/i.test(xml)) return xml;
   const color = (value: string) => safeColor(value) ?? value;
-  return xml.replace(/<mxCell\\b([^<>]*?)\\/?>(?:[\\s\\S]*?<\\/mxCell>)?/g, (cellTag) => {
-    const attr = /\\bstyle=(["'])([\\s\\S]*?)\\1/.exec(cellTag);
+  return xml.replace(/<mxCell\b([^<>]*?)\/?>(?:[\s\S]*?<\/mxCell>)?/g, (cellTag) => {
+    const attr = /\bstyle=(["'])([\s\S]*?)\1/.exec(cellTag);
     if (!attr) return cellTag;
     const rawStyle = decodeXmlAttribute(attr[2]);
     const values = styleEntries(rawStyle);
-    const edge = /\\bedge=(["'])1\\1/.test(cellTag);
+    const edge = /\bedge=(["'])1\1/.test(cellTag);
     let changed = false;
     for (const key of COLOR_KEYS) {
       const originalKey = ORIGINAL_PREFIX + key[0].toUpperCase() + key.slice(1);
