@@ -3,6 +3,7 @@ import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { recordDiagnostic } from "../diagnostics";
+import { applyDrawioThemeBackground, drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 
 const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -12,6 +13,7 @@ interface Props {
   document: DiagramDocument;
   xml: string;
   onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
+  theme: string;
 }
 
 /**
@@ -26,7 +28,7 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-export default function DrawioFrame({ document, xml, onDocumentChange }: Props) {
+export default function DrawioFrame({ document, xml, onDocumentChange, theme }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentRef = useRef(document);
   const onDocumentChangeRef = useRef(onDocumentChange);
@@ -41,6 +43,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
+  const lastThemeAppliedRef = useRef("");
 
   useEffect(() => {
     let active = true;
@@ -82,6 +85,45 @@ export default function DrawioFrame({ document, xml, onDocumentChange }: Props) 
 
   // The iframe's DOM load event is not the Draw.io embed API's ready event.
   // Sending "load" before the editor emits "init" can leave its canvas on an endless spinner.
+  useEffect(() => {
+    const frameDocument = iframeRef.current?.contentDocument;
+    const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
+    if (!frameDocument || !appShell) return;
+    const computed = window.parent.getComputedStyle(appShell);
+    const token = (name: string, fallback: string) => computed.getPropertyValue(name).trim() || fallback;
+    const palette: DrawioThemePalette = {
+      canvas: token("--theme-canvas", "#ffffff"),
+      panel: token("--theme-panel", "#ffffff"),
+      text: token("--theme-text", "#172033"),
+      secondary: token("--theme-secondary", "#334155"),
+      muted: token("--theme-muted", "#64748b"),
+      border: token("--theme-border", "#d0d7e2"),
+      accent: token("--theme-accent", "#425bc7"),
+      soft: token("--theme-soft", "#e8edff")
+    };
+    let style = frameDocument.getElementById("studio-native-theme") as HTMLStyleElement | null;
+    if (!style && frameDocument.head) {
+      style = frameDocument.createElement("style");
+      style.id = "studio-native-theme";
+      frameDocument.head.appendChild(style);
+    }
+    if (style) style.textContent = drawioFrameThemeCss(palette);
+
+    // The XML model owns its canvas background. Patch only this attribute and leave
+    // every cell style untouched, preserving semantic/user-authored colours.
+    const themedXml = applyDrawioThemeBackground(xml, palette.canvas);
+    const appliedKey = theme + ":" + palette.canvas;
+    if (editorReady && themedXml !== xml && lastThemeAppliedRef.current !== appliedKey) {
+      lastThemeAppliedRef.current = appliedKey;
+      recordDiagnostic("drawio.theme.background.applied", "Applied the selected Studio theme to the native Draw.io model background", {
+        theme, background: palette.canvas, xmlChanged: true
+      });
+      onDocumentChangeRef.current(documentRef.current, themedXml);
+    } else {
+      lastThemeAppliedRef.current = appliedKey;
+    }
+  }, [theme, editorReady, xml]);
+
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
     try {
