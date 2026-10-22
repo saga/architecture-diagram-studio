@@ -114,10 +114,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           const latestConfig = await deps.getStudioConfig();
           return {
             configRevisionId: latestConfig.revisionId,
-            systemMessage: await buildSystemMessage(latestConfig),
+            systemMessage: await buildSystemMessage(latestConfig, standalone),
+            // Never expose workspace-bound mutation tools to a standalone Draw.io session.
             tools: [
               createProposeLayoutPlanTool(sessionId, latestConfig),
-              ...deps.createDiagramTools(
+              ...(standalone ? [] : deps.createDiagramTools(
                 sessionId,
                 (proposal) => pendingAgentProposals.set(sessionId, proposal),
                 (application) => pendingAgentApplications.set(sessionId, application),
@@ -127,7 +128,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
                   if (!used) { used = new Set<string>(); usedToolsBySession.set(sessionId, used); }
                   used.add(toolName);
                 }
-              )
+              ))
             ],
             workspaceId: (await deps.getProjectWorkspace())?.id
           };
