@@ -223,7 +223,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, theme }: 
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
-          setStartupError("Could not parse the Draw.io autosave payload; the Studio model is not synced yet. See the agent trace for details.");
+          setStartupError("Could not parse the Draw.io autosave payload; the semantic projection is not synced yet. See the agent trace for details.");
         }
       }
     }
