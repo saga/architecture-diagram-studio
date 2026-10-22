@@ -1,0 +1,94 @@
+/**
+ * JSON Schema for one native Draw.io edit operation.
+ *
+ * Use anyOf rather than one flat object with optional fields: model providers must be told
+ * which fields are required for the selected operation. Each branch has a distinct op enum,
+ * making the branches mutually exclusive in practice.
+ */
+const target = {
+  type: "string",
+  minLength: 1,
+  maxLength: 200,
+  description: "Exact native cell ID or unique exact visible label."
+};
+
+export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
+  anyOf: [
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["select"] },
+        target
+      },
+      required: ["op", "target"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["set_label"] },
+        target,
+        label: { type: "string", minLength: 1, maxLength: 500, description: "Required replacement label." }
+      },
+      required: ["op", "target", "label"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["set_style"] },
+        target,
+        key: { type: "string", enum: ["fillColor", "strokeColor", "fontColor"] },
+        color: { type: "string", minLength: 1, maxLength: 40, description: "Required color value, such as #ff0000 or 红色." }
+      },
+      required: ["op", "target", "color"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["move"] },
+        target,
+        dx: { type: "number", minimum: -10000, maximum: 10000, description: "Required horizontal delta." },
+        dy: { type: "number", minimum: -10000, maximum: 10000, description: "Required vertical delta." }
+      },
+      required: ["op", "target", "dx", "dy"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["resize"] },
+        target,
+        width: { type: "number", minimum: 1, maximum: 10000, description: "Required width." },
+        height: { type: "number", minimum: 1, maximum: 10000, description: "Required height." }
+      },
+      required: ["op", "target", "width", "height"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["delete"] },
+        target
+      },
+      required: ["op", "target"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["add_node_after"] },
+        target: { ...target, description: "Required exact cell ID or unique exact visible label of a vertex." },
+        newLabel: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description: "REQUIRED: visible label for the newly created node. Example: newLabel: \"bbb\". Do not omit it or use label instead."
+        }
+      },
+      required: ["op", "target", "newLabel"],
+      additionalProperties: false
+    }
+  ]
+} as const;
