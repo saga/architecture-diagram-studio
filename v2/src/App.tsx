@@ -249,7 +249,7 @@ export default function App() {
     return () => { active = false; };
   }, []);
 
-  async function saveProjectWorkspace(selectedDiagramPath?: string) {
+  async function saveProjectWorkspace(selectedDiagramPath?: string, requestedMode: "open" | "create" = workspaceLaunchMode) {
     const previousContentReady = workspaceContentReady;
     let serverActiveContextChanged = false;
     setWorkspaceSaving(true); setWorkspaceContentReady(false); setWorkspaceError("");
@@ -259,7 +259,7 @@ export default function App() {
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         await persistDocumentNow(document, drawioXml, "Autosave before changing the active diagram");
       }
-      if (workspaceLaunchMode === "create") {
+      if (requestedMode === "create") {
         const response = await fetch("/api/workspace/diagram/create", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, fileName: workspaceNewDiagramName, renderTheme: uiTheme })
@@ -1151,7 +1151,7 @@ export default function App() {
                 return;
               }
               setWorkspacePrimaryDiagram(matches[0].path);
-              void saveProjectWorkspace(matches[0].path);
+              void saveProjectWorkspace(matches[0].path, "open");
             } catch (error) {
               setWorkspaceError(error instanceof Error ? error.message : String(error));
               setWorkspaceSetupOpen(true);
