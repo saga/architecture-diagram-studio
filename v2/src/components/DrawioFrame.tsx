@@ -166,126 +166,37 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
 
   useEffect(() => {
     if (!cellEdit || !editorReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
-    const editorWindow = iframeRef.current?.contentWindow as (Window & { editorUi?: { editor?: { graph?: any }; currentPage?: { id?: string; getId?: () => string } } }) | null;
-    const graph = editorWindow?.editorUi?.editor?.graph;
-    const model = graph?.getModel?.();
-    if (!graph || !model) return;
-    const currentPage = editorWindow?.editorUi?.currentPage;
-    const currentPageId = currentPage?.getId?.() ?? currentPage?.id ?? null;
-    if (cellEdit.pageId && currentPageId && cellEdit.pageId !== currentPageId) {
+    const frameWindow = iframeRef.current?.contentWindow as (Window & {
+      studioDrawioBridge?: {
+        applyCellEdit: (edit: CellPropertyEdit) => {
+          ok: boolean; error?: string; stalePage?: boolean; pageId?: string | null;
+        };
+      };
+    }) | null;
+    const bridge = frameWindow?.studioDrawioBridge;
+    if (!bridge || typeof bridge.applyCellEdit !== "function") {
       lastHandledCellEditRequestRef.current = cellEdit.requestId;
-      recordDiagnostic("drawio.selection.property.stale-page", "Ignored a property edit after the active Draw.io page changed", {
-        cellId: cellEdit.cellId, requestedPageId: cellEdit.pageId, currentPageId
-      }, "warn");
+      const message = "The local Draw.io property bridge is unavailable. Rebuild the pinned Draw.io bundle and reload the editor.";
+      setStartupError(message);
+      recordDiagnostic("drawio.selection.bridge.unavailable", message, { cellId: cellEdit.cellId, property: cellEdit.path }, "error");
       return;
     }
-    const cell = model.getCell?.(cellEdit.cellId);
-    if (!cell) {
-      lastHandledCellEditRequestRef.current = cellEdit.requestId;
-      recordDiagnostic("drawio.selection.property.cell-missing", "Ignored a property edit because the selected cell no longer exists", { cellId: cellEdit.cellId }, "warn");
-      return;
-    }
+
+    const result = bridge.applyCellEdit(cellEdit);
     lastHandledCellEditRequestRef.current = cellEdit.requestId;
-    const { path, value } = cellEdit;
-    try {
-      model.beginUpdate();
-      try {
-        if (path === "label") {
-          const current = cell.value;
-          if (current && typeof current === "object" && current.nodeType === 1) {
-            const next = current.cloneNode(true) as Element;
-            next.setAttribute(next.hasAttribute("label") ? "label" : "value", value);
-            model.setValue(cell, next);
-          } else model.setValue(cell, value);
-        } else if (path === "style") {
-          model.setStyle(cell, value);
-        } else if (path.startsWith("style:")) {
-          const key = path.slice("style:".length);
-          const styles = String(model.getStyle(cell) || "").split(";").filter(Boolean);
-          let found = false;
-          const normalized = value.toLowerCase();
-          const remove = value === "" || normalized === "0" || normalized === "false";
-          const flag = normalized === "1" || normalized === "true";
-          const next = styles.map((part: string) => {
-            const index = part.indexOf("=");
-            const partKey = index > 0 ? part.slice(0, index) : part;
-            if (partKey === key) {
-              found = true;
-              return remove ? "" : flag ? key : key + "=" + value;
-            }
-            return part;
-          }).filter(Boolean);
-          if (!found && !remove) next.push(flag ? key : key + "=" + value);
-          model.setStyle(cell, next.join(";") + (next.length ? ";" : ""));
-        } else if (path.startsWith("point:") && cell.geometry) {
-          const [, indexText, axis] = path.split(":");
-          const index = Number(indexText);
-          const numeric = Number(value);
-          const geometry = cell.geometry.clone();
-          if (!Number.isInteger(index) || index < 0 || !Number.isFinite(numeric) || (axis !== "x" && axis !== "y")) {
-            throw new Error("Connector control point coordinates must be numeric");
-          }
-          const points = (geometry.points || []).map((point: { clone?: () => unknown }) =>
-            typeof point.clone === "function" ? point.clone() : { ...point }
-          ) as Array<Record<string, unknown>>;
-          if (!points[index]) throw new Error("Connector control point no longer exists");
-          points[index][axis] = numeric;
-          geometry.points = points as never;
-          model.setGeometry(cell, geometry);
-        } else if (path.startsWith("geometry:") && cell.geometry) {
-          const key = path.slice("geometry:".length);
-          const geometry = cell.geometry.clone();
-          if (key === "relative") {
-            const normalized = value.toLowerCase();
-            if (!["1", "0", "true", "false"].includes(normalized)) throw new Error("relative must be 1/0 or true/false");
-            geometry.relative = normalized === "1" || normalized === "true";
-          } else if (["x", "y", "width", "height"].includes(key)) {
-            const numeric = Number(value);
-            if (!Number.isFinite(numeric)) throw new Error("Geometry must be numeric");
-            (geometry as unknown as Record<string, unknown>)[key] = numeric;
-          }
-          model.setGeometry(cell, geometry);
-        } else if (path.startsWith("cell:")) {
-          const key = path.slice("cell:".length);
-          if (["visible", "collapsed", "connectable"].includes(key)) {
-            const normalized = value.toLowerCase();
-            if (!["1", "0", "true", "false"].includes(normalized)) throw new Error(key + " must be 1/0 or true/false");
-            const enabled = normalized === "1" || normalized === "true";
-            if (key === "visible") model.setVisible(cell, enabled);
-            else if (key === "collapsed") model.setCollapsed(cell, enabled);
-            else model.setConnectable(cell, enabled);
-          } else if (key === "source" || key === "target") {
-            const terminal = value ? model.getCell(value) : null;
-            if (value && !terminal) throw new Error("No cell exists with id " + value);
-            model.setTerminal(cell, terminal, key === "source");
-          } else if (key === "parent") {
-            if (cell.id === "0" || cell.id === "1") throw new Error("The Draw.io root and default layer cannot be reparented");
-            const parent = model.getCell(value);
-            if (!parent) throw new Error("No parent cell exists with id " + value);
-            let ancestor = parent;
-            while (ancestor) {
-              if (ancestor === cell) throw new Error("A cell cannot be moved into itself or one of its descendants");
-              ancestor = ancestor.parent;
-            }
-            model.add(parent, cell, model.getChildCount(parent));
-          }
-        } else if (path.startsWith("valueAttr:")) {
-          const key = path.slice("valueAttr:".length);
-          const current = cell.value;
-          if (current && typeof current === "object" && current.nodeType === 1) {
-            const next = current.cloneNode(true) as Element;
-            if (value === "") next.removeAttribute(key); else next.setAttribute(key, value);
-            model.setValue(cell, next);
-          }
-        }
-      } finally { model.endUpdate(); }
-      graph.refresh?.();
-      recordDiagnostic("drawio.selection.property.updated", "Updated a selected native Draw.io cell property", { cellId: cellEdit.cellId, property: path });
-    } catch (error) {
-      recordDiagnostic("drawio.selection.property.update.failed", "Could not update the selected native Draw.io cell property", {
-        cellId: cellEdit.cellId, property: path, errorMessage: error instanceof Error ? error.message : String(error)
-      }, "error");
+    if (!result.ok) {
+      recordDiagnostic(
+        result.stalePage ? "drawio.selection.property.stale-page" : "drawio.selection.property.update.failed",
+        result.error || "Could not update the selected native Draw.io cell property",
+        { cellId: cellEdit.cellId, property: cellEdit.path, requestedPageId: cellEdit.pageId, currentPageId: result.pageId ?? null },
+        result.stalePage ? "warn" : "error"
+      );
+      return;
     }
+    setStartupError(null);
+    recordDiagnostic("drawio.selection.property.updated", "Updated a selected native Draw.io cell property", {
+      cellId: cellEdit.cellId, property: cellEdit.path, pageId: result.pageId ?? null
+    });
   }, [cellEdit, editorReady]);
 
 
