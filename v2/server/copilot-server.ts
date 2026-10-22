@@ -62,12 +62,31 @@ const DEFAULT_STUDIO_CONFIG: StudioConfig = {
 let studioConfig: StudioConfig | null = null;
 
 function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
-  return contents.split("\n").filter(Boolean).flatMap((line) => {
-    try {
-      const parsed: unknown = JSON.parse(line);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? [parsed as Record<string, unknown>] : [];
-    } catch { return []; }
-  });
+  const records: Array<Record<string, unknown>> = [];
+  let start = -1, depth = 0, inString = false, escaped = false;
+  for (let i = 0; i < contents.length; i++) {
+    const ch = contents[i];
+    if (start < 0) {
+      if (ch === "{") { start = i; depth = 1; inString = false; escaped = false; }
+      continue;
+    }
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) {
+      try {
+        const parsed: unknown = JSON.parse(contents.slice(start, i + 1));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) records.push(parsed as Record<string, unknown>);
+      } catch { /* Ignore malformed historical records and keep any earlier valid snapshots. */ }
+      start = -1;
+    }
+  }
+  return records;
 }
 
 function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
@@ -80,17 +99,16 @@ function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
 async function getStudioConfig(): Promise<StudioConfig> {
   if (studioConfig) return studioConfig;
   const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
-    (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error)
-  );
+    (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
   const records = parseConfigHistory(contents);
-  for (let index = records.length - 1; index >= 0; index--) {
-    const record = records[index]!;
-    if (!isValidConfigHistoryRecord(record)) continue;
-    const parsed = record as Partial<StudioConfig>;
+  for (let i = records.length - 1; i >= 0; i--) {
+    const parsed = records[i];
+    if (!isValidConfigHistoryRecord(parsed)) continue;
     studioConfig = {
       ...DEFAULT_STUDIO_CONFIG,
-      revisionId: typeof parsed.revisionId === "string" ? parsed.revisionId : "legacy-" + index,
-      model: typeof parsed.model === "string" ? parsed.model.trim().slice(0, 100) : DEFAULT_MODEL,
+      revisionId: typeof parsed.revisionId === "string" ? parsed.revisionId :
+        "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\\D/g, "") : String(i)),
+      model: typeof parsed.model === "string" ? parsed.model : DEFAULT_STUDIO_CONFIG.model,
       reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : DEFAULT_STUDIO_CONFIG.updatedAt,
       updatedBy: typeof parsed.updatedBy === "string" ? parsed.updatedBy : "legacy"
@@ -101,7 +119,7 @@ async function getStudioConfig(): Promise<StudioConfig> {
   return adoptConfiguredModel(studioConfig);
 }
 
-/** Adopt the model exposed by a configured custom provider when the old built-in default was saved. */
+/** Replace the retired default only when a configured custom provider supplies a different model. */
 async function adoptConfiguredModel(config: StudioConfig): Promise<StudioConfig> {
   const provider = readCopilotProvider();
   if (config.model !== LEGACY_DEFAULT_MODEL || provider.mode !== "byok" || !provider.model) return config;
@@ -109,13 +127,13 @@ async function adoptConfiguredModel(config: StudioConfig): Promise<StudioConfig>
     ...config, revisionId: randomUUID(), model: provider.model,
     updatedAt: new Date().toISOString(), updatedBy: "migration"
   };
-  await appendStudioConfig(migrated, "Use the model served by the configured provider");
+  await appendStudioConfig(migrated, "Adopt the model served by the configured custom provider");
   return migrated;
 }
 
 async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
-  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", "utf8");
+  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\\n", "utf8");
   studioConfig = config;
 }
 let projectWorkspace: ProjectWorkspace | null | undefined;
@@ -305,8 +323,6 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
   }
 }
 
-function resultProfileDisabled(document: { layout: { profile: string } }, allowedProfiles: string[]): boolean { return !allowedProfiles.includes(document.layout.profile); }
-
 const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
 const copilot = new CopilotRuntime({ log: writeLog, defaultModel: DEFAULT_MODEL, idleTtlMs: SESSION_IDLE_TTL_MS });
 
@@ -322,55 +338,39 @@ app.get("/api/workspace/configuration", async (_req, res) => {
 
 app.get("/api/workspace/configuration/history", async (_req, res) => {
   try {
-    const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
-      (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error)
-    );
-    res.json({
-      revisions: parseConfigHistory(contents).filter(isValidConfigHistoryRecord).map((item) => ({
-        revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy,
-        changeSummary: item.changeSummary, model: item.model, reasoningEffort: item.reasoningEffort
-      }))
-    });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-  }
+    const text = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
+    res.json({ revisions: parseConfigHistory(text).filter(isValidConfigHistoryRecord).map((item) => ({
+      revisionId: item.revisionId, updatedAt: item.updatedAt, updatedBy: item.updatedBy,
+      changeSummary: item.changeSummary, model: item.model, reasoningEffort: item.reasoningEffort
+    })) });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
-
 app.put("/api/workspace/configuration", async (req, res) => {
-  const input = req.body?.config;
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    res.status(400).json({ error: "A model configuration is required" });
-    return;
-  }
-  if (input.model !== undefined && (typeof input.model !== "string" || input.model.length > 100)) {
-    res.status(400).json({ error: "Model must be a string of at most 100 characters" });
-    return;
-  }
-  if (input.reasoningEffort !== undefined && input.reasoningEffort !== "high" && input.reasoningEffort !== "max") {
-    res.status(400).json({ error: "Reasoning effort must be high or max" });
-    return;
-  }
   try {
+    const input = req.body?.config;
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      res.status(400).json({ error: "The config must be a JSON object" }); return;
+    }
     const previous = await getStudioConfig();
-    const next: StudioConfig = {
-      schemaVersion: 1,
-      revisionId: randomUUID(),
-      model: typeof input.model === "string" ? input.model.trim() : previous.model,
-      reasoningEffort: input.reasoningEffort === "high" ? "high" : input.reasoningEffort === "max" ? "max" : previous.reasoningEffort,
-      updatedAt: new Date().toISOString(),
-      updatedBy: "user"
+    const model = input.model === undefined ? previous.model : input.model;
+    const reasoningEffort = input.reasoningEffort === undefined ? previous.reasoningEffort : input.reasoningEffort;
+    if (typeof model !== "string" || model.length > 100 || !["high", "max"].includes(reasoningEffort)) {
+      res.status(400).json({ error: "The model id must stay under 100 characters and reasoning effort must be high or max" });
+      return;
+    }
+    const config: StudioConfig = {
+      schemaVersion: 1, revisionId: randomUUID(), model: model.trim(), reasoningEffort,
+      updatedAt: new Date().toISOString(), updatedBy: "user"
     };
-    await appendStudioConfig(next, "Updated model and reasoning settings");
+    await withDataWrite(async () => appendStudioConfig(config, "Update runtime model and reasoning effort"));
     await writeLog("settings.configuration.saved", {
-      revisionId: next.revisionId, model: next.model || "server-default", reasoningEffort: next.reasoningEffort,
-      previousRevisionId: previous.revisionId
+      revisionId: config.revisionId, model: config.model || "server-default",
+      reasoningEffort: config.reasoningEffort, previousRevisionId: previous.revisionId
     });
-    res.json({ config: next });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-  }
+    res.json({ config, saved: true });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
-
 app.post("/api/workspace/diagram/create", async (req, res) => {
   const requestedRoot = typeof req.body?.rootPath === "string" ? req.body.rootPath.trim() : "";
   const requestedName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 120) : "";
