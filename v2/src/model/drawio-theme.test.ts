@@ -1,38 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { applyDrawioCellThemeReversible, applyDrawioThemeBackground, applyDrawioThemeBackgroundReversible, drawioFrameThemeCss } from "./drawio-theme";
+import {
+  applyDrawioCellThemeReversible,
+  applyDrawioThemeBackground,
+  applyDrawioThemeBackgroundReversible,
+  drawioFrameThemeCss,
+  readDrawioModelBackground
+} from "./drawio-theme";
 
 describe("native Draw.io theme adapter", () => {
-  it("updates only the mxGraphModel background and preserves cell styles and XML metadata", () => {
-    const source = '<mxfile host="app.diagrams.net"><diagram id="p1"><mxGraphModel dx="1200" background="#ffffff"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="service" value="API" style="fillColor=#ff0000;strokeColor=#990000;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="100" height="50" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
+  it("supports explicit background edits through an XML DOM", () => {
+    const source = '<mxfile host="app.diagrams.net"><diagram id="p1"><mxGraphModel dx="1200" background="#ffffff"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="service" value="API" style="fillColor=#ff0000;strokeColor=#990000;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
     const result = applyDrawioThemeBackground(source, "#101a2b");
-
-    expect(result).toContain('background="#101a2b"');
+    expect(readDrawioModelBackground(result)).toBe("#101a2b");
     expect(result).toContain('host="app.diagrams.net"');
-    expect(result).toContain('style="fillColor=#ff0000;strokeColor=#990000;"');
-    expect(result).toContain('dx="1200"');
-    expect(result).not.toContain('background="#ffffff"');
+    expect(result).toContain('value="API"');
+    expect(result).toContain('id="service"');
   });
 
-  it("updates every uncompressed page without normalizing unrelated XML", () => {
-    const source = '<mxfile><diagram id="one"><mxGraphModel background="#fff"><root/></mxGraphModel></diagram><diagram id="two"><mxGraphModel><root/></mxGraphModel></diagram></mxfile>';
-    const result = applyDrawioThemeBackground(source, "#fffaff");
-    expect((result.match(/background="#fffaff"/g) || [])).toHaveLength(2);
-    expect(result).toContain('id="one"');
-    expect(result).toContain('id="two"');
+  it("does not serialize or mutate XML when the background is unchanged", () => {
+    const source = '<mxfile><diagram><mxGraphModel background="#fff"><root/></mxGraphModel></diagram></mxfile>';
+    expect(applyDrawioThemeBackground(source, "#fff")).toBe(source);
   });
 
-  it("preserves self-closing mxGraphModel elements", () => {
-    const source = '<mxfile><diagram><mxGraphModel dx="10" /></diagram></mxfile>';
-    expect(applyDrawioThemeBackground(source, "#101a2b")).toBe(
-      '<mxfile><diagram><mxGraphModel dx="10" background="#101a2b"/></diagram></mxfile>'
-    );
+  it("leaves malformed XML and invalid colors untouched", () => {
+    const malformed = '<mxfile><diagram><mxGraphModel><root></mxfile>';
+    expect(applyDrawioThemeBackground(malformed, "#101a2b")).toBe(malformed);
+    const valid = '<mxfile><diagram><mxGraphModel><root/></mxGraphModel></diagram></mxfile>';
+    expect(applyDrawioThemeBackground(valid, "var(--theme-canvas)")).toBe(valid);
+    expect(readDrawioModelBackground(malformed)).toBeNull();
   });
 
-  it("leaves invalid colors and compressed pages unchanged", () => {
-    const compressed = '<mxfile><diagram id="page">YWJjZA==</diagram></mxfile>';
-    expect(applyDrawioThemeBackground(compressed, "#101a2b")).toBe(compressed);
-    const xml = '<mxfile><diagram><mxGraphModel><root/></mxGraphModel></diagram></mxfile>';
-    expect(applyDrawioThemeBackground(xml, "var(--theme-canvas)")).toBe(xml);
+  it("makes UI theme adapters no-ops for authoritative diagram XML", () => {
+    const source = '<mxfile><diagram><mxGraphModel background="#fefefe"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="fillColor=#ff0000;strokeColor=#990000;fontColor=#111111;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
+    expect(applyDrawioThemeBackgroundReversible(source, "#101a2b", "youth")).toBe(source);
+    expect(applyDrawioCellThemeReversible(source, "youth")).toBe(source);
+  });
+
+  it("reads only the graph model's actual background attribute", () => {
+    const source = '<mxfile><diagram><mxGraphModel background="#123456"><root><mxCell id="x" value="background=&quot;#abcdef&quot;"/></root></mxGraphModel></diagram></mxfile>';
+    expect(readDrawioModelBackground(source)).toBe("#123456");
+    expect(readDrawioModelBackground('<mxfile><diagram>compressed</diagram></mxfile>')).toBeNull();
   });
 
   it("creates CSS scoped to the native editor iframe", () => {
@@ -44,45 +51,4 @@ describe("native Draw.io theme adapter", () => {
     expect(css).toContain("background-color: #172235 !important");
     expect(css).toContain("outline-color: #91a5ff !important");
   });
-  it("never changes cell styles when applying a UI theme", () => {
-    const source = '<mxfile><diagram><mxGraphModel background="#fefefe"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="fillColor=#ff0000;strokeColor=#990000;fontColor=#111111;" vertex="1" parent="1"><mxGeometry width="100" height="50" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
-    const themed = applyDrawioThemeBackgroundReversible(source, "#101a2b", "youth");
-    expect(themed).toContain('background="#101a2b"');
-    expect(themed).toContain('style="fillColor=#ff0000;strokeColor=#990000;fontColor=#111111;"');
-    expect(themed).not.toContain("studioThemeOriginalFillColor");
-    expect(themed).not.toContain("studioThemeAppliedFillColor");
-  });
-
-  it("keeps HTML label styles inside the value attribute untouched", () => {
-    const label = "&lt;div style='font-family:Arial;font-size:13px'&gt;API Service&lt;/div&gt;";
-    const source = '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="' + label + '" style="rounded=1;fillColor=#ffffff;strokeColor=#7e8ea6;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
-    const themed = applyDrawioThemeBackgroundReversible(source, "#101a2b", "midnight");
-
-    // The theme only touches the graph background; label CSS and cell styles stay byte-identical.
-    expect(themed).toContain('value="' + label + '"');
-    expect(themed).toContain('style="rounded=1;fillColor=#ffffff;strokeColor=#7e8ea6;"');
-    expect(themed).not.toContain("font-family:Arial=1");
-    expect(themed).not.toContain("font-size:13px=1");
-  });
-
-  it("restores the original model background when returning to Editorial", () => {
-    const source = '<mxfile><diagram><mxGraphModel background="#fefefe"><root/></mxGraphModel></diagram></mxfile>';
-    const themed = applyDrawioThemeBackgroundReversible(source, "#101a2b", "youth");
-    expect(themed).toContain('background="#101a2b"');
-    expect(themed).toContain('studioThemeOriginalBackground="#fefefe"');
-    const restored = applyDrawioThemeBackgroundReversible(themed, "#ffffff", "editorial");
-    expect(restored).toContain('background="#fefefe"');
-    expect(restored).not.toContain("studioThemeOriginalBackground");
-  });
-
-  it("preserves valid mxCell XML and applies reversible theme metadata without duplicating tags", () => {
-    const source = '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="rounded=1;fillColor=#ffffff;strokeColor=#64748b;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
-    const themed = applyDrawioCellThemeReversible(source, "youth");
-    expect(themed).toContain('<mxCell id="n1" value="API" style="rounded=1;fillColor=#fce7f3;strokeColor=#b91f6d;');
-    expect(themed.match(/<mxCell\b/g) || []).toHaveLength(3);
-    expect(themed).not.toContain('<mxCell<mxCell');
-    expect(applyDrawioCellThemeReversible(themed, "youth")).toBe(themed);
-    expect(applyDrawioCellThemeReversible(themed, "editorial")).toContain('style="rounded=1;fillColor=#ffffff;strokeColor=#64748b;"');
-  });
-
 });
