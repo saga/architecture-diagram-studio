@@ -156,7 +156,7 @@ export function applyDrawioThemeBackgroundReversible(xml: string, background: st
       return match?.[2] ?? null;
     };
     const write = (attrs: string, key: string, value: string | null) => {
-      const pattern = new RegExp("\\s+" + key + "=(['"])[^'"]*\\1", "i");
+      const pattern = new RegExp("\\s+" + key + '="[^"]*"', "i");
       return value === null ? attrs.replace(pattern, "") : pattern.test(attrs)
         ? attrs.replace(pattern, " " + key + '="' + value + '"')
         : attrs + " " + key + '="' + value + '"';
