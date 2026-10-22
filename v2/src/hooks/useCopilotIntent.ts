@@ -67,15 +67,18 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const parsed = new DOMParser().parseFromString(drawioXml, "application/xml");
           if (parsed.querySelector("parsererror")) throw new Error("The authoritative Draw.io XML could not be parsed; no edit was applied.");
           const cell = Array.from(parsed.getElementsByTagName("mxCell")).find((item) => {
-            const value = item.getAttribute("value") || item.getAttribute("label") || "";
-            const clean = value.replace(/<[^>]*>/g, " ").trim();
+            const owner = item.parentElement;
+            const value = item.getAttribute("value") || item.getAttribute("label")
+              || owner?.getAttribute("label") || owner?.getAttribute("value") || "";
+            const clean = value.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
             return clean.localeCompare(targetName, undefined, { sensitivity: "accent" }) === 0;
           });
           if (!cell) throw new Error("Could not find a Draw.io element named “" + targetName + "”. No changes were applied.");
           const id = cell.getAttribute("id");
           const geometry = cell.getElementsByTagName("mxGeometry")[0];
-          const y = Number(geometry?.getAttribute("y"));
-          if (!id || !geometry || !Number.isFinite(y) || !Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("The target element has no valid ID/geometry or the requested distance is invalid.");
+          const rawY = geometry?.getAttribute("y");
+          const y = rawY === null || rawY === undefined ? NaN : Number(rawY);
+          if (!id || !geometry || !Number.isFinite(y) || !Number.isFinite(delta) || delta <= 0 || delta > 10000) throw new Error("The target element has no explicit Y coordinate or the requested distance is invalid.");
           applyNativeCellEdit(id, "geometry:y", String(y + delta));
           setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "Requested native Draw.io move: “" + targetName + "” down " + delta + " px. The editor will autosave the XML; verify the updated element on the canvas." }]);
           recordDiagnostic("copilot.standalone.native-edit.requested", "Requested a precise move through the native Draw.io bridge", { targetName, cellId: id, previousY: y, nextY: y + delta, deltaY: delta, xmlLength: drawioXml.length });
