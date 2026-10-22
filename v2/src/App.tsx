@@ -4,6 +4,7 @@ import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes } from "react";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
+import { calculateDrawioXmlRevision } from "./intent/aiProvider";
 import { downloadText } from "./model/download-text";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
 import DrawioFrame, { DRAWIO_VERSION } from "./components/DrawioFrame";
@@ -85,7 +86,8 @@ export default function App() {
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
-  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
+  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
+  const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
@@ -444,16 +446,18 @@ export default function App() {
       });
       setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
     },
-    applyNativeCellEdits: (edits, pageId) => {
+    applyNativeCellEdits: (edits, pageId, acknowledgement) => {
       if (!edits.length) return Promise.resolve({ ok: false, error: "No native edits were supplied", rolledBack: false, steps: [] });
       const requestId = ++cellEditRequestSequenceRef.current;
       archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
       return new Promise((resolve) => {
+        nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
           resolve({
             ok: result.success,
             error: result.error,
             failureStage: result.failureStage,
+            auditWarning: result.auditWarning,
             rolledBack: result.success ? false : result.batchRolledBack !== false,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error }))
           });
@@ -971,21 +975,56 @@ export default function App() {
             onNativeEditResult={async (result) => {
               const requestId = result.requestId;
               const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
+              const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
               let finalResult = result;
+              let serializedXmlRevision: string | null = null;
+              let persistedRevision: string | null = null;
+              let persistenceStatus = "not_attempted";
               if (result.success && result.path === "cell:batch") {
                 if (typeof result.serializedXml !== "string") {
                   finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
-                } else if (projectWorkspace && !standaloneFileName) {
-                  try {
-                    // The visible success receipt is gated on the same revision-checked save used by autosave.
-                    await persistDocumentNow(result.serializedXml, "Copilot native edit");
-                  } catch (error) {
-                    finalResult = {
-                      ...result, success: false, error: "Draw.io applied and serialized the edit, but the workspace save failed: " +
-                        (error instanceof Error ? error.message : String(error)), batchRolledBack: false, failureStage: "persistence"
-                    };
+                  persistenceStatus = "failed";
+                } else {
+                  serializedXmlRevision = await calculateDrawioXmlRevision(result.serializedXml);
+                  if (projectWorkspace && !standaloneFileName) {
+                    try {
+                      // The visible success receipt is gated on the same revision-checked save used by autosave.
+                      const saved = await persistDocumentNow(result.serializedXml, "Copilot native edit");
+                      persistedRevision = typeof saved.workspaceRevision === "string" ? saved.workspaceRevision : null;
+                      if (persistedRevision !== serializedXmlRevision) throw new Error("The server did not confirm the exact serialized XML revision.");
+                      persistenceStatus = "saved";
+                    } catch (error) {
+                      persistenceStatus = "failed";
+                      finalResult = {
+                        ...result, success: false, error: "Draw.io applied and serialized the edit, but the workspace save failed: " +
+                          (error instanceof Error ? error.message : String(error)), batchRolledBack: false, failureStage: "persistence"
+                      };
+                    }
+                  } else {
+                    persistenceStatus = "not_managed_by_server";
                   }
                 }
+              }
+              if (acknowledgement && requestId !== null) {
+                try {
+                  const ackResponse = await fetch("/api/copilot/intent/ack", {
+                    method: "POST", headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                      requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
+                      standalone: acknowledgement.standalone, documentRevision: acknowledgement.documentRevision,
+                      outcome: finalResult.success ? "applied" : "failed", editorAcknowledged: result.success,
+                      serializedXmlRevision, persistenceStatus, persistedRevision,
+                      failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
+                    })
+                  });
+                  const ackBody = await ackResponse.json().catch(() => null) as { error?: string; outcome?: string } | null;
+                  if (!ackResponse.ok) {
+                    finalResult = { ...finalResult, auditWarning: "The browser received the edit result, but the server did not accept its final audit receipt: " + (ackBody?.error || "HTTP " + ackResponse.status) };
+                  }
+                } catch (error) {
+                  finalResult = { ...finalResult, auditWarning: "The edit result could not be recorded by the server: " + (error instanceof Error ? error.message : String(error)) };
+                }
+                nativeEditAckContextsRef.current.delete(requestId);
               }
               if (resolver && requestId !== null) {
                 if (nativeEditResolversRef.current.get(requestId) !== resolver) {
@@ -999,9 +1038,9 @@ export default function App() {
                 recordDiagnostic("copilot.native-edit.acknowledgement.unobserved", "A native edit completed after the caller stopped waiting", { requestId, success: finalResult.success }, "warn");
                 return;
               }
-              const status = finalResult.success
+              const status = (finalResult.success
                 ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") + (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch" ? "; workspace save confirmed." : ".")
-                : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error");
+                : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error")) + (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
               if (finalResult.batchResults?.length) {
                 for (const step of finalResult.batchResults) {
@@ -1014,7 +1053,7 @@ export default function App() {
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, failureStage: finalResult.failureStage ?? null
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
