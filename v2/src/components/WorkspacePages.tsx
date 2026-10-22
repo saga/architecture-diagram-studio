@@ -195,7 +195,6 @@ interface Props {
   setChatInput: (value: string) => void;
   chatBusy: boolean;
   sendIntent: () => void;
-  openDiagram: () => void;
   aiBaseUrl: string;
   setAiBaseUrl: (value: string) => void;
   aiModel: string;
@@ -229,7 +228,7 @@ function formattedTime(timestamp: string): string {
 export default function WorkspacePages(props: Props) {
   const {
     page, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, openDiagram, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
+    sendIntent, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
     saveAISettings, clearAISettings, traceEntries, refreshTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
