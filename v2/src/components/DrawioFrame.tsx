@@ -134,11 +134,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       background: palette.canvas,
       restoreBackground: explicitBackground
     };
-    if (nativeDocumentLoadedRef.current && bridgeReady) {
-      iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
-        event: "studioSetBackground", ...themeBackgroundRef.current
-      }), window.location.origin);
-    }
+    // Do not mutate Draw.io's graph model for a Studio UI theme. CSS above controls
+    // presentation without triggering native autosave or dirty-document prompts.
 
     // Deliberately do not call onDocumentChange here: UI theme changes are not document edits.
   }, [theme, editorReady, iframeLoaded, xml, bridgeReady]);
