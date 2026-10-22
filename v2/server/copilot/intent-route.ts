@@ -88,8 +88,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
         });
         return {
-          accepted: true, operationCount: resolved.operations.length, requiresClientExecution: true,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}) })),
+          // This is tool feedback for the model, not the browser protocol response. Do not expose requiresClientExecution here; it is easy to misread as a user-confirmation requirement.
+          accepted: true, operationCount: resolved.operations.length,
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) })),
           summary
         };
       }
@@ -232,7 +233,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         };
         await deps.writeLog("turn.completed.with-native-edits", {
           sessionId, operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
-          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}) })), usage: plan.usage
+          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) })), usage: plan.usage
         });
         res.json(response);
         return;
