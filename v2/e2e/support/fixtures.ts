@@ -25,7 +25,7 @@ function nativeFixtureXml(): string {
     '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
     cell("client", "Client", 60, 110, "#e5efff") +
     cell("api", "API Service", 280, 110, "#e4f4eb") +
-    cell("worker", "Background Worker", 500, 270, "#fff0d8") +
+    cell("worker", "Background Worker", 740, 270, "#fff0d8") +
     cell("queue", "Message Queue", 500, 270, "#f0e8ff") +
     cell("database", "Database", 520, 110, "#e8edf3") +
     edge("client-api", "client", "api") +
