@@ -115,12 +115,13 @@ This ADR records the required architecture; it does not assert that the migratio
 - [x] Normalize conflicting legacy prompts and make tool schemas/descriptions consistent with mode capabilities.
 - [x] Return the discriminated outcome contract for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context`, and `failed`; final `applied` results require editor acknowledgement, resolved targets, XML revision and immutable version reference.
 - [x] Add route-level tests for typed no-mutation outcomes, invalid source hashes, stale page/selection, workspace changes during model latency, duplicate labels beyond the first 200 cells, standalone isolation, review-proposal confirmation/replay, acknowledgement expiry/replay, immutable-version mismatch, and conflicting terminal tool calls.
-- [ ] Complete the remaining intent/browser matrix: Chinese and English rename variants; all four selected-cell move directions; resize/delete; selection alignment/grouping and relation edits if supported; malformed XML; native-editor/save failure; and standalone/workspace browser-adapter parity. Unsupported capabilities must return `unsupported` rather than silently mutating the diagram.
+- [x] Cover the currently supported native operation contract: English/Chinese new-label values, numeric move deltas in all four directions, resize/delete mapping, and explicit rejection of alignment/grouping/relation operations not in the allowlist; malformed XML returns `failed`, native-editor batch failure rolls back, and workspace save failure is reported separately.
+- [ ] Add a deterministic live-model regression set for Chinese and English natural-language rename and selected-cell move prompts. Current offline tests prove that localized prompts are transported unchanged and the typed operations validate; they do not prove a particular model version interprets every paraphrase consistently.
 - [x] Add a server integration test proving the same focused rename resolves to the same typed native operation in workspace and standalone modes, while standalone avoids workspace reads and writes.
-- [ ] Add browser-level integration tests proving the native-editor/persistence adapters behave consistently across workspace and standalone modes.
+- [x] Add browser-level integration tests for workspace and standalone modes using the same server response contract; assert equivalent typed native edits, server-versioned workspace persistence, and no workspace writes for standalone edits.
 - [x] Verify that no frontend regex or local-rules path interprets natural-language edit requests in the active V2 Copilot path.
 - [x] Verify diagnostics distinguish model interpretation, tool calls, request/revision validation, native-editor acknowledgement, persistence/version acknowledgement, and final outcome.
-- [ ] Run relevant tests and build checks, then report actual results and any remaining gaps separately.
+- [ ] Run relevant tests and build checks for the final commit, then report actual results and any remaining gaps separately.
 
 ## Session-level SDK callback policy
 
