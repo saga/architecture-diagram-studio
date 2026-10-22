@@ -1,12 +1,11 @@
-import { Children, Fragment, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { hasStackedGeometry, isDiagramDocument } from "./model/types";
-import type { DiagramDocument, DiagramKind, DiagramNode, SequenceFragment } from "./model/types";
+import type { DiagramDocument, DiagramKind, DiagramNode } from "./model/types";
 import { FIXTURES } from "./model/fixtures";
-import { moveNode } from "./layout/move";
 import { LAYOUT_PROFILES } from "./layout/profiles";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import type { AppliedDiagramEdit } from "./intent/aiProvider";
@@ -45,7 +44,6 @@ function loadSavedTheme(): UiTheme {
   return "warm";
 }
 type PanelWidths = { left: number; right: number };
-type CanvasMenu = { x: number; y: number; kind: "node" | "relation" | "fragment" | "boundary" | "canvas"; id?: string };
 const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { left: [190, 420], right: [300, 620] };
 const PANEL_STORAGE_KEY = "architecture-diagram-studio:v2:panel-widths";
 function loadPanelWidths(): PanelWidths {
@@ -112,8 +110,6 @@ export default function App() {
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
-  const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
-  const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("diagram");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
@@ -452,36 +448,6 @@ export default function App() {
   }, [panelWidths]);
 
   useEffect(() => {
-    if (!canvasMenu) return;
-    const close = () => setCanvasMenu(null);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { close(); setConnectionSourceId(null); }
-    };
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("blur", close);
-    window.addEventListener("resize", close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("blur", close);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [canvasMenu]);
-
-  useEffect(() => {
-    if (!connectionSourceId) return;
-    const cancelOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setConnectionSourceId(null);
-        setLastAction("Connection cancelled");
-      }
-    };
-    window.addEventListener("keydown", cancelOnEscape);
-    return () => window.removeEventListener("keydown", cancelOnEscape);
-  }, [connectionSourceId]);
-
-  useEffect(() => {
     try {
       window.localStorage.setItem("architecture-diagram-studio:v2:chat-messages", JSON.stringify(messages.slice(-300)));
     } catch {
@@ -754,8 +720,8 @@ export default function App() {
   }
 
   const {
-    addSequenceFragment, updateSequenceFragment, removeSequenceFragment, changeRelationEndpoints,
-    changeNode, updateNodeById, renameNode, addNode, createRelation, updateRelationLabel,
+    addSequenceFragment, updateSequenceFragment, removeSequenceFragment,
+    changeNode, updateNodeById, addNode,
     removeRelation, reverseRelation, updateRelationKind, updateRelationStyle, updateBoundary, createBoundaryForNode, removeBoundary, removeNodeById, duplicateNodeById
   } = useDiagramEditing({
     document, selectedNode, selectedRelationId,
@@ -1064,11 +1030,6 @@ export default function App() {
       setActivePage(page);
     }
     recordDiagnostic("navigation.opened", "Opened a workspace page", { page });
-  }
-
-  function selectNode(id: string) {
-    setSelectedNodeId(id);
-    setSelectedRelationId(null);
   }
 
   function selectRelation(id: string) {
@@ -1381,127 +1342,6 @@ export default function App() {
           onLayoutProfilesChanged={setEnabledLayoutProfiles}
         />
       )}
-      {canvasMenu && (() => {
-        const close = () => setCanvasMenu(null);
-        const menuNode = canvasMenu.kind === "node" ? document.nodes.find((node) => node.id === canvasMenu.id) : undefined;
-        const menuRelation = canvasMenu.kind === "relation" ? document.relations.find((relation) => relation.id === canvasMenu.id) : undefined;
-        const menuFragment = canvasMenu.kind === "fragment" ? (document.sequence?.fragments || []).find((fragment) => fragment.id === canvasMenu.id) : undefined;
-        const menuBoundary = canvasMenu.kind === "boundary" ? document.boundaries.find((boundary) => boundary.id === canvasMenu.id) : undefined;
-        const messageOrder = menuRelation ? (menuRelation.sequenceOrder ?? document.relations.findIndex((relation) => relation.id === menuRelation.id)) : -1;
-        return <div className="canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
-          {menuNode && <>
-            <div className="canvas-menu-title">{menuNode.name}</div>
-            <button type="button" role="menuitem" onClick={() => { setConnectionSourceId(menuNode.id); setLastAction("Connecting from " + menuNode.name + " · click a target node or press Esc"); close(); }}>Connect from this node…</button>
-            <button type="button" role="menuitem" onClick={() => { duplicateNodeById(menuNode.id); close(); }}>Duplicate node</button>
-            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); updateNodeById(menuNode.id, { layoutHints: { ...(menuNode.layoutHints || {}), locked: !menuNode.layoutHints?.locked } }); close(); }}>{menuNode.layoutHints?.locked ? "Unlock position" : "Lock position"}</button>
-            <div className="canvas-menu-divider" />
-            <div className="canvas-menu-caption">Change role</div>
-            {Object.entries(roleLabels).filter(([role]) => role !== menuNode.role).map(([role, label]) =>
-              <button type="button" role="menuitem" key={role} onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); updateNodeById(menuNode.id, { role: role as DiagramNode["role"] }); close(); }}>Make {label.toLowerCase()}</button>
-            )}
-            <div className="canvas-menu-divider" />
-            <div className="canvas-menu-caption">System boundary</div>
-            <button type="button" role="menuitem" onClick={() => { createBoundaryForNode(menuNode.id); close(); }}>Create boundary around this node</button>
-            {document.boundaries.map((boundary) => {
-              const isMember = boundary.members.includes(menuNode.id);
-              return <button type="button" role="menuitem" key={boundary.id}
-                onClick={() => { updateBoundary(boundary.id, { members: isMember ? boundary.members.filter((id) => id !== menuNode.id) : [...boundary.members, menuNode.id] }); close(); }}>
-                {isMember ? "Remove from" : "Add to"} boundary · {boundary.name}
-              </button>;
-            })}
-            <div className="canvas-menu-divider" />
-            <button type="button" role="menuitem" onClick={() => { setSelectedNodeId(menuNode.id); setSelectedRelationId(null); setRightPanelTab("properties"); close(); }}>Edit details…</button>
-            <button type="button" role="menuitem" onClick={() => { void sendIntent("For node " + menuNode.name + " (id " + menuNode.id + "), inspect its connected relationships and propose a focused improvement. Use the structured diagram operation tool and return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
-            <button type="button" role="menuitem" className="danger" onClick={() => { void removeNodeById(menuNode.id); close(); }}>Delete node</button>
-          </>}
-          {menuRelation && <>
-            <div className="canvas-menu-title">{menuRelation.label || "Relation"}</div>
-            <button type="button" role="menuitem" onClick={() => { void reverseRelation(menuRelation.id); close(); }}>Reverse direction</button>
-            <div className="canvas-menu-caption">Relation type</div>
-            {(document.kind === "sequence"
-              ? [["call", "Call"], ["return", "Return"], ["async", "Async message"]]
-              : [["flow", "Flow"], ["call", "Call"], ["return", "Return"], ["async", "Async message"], ["event", "Event"], ["dependency", "Dependency"]]
-            ).map(([kind, label]) =>
-              <button type="button" role="menuitem" key={kind} className={menuRelation.kind === kind ? "checked" : ""}
-                onClick={() => { updateRelationKind(menuRelation.id, kind as import("./model/types").EdgeKind); close(); }}>{label}</button>
-            )}
-            <div className="canvas-menu-divider" />
-            {document.kind === "sequence" && (document.sequence?.fragments || []).length > 0 && <>
-              <div className="canvas-menu-caption">Sequence fragments · this message</div>
-              {(document.sequence?.fragments || []).map((fragment) => <Fragment key={fragment.id}>
-                <button type="button" role="menuitem" onClick={() => { updateSequenceFragment(fragment.id, { startOrder: messageOrder }); close(); }}>Set “{fragment.label}” start here</button>
-                <button type="button" role="menuitem" onClick={() => { updateSequenceFragment(fragment.id, { endOrder: messageOrder }); close(); }}>Set “{fragment.label}” end here</button>
-              </Fragment>)}
-              <button type="button" role="menuitem" onClick={() => { addSequenceFragment(messageOrder, "alt"); close(); }}>Add alt fragment around this message</button>
-              <button type="button" role="menuitem" onClick={() => { addSequenceFragment(messageOrder, "opt"); close(); }}>Add opt fragment around this message</button>
-              <button type="button" role="menuitem" onClick={() => { addSequenceFragment(messageOrder, "loop"); close(); }}>Add loop fragment around this message</button>
-            </>}
-            <div className="canvas-menu-divider" />
-            <div className="canvas-menu-caption">Routing</div>
-            {([
-              ["inherit", "Default routing", undefined], ["orthogonal", "Orthogonal", "orthogonal"],
-              ["polyline", "Polyline", "polyline"], ["curved", "Curved", "curved"]
-            ] as Array<[string, string, "orthogonal" | "polyline" | "curved" | undefined]>).map(([value, label, routing]) =>
-              <button type="button" role="menuitem" key={value} className={(menuRelation.routing || "inherit") === value ? "checked" : ""}
-                disabled={document.kind === "sequence"} onClick={() => { updateRelationStyle(menuRelation.id, { routing }); close(); }}>{label}</button>
-            )}
-            <div className="canvas-menu-caption">Line style</div>
-            {([
-              ["inherit", "Default line", undefined], ["solid", "Solid line", false], ["dashed", "Dashed line", true]
-            ] as Array<[string, string, boolean | undefined]>).map(([value, label, dashed]) =>
-              <button type="button" role="menuitem" key={value} className={(menuRelation.dashed === undefined ? "inherit" : menuRelation.dashed ? "dashed" : "solid") === value ? "checked" : ""}
-                onClick={() => { updateRelationStyle(menuRelation.id, { dashed }); close(); }}>{label}</button>
-            )}
-            <button type="button" role="menuitem" onClick={() => { void sendIntent("Improve relation " + menuRelation.id + " from " + menuRelation.source + " to " + menuRelation.target + " (label: " + menuRelation.label + "). Check semantics and path quality, then propose a focused structured diagram operation."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
-            <button type="button" role="menuitem" className="danger" onClick={() => { void removeRelation(menuRelation.id); close(); }}>Delete relation</button>
-          </>}
-          {menuFragment && <>
-            <div className="canvas-menu-title">{menuFragment.kind.toUpperCase()} · {menuFragment.label}</div>
-            <div className="canvas-menu-caption">Fragment type</div>
-            {(["alt", "opt", "loop"] as SequenceFragment["kind"][]).map((kind) =>
-              <button type="button" role="menuitem" key={kind} className={menuFragment.kind === kind ? "checked" : ""}
-                onClick={() => { updateSequenceFragment(menuFragment.id, { kind }); close(); }}>{kind.toUpperCase()}</button>
-            )}
-            <div className="canvas-menu-caption">Range</div>
-            <button type="button" role="menuitem" disabled={menuFragment.startOrder <= 0}
-              onClick={() => { updateSequenceFragment(menuFragment.id, { startOrder: menuFragment.startOrder - 1 }); close(); }}>Extend start to previous message</button>
-            <button type="button" role="menuitem" disabled={menuFragment.startOrder >= menuFragment.endOrder}
-              onClick={() => { updateSequenceFragment(menuFragment.id, { startOrder: menuFragment.startOrder + 1 }); close(); }}>Move start to next message</button>
-            <button type="button" role="menuitem" disabled={menuFragment.endOrder <= menuFragment.startOrder}
-              onClick={() => { updateSequenceFragment(menuFragment.id, { endOrder: menuFragment.endOrder - 1 }); close(); }}>Move end to previous message</button>
-            <button type="button" role="menuitem" disabled={menuFragment.endOrder >= document.relations.length - 1}
-              onClick={() => { updateSequenceFragment(menuFragment.id, { endOrder: menuFragment.endOrder + 1 }); close(); }}>Extend end to next message</button>
-            <button type="button" role="menuitem" onClick={() => { void sendIntent("Update sequence fragment " + menuFragment.id + " (" + menuFragment.kind + ", currently " + menuFragment.startOrder + "–" + menuFragment.endOrder + " messages) to improve its semantics and scope. Use propose_diagram_operation and return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
-            <button type="button" role="menuitem" className="danger" onClick={() => { removeSequenceFragment(menuFragment.id); close(); }}>Delete fragment</button>
-          </>}
-          {menuBoundary && <>
-            <div className="canvas-menu-title">{menuBoundary.name}</div>
-            <div className="canvas-menu-caption">Members · {menuBoundary.members.length}</div>
-            {selectedNodeId && document.nodes.some((node) => node.id === selectedNodeId) && <>
-              <button type="button" role="menuitem" onClick={() => {
-                const nodeId = selectedNodeId;
-                updateBoundary(menuBoundary.id, { members: menuBoundary.members.includes(nodeId)
-                  ? menuBoundary.members.filter((id) => id !== nodeId)
-                  : [...menuBoundary.members, nodeId] });
-                close();
-              }}>{menuBoundary.members.includes(selectedNodeId) ? "Remove selected node from boundary" : "Add selected node to boundary"}</button>
-            </>}
-            <button type="button" role="menuitem" onClick={() => { void sendIntent("Review boundary " + menuBoundary.id + " named " + menuBoundary.name + " with members " + menuBoundary.members.join(", ") + ". Propose a focused typed boundary update if its name, grouping or membership should change."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to edit…</button>
-            <button type="button" role="menuitem" className="danger" onClick={() => { removeBoundary(menuBoundary.id); close(); }}>Delete boundary</button>
-          </>}
-          {canvasMenu.kind === "canvas" && <>
-            <div className="canvas-menu-caption">Add to diagram</div>
-            <button type="button" role="menuitem" onClick={() => { addNode("service"); close(); }}>Add service</button>
-            <button type="button" role="menuitem" onClick={() => { addNode("storage"); close(); }}>Add data store</button>
-            <button type="button" role="menuitem" onClick={() => { addNode("external"); close(); }}>Add external system</button>
-            <button type="button" role="menuitem" onClick={() => { addNode("decision"); close(); }}>Add decision</button>
-            <div className="canvas-menu-divider" />
-            <button type="button" role="menuitem" onClick={() => { void runLayout(); close(); }}>Auto layout</button>
-            <button type="button" role="menuitem" onClick={() => { setStudioZoom(1); setCanvasViewResetToken((value) => value + 1); close(); }}>Reset view</button>
-            <button type="button" role="menuitem" onClick={() => { void sendIntent("Inspect the active diagram quality and propose targeted fixes for the most important layout and semantic issues using structured diagram operations. Return a reviewable preview."); setRightPanelTab("copilot"); close(); }}>Ask Copilot to improve diagram…</button>
-          </>}
-        </div>;
-      })()}
     </Layout>
         </AntApp>
       </XProvider>
