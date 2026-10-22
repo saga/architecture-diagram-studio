@@ -36,7 +36,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
-    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit
+    setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit
   } = options;
 
   return useCallback(async (promptOverride?: string) => {
