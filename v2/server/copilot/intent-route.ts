@@ -298,7 +298,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
         const response = {
-          // The browser shows the deterministic operation summary after acknowledgement. Do not pass model-generated preview/confirmation claims into the success message.\n          commands: [], reply: nativeEdits.summary, selection,
+          // The browser shows the deterministic operation summary after acknowledgement. Do not pass model-generated preview/confirmation claims into the success message.
+          commands: [], reply: nativeEdits.summary, selection,
           nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, requiresClientExecution: true },
           ...shared
         };
