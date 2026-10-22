@@ -123,7 +123,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
             operationCount: operations.length,
             steps: execution.steps.length,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, label: operation.label }))
+            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { newLabel: operation.label } : {}) }))
           });
           setMessages((items) => [...items, {
             role: "assistant",
