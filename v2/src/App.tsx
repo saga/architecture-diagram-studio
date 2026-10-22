@@ -249,7 +249,7 @@ export default function App() {
     return () => { active = false; };
   }, []);
 
-  async function saveProjectWorkspace() {
+  async function saveProjectWorkspace(selectedDiagramPath?: string) {
     const previousContentReady = workspaceContentReady;
     let serverActiveContextChanged = false;
     setWorkspaceSaving(true); setWorkspaceContentReady(false); setWorkspaceError("");
@@ -296,10 +296,11 @@ export default function App() {
         return;
       }
 
-      if (!workspacePrimaryDiagram) throw new Error("Select an existing Draw.io file to open.");
+      const targetDiagramPath = selectedDiagramPath || workspacePrimaryDiagram;
+      if (!targetDiagramPath) throw new Error("Select an existing Draw.io file to open.");
       const response = await fetch("/api/workspace/config", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: workspacePrimaryDiagram })
+        body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: targetDiagramPath })
       });
       const result = await response.json() as {
         error?: string; workspace?: ProjectWorkspace; files?: WorkspaceFile[];
@@ -1126,7 +1127,7 @@ export default function App() {
           const matches = workspaceFiles.filter((item) => item.name === file.name && item.kind === "diagram" && /\.(drawio|dio|xml)$/i.test(item.path));
           if (matches.length === 1) {
             setWorkspacePrimaryDiagram(matches[0].path);
-            setWorkspaceSetupOpen(true);
+            void saveProjectWorkspace(matches[0].path);
           } else {
             setWorkspaceError(matches.length > 1
               ? "More than one workspace diagram has this filename. Verify the directory and select the exact path from the list."
