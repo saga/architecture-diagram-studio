@@ -21,6 +21,13 @@ describe("native Draw.io theme adapter", () => {
     expect(result).toContain('id="two"');
   });
 
+  it("preserves self-closing mxGraphModel elements", () => {
+    const source = '<mxfile><diagram><mxGraphModel dx="10" /></diagram></mxfile>';
+    expect(applyDrawioThemeBackground(source, "#101a2b")).toBe(
+      '<mxfile><diagram><mxGraphModel dx="10" background="#101a2b"/></diagram></mxfile>'
+    );
+  });
+
   it("leaves invalid colors and compressed pages unchanged", () => {
     const compressed = '<mxfile><diagram id="page">YWJjZA==</diagram></mxfile>';
     expect(applyDrawioThemeBackground(compressed, "#101a2b")).toBe(compressed);
