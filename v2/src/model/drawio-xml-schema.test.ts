@@ -88,6 +88,19 @@ describe("Zod Draw.io XML schema", () => {
     expect(validateDrawioXmlDocument('<!DOCTYPE mxfile [<!ENTITY boom "x">]><mxfile><diagram id="p1"><mxGraphModel><root/></mxGraphModel></diagram></mxfile>').success).toBe(false);
   });
 
+  it("validates numeric geometry while keeping unknown style attributes open", () => {
+    const invalidGeometry = '<mxfile><diagram id="p1"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="shape" value="Box" vertex="1" parent="1" vendorCellFlag="preserve">' +
+      '<mxGeometry x="not-a-number" y="20" width="100" height="50" as="geometry"/>' +
+      '</mxCell></root></mxGraphModel></diagram></mxfile>';
+    expect(validateDrawioXmlDocument(invalidGeometry).success).toBe(false);
+
+    const validWithOpenStyle = invalidGeometry.replace('x="not-a-number"', 'x="10"')
+      .replace('vendorCellFlag="preserve"', 'vendorCellFlag="preserve" style="shape=custom.enterprise;futureStyleKey=accepted;"');
+    expect(validateDrawioXmlDocument(validWithOpenStyle).success).toBe(true);
+  });
+
   it("distinguishes editable diagram XML from the custom shape-library XML format", () => {
     const library = '<mxlibrary title="Samples" tags="box example">[{"xml":"&lt;mxGraphModel/&gt;","w":120,"h":60,"title":"Box"},{"data":"data:image/png;base64,AA==","w":48,"h":48}]</mxlibrary>';
     expect(validateDrawioXmlFile(library)).toMatchObject({ success: true, format: "mxlibrary" });
