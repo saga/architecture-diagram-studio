@@ -382,7 +382,6 @@ export class CopilotRuntime {
       // no ambient shell/filesystem tools are enabled by this session configuration.
       onPermissionRequest: async (request) => {
         await this.options.log("permission.request", {
-          conversationId: request && typeof request === "object" ? "session-pending" : "unknown",
           kind: request.kind,
           decision: "approve-once"
         });
