@@ -1053,7 +1053,7 @@ export default function App() {
         <div style={{ display: "grid", gap: 16, paddingTop: 8 }}>
           <p>The workspace is the project folder, like a VS Code workspace. The active diagram is a single Draw.io file inside it. Copilot can use the rest of the workspace—code, documentation and other diagrams—as project context.</p>
           <div style={{ display: "flex", gap: 8 }}>
-            <Button type={workspaceLaunchMode === "open" ? "primary" : "default"} onClick={() => { setWorkspaceLaunchMode("open"); setWorkspaceError(""); }}>Open existing Draw.io</Button>
+            <Button type={workspaceLaunchMode === "open" ? "primary" : "default"} onClick={() => { setWorkspaceError(""); if (workspaceLaunchMode === "open") { setWorkspaceSetupOpen(false); void openDrawioFile(); } else { setWorkspaceLaunchMode("open"); } }}>Open existing Draw.io</Button>
             <Button type={workspaceLaunchMode === "create" ? "primary" : "default"} onClick={() => { setWorkspaceLaunchMode("create"); setWorkspaceError(""); }}>Create new Draw.io</Button>
           </div>
           {workspaceError && <div role="alert" style={{ color: "#b42318", background: "#fef3f2", borderRadius: 6, padding: 10 }}>{workspaceError}</div>}
