@@ -440,7 +440,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
       const version: DiagramVersion = {
         id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
         workspaceId: workspace.id, diagramPath: workspace.primaryDiagram,
-        createdAt: now, label: "Created diagram: " + fileName, document, drawioXml: xml
+        createdAt: now, label: "Created diagram: " + fileName, drawioXml: xml
       };
       diagramVersions = retainRecentVersions([...versions, version]);
       await persistDiagramVersions(diagramVersions);
@@ -723,7 +723,7 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       delete (version as Partial<DiagramVersion>).drawioXml;
       delete (state as Partial<WorkspaceState>).drawioXml;
       res.json({ ok: true, version, state, workspaceRevision: workspaceRevision(result.version.drawioXml) });
-    } else res.json({ ok: true, ...result, workspaceRevision: workspaceRevision(result.version.document, result.version.drawioXml) });
+    } else res.json({ ok: true, ...result, workspaceRevision: workspaceRevision(result.version.drawioXml) });
   } catch (error) {
     await writeLog("workspace.version.restore.failed", { versionId: req.params.id, error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: "Restoring the server version failed" });
