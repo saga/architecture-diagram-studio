@@ -106,7 +106,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       if (plan.nativeEdits) {
         if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable; no change was applied.");
         const operations = plan.nativeEdits.operations;
-        const cellPlan = toNativeCellEdits(operations, drawioXml);
+        const cellPlan = toNativeCellEdits(operations, drawioXml, selectedNativePageId);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
         const execution = await applyNativeCellEdits(cellPlan.edits);
         const describeAt = (stepIndex: number) => {
