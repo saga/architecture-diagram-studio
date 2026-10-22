@@ -44,7 +44,7 @@ function accentXml(node: DiagramNode, theme: string): string {
   const id = node.id + "__studioAccent";
   const style = "rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=" + paint.accent +
     ";strokeColor=none;strokeWidth=0;opacity=" + opacity + ";connectable=0;studioAccentFor=" + esc(node.id) + ";";
-  // Round the accent cell into the same capsule produced by the SVG stroke's round line caps.
+  // Use rounded ends for the native Draw.io accent cell so it reads as a continuous lifeline accent.
   return "<mxCell id=\"" + esc(id) + "\" value=\"\" style=\"" + esc(style) +
     "\" vertex=\"1\" parent=\"" + esc(node.id) + "\"><mxGeometry x=\"" + (insetX - halfWidth) + "\" y=\"" + (insetY - halfWidth) +
     "\" width=\"" + RENDER_METRICS.node.accentWidth + "\" height=\"" + Math.max(0, node.height - insetY * 2 + RENDER_METRICS.node.accentWidth) +
