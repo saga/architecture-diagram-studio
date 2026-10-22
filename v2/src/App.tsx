@@ -100,6 +100,10 @@ function newId(prefix: string): string { return prefix + "-" + Math.random().toS
 export default function App() {
   // The server-derived XML projection is authoritative; browser storage keeps preferences only.
   const [document, setDocument] = useState<DiagramDocument>(() => FIXTURES.c4());
+  useEffect(() => {
+    // Clean up the previous application's persisted semantic cache after switching to XML-only storage.
+    try { window.localStorage.removeItem("architecture-diagram-studio:v2:document"); } catch { /* Storage may be disabled. */ }
+  }, []);
   const [previewDocument, setPreviewDocument] = useState<DiagramDocument | null>(null);
   const [pendingAgentProposalId, setPendingAgentProposalId] = useState<string | null>(null);
   const [previewSummary, setPreviewSummary] = useState("");
