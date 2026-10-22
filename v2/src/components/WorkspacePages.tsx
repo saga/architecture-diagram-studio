@@ -1,70 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
-import { Button, Checkbox, Input, Select } from "antd";
-import { LAYOUT_PROFILES } from "../layout/profiles";
+import { Button, Select } from "antd";
 import type { DiagnosticEntry } from "../diagnostics";
-
-
-type PromptKey = "system" | "task" | "planTool" | "behavior" | "workspace" | "supportedCommands" | "toolDescription" | "toolResult";
-type StudioConfig = { layoutProfiles: string[]; prompts: Record<PromptKey, string>; updatedAt: string; updatedBy?: string };
-const PROMPT_OPTIONS: Array<{ key: PromptKey; label: string; description: string }> = [
-  { key: "system", label: "System Prompt", description: "Defines the overall role and scope of the Copilot." },
-  { key: "task", label: "Task Prompt", description: "Defines the planning goal, level of detail, and output expectations for every request." },
-  { key: "planTool", label: "Plan Tool Prompt", description: "Explains when and how to call the structured plan tool." },
-  { key: "behavior", label: "Behaviour and Safety Rules", description: "Controls allowed actions, preview confirmation, and handling of untrusted context." },
-  { key: "workspace", label: "Workspace Context Prompt", description: "Supports the {{workspaceName}}, {{rootPath}}, and {{primaryDiagram}} runtime placeholders." },
-  { key: "supportedCommands", label: "Supported Commands Prompt", description: "Supports the {{commands}} placeholder, filled with the command list the server allows." },
-  { key: "toolDescription", label: "Tool Description", description: "The propose_layout_plan tool description sent to the model." },
-  { key: "toolResult", label: "Tool Result Prompt", description: "The acknowledgement the plan tool returns to the model." }
-];
-const PROFILE_OPTIONS = LAYOUT_PROFILES.map(({ value, label }) => ({ value, label }));
-function ConfigurationEditor({ onLayoutProfilesChanged }: { onLayoutProfilesChanged: (profiles: string[]) => void }) {
-  const [config, setConfig] = useState<StudioConfig | null>(null);
-  const [revisions, setRevisions] = useState(0);
-  const [history, setHistory] = useState<Array<{revisionId:string;updatedAt:string;changeSummary:string}>>([]);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const load = async () => {
-    const response = await fetch("/api/workspace/configuration");
-    const payload = await response.json() as {config?:StudioConfig;revisions?:number;error?:string};
-    if (!response.ok || !payload.config) throw new Error(payload.error || "Could not load the configuration");
-    setConfig(payload.config); setRevisions(payload.revisions || 0);
-    const h = await fetch("/api/workspace/configuration/history");
-    if (h.ok) { const hp = await h.json() as {revisions?:Array<{revisionId:string;updatedAt:string;changeSummary:string}>}; setHistory((hp.revisions || []).slice(-8).reverse()); }
-  };
-  useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : String(error))); }, []);
-  const save = async () => {
-    if (!config) return;
-    setBusy(true); setMessage("");
-    try {
-      const response = await fetch("/api/workspace/configuration", {method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({config:{layoutProfiles:config.layoutProfiles,prompts:config.prompts}})});
-      const payload = await response.json() as {config?:StudioConfig;error?:string};
-      if (!response.ok || !payload.config) throw new Error(payload.error || "Saving failed");
-      setConfig(payload.config); onLayoutProfilesChanged(payload.config.layoutProfiles); setMessage("Configuration saved and appended to the server-side JSONL history"); await load();
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
-  };
-  if (!config) return <section className="settings-card"><h2>Layout engines and Copilot prompts</h2><p>{message || "Loading the server configuration…"}</p></section>;
-  return <section className="settings-card settings-logs-card">
-    <div className="settings-card-heading"><div className="settings-card-icon">⚙</div><div><h2>Layout engines and Copilot prompts</h2><p>Served from one server-side configuration; every save appends an immutable JSONL revision.</p></div></div>
-    <strong>Allowed layout engines</strong>
-    <div className="settings-field">
-      {PROFILE_OPTIONS.map((option) => <Checkbox key={option.value} className="settings-checkbox" checked={config.layoutProfiles.includes(option.value)} onChange={(event) => setConfig({...config,layoutProfiles:event.target.checked?[...config.layoutProfiles,option.value]:config.layoutProfiles.filter((p)=>p!==option.value)})}>{option.label}</Checkbox>)}
-    </div>
-    <p className="settings-description">This list controls which layout engines the server may run. Layout settings already stored in a document are never rewritten silently.</p>
-    <div className="settings-prompt-list">
-      {PROMPT_OPTIONS.map(({ key, label, description }) => <label className="settings-field" key={key}>
-        <strong>{label}</strong>
-        <span className="settings-description">{description}</span>
-        <Input.TextArea className="text-field" rows={5} value={config.prompts[key]} onChange={(event)=>setConfig({...config,prompts:{...config.prompts,[key]:event.target.value}})} />
-      </label>)}
-    </div>
-    <div className="settings-card-actions"><span className="settings-trace-count">{revisions} revisions</span><UiButton type="button" className="button button-primary" disabled={busy || !config.layoutProfiles.length} onClick={()=>void save()}>{busy ? "Saving…" : "Save and create revision"}</UiButton></div>
-    {message && <p className="settings-description">{message}</p>}
-    {history.length > 0 && <div className="settings-terminal-note"><strong>Recent revisions</strong>{history.map((item)=><span key={item.revisionId}>{new Date(item.updatedAt).toLocaleString()} · {item.changeSummary || item.revisionId}</span>)}</div>}
-  </section>;
-}
 
 
 export type WorkspacePage = "diagram" | "copilot" | "traces" | "settings";
@@ -210,7 +148,6 @@ interface Props {
   drawioStatus: DrawioStatus;
   drawioStatusMessage: string;
   checkDrawioStatus: () => void;
-  onLayoutProfilesChanged: (profiles: string[]) => void;
 }
 
 function UiButton({ type, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -447,7 +384,7 @@ export default function WorkspacePages(props: Props) {
                 </div>
               </article>
               );
-            }) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Copilot turns, layout runs, saves and errors appear here automatically. Low-level Draw.io handshake noise stays hidden until you ask for it.</p>{traceFilter !== "all" && <UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton>}</div>}
+            }) : <div className="trace-empty"><div className="trace-empty-icon">◎</div><h2>No matching events</h2><p>Copilot turns, native cell edits, saves and errors appear here automatically. Low-level Draw.io handshake noise stays hidden until you ask for it.</p>{traceFilter !== "all" && <UiButton type="button" className="button button-secondary" onClick={() => setTraceFilter("all")}>Show all events</UiButton>}</div>}
           </div>
         </div>
       </main>
@@ -462,13 +399,12 @@ export default function WorkspacePages(props: Props) {
         </div>
 
         <div className="settings-grid">
-          <ConfigurationEditor onLayoutProfilesChanged={props.onLayoutProfilesChanged} />
 
           <section className="settings-card">
             <div className="settings-card-heading"><div className="settings-card-icon">✳</div><div><h2>GitHub Copilot SDK / Agent Runtime</h2><p>Server-side Copilot CLI runtime using the signed-in GitHub Copilot identity</p></div></div>
-            <div className="settings-status-line"><span className={"settings-status-dot " + (aiModel.trim() ? "status-ready" : "status-unknown")} /><strong>{aiModel.trim() ? "Agent mode configured" : "Using local rules"}</strong></div>
+            <div className="settings-status-line"><span className={"settings-status-dot " + (aiModel.trim() ? "status-ready" : "status-unknown")} /><strong>{aiModel.trim() ? "Agent mode configured" : "Using server default model"}</strong></div>
             <label className="settings-field">Default model
-              <Select showSearch optionFilterProp="label" value={aiModel || undefined} options={modelOptions} loading={modelsLoading} onChange={(value) => setAiModel(value)} placeholder="Select a model (leave empty for local rules)" style={{ width: "100%" }} />
+              <Select showSearch optionFilterProp="label" value={aiModel || undefined} options={modelOptions} loading={modelsLoading} onChange={(value) => setAiModel(value)} placeholder="Select a model (leave empty to use server default)" style={{ width: "100%" }} />
             </label>
             <p className="settings-description">{modelsMessage || "Options come from the local Copilot SDK; the server's configured model is used when nothing is selected."}</p>
             {modelRouting && (
@@ -482,7 +418,7 @@ export default function WorkspacePages(props: Props) {
               <Select value={reasoningEffort} onChange={(value: "high" | "max") => setReasoningEffort(value)} options={[{ value: "max", label: "Max — highest reasoning effort (default)" }, { value: "high", label: "High — high reasoning effort" }]} style={{ width: "100%" }} />
             </label>
             <p className="settings-description">Passed to the Copilot SDK as reasoningEffort. It only applies when the selected model supports that level; the server falls back to a compatible level based on the SDK model capabilities.</p>
-            <div className="settings-security-note"><strong>Agent capabilities and boundaries</strong><span>The server creates sessions through @github/copilot-sdk and requires the agent to submit a structured plan via the propose_layout_plan tool. Model credentials never pass through the browser; the service uses the local, signed-in Copilot CLI. The agent may only propose whitelisted layout commands — it cannot execute arbitrary code or write to the diagram. A plan that passes validation is still previewed in Studio and applied only after you confirm.</span></div>
+            <div className="settings-security-note"><strong>Agent capabilities and boundaries</strong><span>The server creates sessions through @github/copilot-sdk. The agent can request only typed, allowlisted native Draw.io cell operations; the browser applies those operations through the editor bridge and checks the editor acknowledgement. Model credentials never pass through the browser. Unsupported or ambiguous operations leave the diagram unchanged.</span></div>
             <div className="settings-card-actions"><UiButton type="button" className="button button-quiet" onClick={() => setModelsRefreshKey((key) => key + 1)}>Reload models</UiButton><UiButton type="button" className="button button-quiet" onClick={clearAISettings}>Clear model settings</UiButton><UiButton type="button" className="button button-primary" onClick={saveAISettings}>Save settings</UiButton></div>
           </section>
 
