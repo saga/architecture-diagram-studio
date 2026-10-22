@@ -8,6 +8,12 @@ import type { NativeEditOperation, NativeEditTarget } from "./native-edit-operat
  * allowlisted native operations or read-only findings. It never returns replacement XML.
  */
 export type NativeDiagramCapabilityKind = "layout" | "style" | "quality" | "structure";
+export type NativeDiagramOperationCapabilityKind = Exclude<NativeDiagramCapabilityKind, "quality">;
+
+export type NativeDiagramOperationCapabilityDescriptor =
+  Omit<NativeDiagramCapabilityDescriptor, "kind"> & { kind: NativeDiagramOperationCapabilityKind };
+export type NativeDiagramAnalysisCapabilityDescriptor =
+  Omit<NativeDiagramCapabilityDescriptor, "kind"> & { kind: "quality" };
 
 export interface NativeDiagramCapabilityDescriptor {
   /** Stable machine identifier, for example "layout.orthogonal" or "quality.edge-crossing". */
@@ -66,7 +72,7 @@ export type NativeDiagramPlanResult =
  * checks before the native editor bridge may execute them.
  */
 export interface NativeDiagramOperationProvider {
-  descriptor: NativeDiagramCapabilityDescriptor;
+  descriptor: NativeDiagramOperationCapabilityDescriptor;
   plan(context: NativeDiagramCapabilityContext, request: unknown): NativeDiagramPlanResult | Promise<NativeDiagramPlanResult>;
 }
 
@@ -84,7 +90,7 @@ export type NativeDiagramAnalysisResponse =
 
 /** Read-only checks such as overlap/routing/contrast diagnostics belong behind this contract. */
 export interface NativeDiagramAnalysisProvider {
-  descriptor: NativeDiagramCapabilityDescriptor;
+  descriptor: NativeDiagramAnalysisCapabilityDescriptor;
   analyze(context: NativeDiagramCapabilityContext, request: unknown): NativeDiagramAnalysisResponse | Promise<NativeDiagramAnalysisResponse>;
 }
 
