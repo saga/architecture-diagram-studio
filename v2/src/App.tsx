@@ -108,7 +108,7 @@ export default function App() {
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
-  const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; path: string; value: string; requestId: number } | null>(null);
+  const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [enabledLayoutProfiles, setEnabledLayoutProfiles] = useState<string[]>(LAYOUT_PROFILES.map((profile) => profile.value));
@@ -1233,8 +1233,8 @@ export default function App() {
         </div>}
         {rightPanelTab === "properties" && <section className="inspector-section">
           {selectedNativeCellId ? <NativeSelectionInspector xml={drawioXml} cellId={selectedNativeCellId} pageId={selectedNativePageId}
-            onEdit={(cellId, path, value) => setCellEditRequest((previous) => ({
-              cellId, path, value, requestId: (previous?.requestId ?? 0) + 1
+            onEdit={(cellId, path, value, pageId) => setCellEditRequest((previous) => ({
+              cellId, pageId, path, value, requestId: (previous?.requestId ?? 0) + 1
             }))} /> : <>
           {selectedRelation && (
             <div className="inspector-form selected-relation-inspector">
