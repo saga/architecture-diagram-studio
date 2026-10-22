@@ -311,7 +311,7 @@ describe("Copilot intent route result and revision contract", () => {
 
   it("resolves duplicate labels beyond the prompt's first 200 cells as ambiguous", async () => {
     const filler = Array.from({ length: 200 }, (_, index) =>
-      '<mxCell id="extra-' + index + '" value="' + (index === 199 ? "Database" : "Extra ' + index + '") + '" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'
+      '<mxCell id="extra-' + index + '" value="' + (index === 199 ? "Database" : "Extra " + index) + '" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'
     ).join("");
     const crowdedXml = XML.replace("</root>", filler + "</root>");
     const harness = await createServer({
