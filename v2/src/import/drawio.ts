@@ -165,6 +165,8 @@ function parseDrawioXml(xml: string): Document | null {
     try {
       const parser = new DOMParser({ locator: false, onError: (level, message) => { if (level !== "warning") errors.push(message); } });
       const result = parser.parseFromString(source, "application/xml");
+      // @xmldom/xmldom 0.9.x exposes module-local DOM types, not lib.dom's Document.
+      // Cast only at this parser boundary; downstream traversal treats it as read-only.
       return errors.length || !result.documentElement ? null : result as unknown as Document;
     } catch { return null; }
   };
@@ -178,6 +180,8 @@ function parseDrawioXml(xml: string): Document | null {
   const diagram = directChildren(parsed.documentElement, "diagram")[0];
   if (!diagram) return null;
   const embeddedModel = directChild(diagram, "mxGraphModel");
+  // XMLSerializer has the same module-local DOM type mismatch in xmldom 0.9.x.
+  // The explicit cast stays at the boundary; the original mxfile XML remains authoritative.
   if (embeddedModel) return parse(new XMLSerializer().serializeToString(embeddedModel as unknown as XmldomSerializerNode));
 
   const payload = diagram.textContent?.trim();
