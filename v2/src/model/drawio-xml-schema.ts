@@ -380,6 +380,27 @@ function parseXmlTree(xml: string): DrawioXmlElement {
   return toXmlElement(document.documentElement);
 }
 
+const MAX_INFLATED_PAGE_BYTES = 20_000_000;
+
+/**
+ * Draw.io compressed pages are raw-DEFLATE + Base64. A fixed output buffer caps
+ * decompression at the same byte limit as the submitted XML and prevents a small
+ * compressed payload from expanding without bound in browser or server memory.
+ */
+function inflatePageBytes(bytes: Uint8Array): Uint8Array {
+  const outputSize = MAX_INFLATED_PAGE_BYTES + 1;
+  let inflated: Uint8Array | null = null;
+  try { inflated = inflateSync(bytes, { out: new Uint8Array(outputSize) }); } catch { /* Try a legacy zlib-wrapped payload. */ }
+  if (!inflated) {
+    try { inflated = unzlibSync(bytes, { out: new Uint8Array(outputSize) }); } catch { /* Invalid or unsupported compressed payload. */ }
+  }
+  if (!inflated) throw new Error("The compressed diagram page could not be inflated.");
+  if (inflated.length > MAX_INFLATED_PAGE_BYTES) {
+    throw new Error("The decompressed diagram page exceeds the 20 MB application limit.");
+  }
+  return inflated;
+}
+
 function decodeCompressedPage(payload: string): string {
   const trimmed = payload.trim();
   if (trimmed.startsWith("<")) {
@@ -390,14 +411,14 @@ function decodeCompressedPage(payload: string): string {
     return trimmed;
   }
   const compact = payload.replace(/\s+/g, "");
-  const binary = atob(compact);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  let inflated: Uint8Array | null = null;
-  try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped legacy payload. */ }
-  if (!inflated) {
-    try { inflated = unzlibSync(bytes); } catch { /* Invalid or unsupported compression. */ }
+  let bytes: Uint8Array;
+  try {
+    const binary = atob(compact);
+    bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    throw new Error("The compressed diagram page is not valid Base64.");
   }
-  if (!inflated) throw new Error("The compressed diagram page could not be inflated.");
+  const inflated = inflatePageBytes(bytes);
   const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
   const candidates = [decoded];
   try {
