@@ -2,7 +2,7 @@
 
 - Status: Partially superseded by ADR-0011; shared parsing, validation and security principles remain applicable
 - Date: 2026-10-22
-- Related: [ADR-0006 — Draw.io XML as the Single Source of Truth](./0006-drawio-xml-single-source-of-truth.md), [ADR-0007 — Unified Theme Adapter for Native Draw.io](./0007-unified-theme-adapter-for-native-drawio.md)
+- Related: [ADR-0006 — Draw.io XML as the Single Source of Truth](./0006-drawio-xml-single-source-of-truth.md), [ADR-0007 — Unified Theme Adapter for Native Draw.io](./0007-unified-theme-adapter-for-native-drawio.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md)
 
 ## Compatibility with ADR-0011
 
