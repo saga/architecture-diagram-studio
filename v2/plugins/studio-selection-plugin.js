@@ -1,11 +1,17 @@
 /* Studio's local Draw.io embed bridge. Loaded from the pinned local bundle. */
 (function () {
-  if (!window.Draw || typeof window.Draw.loadPlugin !== "function") {
-    console.error("[studio-drawio-bridge] Draw.loadPlugin is unavailable");
-    return;
-  }
-
-  window.Draw.loadPlugin(function (ui) {
+  // bootstrap.js loads app.min.js asynchronously, so this script may run before Draw exists.
+  // Register as soon as the documented plugin entry point appears; it also invokes plugins
+  // immediately when the UI has already been created.
+  var attempts = 0;
+  function register() {
+    if (!window.Draw || typeof window.Draw.loadPlugin !== "function") {
+      attempts += 1;
+      if (attempts < 600) window.setTimeout(register, 50);
+      else console.error("[studio-drawio-bridge] Timed out waiting for Draw.loadPlugin");
+      return;
+    }
+    window.Draw.loadPlugin(function (ui) {
     var graph = ui && ui.editor && ui.editor.graph;
     var model = graph && graph.getModel && graph.getModel();
     if (!graph || !model || typeof graph.getSelectionModel !== "function") {
@@ -171,5 +177,7 @@
     if (typeof model.addListener === "function") model.addListener("change", publishSelection);
     publish({ event: "studioBridgeReady" });
     publishSelection();
-  });
+    });
+  }
+  register();
 })();
