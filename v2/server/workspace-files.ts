@@ -74,7 +74,7 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
     await visit(root, 0);
     return result.sort((a, b) => (a.kind === "diagram" ? 0 : 1) - (b.kind === "diagram" ? 0 : 1) || a.path.localeCompare(b.path));
   }
-  async function resolveWorkspaceFile(relativePath: string): Promise<{ workspace: ProjectWorkspace; absolutePath: string }> {
+  async function resolveWorkspaceFile(relativePath: string, options: { allowMissingFile?: boolean } = {}): Promise<{ workspace: ProjectWorkspace; absolutePath: string }> {
     const workspace = await getWorkspace();
     if (!workspace) throw new Error("Configure a project workspace first");
     if (!relativePath || path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).some((part) => part === "..")) throw new Error("Invalid file path");
@@ -82,10 +82,24 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
     const unresolved = path.resolve(root, relativePath);
     const lexical = path.relative(root, unresolved);
     if (lexical.startsWith("..") || path.isAbsolute(lexical)) throw new Error("File path escapes the workspace");
+    const parts = lexical.split(path.sep).filter(Boolean);
     let cursor = root;
-    for (const part of lexical.split(path.sep).filter(Boolean)) {
-      cursor = path.join(cursor, part);
-      if ((await lstat(cursor)).isSymbolicLink()) throw new Error("Reading workspace files through symlinks is not allowed");
+    for (let index = 0; index < parts.length; index++) {
+      cursor = path.join(cursor, parts[index]);
+      try {
+        if ((await lstat(cursor)).isSymbolicLink()) throw new Error("Reading workspace files through symlinks is not allowed");
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        const isFinalPart = index === parts.length - 1;
+        if (code === "ENOENT" && isFinalPart && options.allowMissingFile) {
+          // A configured primary diagram may have been deleted or moved. Permit atomic
+          // recreation of the final file only; parent directories must already exist.
+          const parent = await realpath(path.dirname(cursor));
+          if (parent !== root && !parent.startsWith(root + path.sep)) throw new Error("File path escapes the workspace");
+          return { workspace, absolutePath: cursor };
+        }
+        throw error;
+      }
     }
     const absolutePath = await realpath(unresolved);
     if (absolutePath !== root && !absolutePath.startsWith(root + path.sep)) throw new Error("File path escapes the workspace");
