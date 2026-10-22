@@ -14,13 +14,14 @@ test.beforeEach(async ({ page, request }) => {
 /** Reads the x coordinate of the first cell whose id contains the given fragment. */
 function cellX(xml: string, fragment: string): number | null {
   // Draw.io may reorder XML attributes when serializing after an edit.
-  const cells = Array.from(xml.matchAll(/<mxCell\\b([^>]*)>([\\s\\S]*?)<\\/mxCell>/g));
+  const cells = Array.from(xml.matchAll(/<mxCell\b([^>]*)>([\s\S]*?)<\/mxCell>/g));
   const cell = cells.find((match) => new RegExp('id="[^"]*' + fragment + '[^"]*"').test(match[1]));
   if (!cell) return null;
-  const geometry = /<mxGeometry\\b([^>]*)>/.exec(cell[2]);
-  const x = geometry && /\\bx="([-\\d.]+)"/.exec(geometry[1]);
+  const geometry = /<mxGeometry\b([^>]*)>/.exec(cell[2]);
+  const x = geometry && /\bx="([-.\d]+)"/.exec(geometry[1]);
   return x ? Number(x[1]) : null;
 }
+
 test.describe("原生画布", () => {
   test("加载工作区的 Draw.io 文件并渲染全部节点", async ({ page }) => {
     const frame = nativeFrame(page);
