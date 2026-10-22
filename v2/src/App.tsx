@@ -1270,7 +1270,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="canvas-stage native-mode">
+        <div className="canvas-stage">
           {!semanticEditingSafe && <div className="drawio-source-banner" role="status">This diagram contains native Draw.io structure that cannot be safely represented by the semantic projection. The original XML remains authoritative; semantic layout and structural operations are disabled to prevent data loss.</div>}
           {previewDocument && !previewDrawioXml && <div className="drawio-source-banner" role="status">This preview cannot be safely rendered as a native Draw.io revision. The current diagram is unchanged; discard the preview or use a supported operation.</div>}
                       <DrawioFrame document={previewDrawioXml && previewDocument ? previewDocument : document} xml={previewDrawioXml ?? drawioXml} theme={uiTheme} onDocumentChange={previewDocument ? () => {} : (next, nativeXml) => commitDocument(next, "Synced changes from native Draw.io", nativeXml)} />
