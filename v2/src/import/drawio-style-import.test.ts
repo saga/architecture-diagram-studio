@@ -101,6 +101,18 @@ describe("Draw.io style import parity", () => {
     expect(imported.relations).toEqual([]);
   });
 
+  it("does not carry sequence classification into a newly imported non-sequence page", () => {
+    const previous = FIXTURES.sequence();
+    const xml = '<mxfile><diagram id="new-page" name="C4"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="service" value="Service" style="rounded=1;studioRole=service;" vertex="1" parent="1"><mxGeometry x="100" y="100" width="120" height="60" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, previous);
+    expect(imported.kind).toBe("c4");
+    expect(imported.sequence).toBeUndefined();
+    expect(imported.relations).toEqual([]);
+  });
+
   it("imports a valid empty page without retaining the previous document", () => {
     const previous = FIXTURES.c4();
     const xml = '<mxfile><diagram id="empty" name="Empty"><mxGraphModel><root>' +
