@@ -108,6 +108,14 @@ function styleOf(raw: string): string {
   return attribute(raw, "style") || "";
 }
 
+function isLegacyLayerCellMigration(id: string, sourceCell: string, projectionCell: string | undefined): boolean {
+  if (id !== "1" || !projectionCell || attribute(sourceCell, "style") !== null) return false;
+  // Old Studio exports used this exact default layer cell. Permit the new layout
+  // metadata to be introduced there without relaxing checks for arbitrary native cells.
+  return sourceCell === '<mxCell id="1" parent="0"/>' &&
+    projectionCell.replace(/\sstyle=(["'])[^"']*\1(?=\s*\/>)/, "") === sourceCell;
+}
+
 function isStudioManagedCell(id: string, raw: string): boolean {
   return /(?:^|;)studio(?:Role|VisualRole|Kind|Boundary|SequenceFragment|Members|SequenceOrder|StartOrder|EndOrder|FragmentKind|Source|Target|Theme|AccentColor|FragmentParticipants)=?/.test(styleOf(raw)) ||
     /__(?:studioAccent|sequenceActivation|sequenceFragment|lifeline|lifelineEnd|messageSourceAnchor|messageTargetAnchor)$/.test(id);
@@ -142,7 +150,8 @@ export function canEditInStudio(sourceXml: string, projectionXml: string, docume
   const projection = parseRootSlice(projectionXml);
   if (!source || !projection || source.cellMap.size !== projection.cellMap.size) return false;
   for (const [id, raw] of source.cellMap) {
-    if (projection.cellMap.get(id) !== raw) return false;
+    const projectedCell = projection.cellMap.get(id);
+    if (projectedCell !== raw && !isLegacyLayerCellMigration(id, raw, projectedCell)) return false;
   }
 
   for (const node of document.nodes) {
@@ -198,4 +207,33 @@ export function patchDrawioXml(sourceXml: string, nextProjectionXml: string, pre
 /** XML validation is based on the extensible Zod Draw.io schema, including compressed pages. */
 export function isDrawioXmlDocument(xml: string): boolean {
   return validateDrawioXmlDocument(xml).success;
+}
+
+export interface DrawioXmlDiagnostics {
+  pageCount: number;
+  warnings: string[];
+  issues: string[];
+}
+
+/** Return actionable import diagnostics without replacing or normalizing the authoritative XML. */
+export function getDrawioXmlDiagnostics(xml: string): DrawioXmlDiagnostics {
+  const trimmed = xml.trimStart();
+  if (/^(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<mxlibrary\b/i.test(trimmed)) {
+    return { pageCount: 0, warnings: [], issues: ["This is a Draw.io custom shape library (<mxlibrary>), not a diagram file. Open a .drawio or diagram XML file instead."] };
+  }
+  if (/^(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<templates\b/i.test(trimmed)) {
+    return { pageCount: 0, warnings: [], issues: ["This is a Draw.io template index (<templates>), not a diagram file. Open an individual .drawio template instead."] };
+  }
+  const validation = validateDrawioXmlDocument(xml);
+  if (!validation.success) {
+    return { pageCount: 0, warnings: [], issues: validation.issues.length ? validation.issues : ["This XML is not a supported Draw.io diagram."] };
+  }
+  const pageCount = validation.format === "mxfile"
+    ? validation.root.children.filter((child) => child.name === "diagram").length
+    : validation.format === "mxGraphModel" ? 1 : 0;
+  const warnings = [...validation.warnings];
+  if (pageCount > 1) {
+    warnings.unshift("This file has " + pageCount + " pages; Studio currently projects only the first page. The complete XML remains preserved.");
+  }
+  return { pageCount, warnings: [...new Set(warnings)], issues: [] };
 }
