@@ -1,7 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { requestAIIntentPlan, type AppliedDiagramEdit } from "../intent/aiProvider";
 import type { DiagramDocument, DiagramNode } from "../model/types";
-import { describeNativeEditOperation, toNativeCellEdits, type NativeCellEdit, type NativeEditExecution } from "../model/native-edit-operations";
+import { describeNativeEditOperation, extractNativeEditTargets, toNativeCellEdits, type NativeCellEdit, type NativeEditExecution } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
@@ -142,13 +142,26 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
           executionCapabilities: standaloneMode ? ["typed native edits", "element selection", "allowlisted global layout plans", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "typed native edits", "reviewable proposals", "allowlisted layout plans"]
         });
+        let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
+        try { nativeTargets = extractNativeEditTargets(drawioXml).slice(0, 200); }
+        catch (error) {
+          recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
+            errorMessage: error instanceof Error ? error.message : String(error), xmlLength: drawioXml.length
+          }, "warn");
+        }
+        // Some legacy files are loaded in compressed page form. Until those pages are
+        // decoded by the shared native context index, keep the small fallback only for
+        // targeting; native Draw.io XML remains the editing/persistence source.
+        if (!nativeTargets.length) nativeTargets = document.nodes.slice(0, 200).map((node) => ({
+          id: node.id, name: node.name, cellType: "vertex" as const
+        }));
         const plan = await requestAIIntentPlan(
           { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
           text,
           {
             kind: document.kind, title: document.title,
             selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
-            nodes: document.nodes.slice(0, 80).map((node) => ({ id: node.id, name: node.name, role: node.role }))
+            nodes: nativeTargets
           }
         );
         if (plan.sessionId && plan.sessionId !== copilotSessionId) {
