@@ -23,12 +23,12 @@ describe("new Draw.io file setup", () => {
     expect(first).toContain('name="payments platform"');
     expect(first).toContain('<mxCell id="0"/>');
     expect(first).toContain('<mxCell id="1" parent="0"/>');
-    expect(first).not.toBe(second); // The file body is deterministic, except for no model state.
+    expect(first).toBe(second);
   });
 
   it("escapes XML attributes in the created page title", () => {
     const xml = createEmptyDrawioXml('orders"&amp;.drawio');
-    expect(xml).toContain('name="orders&amp;&quot;&amp;amp;"');
+    expect(xml).toContain('name="orders&quot;&amp;amp;"');
     expect(validateDrawioXmlDocument(xml).success).toBe(true);
   });
 });
