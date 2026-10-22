@@ -84,8 +84,8 @@ export default function App() {
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
-  /** Resolves the awaited native-edit batch with the editor's acknowledgement. */
-  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
+  /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
+  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
@@ -963,27 +963,54 @@ export default function App() {
 
         <div className="canvas-stage">
                       <DrawioFrame xml={drawioXml} theme={uiTheme}
-            onNativeEditResult={(result) => {
-              const resolver = result.requestId === null ? undefined : nativeEditResolversRef.current.get(result.requestId);
-              if (resolver && result.requestId !== null) {
-                nativeEditResolversRef.current.delete(result.requestId);
-                resolver(result);
-              }
-              const status = result.success ? "Native Draw.io accepted " + (result.path || "edit") + (result.cellId === "__batch__" ? " batch" : "") + "." : "Native Draw.io edit failed: " + (result.error || "Unknown error");
-              setLastAction(status);
-              if (result.batchResults?.length) {
-                for (const step of result.batchResults) {
-                  recordDiagnostic("copilot.native-batch.step." + (result.success ? "applied" : "rolled-back"),
-                    "Native batch step " + step.index + (result.success ? " applied" : " was rolled back"),
-                    { requestId: result.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
-                      stepSuccess: step.success, stepError: step.error ?? null, batchSuccess: result.success, rollbackConfirmed: result.batchRolledBack ?? null });
+            onNativeEditResult={async (result) => {
+              const requestId = result.requestId;
+              const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
+              let finalResult = result;
+              if (result.success && result.path === "cell:batch") {
+                if (typeof result.serializedXml !== "string") {
+                  finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
+                } else if (projectWorkspace) {
+                  try {
+                    // The visible success receipt is gated on the same revision-checked save used by autosave.
+                    await persistDocumentNow(result.serializedXml, "Copilot native edit");
+                  } catch (error) {
+                    finalResult = {
+                      ...result, success: false, error: "Draw.io applied and serialized the edit, but the workspace save failed: " +
+                        (error instanceof Error ? error.message : String(error)), batchRolledBack: false, failureStage: "persistence"
+                    };
+                  }
                 }
               }
-              recordDiagnostic(result.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
-                requestId: result.requestId, cellId: result.cellId, path: result.path, error: result.error || null,
-                failedIndex: result.failedIndex ?? null, rollbackErrors: result.rollbackErrors ?? [],
-                batchRolledBack: result.batchRolledBack ?? null, batchResults: result.batchResults ?? null
-              }, result.success && !(result.rollbackErrors?.length) ? "info" : "error");
+              if (resolver && requestId !== null) {
+                if (nativeEditResolversRef.current.get(requestId) !== resolver) {
+                  recordDiagnostic("copilot.native-edit.acknowledgement.late", "A native edit result arrived after its wait timed out; no late success was shown", { requestId, success: finalResult.success }, "warn");
+                  return;
+                }
+                nativeEditResolversRef.current.delete(requestId);
+                resolver(finalResult);
+              }
+              if (result.path === "cell:batch" && !resolver) {
+                recordDiagnostic("copilot.native-edit.acknowledgement.unobserved", "A native edit completed after the caller stopped waiting", { requestId, success: finalResult.success }, "warn");
+                return;
+              }
+              const status = finalResult.success
+                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") + (projectWorkspace && finalResult.path === "cell:batch" ? "; workspace save confirmed." : ".")
+                : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error");
+              setLastAction(status);
+              if (finalResult.batchResults?.length) {
+                for (const step of finalResult.batchResults) {
+                  recordDiagnostic("copilot.native-batch.step." + (finalResult.success ? "applied" : "rolled-back"),
+                    "Native batch step " + step.index + (finalResult.success ? " applied" : " failed"),
+                    { requestId: finalResult.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
+                      stepSuccess: step.success, stepError: step.error ?? null, batchSuccess: finalResult.success, rollbackConfirmed: finalResult.batchRolledBack ?? null });
+                }
+              }
+              recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
+                requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
+                failedIndex: finalResult.failedIndex ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, failureStage: finalResult.failureStage ?? null
+              }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
