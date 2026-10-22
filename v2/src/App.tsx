@@ -844,7 +844,15 @@ export default function App() {
         setLastAction("The selected file is not a supported Draw.io diagram; the active document was not changed.");
         return;
       }
-      const empty: DiagramDocument = { ...document, id: newId("imported"), title: file.name.replace(/\.(drawio|dio|xml)$/i, ""), nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined };
+      // Import into a clean semantic base. Spreading the active document here leaked its
+      // previous diagram kind, layout profile and theme into the newly selected file.
+      const empty: DiagramDocument = {
+        ...FIXTURES.c4(),
+        id: newId("imported"),
+        title: file.name.replace(/\.(drawio|dio|xml)$/i, ""),
+        renderTheme: uiTheme,
+        nodes: [], relations: [], boundaries: [], flow: undefined, sequence: undefined
+      };
       const parsed = fromDrawioXml(xml, empty);
       const next = parsed === empty ? empty : { ...parsed, title: empty.title };
       setSelectedRelationId(null);
