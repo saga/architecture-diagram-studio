@@ -219,8 +219,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       await deps.writeLog("request.session.acquire.completed", { requestId, sessionId, sdkSessionId: runtime.sdkSessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", durationMs: Date.now() - acquireStartedAt });
       const plan = await deps.copilot.withTurn(sessionId, async (turn) => {
-        // Bind the tool closure to this active serialized turn, not to whichever request arrived most recently.
-        contextBySession.set(sessionId, context);
+        // Keep the complete server-derived target index private to tools. The model-facing context is
+        // intentionally capped for prompt size, but target uniqueness must be checked against every cell
+        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
+        contextBySession.set(sessionId, { ...context, cells: allNativeCells });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
