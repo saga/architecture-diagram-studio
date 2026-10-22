@@ -330,12 +330,23 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
     await appendFile(LOG_FILE, line, "utf8");
   });
   logWriteQueue = persist.catch((error) => {
-    console.error("[studio:server] failed to persist log", error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    console.error("\n\u001b[1;31m[studio:ERROR] failed to persist server log\u001b[0m\n" + message + "\n");
   });
   await logWriteQueue;
-  const level = event.endsWith(".failed") || event.endsWith(".error") ? "error" : "info";
-  const output = logPrefixForEvent(event) + " " + JSON.stringify(record);
-  (level === "error" ? console.error : console.info)(output);
+
+  // Keep the JSONL audit trail complete, but reserve the terminal for actionable warnings
+  // and errors. Set STUDIO_LOG_LEVEL=info to opt into routine lifecycle events.
+  const isError = event.endsWith(".failed") || event.endsWith(".error") || event.endsWith(".fatal");
+  const isWarning = event.endsWith(".conflict") || event.endsWith(".rejected") || event.endsWith(".warning");
+  if (isError) {
+    const detail = typeof fields.stack === "string" ? fields.stack : JSON.stringify(record, null, 2);
+    console.error("\n\u001b[1;31m[studio:ERROR] " + event + "\u001b[0m\n" + detail + "\n");
+  } else if (isWarning) {
+    console.warn("\u001b[1;33m[studio:WARN] " + event + "\u001b[0m " + JSON.stringify(record));
+  } else if (process.env.STUDIO_LOG_LEVEL === "info") {
+    console.info(logPrefixForEvent(event) + " " + JSON.stringify(record));
+  }
 }
 
 function resultProfileDisabled(document: { layout: { profile: string } }, allowedProfiles: string[]): boolean { return !allowedProfiles.includes(document.layout.profile); }
@@ -1034,8 +1045,26 @@ app.put("/api/workspace/document", async (req, res) => {
     if (result.status === 409) { res.status(409).json(result); return; }
     res.json({ ok: true, ...result });
   } catch (error) {
-    await writeLog("workspace.document.save.failed", { error: error instanceof Error ? error.message : String(error) });
-    res.status(500).json({ error: "Saving the document/Draw.io version on the server failed" });
+    const cause = error instanceof Error ? error : new Error(String(error));
+    const errorCode = (error as NodeJS.ErrnoException | undefined)?.code;
+    const workspace = await getProjectWorkspace().catch(() => null);
+    await writeLog("workspace.document.save.failed", {
+      message: cause.message,
+      errorName: cause.name,
+      errorCode: errorCode ?? null,
+      stack: cause.stack ?? null,
+      workspaceId: workspace?.id ?? null,
+      workspaceRoot: workspace?.rootPath ?? null,
+      primaryDiagram: workspace?.primaryDiagram ?? null,
+      label,
+      xmlLength: drawioXml.length,
+      baseRevision: baseRevision ?? null
+    });
+    // Return the actual failure reason to the caller; a generic 500 hid the actionable cause.
+    res.status(500).json({
+      error: "Saving the document/Draw.io version on the server failed: " + cause.message,
+      code: errorCode ?? null
+    });
   }
 });
 app.put("/api/workspace/chat", async (req, res) => {
