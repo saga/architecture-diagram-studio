@@ -78,7 +78,9 @@
           }
         }
         collect(activeModel.getRoot());
-        var snapshots = allCells.map(function (item) {
+        // Root and default-layer cells are not editable operation targets. Snapshotting them
+        // can make a rollback appear to fail because Draw.io rejects unrelated root/layer setters.
+        var snapshots = allCells.filter(function (item) { return item && item.id !== "0" && item.id !== "1"; }).map(function (item) {
           return { cell: item, value: item.value && typeof item.value.cloneNode === "function" ? item.value.cloneNode(true) : item.value,
             style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
             index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
