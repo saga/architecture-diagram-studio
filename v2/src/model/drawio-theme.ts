@@ -30,7 +30,7 @@ export function readDrawioModelBackground(xml: string): string | null {
   if (!parsed) return null;
   const models = findDrawioElements(parsed, "mxGraphModel");
   if (!models.length) return null;
-  const background = models.item(0)?.getAttribute("background");
+  const background = models[0]?.getAttribute("background");
   return background && safeColor(background) ? background : null;
 }
 
