@@ -57,6 +57,55 @@
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
       var selectionOperation = String(request.path || "");
+      if (request.cellId === "__batch__" && selectionOperation === "cell:batch") {
+        var operations;
+        try { operations = JSON.parse(String(request.value || "[]")); } catch (_) { throw new Error("Batch edit payload is not valid JSON"); }
+        if (!Array.isArray(operations) || operations.length < 1 || operations.length > 50) throw new Error("A batch must contain between 1 and 50 operations");
+        var allCells = [];
+        function collect(parent) {
+          var count = activeModel.getChildCount(parent);
+          for (var i = 0; i < count; i++) {
+            var child = activeModel.getChildAt(parent, i);
+            allCells.push(child);
+            collect(child);
+          }
+        }
+        collect(activeModel.getRoot());
+        var snapshots = allCells.map(function (item) {
+          return { cell: item, value: item.value && typeof item.value.cloneNode === "function" ? item.value.cloneNode(true) : item.value,
+            style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
+            visible: item.visible, collapsed: item.collapsed, connectable: item.connectable };
+        });
+        var originalSelection = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
+        activeModel.beginUpdate();
+        try {
+          operations.forEach(function (operation, index) {
+            if (!operation || typeof operation.cellId !== "string" || typeof operation.path !== "string" ||
+                typeof operation.value !== "string" || operation.path === "cell:batch" || operation.cellId === "__batch__" || operation.cellId === "__selection__") {
+              throw new Error("Batch operation " + (index + 1) + " has an invalid or nested operation payload");
+            }
+            editCell({ cellId: operation.cellId, pageId: request.pageId, path: operation.path, value: operation.value });
+          });
+        } catch (error) {
+          snapshots.forEach(function (snapshot) {
+            var item = snapshot.cell;
+            if (activeModel.getCell(item.id) !== item) return;
+            activeModel.setValue(item, snapshot.value);
+            activeModel.setStyle(item, snapshot.style);
+            if (snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
+            activeModel.setTerminal(item, snapshot.source || null, true);
+            activeModel.setTerminal(item, snapshot.target || null, false);
+            if (snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, activeModel.getChildCount(snapshot.parent));
+            if (typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
+            if (typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
+            if (typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
+          });
+          throw new Error("Batch rolled back after an operation failed: " + (error && error.message ? error.message : String(error)));
+        } finally { activeModel.endUpdate(); }
+        if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+        if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+        return;
+      }
       if (request.cellId === "__selection__" && /^(cell:align:|cell:distribute:|cell:group$|cell:ungroup$)/.test(selectionOperation)) {
         var selected = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
         var vertices = selected.filter(function (item) { return item && item.vertex && item.geometry && item.id !== "0" && item.id !== "1"; });
