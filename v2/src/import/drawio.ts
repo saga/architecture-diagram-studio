@@ -415,8 +415,10 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       visualStyle: importedRelationStyle
     });
   }
-  if (nodes.length === 0) return previous;
-  const relationList = relations.length ? relations : previous.relations.filter((relation) => nodes.some((node) => node.id === relation.source) && nodes.some((node) => node.id === relation.target));
+  // A valid Draw.io page may intentionally contain no vertices or no edges.
+  // Do not reuse semantic relations from the previous document: that can leak stale
+  // edges into a newly imported diagram whose XML contains no edge cells.
+  const relationList = relations;
   const boundaries = [...importedBoundaries.values()].map((boundary) => ({
     ...boundary,
     members: boundary.members.filter((id) => importedNodeIds.has(id))
