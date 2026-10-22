@@ -494,7 +494,6 @@ export default function App() {
     });
   }, [document, drawioXml, semanticEditingSafe]);
 
-  /** Updates the document in place: the current history entry is replaced instead of pushing a new step. */
   const replaceDocument = useCallback((next: DiagramDocument) => {
     if (semanticEditingSafe) {
       const patchedXml = patchDrawioXml(drawioXml, toDrawioXml(next), document);
