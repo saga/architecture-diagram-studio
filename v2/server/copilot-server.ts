@@ -23,6 +23,7 @@ import { CopilotRuntime } from "./copilot/runtime";
 import { createDiagramTemplate, validateDiagramSemantics, type DiagramTemplateKey } from "./diagram-domain";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
+import type { AgentProposalView } from "./copilot/diagram-tools";
 import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 /**
@@ -390,17 +391,7 @@ function resultProfileDisabled(document: { layout: { profile: string } }, allowe
 const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
 const copilot = new CopilotRuntime({ log: writeLog, defaultModel: DEFAULT_MODEL, idleTtlMs: SESSION_IDLE_TTL_MS });
 
-const ALLOWED_COMMANDS = new Set([
-  // English phrasing is what the UI offers; the Chinese forms stay accepted for existing sessions.
-  "Make all relations dashed", "Make all relations solid",
-  "Change curves to orthogonal routing", "Change curves to polylines",
-  "Put all external systems on the right", "Move databases and storage to the bottom",
-  "Layout direction left-to-right", "Layout direction top-to-bottom",
-  "Re-run auto layout", "Clear manual locks",
-  "所有关系线改成虚线", "所有关系线改成实线", "把曲线改成直角折线", "把曲线改成折线",
-  "把所有 external 放到右侧", "把数据库和存储放到底部", "布局方向从左到右",
-  "布局方向从上到下", "重新自动排版", "解除手动锁定"
-]);
+
 
 app.get("/api/workspace/configuration", async (_req, res) => {
   try {
