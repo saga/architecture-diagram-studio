@@ -73,9 +73,7 @@ function UiInput({ ref, ...props }: InputHTMLAttributes<HTMLInputElement> & { re
   return <Input {...(props as any)} />;
 }
 
-function UiTextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <Input.TextArea {...(props as any)} />;
-}
+
 
 function UiSelect({ children, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { popupMatchSelectWidth?: boolean }) {
   const options = Children.toArray(children).filter(isValidElement).map((child) => {
