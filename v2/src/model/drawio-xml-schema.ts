@@ -15,6 +15,62 @@ export interface DrawioXmlElement {
 }
 
 const XmlAttributesSchema = z.record(z.string(), z.string());
+const NumericXmlStringSchema = z.string().refine((value) => value.trim() !== "" && Number.isFinite(Number(value)), "Expected a finite numeric XML attribute");
+
+function openAttributes<T extends z.ZodRawShape>(shape: T) {
+  return z.object(shape).passthrough();
+}
+
+/** Known fields are typed; passthrough keeps version-specific Draw.io metadata. */
+export const MxfileAttributesSchema = openAttributes({
+  host: z.string().optional(), modified: z.string().optional(), agent: z.string().optional(),
+  version: z.string().optional(), etag: z.string().optional(), type: z.string().optional(),
+  userAgent: z.string().optional(), editor: z.string().optional(), compressed: z.string().optional(),
+  pages: NumericXmlStringSchema.optional(), vars: z.string().optional()
+});
+export const DiagramPageAttributesSchema = openAttributes({
+  id: z.string().optional(), name: z.string().optional(), viewBox: z.string().optional()
+});
+export const MxGraphModelAttributesSchema = openAttributes({
+  dx: NumericXmlStringSchema.optional(), dy: NumericXmlStringSchema.optional(),
+  grid: z.string().optional(), gridSize: NumericXmlStringSchema.optional(),
+  guides: z.string().optional(), tooltips: z.string().optional(), connect: z.string().optional(),
+  arrows: z.string().optional(), fold: z.string().optional(), page: z.string().optional(),
+  pageScale: NumericXmlStringSchema.optional(), pageWidth: NumericXmlStringSchema.optional(),
+  pageHeight: NumericXmlStringSchema.optional(), background: z.string().optional(),
+  backgroundImage: z.string().optional(), math: z.string().optional(), shadow: z.string().optional(),
+  adaptiveColors: z.string().optional(), extFonts: z.string().optional(), style: z.string().optional()
+});
+export const MxCellAttributesSchema = openAttributes({
+  id: z.string().optional(), value: z.string().optional(), style: z.string().optional(),
+  vertex: z.string().optional(), edge: z.string().optional(), parent: z.string().optional(),
+  source: z.string().optional(), target: z.string().optional(), connectable: z.string().optional(),
+  visible: z.string().optional(), collapsed: z.string().optional()
+});
+export const MxGeometryAttributesSchema = openAttributes({
+  x: NumericXmlStringSchema.optional(), y: NumericXmlStringSchema.optional(),
+  width: NumericXmlStringSchema.optional(), height: NumericXmlStringSchema.optional(),
+  relative: z.string().optional(), as: z.string().optional()
+});
+export const MxPointAttributesSchema = openAttributes({
+  x: NumericXmlStringSchema.optional(), y: NumericXmlStringSchema.optional(), as: z.string().optional()
+});
+export const MxRectangleAttributesSchema = openAttributes({
+  x: NumericXmlStringSchema.optional(), y: NumericXmlStringSchema.optional(),
+  width: NumericXmlStringSchema.optional(), height: NumericXmlStringSchema.optional(),
+  as: z.string().optional()
+});
+export const MxArrayAttributesSchema = openAttributes({ as: z.string().optional() });
+export const MxDefAttributesSchema = openAttributes({ data: z.string().optional() });
+export const MxLibraryAttributesSchema = openAttributes({ title: z.string().optional(), tags: z.string().optional() });
+
+function appendIssues(ctx: z.RefinementCtx, issues: z.ZodIssue[], path: (string | number)[] = []): void {
+  for (const item of issues) ctx.addIssue({ ...item, path: path.concat(item.path) });
+}
+function validateAttributes<T>(schema: z.ZodType<T>, element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+  const result = schema.safeParse(element.attributes);
+  if (!result.success) appendIssues(ctx, result.error.issues, path.concat("attributes"));
+}
 
 export const DrawioXmlElementSchema: z.ZodType<DrawioXmlElement> = z.lazy(() =>
   z.object({
@@ -56,6 +112,10 @@ function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (st
     issue(ctx, "Expected an mxCell element", path);
     return;
   }
+  validateAttributes(MxCellAttributesSchema, element, ctx, path);
+  if (element.attributes.vertex === "1" && element.attributes.edge === "1") {
+    issue(ctx, "An mxCell cannot be both a vertex and an edge", path.concat("attributes"));
+  }
   const geometries = childNodesNamed(element, "mxGeometry");
   if (geometries.length > 1) issue(ctx, "An mxCell can have at most one direct mxGeometry child", path.concat("children"));
   for (const [index, geometry] of geometries.entries()) {
@@ -66,18 +126,52 @@ function validateCell(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (st
   }
 }
 
+/** Standard geometry children. Their attribute maps stay open to forward-compatible extensions. */
+export const MxPointSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "mxPoint") issue(ctx, "Expected mxPoint");
+  validateAttributes(MxPointAttributesSchema, element, ctx);
+});
+export const MxRectangleSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "mxRectangle") issue(ctx, "Expected mxRectangle");
+  validateAttributes(MxRectangleAttributesSchema, element, ctx);
+});
+export const MxArraySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "Array") issue(ctx, "Expected Array");
+  validateAttributes(MxArrayAttributesSchema, element, ctx);
+  element.children.forEach((child, index) => {
+    if (child.name === "mxPoint") {
+      const result = MxPointSchema.safeParse(child);
+      if (!result.success) appendIssues(ctx, result.error.issues, ["children", index]);
+    }
+  });
+});
+export const MxDefSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "def") issue(ctx, "Expected def");
+  validateAttributes(MxDefAttributesSchema, element, ctx);
+});
+export const MxDefsSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
+  if (element.name !== "defs") issue(ctx, "Expected defs");
+  element.children.forEach((child, index) => {
+    if (child.name === "def") {
+      const result = MxDefSchema.safeParse(child);
+      if (!result.success) appendIssues(ctx, result.error.issues, ["children", index]);
+    }
+  });
+});
+
 /** Extensible geometry schema: known mxPoint/Array/alternateBounds nodes are checked, unknown extensions are retained. */
 export const MxGeometrySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
   if (element.name !== "mxGeometry") issue(ctx, "Expected mxGeometry");
-  for (const child of element.children) {
-    if (child.name === "mxPoint" && child.attributes.as !== undefined &&
-        !["sourcePoint", "targetPoint", "offset", "geometry"].includes(child.attributes.as)) {
-      issue(ctx, "Unsupported mxPoint as attribute", ["children", element.children.indexOf(child), "attributes", "as"]);
+  validateAttributes(MxGeometryAttributesSchema, element, ctx);
+  element.children.forEach((child, index) => {
+    const childSchema = child.name === "mxPoint" ? MxPointSchema
+      : child.name === "mxRectangle" ? MxRectangleSchema
+      : child.name === "Array" ? MxArraySchema : null;
+    if (childSchema) {
+      const result = childSchema.safeParse(child);
+      if (!result.success) appendIssues(ctx, result.error.issues, ["children", index]);
     }
-    if (child.name === "Array" && child.attributes.as !== undefined && child.attributes.as !== "points") {
-      // Draw.io can add other named geometry arrays; keep them valid and opaque.
-    }
-  }
+  });
 });
 
 function validateGeometry(element: DrawioXmlElement, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
@@ -113,6 +207,7 @@ export const MxRootSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.
 /** Every mxGraphModel attribute is optional in Draw.io; defs is valid before root when styles are compressed. */
 export const MxGraphModelSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((element, ctx) => {
   if (element.name !== "mxGraphModel") issue(ctx, "Expected mxGraphModel");
+  validateAttributes(MxGraphModelAttributesSchema, element, ctx);
   const roots = childNodesNamed(element, "root");
   if (roots.length !== 1) {
     issue(ctx, "mxGraphModel must contain exactly one direct root element", ["children"]);
@@ -123,12 +218,19 @@ export const MxGraphModelSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementS
     }
   }
   if (childNodesNamed(element, "defs").length > 1) issue(ctx, "mxGraphModel may contain at most one defs element", ["children"]);
+  element.children.forEach((child, index) => {
+    if (child.name === "defs") {
+      const result = MxDefsSchema.safeParse(child);
+      if (!result.success) appendIssues(ctx, result.error.issues, ["children", index]);
+    }
+  });
   // All unknown model-level extension elements and attributes remain legal and opaque.
 });
 
 /** A page can be represented by an inline model or by a compressed raw-DEFLATE/Base64 payload. */
 export const DrawioDiagramPageSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((page, ctx) => {
   if (page.name !== "diagram") issue(ctx, "Expected diagram page");
+  validateAttributes(DiagramPageAttributesSchema, page, ctx);
   const models = childNodesNamed(page, "mxGraphModel");
   const payload = page.text.trim();
   if (models.length > 1) issue(ctx, "A diagram page may contain at most one inline mxGraphModel", ["children"]);
@@ -146,6 +248,7 @@ export const DrawioDiagramPageSchema: z.ZodType<DrawioXmlElement> = DrawioXmlEle
 /** The outer mxfile contains metadata and one or more named pages; its attributes are open-ended. */
 export const MxfileSchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((file, ctx) => {
   if (file.name !== "mxfile") issue(ctx, "Expected mxfile root");
+  validateAttributes(MxfileAttributesSchema, file, ctx);
   const pages = childNodesNamed(file, "diagram");
   if (pages.length === 0) issue(ctx, "mxfile must contain at least one diagram page", ["children"]);
   const pageIds = new Map<string, number>();
@@ -172,12 +275,13 @@ export const MxLibraryEntrySchema = z.object({
   title: z.string().optional(),
   aspect: z.string().optional(),
   style: z.string().optional()
-}).passthrough().refine((entry) => Boolean(entry.xml || entry.data), {
+}).passthrough().refine((entry) => Boolean(entry.xml) !== Boolean(entry.data), {
   message: "Each mxlibrary item must contain either xml or data"
 });
 
 export const MxLibrarySchema: z.ZodType<DrawioXmlElement> = DrawioXmlElementSchema.superRefine((library, ctx) => {
   if (library.name !== "mxlibrary") issue(ctx, "Expected mxlibrary root");
+  validateAttributes(MxLibraryAttributesSchema, library, ctx);
   let items: unknown;
   try { items = JSON.parse(library.text); }
   catch { issue(ctx, "mxlibrary text must be a JSON array"); return; }
