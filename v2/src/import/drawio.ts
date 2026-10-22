@@ -458,15 +458,22 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       ...nodes.map((node) => node.id).filter((id) => !declaredParticipants.includes(id))
     ],
     fragments: [...importedFragments.values()]
-  } : previous.sequence;
+  } : undefined;
+  // Infer diagram kind from this page's cells, never from whichever document was open
+  // before it. Native flowcharts expose start/end/decision roles; ordinary pages default
+  // to C4 unless current-page sequence markers are present.
+  const importedKind: DiagramDocument["kind"] = isSequenceDiagram
+    ? "sequence"
+    : nodes.some((node) => node.role === "start" || node.role === "end" || node.role === "decision")
+      ? "flowchart"
+      : "c4";
   const imported: DiagramDocument = {
     ...previous,
     renderTheme: importedTheme as DiagramDocument["renderTheme"],
-    // A previous sequence projection must not classify a newly imported non-sequence
-    // page. Native sequence markers above are derived from the current XML page.
-    kind: isSequenceDiagram ? "sequence" : previous.kind === "sequence" ? "c4" : previous.kind,
+    kind: importedKind,
+    flow: importedKind === "flowchart" ? previous.flow : undefined,
     layout: isSequenceDiagram ? { ...projectedLayout, direction: "RIGHT", routing: "polyline" } : projectedLayout,
-    nodes, relations: relationList, boundaries, sequence: isSequenceDiagram ? sequence : undefined
+    nodes, relations: relationList, boundaries, sequence
   };
   return imported;
 }
