@@ -22,6 +22,8 @@ export interface AIIntentContext {
 }
 
 export interface AIIntentResponse {
+  /** command_ready is not an execution success; it must be followed by the native bridge acknowledgement. */
+  outcome?: "command_ready";
   reply: string;
   selection?: { cellId: string; pageId: string | null; label: string };
   nativeEdits?: { operations: ResolvedNativeEditOperation[]; summary: string; pageId: string | null; documentRevision: string; requestId: string };
@@ -60,6 +62,7 @@ function validateResponse(value: unknown): AIIntentResponse {
     : undefined;
   const nativeEdits = parseNativeEditsPayload(item.nativeEdits);
   return {
+    ...(item.outcome === "command_ready" ? { outcome: "command_ready" as const } : {}),
     reply: typeof item.reply === "string" ? item.reply.trim().slice(0, 500) : "",
     ...(selection ? { selection } : {}),
     ...(nativeEdits ? { nativeEdits } : {}),
