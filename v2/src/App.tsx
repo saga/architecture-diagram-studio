@@ -12,7 +12,7 @@ import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import type { AppliedDiagramEdit } from "./intent/aiProvider";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
-import { canEditInStudio, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml } from "./model/drawio-xml-source";
+import { canEditInStudio, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml, preserveDrawioThemeMetadata } from "./model/drawio-xml-source";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
@@ -668,7 +668,7 @@ export default function App() {
         serverRevisionRef.current = typeof payload.workspaceRevision === "string"
           ? payload.workspaceRevision : application.workspaceRevision;
         serverCommittedDocumentRef.current = { document: next, workspaceId: projectWorkspace?.id ?? null };
-        commitDocument(next, "Copilot: " + application.summary, payload.drawioXml);
+        commitDocument(next, "Copilot: " + application.summary, preserveDrawioThemeMetadata(drawioXml, payload.drawioXml));
       } else {
         // A fallback semantic patch is safe only if the current source passes the normal
         // XML completeness gate; commitDocument will refuse rather than rebuild otherwise.
