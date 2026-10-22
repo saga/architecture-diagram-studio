@@ -43,17 +43,6 @@ function directChildren(element: Element, name: string): Element[] {
   }
   return values;
 }
-function descendants(element: Element, name: string): Element[] {
-  const values: Element[] = [];
-  for (let index = 0; index < element.childNodes.length; index += 1) {
-    const child = element.childNodes.item(index);
-    if (!child || child.nodeType !== 1) continue;
-    const descendant = child as Element;
-    if (descendant.nodeName === name) values.push(descendant);
-    values.push(...descendants(descendant, name));
-  }
-  return values;
-}
 function roleFromStyle(style: string): NodeRole {
   const explicit = style.match(/(?:^|;)studioRole=([^;]+)/)?.[1];
   const allowed: NodeRole[] = ["actor", "source", "entry", "ui", "domain", "business", "api", "worker", "data", "storage", "external", "vendor", "infra", "decision", "start", "end", "service"];
@@ -302,7 +291,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
       const target = styleTarget || (rawTarget.includes("__messageTargetAnchor") ? old?.target || rawTarget : rawTarget);
       if (!previousNodes.has(source) && !nodes.some((node) => node.id === source)) continue;
       if (!previousNodes.has(target) && !nodes.some((node) => node.id === target)) continue;
-      const geometry = cell.querySelector(":scope > mxGeometry");
+      const geometry = directChild(cell, "mxGeometry");
       const pointElements = geometry ? directChildren(geometry, "Array").filter((array) => array.getAttribute("as") === "points").flatMap((array) => directChildren(array, "mxPoint")) : [];
       const points: Point[] = pointElements.map((point) => ({ x: Number(point.getAttribute("x") || 0), y: Number(point.getAttribute("y") || 0) }));
       const explicitKind = style.match(/(?:^|;)studioKind=(flow|call|return|async|event|dependency)(?:;|$)/)?.[1] as DiagramRelation["kind"] | undefined;
@@ -346,7 +335,7 @@ export function fromDrawioXml(xml: string, previous: DiagramDocument): DiagramDo
   const embeddedTheme = cells.map((cell) => styleValues(cell.getAttribute("style") || "").get("studioTheme")).find(Boolean);
   const importedTheme = embeddedTheme || previous.renderTheme || "editorial";
   const isSequenceDiagram = previous.kind === "sequence" || cells.some((cell) => {
-    const cellId = cell.getAttribute("id") || "";
+    const cellId = idByCell.get(cell) || cell.getAttribute("id") || "";
     return cellId.endsWith("__lifelineEnd") || cellId.endsWith("__messageSourceAnchor");
   }) || importedFragments.size > 0;
   const declaredParticipants = previous.sequence?.participants || [];
