@@ -193,6 +193,7 @@ function seedAck(store: NativeExecutionAcknowledgements, overrides: Record<strin
 }
 
 function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string, unknown> = {}) {
+  const savedRevision = workspaceRevision(XML);
   return {
     requestId: entry.requestId,
     sessionId: entry.sessionId,
@@ -200,9 +201,10 @@ function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string,
     documentRevision: entry.documentRevision,
     outcome: "applied",
     editorAcknowledged: true,
-    serializedXmlRevision: "saved-revision",
+    serializedXmlRevision: savedRevision,
     persistenceStatus: "saved",
-    persistedRevision: "saved-revision",
+    persistedRevision: savedRevision,
+    versionId: "version-1",
     failureStage: null,
     error: null,
     ...overrides
@@ -374,7 +376,7 @@ describe("Copilot native-edit acknowledgement route", () => {
     const pending = seedAck(store);
     const harness = await createServer({
       acknowledgements: store,
-      snapshot: async () => ({ drawioXml: XML, revision: "saved-revision" })
+      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "version-1" })
     });
     const payload = appliedAck(pending);
     const first = await post(harness.baseUrl, "/api/copilot/intent/ack", payload);
@@ -388,7 +390,7 @@ describe("Copilot native-edit acknowledgement route", () => {
     const pending = seedAck(store);
     const harness = await createServer({
       acknowledgements: store,
-      snapshot: async () => ({ drawioXml: XML, revision: "saved-revision" })
+      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "version-1" })
     });
     const payload = appliedAck(pending);
     const first = await post(harness.baseUrl, "/api/copilot/intent/ack", payload);
@@ -407,15 +409,31 @@ describe("Copilot native-edit acknowledgement route", () => {
     const pending = seedAck(store);
     const harness = await createServer({
       acknowledgements: store,
-      snapshot: async () => ({ drawioXml: XML, revision: "saved-revision" })
+      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "version-1" })
     });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", appliedAck(pending, {
       serializedXmlRevision: "serialized-revision",
-      persistedRevision: "saved-revision"
+      persistedRevision: workspaceRevision(XML),
+      versionId: "version-1"
     }));
     expect(response.status).toBe(409);
     expect(body.outcome).toBe("stale_context");
     expect(harness.logs.some((entry) => entry.event === "turn.native-edit.ack-rejected")).toBe(true);
+  });
+
+  it("rejects an applied acknowledgement with the wrong immutable workspace version ID", async () => {
+    const store = new NativeExecutionAcknowledgements();
+    const pending = seedAck(store);
+    const harness = await createServer({
+      acknowledgements: store,
+      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "version-1" })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", appliedAck(pending, {
+      versionId: "forged-version-id"
+    }));
+    expect(response.status).toBe(409);
+    expect(body.outcome).toBe("stale_context");
+    expect(body.versionId).toBe("version-1");
   });
 
   it("records editor failures without misreporting them as applied", async () => {
