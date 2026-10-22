@@ -282,19 +282,49 @@ describe("Copilot intent route result and revision contract", () => {
   });
 
   it("does not consult or persist workspace state for standalone requests", async () => {
-    const copilot = {
-      providerInfo: { mode: "byok", host: null },
-      resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
-      lastObservedModel: vi.fn(() => "test-model")
-    };
-    const harness = await createServer({ copilot });
+    const harness = await createServer({ copilot: reportingCopilot("answered", "This is a standalone diagram.") });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ standalone: true }));
-    // The deliberately minimal runtime fails after request validation; the isolation check is the contract under test.
-    expect(response.status).toBe(502);
-    expect(body.outcome).toBe("failed");
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
     expect(harness.snapshot).not.toHaveBeenCalled();
+    expect(harness.persistSessionId).not.toHaveBeenCalled();
     expect(harness.logs.some((entry) => entry.event === "request.received" && entry.fields?.standalone === true)).toBe(true);
-    expect(harness.logs.some((entry) => entry.event === "session.persisted")).toBe(false);
+  });
+
+  it("returns stale_context when the workspace changes while the model is responding", async () => {
+    let snapshots = 0;
+    const changedXml = XML.replace('value="Database"', 'value="Database changed externally"');
+    const harness = await createServer({
+      copilot: reportingCopilot("answered", "The diagram has two nodes."),
+      snapshot: async () => {
+        snapshots++;
+        return snapshots === 1
+          ? { drawioXml: XML, revision: workspaceRevision(XML) }
+          : { drawioXml: changedXml, revision: workspaceRevision(changedXml) };
+      }
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(409);
+    expect(body.outcome).toBe("stale_context");
+    expect(snapshots).toBe(2);
+  });
+
+  it("resolves duplicate labels beyond the prompt's first 200 cells as ambiguous", async () => {
+    const filler = Array.from({ length: 200 }, (_, index) =>
+      '<mxCell id="extra-' + index + '" value="' + (index === 199 ? "Database" : "Extra ' + index + '") + '" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'
+    ).join("");
+    const crowdedXml = XML.replace("</root>", filler + "</root>");
+    const harness = await createServer({
+      copilot: proposingCopilot(),
+      snapshot: async () => ({ drawioXml: crowdedXml, revision: workspaceRevision(crowdedXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      diagramXml: crowdedXml, documentRevision: workspaceRevision(crowdedXml)
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("needs_clarification");
+    expect(String(body.reply)).toContain("ambiguous");
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
 });
 
