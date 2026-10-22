@@ -3,6 +3,7 @@ import { deflateSync } from "fflate";
 import { FIXTURES } from "./fixtures";
 import { toDrawioXml } from "../export/drawio";
 import {
+  decodeDrawioPageXml,
   validateDrawioXmlDocument,
   validateDrawioXmlFile
 } from "./drawio-xml-schema";
@@ -27,6 +28,13 @@ describe("Zod Draw.io XML schema", () => {
     const model = extractModel(xml);
     expect(validateDrawioXmlDocument(xml).success).toBe(true);
     expect(validateDrawioXmlDocument(model).success).toBe(true);
+  });
+
+  it("decodes a compressed page payload for read-only property inspection", () => {
+    const model = extractModel(toDrawioXml(FIXTURES.c4()));
+    const payload = encodeRawDeflatePayload(model);
+    expect(decodeDrawioPageXml(payload)).toContain("<mxGraphModel");
+    expect(decodeDrawioPageXml(payload)).toContain("</mxGraphModel>");
   });
 
   it("accepts mixed compressed and plain pages in the same mxfile", () => {
