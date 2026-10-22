@@ -658,8 +658,23 @@ export default function App() {
     onAppliedEdit: applyCopilotEdit,
     applyNativeCellEdit: (cellId, path, value) => {
       const requestId = ++cellEditRequestSequenceRef.current;
+      const fileKey = (standaloneFileName || "standalone").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const historyKey = "architecture-diagram-studio:v2:standalone-history:" + fileKey;
+      try {
+        const existing = JSON.parse(window.localStorage.getItem(historyKey) || "[]") as Array<{ id: string; createdAt: string; label: string; xml: string }>;
+        existing.push({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), label: "Before Copilot: " + path + " on " + cellId, xml: drawioXml });
+        window.localStorage.setItem(historyKey, JSON.stringify(existing.slice(-100)));
+        recordDiagnostic("copilot.standalone.history.snapshot", "Archived the current standalone Draw.io XML before a Copilot mutation", {
+          historyKey, snapshotCount: Math.min(existing.length, 100), xmlLength: drawioXml.length, requestId
+        });
+      } catch (error) {
+        recordDiagnostic("copilot.standalone.history.snapshot.failed", "Could not archive a local pre-edit XML snapshot", {
+          historyKey, errorMessage: error instanceof Error ? error.message : String(error), requestId
+        }, "error");
+        throw new Error("Copilot edit cancelled because a local history snapshot could not be saved: " + (error instanceof Error ? error.message : String(error)));
+      }
       recordDiagnostic("copilot.standalone.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
-        cellId, path, requestId, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName)
+        cellId, path, requestId, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
       });
       setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
     }
