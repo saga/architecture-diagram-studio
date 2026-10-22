@@ -156,6 +156,18 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
     try {
+      // Never feed a malformed/stale XML snapshot into Draw.io: its import dialog can
+      // repeatedly ask to save the broken new-file document. Keep the source untouched
+      // and show an actionable Studio error instead.
+      if (!isDrawioXmlDocument(xml)) {
+        const generatedFallback = fromDrawioXml("", documentRef.current);
+        const fallbackXml = xml.trim() ? null : null;
+        setStartupError("The current Draw.io XML is malformed and was not loaded. Restore a valid revision from Agent traces → History, then reopen the diagram.");
+        recordDiagnostic("drawio.document.load.rejected", "Refused to load malformed authoritative Draw.io XML", {
+          xmlLength: xml.length, hasFallback: Boolean(generatedFallback), fallbackXmlAvailable: fallbackXml !== null
+        }, "error");
+        return;
+      }
       nativeDocumentLoadedRef.current = false;
       iframeRef.current.contentWindow.postMessage(
         JSON.stringify({ action: "load", xml, autosave: 1 }),
