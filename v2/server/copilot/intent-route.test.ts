@@ -115,8 +115,8 @@ function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsuppo
 }
 
 function proposingCopilot() {
-  let activeSession: Record<string, unknown>;
-  let prepared: { tools: unknown[] };
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { tools: unknown[] } = { tools: [] };
   return {
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
