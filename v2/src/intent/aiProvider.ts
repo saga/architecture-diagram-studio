@@ -74,11 +74,12 @@ function validateResponse(value: unknown): AIIntentResponse {
 function parseNativeEditsPayload(value: unknown): AIIntentResponse["nativeEdits"] | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
-  if (!Array.isArray(raw.operations)) return undefined;
-  const parsed = parseNativeEditOperations(raw.operations);
+  const rawOperations = raw.operations;
+  if (!Array.isArray(rawOperations)) return undefined;
+  const parsed = parseNativeEditOperations(rawOperations);
   if (!parsed.ok) throw new Error("The agent returned an invalid native edit batch: " + parsed.error);
   const operations: ResolvedNativeEditOperation[] = parsed.operations.map((operation, index) => {
-    const source = raw.operations![index] as Record<string, unknown>;
+    const source = rawOperations[index] as Record<string, unknown>;
     const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
     const label = typeof source.label === "string" ? source.label.trim() : "";
     if (!cellId || !label) throw new Error("The agent returned a native edit without a resolved cell id");
