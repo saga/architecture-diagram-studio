@@ -106,10 +106,6 @@ test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并
 
   await openStudio(page);
   await waitForNativeEditor(page);
-  await nativeFrame(page).getByText("Database", { exact: true }).click();
-
-  const cellId = await nativeFrame(page).locator("text=Database").first().getAttribute("data-cell-id").catch(() => null);
-  let observedCellId: string | null = cellId;
   await page.evaluate(() => {
     const state = window as Window & { __studioSelection?: string[] };
     state.__studioSelection = [];
@@ -120,11 +116,12 @@ test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并
       } catch { /* Ignore unrelated messages. */ }
     });
   });
+  await nativeFrame(page).getByText("Database", { exact: true }).click();
   await expect.poll(() => page.evaluate(() => {
     const selection = (window as Window & { __studioSelection?: string[] }).__studioSelection ?? [];
     return selection[selection.length - 1] ?? null;
   })).toBeTruthy();
-  observedCellId = await page.evaluate(() => {
+  const observedCellId = await page.evaluate(() => {
     const selection = (window as Window & { __studioSelection?: string[] }).__studioSelection ?? [];
     return selection[selection.length - 1] ?? null;
   });
@@ -167,12 +164,12 @@ test("Copilot 原生编辑：语义投影不完整时仍可在节点后新增并
 
   await expect.poll(async () => {
     const xml = await readWorkspaceXml(workspace);
-    const node = /<mxCell\\b(?=[^>]*\\bvalue="bbb")(?=[^>]*\\bvertex="1")[^>]*>/.exec(xml);
+    const node = /<mxCell\b(?=[^>]*\bvalue="bbb")(?=[^>]*\bvertex="1")[^>]*>/.exec(xml);
     if (!node) return false;
-    const nodeId = /\\bid="([^"]+)"/.exec(node[0])?.[1];
+    const nodeId = /\bid="([^"]+)"/.exec(node[0])?.[1];
     if (!nodeId || !observedCellId) return false;
-    const edge = /<mxCell\\b(?=[^>]*\\bedge="1")[^>]*>/.exec(xml)?.[0] || "";
-    const connected = new RegExp('\\\\bsource="' + observedCellId.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + '"[^>]*\\\\btarget="' + nodeId.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + '"').test(edge);
+    const edges = Array.from(xml.matchAll(/<mxCell\b[^>]*\bedge="1"[^>]*>/g), (match) => match[0]);
+    const connected = edges.some((edge) => edge.includes('source="' + observedCellId + '"') && edge.includes('target="' + nodeId + '"'));
     return connected && xml.includes('nativeCustom="preserve-me"');
   }, { timeout: 20_000 }).toBe(true);
 });
