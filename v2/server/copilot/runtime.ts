@@ -459,7 +459,6 @@ export class CopilotRuntime {
       onMcpAuthRequest: async (request) => {
         void Promise.resolve(this.options.log("mcp.auth.cancelled", {
           serverName: request.serverName,
-          serverUrl: request.serverUrl,
           reason: request.reason
         })).catch(() => undefined);
         return { kind: "cancelled" };
