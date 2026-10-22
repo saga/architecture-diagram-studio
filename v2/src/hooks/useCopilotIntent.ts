@@ -143,7 +143,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const describeAt = (stepIndex: number) => {
           let cursor = 0;
           for (const operation of operations) {
-            const width = operation.op === "move" ? 2 : 1;
+            const width = 1;
             if (stepIndex < cursor + width) return describeNativeEditOperation(operation);
             cursor += width;
           }
@@ -173,10 +173,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           setMessages((items) => [...items, {
             role: "assistant",
             id: Date.now() + 1,
-            text: "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). " +
-              (execution.rolledBack
-                ? "The batch was rolled back."
-                : "The native editor did not confirm a rollback; reload the diagram before continuing.")
+            text: execution.failureStage === "persistence"
+              ? "The native editor applied and serialized the change, but the workspace save was not confirmed: " + reason + ". Reload the authoritative workspace before continuing."
+              : "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). " +
+                (execution.rolledBack
+                  ? "The batch was rolled back."
+                  : "The native editor did not confirm a rollback; reload the diagram before continuing.")
           }]);
         }
         return;
