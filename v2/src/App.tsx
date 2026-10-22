@@ -242,8 +242,8 @@ export default function App() {
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic: recordDiagnostic });
 
-  // Do not forcibly switch the user's view on every render. Unsupported native XML
-  // disables semantic edits, but the user can still inspect the Studio projection.
+  // The native Draw.io editor is the only canvas. Unsupported native XML disables
+  // semantic edits, while preserving full native editing and the original XML.
 
   useEffect(() => {
     let active = true;
@@ -503,7 +503,7 @@ export default function App() {
     let nextXml = preservedNativeXml;
     if (nextXml === undefined) {
       if (!studioEditingSafe) {
-        const message = "Studio semantic editing is disabled because this Draw.io XML contains cells or structure that the current projection cannot safely round-trip. Edit the native document in Freeform.";
+        const message = "Semantic editing is disabled because this Draw.io XML contains cells or structure that cannot be safely round-tripped. Continue editing in the native Draw.io canvas.";
         setLastAction(message);
         recordDiagnostic("drawio.semantic-edit.blocked", message, { documentId: document.id, action }, "warn");
         return;
