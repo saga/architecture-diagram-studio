@@ -1,3 +1,4 @@
+import { inflateSync, unzlibSync } from "fflate";
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 
 /**
@@ -72,9 +73,44 @@ function plainNativeLabel(value: string): string {
     .trim();
 }
 
+function parseNativeGraphModel(xml: string): Document {
+  const parsed = parseDrawioXml(xml);
+  if (parsed.documentElement.nodeName === "mxGraphModel") return parsed;
+  if (parsed.documentElement.nodeName !== "mxfile") return parsed;
+  const diagram = parsed.getElementsByTagName("diagram").item(0);
+  if (!diagram) return parsed;
+  const model = diagram.getElementsByTagName("mxGraphModel").item(0);
+  if (model) return model as unknown as Document;
+  const payload = (diagram.textContent || "").trim();
+  if (!payload) return parsed;
+  if (payload.startsWith("<")) {
+    const nested = parseDrawioXml(payload);
+    if (nested.documentElement.nodeName === "mxGraphModel") return nested;
+  }
+  try {
+    const binary = atob(payload.replace(/\\s+/g, ""));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    let inflated: Uint8Array | null = null;
+    try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped legacy payload. */ }
+    if (!inflated) {
+      try { inflated = unzlibSync(bytes); } catch { /* The page is not a supported compressed payload. */ }
+    }
+    if (inflated) {
+      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
+      for (const candidate of [decoded, decodeURIComponent(decoded)]) {
+        try {
+          const nested = parseDrawioXml(candidate);
+          if (nested.documentElement.nodeName === "mxGraphModel") return nested;
+        } catch { /* Try the next representation. */ }
+      }
+    }
+  } catch { /* Non-compressed or malformed pages yield no targets. */ }
+  return parsed;
+}
+
 /** Read edit targets from native mxCells instead of the retired DiagramDocument projection. */
 export function extractNativeEditTargets(xml: string): NativeEditTarget[] {
-  const parsed = parseDrawioXml(xml);
+  const parsed = parseNativeGraphModel(xml);
   const cells = findDrawioElements(parsed, "mxCell");
   const result: NativeEditTarget[] = [];
   const seen = new Set<string>();
