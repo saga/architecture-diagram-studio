@@ -288,7 +288,7 @@ export const MxLibraryEntrySchema = z.object({
   title: z.string().optional(),
   aspect: z.string().optional(),
   style: z.string().optional()
-}).passthrough().refine((entry) => Boolean(entry.xml) !== Boolean(entry.data), {
+}).passthrough().refine((entry) => Boolean(entry.xml || entry.data), {
   message: "Each mxlibrary item must contain either xml or data"
 });
 
