@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 import { FIXTURES } from "../model/fixtures";
 import type { DiagramDocument } from "../model/types";
 import { fromDrawioXml } from "../import/drawio";
-import { isDrawioXmlDocument } from "../model/drawio-xml-source";
+import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { requestServerLayout } from "../api/diagram-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { selectCompatibleWorkspaceDocument } from "./workspaceHydration";
@@ -21,17 +21,37 @@ interface Options {
   setCanUndo: (value: boolean) => void;
   setCanRedo: (value: boolean) => void;
   serverRevisionRef: MutableRefObject<string | null>;
+  setLastAction: (value: string) => void;
   onDiagnostic: typeof recordDiagnostic;
 }
 export function useWorkspaceBootstrap(options: Options) {
   const {
     projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
-    historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic
+    historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, setLastAction, onDiagnostic
   } = options;
   const [serverHydrated, setServerHydrated] = useState(false);
   const [serverDocumentAvailable, setServerDocumentAvailable] = useState(false);
   const [workspaceContentReady, setWorkspaceContentReady] = useState(false);
   const workspaceInitialLoadRef = useRef<string | null>(null);
+
+  const reportXmlDiagnostics = (xml: string, filePath: string | null) => {
+    const diagnostics = getDrawioXmlDiagnostics(xml);
+    if (diagnostics.issues.length) {
+      const message = diagnostics.issues[0];
+      setLastAction(message);
+      onDiagnostic("drawio.compatibility.validation-failed", message, { path: filePath, issues: diagnostics.issues.slice(0, 10) }, "error");
+      return diagnostics;
+    }
+    if (diagnostics.warnings.length) {
+      const message = "Draw.io compatibility: " + diagnostics.warnings.length + " warning(s). " + diagnostics.warnings.slice(0, 2).join(" ");
+      setLastAction(message);
+      onDiagnostic("drawio.compatibility.warnings", message, {
+        path: filePath, pageCount: diagnostics.pageCount,
+        warningCount: diagnostics.warnings.length, warnings: diagnostics.warnings.slice(0, 20)
+      }, "warn");
+    }
+    return diagnostics;
+  };
 
   useEffect(() => {
     let active = true;
@@ -50,6 +70,7 @@ export function useWorkspaceBootstrap(options: Options) {
           ? state.drawioXml : null;
         let savedDocument: DiagramDocument | null = null;
         if (authoritativeXml) {
+          reportXmlDiagnostics(authoritativeXml, null);
           const projectionBase = cachedDocument ?? FIXTURES.c4();
           const projection = fromDrawioXml(authoritativeXml, projectionBase);
           savedDocument = projection === projectionBase ? projectionBase : projection;
@@ -113,8 +134,10 @@ export function useWorkspaceBootstrap(options: Options) {
           const result = await response.json() as { error?: string; content?: string };
           if (!response.ok || typeof result.content !== "string") throw new Error(result.error || "Could not load the primary Draw.io diagram");
           const baseDocument = FIXTURES.c4();
+          const xmlDiagnostics = reportXmlDiagnostics(result.content, projectWorkspace.primaryDiagram);
+          if (xmlDiagnostics.issues.length) throw new Error(xmlDiagnostics.issues[0]);
           const parsedDocument = fromDrawioXml(result.content, baseDocument);
-          if (parsedDocument === baseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
+          if (parsedDocument === baseDocument) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
           // The XML file is authoritative: opening it must never normalize or relayout its projection.
           const imported = parsedDocument;
           if (!active) return;
