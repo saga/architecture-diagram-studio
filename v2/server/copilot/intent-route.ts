@@ -363,7 +363,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit typed native Draw.io edits. Supports select, set_label, set_style (fillColor, strokeColor, fontColor), move, resize, delete, and add_node_after (create a new shape to the right of a target and connect it with an edge). These operations execute directly against native mxCells; no full-document projection is required. The server validates targets and style keys; the browser applies the operations as one atomic batch and rolls back on failure. Use exact cell IDs or unique exact labels from the diagram context; do not guess.",
+      description: "Submit one typed batch of native Draw.io edits. Supports select, set_label, set_style (fillColor, strokeColor, fontColor), move, resize, delete, and add_node_after. The server validates targets, page and document revision; the browser applies an accepted command as one atomic native-editor batch and rolls it back on editor failure. Batches with two or more deletes or ten or more operations are returned as proposal_required and are NOT dispatched until the user explicitly confirms against the same revision. Use exact cell IDs or unique exact labels from the diagram context; do not guess.",
       parameters: {
         type: "object",
         properties: {
