@@ -8,7 +8,7 @@
 
 ## 1. V2 的核心判断
 
-V2 不应该把 draw.io 当成“自动布局引擎”，也不应该把 React Flow 当成最终渲染器。
+Draw.io 是通用编辑器和渲染器，不是自动布局引擎。布局与语义分析由独立算法完成，但最终交互和渲染统一回到原生 Draw.io。
 
 推荐采用以 XML 为唯一真源、语义能力可选的分层结构：
 
@@ -877,7 +877,7 @@ flowchart TD
 
 # 15. Draw.io Style Adapter：不要使用默认 C4 / Sequence 样式
 
-所有视觉结果由 Studio Style Resolver 产生。
+新建图与明确请求的语义样式操作可由 Studio Style Resolver 生成 Draw.io 样式；已有原生文件的 cell 样式属于用户数据，打开文件、切换 UI 主题或普通保存时不得自动重写。
 
 ```ts
 resolveNodeStyle({
@@ -895,7 +895,7 @@ resolveEdgeStyle({
 })
 ```
 
-输出 draw.io mxGraph style。
+输出 draw.io mxGraph style，仅用于新建图或明确请求的样式变更；不能作为已有文件的全量重绘策略。
 
 ## 15.1 C4
 
