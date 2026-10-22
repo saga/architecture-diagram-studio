@@ -14,6 +14,7 @@
     window.Draw.loadPlugin(function (ui) {
     var graph = ui && ui.editor && ui.editor.graph;
     var model = graph && graph.getModel && graph.getModel();
+    var currentGraph = function () { return ui && ui.editor && ui.editor.graph || graph; };
     if (!graph || !model || typeof graph.getSelectionModel !== "function") {
       console.error("[studio-drawio-bridge] Native graph model is unavailable");
       return;
@@ -30,7 +31,8 @@
       return typeof id === "string" && id ? id : null;
     };
     var publishSelection = function () {
-      var cells = typeof graph.getSelectionCells === "function" ? graph.getSelectionCells() : [];
+      var selectedGraph = currentGraph();
+      var cells = typeof selectedGraph.getSelectionCells === "function" ? selectedGraph.getSelectionCells() : [];
       var cell = cells && cells.length ? cells[0] : null;
       var id = cell && (typeof cell.getId === "function" ? cell.getId() : cell.id);
       publish({
@@ -52,7 +54,8 @@
     function editCell(request) {
       // Draw.io can replace the active graph model when loading a new document.
       // Resolve it per request rather than retaining the model from plugin startup.
-      var activeModel = typeof graph.getModel === "function" ? graph.getModel() : model;
+      var activeGraph = currentGraph();
+      var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
       var requestedPage = request.pageId;
@@ -156,7 +159,7 @@
       } finally {
         activeModel.endUpdate();
       }
-      if (typeof graph.refresh === "function") graph.refresh();
+      if (typeof activeGraph.refresh === "function") activeGraph.refresh();
     }
 
     window.addEventListener("message", function (event) {
