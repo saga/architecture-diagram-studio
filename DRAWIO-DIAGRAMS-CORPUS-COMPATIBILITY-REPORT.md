@@ -491,3 +491,7 @@ patchDrawioXml(xml, projection, doc);    // → 全部 null
 发现导入器在同 ID cell 存在于上一份投影时，会优先复用旧的 `role` / `visualRole`，从而忽略当前 XML 中显式写入的 `studioRole` / `studioVisualRole`。已修改为显式标记优先、旧投影仅作缺少标记时的回退，并新增回归测试。该原则与 XML 唯一事实源一致。
 
 测试与语料探针尚未实际运行，不报告新的通过率或映射指标。
+
+## 13. 复审继续：清除跨文件的时序图状态泄漏
+
+导入器曾把上一份投影的 `kind=sequence` 视作当前页面的时序图证据，导致导入普通页面后仍保留时序图分类及旧 sequence 数据。已改为根据当前 XML 页面识别时序结构；当当前页面没有时序标记而旧投影是 sequence 时，回退到 C4 并清除旧 sequence 数据。新增回归用例，尚未实际运行测试或语料探针。
