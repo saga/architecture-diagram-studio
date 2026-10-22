@@ -495,3 +495,7 @@ patchDrawioXml(xml, projection, doc);    // → 全部 null
 ## 13. 复审继续：清除跨文件的时序图状态泄漏
 
 导入器曾把上一份投影的 `kind=sequence` 视作当前页面的时序图证据，导致导入普通页面后仍保留时序图分类及旧 sequence 数据。已改为根据当前 XML 页面识别时序结构；当当前页面没有时序标记而旧投影是 sequence 时，回退到 C4 并清除旧 sequence 数据。新增回归用例，尚未实际运行测试或语料探针。
+
+## 14. 复审继续：原生 shape 变化必须更新语义角色
+
+确认旧投影的角色缓存还会覆盖原生 XML 的 shape 映射，例如同 ID 节点从旧的 service 变成当前 XML 的 `shape=table` 时，仍被投影为 service。已改为从当前 XML style 生成 `role` / `visualRole`；Studio 自身的 XML 使用持久化的 `studioRole` 等标记，原生 shape 按当前形状映射。新增回归测试，尚未实际运行。
