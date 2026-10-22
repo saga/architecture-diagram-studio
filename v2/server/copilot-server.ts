@@ -151,7 +151,7 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
     const stored = await readJsonFile<StoredWorkspaceState>(WORKSPACE_FILE, {
       drawioXml: null, copilotSessionId: null, chatMessages: [], updatedAt: null
     });
-    workspaceState = { ...stored, document: null };
+    workspaceState = { ...stored, document: stored.document ?? null };
   }
 
   const xml = workspaceState.drawioXml;
