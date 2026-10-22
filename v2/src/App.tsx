@@ -979,6 +979,7 @@ export default function App() {
               let finalResult = result;
               let serializedXmlRevision: string | null = null;
               let persistedRevision: string | null = null;
+              let persistedVersionId: string | null = null;
               let persistenceStatus = "not_attempted";
               if (result.success && result.path === "cell:batch") {
                 if (typeof result.serializedXml !== "string") {
@@ -991,7 +992,9 @@ export default function App() {
                       // The visible success receipt is gated on the same revision-checked save used by autosave.
                       const saved = await persistDocumentNow(result.serializedXml, "Copilot native edit");
                       persistedRevision = typeof saved.workspaceRevision === "string" ? saved.workspaceRevision : null;
+                      persistedVersionId = typeof saved.version?.id === "string" ? saved.version.id : null;
                       if (persistedRevision !== serializedXmlRevision) throw new Error("The server did not confirm the exact serialized XML revision.");
+                      if (!persistedVersionId) throw new Error("The server did not confirm the immutable version ID for this XML revision.");
                       persistenceStatus = "saved";
                     } catch (error) {
                       persistenceStatus = "failed";
@@ -1013,7 +1016,7 @@ export default function App() {
                       requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
                       standalone: acknowledgement.standalone, documentRevision: acknowledgement.documentRevision,
                       outcome: finalResult.success ? "applied" : "failed", editorAcknowledged: result.success,
-                      serializedXmlRevision, persistenceStatus, persistedRevision,
+                      serializedXmlRevision, persistenceStatus, persistedRevision, versionId: persistedVersionId,
                       failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
                     })
                   });
