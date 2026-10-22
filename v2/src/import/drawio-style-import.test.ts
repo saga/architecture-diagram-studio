@@ -88,6 +88,19 @@ describe("Draw.io style import parity", () => {
     expect(exported).toContain('parent="container"><mxGeometry x="10" y="20"');
   });
 
+  it("drops edges whose endpoints exist only in the previous document", () => {
+    const previous = FIXTURES.c4();
+    const staleSource = previous.nodes[0].id;
+    const xml = '<mxfile><diagram id="new-page" name="New page"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="peer" value="Peer" style="rounded=1;" vertex="1" parent="1"><mxGeometry x="300" y="80" width="100" height="50" as="geometry"/></mxCell>' +
+      '<mxCell id="edge-from-stale-node" value="stale" edge="1" parent="1" source="' + staleSource + '" target="peer"><mxGeometry relative="1" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const imported = fromDrawioXml(xml, previous);
+    expect(imported.nodes.map((node) => node.id)).toEqual(["peer"]);
+    expect(imported.relations).toEqual([]);
+  });
+
   it("imports a valid empty page without retaining the previous document", () => {
     const previous = FIXTURES.c4();
     const xml = '<mxfile><diagram id="empty" name="Empty"><mxGraphModel><root>' +
