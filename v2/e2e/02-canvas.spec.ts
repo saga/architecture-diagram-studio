@@ -109,8 +109,20 @@ test.describe("原生画布", () => {
     const xField = inspector.locator('.native-inspector-group').filter({ hasText: "Geometry" }).locator('label.native-property-field:has(span:text-is("x")) input');
     await xField.fill(String(before! + 40));
     await xField.press("Tab");
-    await expect
-      .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
-      .toBe(before! + 40);
+    try {
+      await expect
+        .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
+        .toBe(before! + 40);
+    } catch (error) {
+      const diagnostics = await page.evaluate(() => {
+        try {
+          const entries = JSON.parse(localStorage.getItem("architecture-diagram-studio:v2:diagnostic-traces") || "[]");
+          return Array.isArray(entries) ? entries.filter((entry) =>
+            typeof entry?.event === "string" && /drawio\\.(bridge|selection\\.property|document\\.xml)/.test(entry.event)
+          ).slice(-20) : [];
+        } catch { return []; }
+      });
+      throw new Error(String(error) + "\\nNative property diagnostics: " + JSON.stringify(diagnostics));
+    }
   });
 });
