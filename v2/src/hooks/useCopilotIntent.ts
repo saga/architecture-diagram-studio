@@ -1,7 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { requestAIIntentPlan, type AppliedDiagramEdit } from "../intent/aiProvider";
 import type { DiagramDocument, DiagramNode } from "../model/types";
-import { describeNativeEditOperation, extractNativeEditTargets, toNativeCellEdits, type NativeCellEdit, type NativeEditExecution } from "../model/native-edit-operations";
+import { describeNativeEditOperation, extractNativeEditTargets, getNativeDiagramPageInfo, toNativeCellEdits, type NativeCellEdit, type NativeEditExecution } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
@@ -20,6 +20,8 @@ interface CopilotIntentOptions {
   reasoningEffort: "high" | "max";
   copilotSessionId: string;
   selectedNode: DiagramNode | null;
+  selectedNativeCellId: string | null;
+  selectedNativePageId: string | null;
   persistDocumentNow: PersistDocument;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
@@ -38,7 +40,7 @@ interface CopilotIntentOptions {
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
+    copilotSessionId, selectedNode, selectedNativeCellId, selectedNativePageId, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput,
     setChatBusy, setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit,
     applyNativeCellEdit, applyNativeCellEdits
   } = options;
@@ -143,24 +145,25 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           executionCapabilities: standaloneMode ? ["typed native edits", "element selection", "allowlisted global layout plans", "workspace mutations disabled"] : ["diagram inspection", "validated semantic operations", "typed native edits", "reviewable proposals", "allowlisted layout plans"]
         });
         let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
-        try { nativeTargets = extractNativeEditTargets(drawioXml).slice(0, 200); }
+        try { nativeTargets = extractNativeEditTargets(drawioXml, selectedNativePageId).slice(0, 200); }
         catch (error) {
           recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
             errorMessage: error instanceof Error ? error.message : String(error), xmlLength: drawioXml.length
           }, "warn");
         }
-        // Some legacy files are loaded in compressed page form. Until those pages are
-        // decoded by the shared native context index, keep the small fallback only for
-        // targeting; native Draw.io XML remains the editing/persistence source.
-        if (!nativeTargets.length) nativeTargets = document.nodes.slice(0, 200).map((node) => ({
-          id: node.id, name: node.name, cellType: "vertex" as const
-        }));
+        let nativePage: { id: string | null; title: string | null } = { id: selectedNativePageId, title: null };
+        try { nativePage = getNativeDiagramPageInfo(drawioXml, selectedNativePageId); }
+        catch { /* Cell indexing already records the XML parsing diagnostic above. */ }
+        const selectedNativeTarget = nativeTargets.find((target) => target.id === selectedNativeCellId);
         const plan = await requestAIIntentPlan(
           { baseUrl: "copilot-sdk", model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode },
           text,
           {
-            kind: document.kind, title: document.title,
-            selectedNode: selectedNode ? { id: selectedNode.id, name: selectedNode.name, role: selectedNode.role } : null,
+            kind: "drawio", title: nativePage.title || "Draw.io diagram",
+            selectedCell: selectedNativeCellId ? {
+              cellId: selectedNativeCellId, pageId: nativePage.id || selectedNativePageId,
+              label: selectedNativeTarget?.name || selectedNativeCellId
+            } : null,
             nodes: nativeTargets
           }
         );
@@ -303,7 +306,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
     }
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, document, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNode, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
+    copilotSessionId, selectedNode, selectedNativeCellId, selectedNativePageId, persistDocumentNow, setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy,
     setCopilotSessionId, setPendingAgentProposalId, setPreviewDocument, setPreviewSummary, onAppliedEdit, applyNativeCellEdit,
     applyNativeCellEdits
   ]);
