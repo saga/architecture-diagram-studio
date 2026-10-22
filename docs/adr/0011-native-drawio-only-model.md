@@ -32,12 +32,12 @@ Maintaining two graph models, import/export conversion, completeness checks, pro
 
 ## Migration and acceptance criteria
 
-- [ ] Remove `DiagramDocument` and its semantic type definitions from active v2 runtime code.
-- [ ] Remove runtime use of `fromDrawioXml` / `toDrawioXml` as the editing or persistence path.
-- [ ] Remove `projectionComplete` as a gate or Agent instruction for ordinary native cell edits.
-- [ ] Route supported edits through native Draw.io or typed, source-preserving native-cell operations.
-- [ ] Simplify App, workspace hydration/persistence and Agent tools so they carry the authoritative XML and revision, not a parallel document.
-- [ ] Remove semantic layout/quality/templates from the active UI/server path if they require the deleted model; do not retain them through a renamed duplicate abstraction.
+- [x] Remove `DiagramDocument` and its semantic type definitions from active v2 runtime code.
+- [x] Remove runtime use of `fromDrawioXml` / `toDrawioXml` as the editing or persistence path.
+- [x] Remove `projectionComplete` as a gate or Agent instruction for ordinary native cell edits.
+- [x] Route supported edits through native Draw.io or typed, source-preserving native-cell operations.
+- [x] Simplify App, workspace hydration/persistence and Agent tools so they carry the authoritative XML and revision, not a parallel document.
+- [x] Remove semantic layout/quality/templates from the active UI/server path if they require the deleted model; do not retain them through a renamed duplicate abstraction.
 - [ ] Test simple add-node/add-edge, rename, delete and move on native XML containing opaque cells and unknown attributes; assert unchanged cells/pages/metadata remain byte-identical.
 - [ ] Test malformed XML and stale revisions are rejected without writing changes.
 - [ ] Run typecheck, unit tests and build after the migration. Report actual results separately.
