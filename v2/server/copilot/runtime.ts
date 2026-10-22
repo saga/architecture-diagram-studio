@@ -462,8 +462,9 @@ export class CopilotRuntime {
         if (watchdog) clearTimeout(watchdog);
       }
       const usageAfter = await readSessionUsageMetrics(session.session);
-      const usage = aggregateModelCallUsage(modelCallUsages)
-        ?? diffSessionUsageMetrics(usageAfter, usageBefore);
+      const eventUsage = aggregateModelCallUsage(modelCallUsages);
+      const metricUsage = diffSessionUsageMetrics(usageAfter, usageBefore);
+      const usage = mergeTurnUsagePreferProviderEvents(eventUsage, metricUsage);
       return {
         session, message, modelCallUsages,
         ...(usage ? { usage } : {}),
@@ -780,12 +781,15 @@ function numericDelta(after: unknown, before: unknown): number | undefined {
 function diffSessionUsageMetrics(after: UsageRecord | undefined, before: UsageRecord | undefined): TurnUsageMetrics | undefined {
   if (!after) return undefined;
   const result: TurnUsageMetrics = { source: "session-metrics" };
-  for (const field of ["inputTokens", "outputTokens", "totalTokens", "totalNanoAiu", "totalPremiumRequestCost"] as const) {
-    const value = numericDelta(after[field], before?.[field]);
-    if (value !== undefined) {
-      const target = field === "totalPremiumRequestCost" ? "premiumRequestCost" : field;
-      (result as unknown as Record<string, unknown>)[target] = value;
-    }
+  const totalFields: Array<[string, string]> = [
+    ["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["totalTokens", "totalTokens"],
+    ["totalNanoAiu", "totalNanoAiu"], ["totalPremiumRequestCost", "premiumRequestCost"],
+    ["cacheReadTokens", "cachedInputTokens"], ["cacheWriteTokens", "cacheWriteTokens"],
+    ["reasoningTokens", "reasoningTokens"],
+  ];
+  for (const [source, target] of totalFields) {
+    const value = numericDelta(after[source], before?.[source]);
+    if (value !== undefined) (result as unknown as Record<string, unknown>)[target] = value;
   }
   const afterModels = after.modelMetrics;
   const beforeModels = before?.modelMetrics;
@@ -798,10 +802,18 @@ function diffSessionUsageMetrics(after: UsageRecord | undefined, before: UsageRe
       const afterUsage = afterModel.usage && typeof afterModel.usage === "object" ? afterModel.usage as Record<string, unknown> : {};
       const beforeUsage = beforeModel.usage && typeof beforeModel.usage === "object" ? beforeModel.usage as Record<string, unknown> : {};
       const item: Record<string, unknown> = {};
-      for (const field of ["inputTokens", "outputTokens"] as const) {
-        const value = numericDelta(afterUsage[field], beforeUsage[field]);
-        if (value !== undefined) item[field] = value;
+      const modelFields: Array<[string, string]> = [
+        ["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"],
+        ["cacheReadTokens", "cachedInputTokens"], ["cacheWriteTokens", "cacheWriteTokens"],
+        ["reasoningTokens", "reasoningTokens"], ["totalPremiumRequestCost", "premiumRequestCost"],
+      ];
+      for (const [source, target] of modelFields) {
+        const value = numericDelta(afterUsage[source], beforeUsage[source]);
+        if (value !== undefined) item[target] = value;
       }
+      const inputs = typeof item.inputTokens === "number" ? item.inputTokens : undefined;
+      const outputs = typeof item.outputTokens === "number" ? item.outputTokens : undefined;
+      if (inputs !== undefined && outputs !== undefined) item.totalTokens = inputs + outputs;
       const aiu = numericDelta(afterModel.totalNanoAiu, beforeModel.totalNanoAiu);
       if (aiu !== undefined) item.totalNanoAiu = aiu;
       if (Object.keys(item).length) byModel[model] = item;
@@ -809,6 +821,41 @@ function diffSessionUsageMetrics(after: UsageRecord | undefined, before: UsageRe
     if (Object.keys(byModel).length) result.byModel = byModel as TurnUsageMetrics["byModel"];
   }
   return Object.keys(result).some((key) => key !== "source") ? result : undefined;
+}
+
+/**
+ * Per-call SDK events have richer token fields. Use their reported values first, and fill only
+ * fields they did not report from the session-metrics delta so the same consumption isn't counted twice.
+ */
+function mergeTurnUsagePreferProviderEvents(
+  eventUsage: TurnUsageMetrics | undefined,
+  metricUsage: TurnUsageMetrics | undefined,
+): TurnUsageMetrics | undefined {
+  if (!eventUsage) return metricUsage;
+  if (!metricUsage) return eventUsage;
+
+  const merged = { ...metricUsage, ...eventUsage, source: "provider-event" as const };
+  const metricRecord = metricUsage as unknown as Record<string, unknown>;
+  const mergedRecord = merged as unknown as Record<string, unknown>;
+  for (const key of [
+    "inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens",
+    "reasoningTokens", "modelCalls", "premiumRequestCost", "totalNanoAiu",
+  ]) {
+    if (mergedRecord[key] === undefined && metricRecord[key] !== undefined) mergedRecord[key] = metricRecord[key];
+  }
+
+  const byModel: Record<string, Record<string, unknown>> = {};
+  for (const [model, usage] of Object.entries(metricUsage.byModel ?? {})) {
+    byModel[model] = { ...(usage as unknown as Record<string, unknown>) };
+  }
+  for (const [model, usage] of Object.entries(eventUsage.byModel ?? {})) {
+    byModel[model] = {
+      ...(byModel[model] ?? {}),
+      ...(usage as unknown as Record<string, unknown>),
+    };
+  }
+  if (Object.keys(byModel).length) merged.byModel = byModel as TurnUsageMetrics["byModel"];
+  return merged;
 }
 
 function messageOf(error: unknown): string {
