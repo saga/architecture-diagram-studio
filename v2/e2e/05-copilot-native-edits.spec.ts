@@ -40,7 +40,13 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
 
   let seenPrompt = "";
   await page.route("**/api/copilot/intent", async (route) => {
-    seenPrompt = String((JSON.parse(route.request().postData() || "{}") as { prompt?: unknown }).prompt ?? "");
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      prompt?: unknown; documentRevision?: unknown;
+      context?: { activePageId?: string | null };
+    };
+    seenPrompt = String(requestBody.prompt ?? "");
+    const pageId = requestBody.context?.activePageId ?? null;
+    const documentRevision = String(requestBody.documentRevision ?? "");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -54,7 +60,8 @@ test("Copilot 原生编辑：一次请求里选中元素并把背景改成红色
             { op: "set_style", target: "Database", cellId, targetLabel: "Database", key: "fillColor", color: "#ff0000" }
           ],
           summary: "Select “Database”; Rename “Database” to “Primary Database”; Set fillColor of “Database” to #ff0000",
-          requiresClientExecution: true
+          pageId,
+          documentRevision
         },
         sessionId: "e2e-native-edits",
         model: "stub-model",
@@ -133,7 +140,13 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 
   let seenPrompt = "";
   await page.route("**/api/copilot/intent", async (route) => {
-    seenPrompt = String((JSON.parse(route.request().postData() || "{}") as { prompt?: unknown }).prompt ?? "");
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      prompt?: unknown; documentRevision?: unknown;
+      context?: { activePageId?: string | null };
+    };
+    seenPrompt = String(requestBody.prompt ?? "");
+    const pageId = requestBody.context?.activePageId ?? null;
+    const documentRevision = String(requestBody.documentRevision ?? "");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -145,7 +158,8 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
             { op: "add_node_after", target: observedCellId, cellId: observedCellId, targetLabel: "Database", newLabel: "bbb" }
           ],
           summary: "Add “bbb” after “Database” and connect it",
-          requiresClientExecution: true
+          pageId,
+          documentRevision
         },
         sessionId: "e2e-native-add-after",
         model: "stub-model",
@@ -199,7 +213,13 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
 
   let seenPrompt = "";
   await page.route("**/api/copilot/intent", async (route) => {
-    seenPrompt = String((JSON.parse(route.request().postData() || "{}") as { prompt?: unknown }).prompt ?? "");
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      prompt?: unknown; documentRevision?: unknown;
+      context?: { activePageId?: string | null };
+    };
+    seenPrompt = String(requestBody.prompt ?? "");
+    const pageId = requestBody.context?.activePageId ?? null;
+    const documentRevision = String(requestBody.documentRevision ?? "");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -214,7 +234,8 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
             { op: "add_node_after", target: "Database", cellId: "database", targetLabel: "Database", newLabel: "bbb" }
           ],
           summary: "Rename API Service; move Background Worker; delete Message Queue; add bbb after Database and connect it",
-          requiresClientExecution: true
+          pageId,
+          documentRevision
         },
         sessionId: "e2e-native-mixed-batch",
         model: "stub-model",
