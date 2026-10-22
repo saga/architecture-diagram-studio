@@ -70,7 +70,8 @@ export type CopilotIntentResponse =
       requestId: string;
       documentRevision: string;
       persistedRevision?: string | null;
-      versionId?: string | null;
+      /** Null for standalone mode; required so workspace outcomes cannot omit the immutable version reference. */
+      versionId: string | null;
     })
   | (OutcomeBase & { outcome: "answered" })
   | (OutcomeBase & {
