@@ -38,6 +38,9 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   const onSelectionChangeRef = useRef(onSelectionChange);
   const lastHandledCellEditRequestRef = useRef<number | null>(null);
   const iframeLoadedRef = useRef(false);
+  const nativeDocumentLoadedRef = useRef(false);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   documentRef.current = document;
   onDocumentChangeRef.current = onDocumentChange;
   onSelectionChangeRef.current = onSelectionChange;
@@ -140,6 +143,7 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
     try {
+      nativeDocumentLoadedRef.current = false;
       iframeRef.current.contentWindow.postMessage(
         JSON.stringify({ action: "load", xml, autosave: 1 }),
         window.location.origin
@@ -238,11 +242,12 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
         }), window.location.origin);
       }
       if (data.event === "load") {
+        nativeDocumentLoadedRef.current = true;
         const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
         const computed = appShell ? window.parent.getComputedStyle(appShell) : null;
         const canvas = computed?.getPropertyValue("--theme-canvas").trim() || "#ffffff";
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
-          event: "studioSetBackground", restore: theme === "editorial", background: canvas
+          event: "studioSetBackground", restore: themeRef.current === "editorial", background: canvas
         }), window.location.origin);
       }
       if (data.event === "init") {
