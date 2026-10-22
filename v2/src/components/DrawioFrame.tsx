@@ -187,15 +187,19 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           const key = path.slice("style:".length);
           const styles = String(model.getStyle(cell) || "").split(";").filter(Boolean);
           let found = false;
+          const normalized = value.toLowerCase();
+          const remove = value === "" || normalized === "0" || normalized === "false";
+          const flag = normalized === "1" || normalized === "true";
           const next = styles.map((part: string) => {
             const index = part.indexOf("=");
-            if (index > 0 && part.slice(0, index) === key) {
+            const partKey = index > 0 ? part.slice(0, index) : part;
+            if (partKey === key) {
               found = true;
-              return value === "" ? "" : key + "=" + value;
+              return remove ? "" : flag ? key : key + "=" + value;
             }
             return part;
           }).filter(Boolean);
-          if (!found && value !== "") next.push(key + "=" + value);
+          if (!found && !remove) next.push(flag ? key : key + "=" + value);
           model.setStyle(cell, next.join(";") + (next.length ? ";" : ""));
         } else if (path.startsWith("point:") && cell.geometry) {
           const [, indexText, axis] = path.split(":");
