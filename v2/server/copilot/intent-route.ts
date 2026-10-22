@@ -99,9 +99,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     }
 
     const startedAt = Date.now();
-    await deps.writeLog("request.received", { sessionId, model, reasoningEffort: requestedEffort, prompt, context });
+    const requestId = randomUUID();
+    const nodeNames = (context.nodes as Array<{ id?: unknown; name?: unknown }>).slice(0, 80).map((node) => ({ id: typeof node.id === "string" ? node.id : null, name: typeof node.name === "string" ? node.name.slice(0, 120) : null }));
+    await deps.writeLog("request.received", { requestId, sessionId, model, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, nodeCount: (context.nodes as unknown[]).length, nodeNames });
     if (!standalone) await deps.persistSessionId(sessionId);
     try {
+      await deps.writeLog("request.session.acquire.started", { requestId, sessionId, model, standalone });
+      const acquireStartedAt = Date.now();
       const runtime = await deps.copilot.acquireSession({
         conversationId: sessionId,
         model,
@@ -118,6 +122,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
                 (proposal) => pendingAgentProposals.set(sessionId, proposal),
                 (application) => pendingAgentApplications.set(sessionId, application),
                 (toolName) => {
+                  void deps.writeLog("tool.started", { requestId, sessionId, toolName });
                   let used = usedToolsBySession.get(sessionId);
                   if (!used) { used = new Set<string>(); usedToolsBySession.set(sessionId, used); }
                   used.add(toolName);
@@ -128,6 +133,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           };
         }
       });
+      await deps.writeLog("request.session.acquire.completed", { requestId, sessionId, sdkSessionId: runtime.sdkSessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", durationMs: Date.now() - acquireStartedAt });
       const plan = await deps.copilot.withTurn(sessionId, async (turn) => {
         pendingPlans.delete(sessionId);
         pendingAgentProposals.delete(sessionId);
@@ -140,7 +146,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null,
           snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0
         });
+        const firstTurnStartedAt = Date.now();
+        await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 1, timeoutMs: 50000, model: turn.session.model, promptLength: prompt.length, standalone, toolCount: turn.session.prepared.tools.length });
         const firstTurn = await turn.send({ prompt: JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext }) }, 50000);
+        await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 1, durationMs: Date.now() - firstTurnStartedAt, responseType: firstTurn?.type ?? null, responseAvailable: Boolean(firstTurn) });
         let captured = pendingPlans.get(sessionId) || null;
         pendingPlans.delete(sessionId);
         let capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -151,9 +160,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         let usedToolNames = usedToolsBySession.get(sessionId) || new Set<string>();
         if (!captured && !capturedProposal && !capturedApplication && usedToolNames.size === 0) {
           await deps.writeLog("turn.tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
+          const retryStartedAt = Date.now();
+          await deps.writeLog("turn.model-call.started", { requestId, sessionId, attempt: 2, timeoutMs: 25000, reason: "first response did not invoke a tool", standalone });
           const nudged = await turn.send({
             prompt: JSON.stringify({ request: standalone ? "Use propose_layout_plan only if the request exactly matches an allowlisted global layout command. Otherwise answer about the supplied standalone diagram without changing any project workspace." : "Use the most appropriate internal diagram tool for the previous request. For analysis, inspect the active diagram and evaluate quality. For one focused change explicitly requested by the user, inspect the diagram and use apply_diagram_operation with the exact active revision; for broad or ambiguous changes, create a reviewable proposal. Use propose_layout_plan only for its exact allowlisted global layout commands.", diagram: context })
           }, 25000);
+          await deps.writeLog("turn.model-call.completed", { requestId, sessionId, attempt: 2, durationMs: Date.now() - retryStartedAt, responseType: nudged?.type ?? null, responseAvailable: Boolean(nudged) });
           captured = pendingPlans.get(sessionId) || null;
           pendingPlans.delete(sessionId);
           capturedProposal = pendingAgentProposals.get(sessionId) || null;
@@ -231,8 +243,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await deps.writeLog("turn.failed", {
-        sessionId, model, durationMs: Date.now() - startedAt,
-        errorName: error instanceof Error ? error.name : typeof error, errorMessage: message
+        requestId, sessionId, model, standalone, durationMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: message, errorStack: error instanceof Error ? error.stack : null
       });
       res.status(502).json({ error: describeCopilotFailure(message), sessionId });
     }
