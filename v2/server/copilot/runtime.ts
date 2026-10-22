@@ -85,7 +85,7 @@ export interface TurnUsageMetrics {
   premiumRequestCost?: number;
   totalNanoAiu?: number;
   modelCalls?: number;
-  source: "provider-event" | "session-metrics";
+  source: "provider-event" | "session-metrics" | "unknown";
   byModel?: Record<string, Omit<ModelCallUsage, "model" | "finishReason" | "reasoningEffort" | "timeToFirstTokenMs" | "interTokenLatencyMs">>;
 }
 
