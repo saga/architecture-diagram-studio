@@ -1,6 +1,6 @@
 # diagram-design 风格与布局深度分析报告
 
-> **历史设计研究与建议（2026-10-22）**。本文分析了当时的 SVG/Canvas 实现并保留了原始文件路径。V2 当前只有原生 Draw.io 画布；关于 `DiagramCanvas`、SVG label mask 或 SVG 可访问性的建议属于旧实现背景，不是当前生产 UI 的实现描述。当前架构以 ADR-0006/0008 和 `v2/README.md` 为准。
+> **历史设计研究与候选规则（2026-10-22）**。本文分析了旧 SVG/Canvas 实现，保留其规则、示例和原始路径作为参考，不是当前实施说明。V2 只有原生 Draw.io 画布。可复用原则应映射到 [ADR-0012 的扩展契约](./adr/0012-native-diagram-extension-contracts.md)：布局/样式返回类型化 cell 操作，质量/对比度/可访问性返回诊断。旧 renderer、旧 layout engine 和语义模型均不直接搬回。
 
 > 本地仓库：`/Users/saga/code-repos/diagram-design`  
 > 在线 gallery：`https://cathrynlavery.github.io/diagram-design/`  
@@ -474,7 +474,7 @@ Heuristics：
 - **质量门**：overlap、edge-through、label mask、contrast、CJK width
 - **复杂度预算**：per-type limits
 
-这些可以作为 Studio 自动布局的 **约束、后处理、质量评分、导出渲染规范**，逐步提升输出的可读性与一致性，而无需重写布局引擎。
+这些仍是有价值的规则输入，但不是当前 V2 已实现的自动布局能力。未来若有明确用例，应分别接入原生操作 provider（几何/路由/样式变更）或只读 analysis provider（重叠、穿线、contrast、CJK 与可访问性诊断）；不得恢复第二套 SVG renderer，也不得直接搬入原来的语义布局链路。
 
 ---
 
