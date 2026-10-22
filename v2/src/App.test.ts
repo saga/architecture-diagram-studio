@@ -22,7 +22,7 @@ describe("native Draw.io Copilot contract", () => {
   it("rejects native edit batches without resolved cell IDs", () => {
     expect(() => parseAIIntentResponse(JSON.stringify({
       nativeEdits: {
-        operations: [{ op: "set_label", target: "Database", label: "Store" }],
+        operations: [{ op: "set_label", target: "Database", label: "Store", cellId: "db", targetLabel: "Database" }],
         summary: "Rename",
         requiresClientExecution: true
       }
