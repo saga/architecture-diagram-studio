@@ -19,7 +19,7 @@ Maintaining two graph models, import/export conversion, completeness checks, pro
 3. Workspace-side automation uses small, typed, allowlisted native-cell operations. The server resolves target IDs and validates operation fields; the browser applies them through Draw.io's own graph model. The model must not author arbitrary replacement XML. Because Draw.io owns serialization, an edit may normalize XML formatting or attribute order; unrelated cells, relationships, pages, custom attributes and styles must remain present, but byte-for-byte identity after an edit is not promised.
 4. Delete the `DiagramDocument` import/export projection, fixture model, semantic mutation pipeline, and layout/quality/template features that require that parallel representation. Do not rebuild their full behavior on a second custom graph abstraction.
 5. Keep only small XML utilities that have direct value: schema validation, page/cell lookup, native-cell target/property inspection, and revision/version management. Do not retain a parallel source-patching subsystem to preserve lexical formatting when edits are executed and serialized by the native Draw.io editor.
-6. A document being unfamiliar or containing unsupported cell attributes is not an edit blocker. Block only an operation whose own target, page, or patch cannot be validated safely.
+6. A document being unfamiliar or containing unsupported cell attributes is not an edit blocker. Reject only an operation whose target, page, or requested mutation cannot be validated safely.
 7. Agent inspection must describe the native cells it actually inspected. It must not report a semantic completeness flag or infer that the file is unusable because a projection is incomplete.
 
 ## Consequences
@@ -35,7 +35,7 @@ Maintaining two graph models, import/export conversion, completeness checks, pro
 - [x] Remove `DiagramDocument` and its semantic type definitions from active v2 runtime code.
 - [x] Remove runtime use of `fromDrawioXml` / `toDrawioXml` as the editing or persistence path.
 - [x] Remove `projectionComplete` as a gate or Agent instruction for ordinary native cell edits.
-- [x] Route supported edits through native Draw.io or typed, source-preserving native-cell operations.
+- [x] Route supported edits through typed, allowlisted native-cell operations executed by the bundled Draw.io editor.
 - [x] Simplify App, workspace hydration/persistence and Agent tools so they carry the authoritative XML and revision, not a parallel document.
 - [x] Remove semantic layout/quality/templates from the active UI/server path if they require the deleted model; do not retain them through a renamed duplicate abstraction.
 - [x] Add E2E coverage for add-node/add-edge, rename, delete and move with opaque XML attributes; verify unrelated cells, relationships and page metadata remain intact. Draw.io may normalize serialized XML formatting after edits, so tests assert preservation of content rather than byte-identical XML.
