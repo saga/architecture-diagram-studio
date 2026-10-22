@@ -886,6 +886,12 @@ app.get("/api/copilot/models", async (req, res) => {
 registerCopilotIntentRoute(app, {
   copilot, defaultModel: DEFAULT_MODEL, writeLog,
   getStudioConfig, getProjectWorkspace, collectAgentWorkspaceContext,
+  getWorkspaceDiagramSnapshot: async () => {
+    const state = await getWorkspaceState();
+    const workspace = await getProjectWorkspace();
+    if (!workspaceStateMatchesActiveDiagram(state, workspace) || typeof state.drawioXml !== "string") return null;
+    return { drawioXml: state.drawioXml, revision: workspaceRevision(state.drawioXml) };
+  },
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
