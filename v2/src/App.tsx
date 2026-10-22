@@ -498,8 +498,8 @@ export default function App() {
       setAiModel(payload.config.model || "");
       setReasoningEffort(payload.config.reasoningEffort || "max");
       try { window.localStorage.setItem("architecture-diagram-studio:v2:ai-provider", JSON.stringify(next)); } catch { /* Server JSONL is authoritative. */ }
-      recordDiagnostic("settings.model.saved", "Model and reasoning effort written to a new server config revision", { model: next.model || "local-rules", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
-      setLastAction(next.model ? "Copilot SDK model settings saved as a new revision" : "Local-rules mode config saved as a new revision");
+      recordDiagnostic("settings.model.saved", "Model and reasoning effort written to a new server config revision", { model: next.model || "server-default", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
+      setLastAction(next.model ? "Copilot SDK model settings saved as a new revision" : "Server default model selected in a new config revision");
     } catch (error) {
       setLastAction("Saving model settings failed: " + (error instanceof Error ? error.message : String(error)));
       recordDiagnostic("settings.model.save.failed", "Model settings were not saved", { errorMessage: error instanceof Error ? error.message : String(error) }, "error");
