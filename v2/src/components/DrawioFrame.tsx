@@ -12,7 +12,7 @@ const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 interface Props {
   document: DiagramDocument;
-  onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string }) => void;
+  onNativeEditResult?: (result: { requestId: number | null; success: boolean; cellId: string | null; path: string | null; error?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean }> | null; failedIndex?: number | null; rollbackErrors?: Array<{ cellId: string; error: string }> }) => void;
   xml: string;
   onDocumentChange: (document: DiagramDocument, nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
@@ -231,7 +231,8 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
         if (data.success === true) {
-          onNativeEditResultRef.current?.({ requestId, success: true, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null });
+          onNativeEditResultRef.current?.({ requestId, success: true, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean }> : null });
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
@@ -245,13 +246,16 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
           recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", { requestId, cellId: data.cellId, property: data.path });
         } else {
           const errorMessage = typeof data.error === "string" ? data.error : "Unknown property edit error";
-          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage });
+          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean }> : null,
+            failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
+            rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [] });
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage
+            errorMessage, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? []
           }, "error");
         }
       }
