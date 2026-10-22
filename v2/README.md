@@ -75,7 +75,7 @@ The header's theme selector switches among **经典编辑室**, **青春鲜艳**
 
 The embedded Draw.io editor owns selection, dragging, panning, connector editing, undo/redo, and native shape-specific interactions. The right-side Properties panel reads the selected cell from the native editor and exposes supported editable fields; unsupported or structurally sensitive attributes remain visible as read-only values. Layout algorithms operate separately on the derived semantic projection and must not run automatically when a file is opened.
 
-The native Draw.io iframe starts with the shape sidebar, Format panel, and floating windows hidden using the supported `sidebar=0`, `format=0`, and `windows=0` URL options. Users can still use Draw.io's menus to open panels when needed.
+The native Draw.io iframe starts with the shape sidebar and Format panel hidden using the supported `sidebar=0` and `format=0` URL options. Floating windows remain enabled in the Minimal theme so users can open native panels without merging the Format panel into the shape sidebar.
 
 The main-lane flow layout keeps primary workflow steps aligned, places exception steps near the segment they branch from, and centres labels inside decision diamonds. Wide flowcharts are top-aligned in the native canvas rather than vertically centred in excess whitespace.
 
