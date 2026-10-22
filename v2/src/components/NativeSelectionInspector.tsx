@@ -104,7 +104,7 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
   </label>;
 }
 
-/** Reads properties from the authoritative native Draw.io XML, not the lossy semantic projection. */
+/** Reads and edits properties directly from the selected native Draw.io cell. */
 export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }: Props) {
   const properties = useMemo(() => cellId ? readCellProperties(xml, cellId, pageId) : null, [xml, cellId, pageId]);
   if (!cellId) return <div className="empty-inspector">Select an element or connector in the Draw.io canvas to inspect its native properties.</div>;
