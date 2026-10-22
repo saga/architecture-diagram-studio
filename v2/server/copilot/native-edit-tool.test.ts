@@ -8,7 +8,7 @@ describe("resolveNativeEditTargets", () => {
     const resolved = resolveNativeEditTargets(CONTEXT, [{ op: "add_node_after", target: "Database", newLabel: "bbb" }]);
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
-    expect(resolved.operations[0]).toMatchObject({ op: "add_node_after", cellId: "db", label: "Database", newLabel: "bbb" });
+    expect(resolved.operations[0]).toMatchObject({ op: "add_node_after", cellId: "db", targetLabel: "Database", newLabel: "bbb" });
   });
 
   it("resolves an exact id and an exact label to the same cell", () => {
@@ -26,7 +26,7 @@ describe("resolveNativeEditTargets", () => {
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.operations).toHaveLength(2);
-    expect(resolved.operations.every((operation) => operation.cellId === "db" && operation.label === "Database")).toBe(true);
+    expect(resolved.operations.every((operation) => operation.cellId === "db" && operation.targetLabel === "Database")).toBe(true);
   });
 
   it("rejects unknown labels with an actionable message", () => {
