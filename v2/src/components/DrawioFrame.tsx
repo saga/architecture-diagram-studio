@@ -9,7 +9,7 @@ const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&windows=0&noSaveBtn=1&noExitBtn=1";
 
-interface CellPropertyEdit { cellId: string; path: string; value: string; requestId: number; }
+interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 interface Props {
   document: DiagramDocument;
   xml: string;
@@ -168,6 +168,14 @@ export default function DrawioFrame({ document, xml, onDocumentChange, onSelecti
     const editorWindow = iframeRef.current?.contentWindow as (Window & { editorUi?: { editor?: { graph?: any } } }) | null;
     const graph = editorWindow?.editorUi?.editor?.graph;
     const model = graph?.getModel?.();
+    const currentPage = editorWindow?.editorUi?.currentPage;
+    const currentPageId = currentPage?.getId?.() ?? currentPage?.id ?? null;
+    if (cellEdit.pageId && currentPageId && cellEdit.pageId !== currentPageId) {
+      recordDiagnostic("drawio.selection.property.stale-page", "Ignored a property edit after the active Draw.io page changed", {
+        cellId: cellEdit.cellId, requestedPageId: cellEdit.pageId, currentPageId
+      }, "warn");
+      return;
+    }
     const cell = model?.getCell?.(cellEdit.cellId);
     if (!graph || !model || !cell) return;
     const { path, value } = cellEdit;
