@@ -12,6 +12,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "dev:web": "vite --host 0.0.0.0",
     "dev:copilot": "tsx server/copilot-server.ts",
     "start:copilot": "tsx server/copilot-server.ts"

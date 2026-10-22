@@ -5,3 +5,6 @@ public/drawio/
 !public/drawio/.gitkeep
 *.tsbuildinfo
 .DS_Store
+test-results/
+playwright-report/
+blob-report/

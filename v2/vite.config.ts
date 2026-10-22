@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -99,15 +100,20 @@ function redactTerminalData(value: unknown, depth = 0): unknown {
 }
 
 // The UI test suite runs the same two processes on dedicated ports with an isolated
-// data directory, so these defaults stay unchanged for normal development.
+// data directory and dependency cache, so these defaults stay unchanged for normal development.
 const apiTarget = process.env.STUDIO_API_URL || "http://127.0.0.1:4175";
 const webPort = Number(process.env.STUDIO_WEB_PORT || 5174);
 const previewPort = Number(process.env.STUDIO_PREVIEW_PORT || 4174);
+const cacheDir = process.env.STUDIO_VITE_CACHE_DIR || "node_modules/.vite";
 const apiProxy = { "/api/copilot": apiTarget, "/api/workspace": apiTarget };
 
 export default defineConfig({
   plugins: [react(), terminalDiagnostics()],
+  cacheDir,
   server: { host: "0.0.0.0", port: webPort, strictPort: Boolean(process.env.STUDIO_WEB_PORT), proxy: apiProxy },
   preview: { host: "0.0.0.0", port: previewPort, strictPort: Boolean(process.env.STUDIO_PREVIEW_PORT), proxy: apiProxy },
-  build: { target: "es2022", sourcemap: true }
+  build: { target: "es2022", sourcemap: true },
+  // The Playwright smoke suite reuses the `*.spec.ts` suffix, so keep it out of Vitest's
+  // collection; those specs only run through `npm run test:e2e`.
+  test: { include: ["src/**/*.{test,spec}.{ts,tsx}", "server/**/*.{test,spec}.{ts,tsx}"] }
 });

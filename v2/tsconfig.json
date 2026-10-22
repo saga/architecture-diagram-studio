@@ -17,5 +17,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "server", "vite.config.ts"]
+  "include": ["src", "server", "e2e", "playwright.config.ts", "vite.config.ts"]
 }
