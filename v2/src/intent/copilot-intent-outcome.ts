@@ -57,6 +57,10 @@ interface OutcomeBase extends CopilotResponseMetadata {
   requestId?: string;
   documentRevision?: string | null;
   persistedRevision?: string | null;
+  resolvedTargets?: Array<{ cellId: string; label: string }>;
+  editorAcknowledged?: boolean;
+  persistenceStatus?: string;
+  failureStage?: "editor" | "persistence" | null;
 }
 
 export type CopilotIntentResponse =
@@ -70,6 +74,10 @@ export type CopilotIntentResponse =
       requestId: string;
       documentRevision: string;
       persistedRevision?: string | null;
+      /** Native editor confirmation and resulting XML serialization are required for every applied outcome. */
+      editorAcknowledged: true;
+      persistenceStatus: string;
+      resolvedTargets: Array<{ cellId: string; label: string }>;
       /** Null for standalone mode; required so workspace outcomes cannot omit the immutable version reference. */
       versionId: string | null;
     })
