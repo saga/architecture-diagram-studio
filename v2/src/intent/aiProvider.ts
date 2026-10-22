@@ -13,10 +13,11 @@ export interface AIProviderConfig {
 }
 
 export interface AIIntentContext {
-  kind: "c4" | "flowchart" | "sequence";
+  kind: string;
   title: string;
-  selectedNode?: { id: string; name: string; role: string } | null;
-  nodes: Array<{ id: string; name: string; role: string }>;
+  selectedCell?: { cellId: string; pageId: string | null; label: string } | null;
+  /** Native Draw.io cells from the active page, not a semantic projection. */
+  nodes: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
 }
 
 export interface AppliedDiagramEdit {
@@ -161,7 +162,7 @@ export async function requestAIIntentPlan(
     model: model || "server-default",
     promptCharacters: prompt.length,
     contextNodeCount: context.nodes.length,
-    selectedNodePresent: Boolean(context.selectedNode)
+    selectedCellPresent: Boolean(context.selectedCell)
   });
   let response: Response;
   try {
