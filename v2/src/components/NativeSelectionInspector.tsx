@@ -80,7 +80,7 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
     <span>{label}</span>
     {multiline
       ? <textarea key={label + ":" + value} className="text-field text-area" defaultValue={value} readOnly={readOnly} rows={3} onBlur={(event) => { if (event.currentTarget.value !== value) onChange?.(event.currentTarget.value); }} />
-      : <input key={label + ":" + value} className="text-field" defaultValue={value} readOnly={readOnly} onBlur={(event) => onChange?.(event.currentTarget.value)} />}
+      : <input key={label + ":" + value} className="text-field" defaultValue={value} readOnly={readOnly} onBlur={(event) => { if (event.currentTarget.value !== value) onChange?.(event.currentTarget.value); }} />}
   </label>;
 }
 
