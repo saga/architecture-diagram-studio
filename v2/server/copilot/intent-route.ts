@@ -427,6 +427,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
   }
 
   app.post("/api/copilot/intent", async (req, res) => {
+    const requestId = randomUUID();
     const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
     const requestedContext = req.body?.context;
     const diagramXml = typeof req.body?.diagramXml === "string" ? req.body.diagramXml : "";
@@ -439,8 +440,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       config = await deps.getStudioConfig();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await deps.writeLog("request.validation.failed", { sessionId, reason: "configuration_unavailable", errorMessage: message });
-      res.status(502).json({ outcome: "failed", reply: "Copilot configuration could not be loaded. No diagram changes were made.", error: message.slice(0, 1000), sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "configuration_unavailable", errorMessage: message });
+      res.status(502).json({ outcome: "failed", reply: "Copilot configuration could not be loaded. No diagram changes were made.", error: message.slice(0, 1000), requestId, sessionId });
       return;
     }
     const requestedModel = typeof req.body?.model === "string" && req.body.model.trim()
@@ -451,37 +452,37 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       : config.reasoningEffort;
     const standalone = req.body?.standalone === true;
     if (!prompt || prompt.length > 4000) {
-      await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_prompt", promptLength: prompt.length });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "prompt must be 1–4000 characters", sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_prompt", promptLength: prompt.length });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "prompt must be 1–4000 characters", requestId, sessionId });
       return;
     }
     if (!requestedContext || typeof requestedContext !== "object" || Array.isArray(requestedContext)) {
-      await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_context" });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "Invalid native Draw.io request context", sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_context" });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "Invalid native Draw.io request context", requestId, sessionId });
       return;
     }
     if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000 || !documentRevision) {
-      await deps.writeLog("request.validation.failed", { sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A native Draw.io XML snapshot up to 20 MB and its document revision are required", sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A native Draw.io XML snapshot up to 20 MB and its document revision are required", requestId, sessionId });
       return;
     }
     const xmlValidation = validateDrawioXmlDocument(diagramXml);
     if (!xmlValidation.success) {
-      await deps.writeLog("request.validation.failed", { sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
       return;
     }
     const computedRevision = workspaceRevision(diagramXml);
     if (computedRevision !== documentRevision) {
-      await deps.writeLog("request.validation.failed", { sessionId, reason: "revision_hash_mismatch", documentRevision, computedRevision });
-      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied diagram revision does not match its XML snapshot.", documentRevision: computedRevision, sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "revision_hash_mismatch", documentRevision, computedRevision });
+      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied diagram revision does not match its XML snapshot.", documentRevision: computedRevision, requestId, sessionId });
       return;
     }
     const requestedPageId = typeof (requestedContext as { activePageId?: unknown }).activePageId === "string"
       ? ((requestedContext as { activePageId: string }).activePageId || null) : null;
     const pageInfo = getNativeDiagramPageInfo(diagramXml, requestedPageId);
     if (requestedPageId && pageInfo.id !== requestedPageId) {
-      res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, sessionId });
+      res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
       return;
     }
     const allNativeCells = extractNativeEditTargets(diagramXml, pageInfo.id);
@@ -491,12 +492,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const selection = requestedSelection as { cellId?: unknown; pageId?: unknown };
       if (typeof selection.cellId === "string" && selection.cellId.trim()) {
         if (typeof selection.pageId === "string" && pageInfo.id && selection.pageId !== pageInfo.id) {
-          res.status(409).json({ outcome: "stale_context", reply: "The selected element belongs to another page. Select it again and retry.", error: "The selected cell belongs to a different Draw.io page.", documentRevision, sessionId });
+          res.status(409).json({ outcome: "stale_context", reply: "The selected element belongs to another page. Select it again and retry.", error: "The selected cell belongs to a different Draw.io page.", documentRevision, requestId, sessionId });
           return;
         }
         const target = allNativeCells.find((cell) => cell.id === selection.cellId);
         if (!target) {
-          res.status(409).json({ outcome: "stale_context", reply: "The selected element changed or was removed. Select it again and retry.", error: "The selected cell is not present on the active Draw.io page in this revision.", documentRevision, sessionId });
+          res.status(409).json({ outcome: "stale_context", reply: "The selected element changed or was removed. Select it again and retry.", error: "The selected cell is not present on the active Draw.io page in this revision.", documentRevision, requestId, sessionId });
           return;
         }
         selectedCell = { cellId: target.id, pageId: pageInfo.id, label: target.name };
@@ -521,13 +522,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         authoritative = await deps.getWorkspaceDiagramSnapshot();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await deps.writeLog("request.validation.failed", { sessionId, reason: "workspace_snapshot_unavailable", errorMessage: message });
-        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace revision. No edit was dispatched.", error: message.slice(0, 1000), sessionId });
+        await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "workspace_snapshot_unavailable", errorMessage: message });
+        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace revision. No edit was dispatched.", error: message.slice(0, 1000), requestId, sessionId });
         return;
       }
       if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
-        await deps.writeLog("request.validation.failed", { sessionId, reason: "stale_workspace_revision", requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
-        res.status(409).json({ outcome: "stale_context", reply: "The workspace diagram is not saved at the revision shown in the editor. Save or reload, then retry.", error: "The workspace diagram changed or has not been saved to this revision.", documentRevision: authoritative?.revision ?? null, sessionId });
+        await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "stale_workspace_revision", requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
+        res.status(409).json({ outcome: "stale_context", reply: "The workspace diagram is not saved at the revision shown in the editor. Save or reload, then retry.", error: "The workspace diagram changed or has not been saved to this revision.", documentRevision: authoritative?.revision ?? null, requestId, sessionId });
         return;
       }
     }
@@ -536,14 +537,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       modelChoice = await deps.copilot.resolveModel(requestedModel);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await deps.writeLog("turn.failed", { sessionId, requestedModel, standalone, errorMessage: message, stage: "model_resolution" });
-      res.status(502).json({ outcome: "failed", reply: "Copilot could not resolve a model for this request. No edit was dispatched.", error: message.slice(0, 1000), sessionId });
+      await deps.writeLog("turn.failed", { requestId, sessionId, requestedModel, standalone, errorMessage: message, stage: "model_resolution" });
+      res.status(502).json({ outcome: "failed", reply: "Copilot could not resolve a model for this request. No edit was dispatched.", error: message.slice(0, 1000), requestId, sessionId });
       return;
     }
     const model = modelChoice.model || requestedModel;
 
     const startedAt = Date.now();
-    const requestId = randomUUID();
     const expiredBefore = Date.now() - ACK_TTL_MS;
     for (const id of acknowledgements.expire(Date.now(), ACK_TTL_MS)) {
       await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
