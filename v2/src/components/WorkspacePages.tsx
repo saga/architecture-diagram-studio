@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
 import { Button, Checkbox, Input, Select } from "antd";
-import type { DiagramDocument } from "../model/types";
 import { LAYOUT_PROFILES } from "../layout/profiles";
 import type { DiagnosticEntry } from "../diagnostics";
 
@@ -191,16 +190,11 @@ type ModelRouting = {
 
 interface Props {
   page: Exclude<WorkspacePage, "diagram">;
-  document: DiagramDocument;
-  previewDocument: DiagramDocument | null;
-  previewSummary: string;
   messages: ChatMessage[];
   chatInput: string;
   setChatInput: (value: string) => void;
   chatBusy: boolean;
   sendIntent: () => void;
-  acceptPreview: () => void;
-  discardPreview: () => void;
   openDiagram: () => void;
   aiBaseUrl: string;
   setAiBaseUrl: (value: string) => void;
@@ -234,8 +228,8 @@ function formattedTime(timestamp: string): string {
 
 export default function WorkspacePages(props: Props) {
   const {
-    page, previewDocument, previewSummary, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, acceptPreview, discardPreview, openDiagram, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
+    page, messages, chatInput, setChatInput, chatBusy,
+    sendIntent, openDiagram, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
     saveAISettings, clearAISettings, traceEntries, refreshTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
@@ -347,19 +341,9 @@ export default function WorkspacePages(props: Props) {
               </div>}
             </div>
 
-            {previewDocument && <div className="preview-actions copilot-preview-actions">
-              <div className="preview-pill">Layout preview · not applied</div>
-              <div className="preview-summary">{previewSummary || "Layout preview generated"}</div>
-              <div className="preview-buttons">
-                <Button onClick={discardPreview}>Discard preview</Button>
-                <Button onClick={openDiagram}>Inspect on the diagram canvas</Button>
-                <Button type="primary" onClick={acceptPreview}>Apply to the document</Button>
-              </div>
-            </div>}
-
             <div className="gemini-composer antd-composer">
               <Sender value={chatInput} onChange={setChatInput} onSubmit={() => sendIntent()} loading={chatBusy}
-                disabled={Boolean(previewDocument)} placeholder="Describe the layout change you want…" autoSize={{ minRows: 2, maxRows: 5 }} submitType="enter" />
+                placeholder="Describe the change you want…" autoSize={{ minRows: 2, maxRows: 5 }} submitType="enter" />
               {chatBusy && <div className="gemini-composer-footer"><span><i className="spinner" /> Analysing the layout request…</span></div>}
             </div>
           </section>
