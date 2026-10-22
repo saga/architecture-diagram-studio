@@ -10,6 +10,7 @@
 - Validate diagram XML through v2/src/model/drawio-xml-schema.ts (validateDrawioXmlDocument) and shape libraries through validateDrawioXmlFile. Do not use regular expressions as a document/schema validator. The schema must remain open to custom attributes, wrapper elements, styles and unknown stencils, while rejecting malformed XML and DTD/custom entity declarations.
 - Native edit utilities may parse XML and inspect the targeted mxCell; they must not require other cells to be understood or represented. Preserve unrelated cells, pages, relationships and unknown metadata through the native editor round-trip. Byte-for-byte identity is not guaranteed when Draw.io serializes an edited document.
 - The old DiagramDocument, import/export converter, semantic intent engine, design model, graph layout/quality pipeline and semantic proposal/template APIs have been removed from V2. Do not recreate them under different names.
+- Future layout, style, structural-edit and quality-analysis work must use the extension contracts in `v2/src/model/native-diagram-capabilities.ts` and follow ADR-0012. Do not directly port the old SVG/React Flow renderer or semantic layout implementations. Operation providers return the shared typed native operations; analysis providers return diagnostics only. These interfaces do not mean that a provider is currently implemented.
 
 ## Workspace and repository context
 
@@ -29,6 +30,7 @@
 
 - The embedded native Draw.io editor is the only canvas. Do not reintroduce the custom SVG DiagramCanvas, a Studio/Freeform mode toggle, canvas-mode state, or a second production renderer.
 - Tests should use real native XML strings and validate XML preservation, schema validation, target resolution, allowlisted operations, atomic batch outcomes, stale revisions and history recovery. Do not add parity tests for the removed semantic graph or layout engines.
+- When adding an optional native capability, test its plan/finding contract, active-page scoping, invalid input, stale revisions, and actual Draw.io bridge acknowledgement. Keep old design/research documents as guidance, not as instructions to restore retired components.
 
 ## Internal Agent boundary
 
