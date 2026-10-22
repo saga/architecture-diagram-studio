@@ -12,7 +12,7 @@ import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import type { AppliedDiagramEdit } from "./intent/aiProvider";
 import { downloadText, toDrawioXml } from "./export/drawio";
 import { fromDrawioXml } from "./import/drawio";
-import { canEditInStudio, isDrawioXmlDocument, patchDrawioXml } from "./model/drawio-xml-source";
+import { canEditInStudio, getDrawioXmlDiagnostics, isDrawioXmlDocument, patchDrawioXml } from "./model/drawio-xml-source";
 import { roleLabels } from "./design/tokens";
 import DiagramCanvas from "./components/DiagramCanvas";
 import DrawioFrame from "./components/DrawioFrame";
@@ -234,7 +234,7 @@ export default function App() {
   const studioEditingSafe = canEditInStudio(drawioXml, generatedDrawioXml, document);
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setDocument, setNativeXmlOverride, setSelectedNodeId, setCopilotSessionId, setMessages,
-    historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, onDiagnostic: recordDiagnostic
+    historyRef, historyIndexRef, setCanUndo, setCanRedo, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerDocumentAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow } = useWorkspacePersistence({ document, drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, serverCommittedDocumentRef, setLastAction, onDiagnostic: recordDiagnostic });
@@ -323,9 +323,19 @@ export default function App() {
         const fileResult = await fileResponse.json() as { error?: string; content?: string };
         if (!fileResponse.ok || typeof fileResult.content !== "string") throw new Error(fileResult.error || "Could not read the selected Draw.io file");
         nextXml = fileResult.content;
+        const xmlDiagnostics = getDrawioXmlDiagnostics(fileResult.content);
+        if (xmlDiagnostics.issues.length) throw new Error(xmlDiagnostics.issues[0]);
+        if (xmlDiagnostics.warnings.length) {
+          const message = "Opened Draw.io with " + xmlDiagnostics.warnings.length + " compatibility warning(s): " + xmlDiagnostics.warnings.slice(0, 2).join(" ");
+          setLastAction(message);
+          recordDiagnostic("drawio.compatibility.warnings", message, {
+            path: nextWorkspace.primaryDiagram, pageCount: xmlDiagnostics.pageCount,
+            warningCount: xmlDiagnostics.warnings.length, warnings: xmlDiagnostics.warnings.slice(0, 20)
+          }, "warn");
+        }
         const importBaseDocument = diagramContextChanged ? { ...FIXTURES.c4(), renderTheme: uiTheme } : document;
         const parsedDocument = fromDrawioXml(fileResult.content, importBaseDocument);
-        if (parsedDocument === importBaseDocument) throw new Error("The selected file is not recognisable Draw.io XML");
+        if (parsedDocument === importBaseDocument) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
         // Opening a Draw.io file must preserve its geometry; semantic normalization is an explicit action only.
         nextDocument = parsedDocument;
       } else if (workspaceChanged) {
