@@ -114,7 +114,7 @@ export default function App() {
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
   const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
-  const [activePage, setActivePage] = useState<WorkspacePage>("studio");
+  const [activePage, setActivePage] = useState<WorkspacePage>("diagram");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
@@ -1058,7 +1058,7 @@ export default function App() {
 
   function openPage(page: WorkspacePage) {
     if (page === "copilot") {
-      setActivePage("studio");
+      setActivePage("diagram");
       setRightPanelTab("copilot");
     } else {
       setActivePage(page);
@@ -1166,8 +1166,8 @@ export default function App() {
         <div className="topbar-divider" />
         <div className="document-breadcrumb"><span className="crumb-muted">{projectWorkspace?.name || "WORKSPACE"}</span><span className="crumb-sep">/</span><strong>{projectWorkspace?.primaryDiagram || document.title}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
-          {([["studio", "Studio"], ["copilot", "Layout Copilot"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
-            <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
+          {([["diagram", "Diagram"], ["copilot", "Layout Copilot"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
+            <UiButton key={page} type="button" className={(page === "copilot" ? activePage === "diagram" && rightPanelTab === "copilot" : activePage === page) ? "active" : ""} aria-current={(page === "copilot" ? activePage === "studio" && rightPanelTab === "copilot" : activePage === page) ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
         <label className="theme-selector" title="Switch the color theme of the whole workspace">
@@ -1208,7 +1208,7 @@ export default function App() {
           <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram} disabled={Boolean(previewDocument)}><span className="button-icon">↓</span>Export</UiButton>
           <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
           
-        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("studio")}>Back to diagram</UiButton></div>}
+        </div> : <div className="topbar-actions"><UiButton className="button button-secondary" type="button" onClick={() => openPage("diagram")}>Back to diagram</UiButton></div>}
       </header>
 
       {activePage === "studio" ? (
@@ -1292,7 +1292,7 @@ export default function App() {
             page="copilot" document={document} previewDocument={previewDocument} previewSummary={previewSummary}
             messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
             sendIntent={() => void sendIntent()} acceptPreview={acceptPreview} discardPreview={discardPreview}
-            openStudio={() => { setRightPanelTab("properties"); }}
+            openDiagram={() => { setRightPanelTab("properties"); }}
             aiBaseUrl={aiBaseUrl} setAiBaseUrl={setAiBaseUrl} aiModel={aiModel} setAiModel={setAiModel}
             reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
             aiApiKey={aiApiKey} setAiApiKey={setAiApiKey} saveAISettings={saveAISettings} clearAISettings={clearAISettings}
