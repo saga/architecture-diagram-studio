@@ -869,6 +869,9 @@ export default function App() {
       };
       const parsed = fromDrawioXml(xml, empty);
       if (parsed === empty) throw new Error("The file passed XML validation but could not be projected into a Studio semantic view.");
+      if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
+        await persistDocumentNow(document, drawioXml, "Autosave before opening standalone Draw.io");
+      }
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle); setStandaloneFileName(file.name);
       standaloneLastSavedXmlRef.current = xml;
