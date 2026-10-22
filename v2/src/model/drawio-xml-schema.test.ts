@@ -101,6 +101,16 @@ describe("Zod Draw.io XML schema", () => {
     expect(validateDrawioXmlDocument(validWithOpenStyle).success).toBe(true);
   });
 
+  it("keeps an unusual cell without geometry while reporting a non-blocking warning", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="legacy-port" value="Port" vertex="1" parent="1" style="shape=custom.port;"/>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const result = validateDrawioXmlDocument(xml);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.warnings.some((warning) => warning.includes("legacy-port") && warning.includes("no geometry"))).toBe(true);
+  });
+
   it("distinguishes editable diagram XML from the custom shape-library XML format", () => {
     const library = '<mxlibrary title="Samples" tags="box example">[{"xml":"&lt;mxGraphModel&gt;&lt;root&gt;&lt;mxCell id=\\\"0\\\"/&gt;&lt;mxCell id=\\\"1\\\" parent=\\\"0\\\"/&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;","w":120,"h":60,"title":"Box"},{"data":"data:image/png;base64,AA==","w":48,"h":48}]</mxlibrary>';
     expect(validateDrawioXmlFile(library)).toMatchObject({ success: true, format: "mxlibrary" });
