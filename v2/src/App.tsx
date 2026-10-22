@@ -1094,7 +1094,9 @@ export default function App() {
           <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as UiTheme;
             setUiTheme(nextTheme);
-            try { window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme", nextTheme); window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme-version", "2"); } catch { /* Theme preference is optional when storage is unavailable. */ }
+            // Update the semantic render theme when the native XML can be round-tripped safely.
+            // The UI preference is still allowed for native documents with custom cells.
+            if (studioEditingSafe) replaceDocument({ ...document, renderTheme: nextTheme });
           }}>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
