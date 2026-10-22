@@ -47,6 +47,8 @@ export interface NativeEditExecution {
   error?: string;
   /** Distinguishes a native editor rejection from a successful edit whose required save failed. */
   failureStage?: "editor" | "persistence";
+  /** The local edit may be saved even if its final audit receipt could not be accepted by the server. */
+  auditWarning?: string;
   rolledBack: boolean;
   steps: NativeBatchStepResult[];
 }
