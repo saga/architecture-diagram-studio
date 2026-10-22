@@ -354,9 +354,9 @@ export class CopilotRuntime {
     } catch (error) {
       const message = messageOf(error);
       if (/Copilot turn watchdog timed out/i.test(message)) {
-        // Stop the SDK session explicitly; do not leave a background turn running after
-        // the HTTP request has already failed.
-        try { await session.session.abort(); } catch { /* preserve the watchdog failure */ }
+        // Stop the SDK session explicitly and bound both abort and idle waits; the HTTP
+        // request must not hang forever while trying to clean up a stuck background turn.
+        await this.abortAfterWatchdog(session.session);
         throw error;
       }
       if (!isRecoverable(message)) throw error;
@@ -364,6 +364,38 @@ export class CopilotRuntime {
       const fresh = await this.reopenSession(session);
       const retried = await fresh.session.sendAndWait(body as SendBody, timeoutMs);
       return { session: fresh, message: retried };
+    }
+  }
+
+  private async abortAfterWatchdog(session: CopilotSession): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    let off = () => {};
+    let settled = false;
+    const idle = new Promise<boolean>((resolve) => {
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        off();
+        resolve(value);
+      };
+      off = session.on("session.idle", () => finish(true));
+      timer = setTimeout(() => finish(false), 10_000);
+    });
+    try {
+      await Promise.race([
+        session.abort(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Copilot abort timed out")), 10_000))
+      ]);
+      await idle;
+    } catch (error) {
+      void Promise.resolve(this.options.log("turn.abort.failed", {
+        error: messageOf(error),
+        idleObserved: settled
+      })).catch(() => undefined);
+    } finally {
+      if (timer) clearTimeout(timer);
+      off();
     }
   }
 
