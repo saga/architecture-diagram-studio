@@ -4,10 +4,10 @@ import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, describeCopilotFailure } from "./runtime";
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import {
-  describeNativeEditOperation, extractNativeEditTargets, getNativeDiagramPageInfo,
+  describeNativeEditOperation,
   MAX_NATIVE_EDIT_OPERATIONS, parseNativeEditOperations, type ResolvedNativeEditOperation
 } from "../../src/model/native-edit-operations";
-import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
+import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
@@ -92,7 +92,7 @@ interface IntentDependencies {
   getProjectWorkspace(): Promise<ProjectWorkspace | null>;
   getWorkspaceDiagramSnapshot(): Promise<{ drawioXml: string; revision: string; versionId?: string | null } | null>;
   getWorkspaceVersionSnapshot(versionId: string): Promise<{ drawioXml: string; revision: string; versionId: string } | null>;
-  collectAgentWorkspaceContext(): Promise<unknown>;
+  collectAgentWorkspaceContext(prompt?: string): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
   acknowledgements?: NativeExecutionAcknowledgements;
 }
@@ -177,18 +177,47 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(409).json({ outcome: "stale_context", reply: "This proposal does not belong to the current session.", error: "The proposal session or mode does not match." });
       return;
     }
-    const diagramXml = typeof body.diagramXml === "string" ? body.diagramXml : "";
+    let diagramXml = typeof body.diagramXml === "string" ? body.diagramXml : "";
     const documentRevision = typeof body.documentRevision === "string" ? body.documentRevision : "";
-    if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000 ||
-        !validateDrawioXmlDocument(diagramXml).success || workspaceRevision(diagramXml) !== documentRevision ||
-        documentRevision !== proposal.documentRevision) {
+    if (!documentRevision || documentRevision !== proposal.documentRevision) {
       pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed after this proposal was prepared. Ask Copilot to create a fresh proposal.", error: "The proposal's base revision no longer matches the current XML.", documentRevision });
+      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed after this proposal was prepared. Ask Copilot to create a fresh proposal.", error: "The proposal's base revision no longer matches the current revision.", documentRevision });
+      return;
+    }
+    if (!proposal.standalone) {
+      try {
+        const authoritative = await deps.getWorkspaceDiagramSnapshot();
+        if (!authoritative || authoritative.revision !== documentRevision) {
+          pendingNativeProposals.delete(proposalId);
+          res.status(409).json({ outcome: "stale_context", reply: "The workspace changed after this proposal was prepared.", error: "The proposal is stale; reload and create a new proposal.", documentRevision: authoritative?.revision ?? null });
+          return;
+        }
+        diagramXml = authoritative.drawioXml;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace before confirming this proposal.", error: message.slice(0, 1000) });
+        return;
+      }
+    } else if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000 ||
+        workspaceRevision(diagramXml) !== documentRevision) {
+      pendingNativeProposals.delete(proposalId);
+      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed after this proposal was prepared. Ask Copilot to create a fresh proposal.", error: "The proposal's base revision no longer matches the standalone XML.", documentRevision });
+      return;
+    }
+    if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000) {
+      pendingNativeProposals.delete(proposalId);
+      res.status(409).json({ outcome: "stale_context", reply: "The proposal's XML snapshot is missing or oversized.", error: "The proposal XML is unavailable.", documentRevision });
       return;
     }
     const activePageId = typeof (body.context as { activePageId?: unknown } | undefined)?.activePageId === "string"
       ? (body.context as { activePageId: string }).activePageId || null : null;
-    const pageInfo = getNativeDiagramPageInfo(diagramXml, activePageId);
+    const parsedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, documentRevision, activePageId);
+    if (!parsedSnapshot.ok) {
+      pendingNativeProposals.delete(proposalId);
+      res.status(409).json({ outcome: "stale_context", reply: "The proposal XML is no longer a valid Draw.io document.", error: "The proposal XML could not be validated.", documentRevision });
+      return;
+    }
+    const pageInfo = parsedSnapshot.snapshot.pageInfo;
     if (pageInfo.id !== proposal.pageId) {
       pendingNativeProposals.delete(proposalId);
       res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page changed after this proposal was prepared.", error: "The proposal targets a different page.", documentRevision });
@@ -209,7 +238,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return;
       }
     }
-    const allNativeCells = extractNativeEditTargets(diagramXml, pageInfo.id);
+    const allNativeCells = parsedSnapshot.snapshot.targets;
     const revalidated = resolveNativeEditTargets({ cells: allNativeCells }, proposal.operations);
     if (!revalidated.ok) {
       pendingNativeProposals.delete(proposalId);
@@ -432,7 +461,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const requestId = randomUUID();
     const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
     const requestedContext = req.body?.context;
-    const diagramXml = typeof req.body?.diagramXml === "string" ? req.body.diagramXml : "";
+    let diagramXml = typeof req.body?.diagramXml === "string" ? req.body.diagramXml : "";
     const documentRevision = typeof req.body?.documentRevision === "string" ? req.body.documentRevision : "";
     const sessionId = typeof req.body?.sessionId === "string" && /^[a-zA-Z0-9._:-]{8,128}$/.test(req.body.sessionId)
       ? req.body.sessionId
@@ -463,31 +492,60 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "Invalid native Draw.io request context", requestId, sessionId });
       return;
     }
-    if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000 || !documentRevision) {
-      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A native Draw.io XML snapshot up to 20 MB and its document revision are required", requestId, sessionId });
+    if (!documentRevision) {
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "missing_document_revision" });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A document revision is required", requestId, sessionId });
       return;
     }
-    const xmlValidation = validateDrawioXmlDocument(diagramXml);
-    if (!xmlValidation.success) {
-      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+    if (standalone) {
+      if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000) {
+        await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length, standalone });
+        res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A standalone Draw.io XML snapshot up to 20 MB and its revision are required", requestId, sessionId });
+        return;
+      }
+    } else {
+      // In workspace mode the server's persisted snapshot is authoritative. Do not upload the
+      // same large XML again; revision mismatch fails closed before parsing or model dispatch.
+      try {
+        const authoritative = await deps.getWorkspaceDiagramSnapshot();
+        if (!authoritative || authoritative.revision !== documentRevision) {
+          await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "stale_workspace_revision", requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
+          res.status(409).json({ outcome: "stale_context", reply: "The workspace diagram is not saved at the revision shown in the editor. Save or reload, then retry.", error: "The workspace diagram changed or has not been saved to this revision.", documentRevision: authoritative?.revision ?? null, requestId, sessionId });
+          return;
+        }
+        diagramXml = authoritative.drawioXml;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "workspace_snapshot_unavailable", errorMessage: message });
+        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace revision. No edit was dispatched.", error: message.slice(0, 1000), requestId, sessionId });
+        return;
+      }
+    }
+    if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000) {
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length, standalone });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "The Draw.io XML snapshot must be available and no larger than 20 MB", requestId, sessionId });
       return;
     }
     const computedRevision = workspaceRevision(diagramXml);
     if (computedRevision !== documentRevision) {
       await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "revision_hash_mismatch", documentRevision, computedRevision });
-      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied diagram revision does not match its XML snapshot.", documentRevision: computedRevision, requestId, sessionId });
+      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied document revision does not match its XML snapshot.", documentRevision: computedRevision, requestId, sessionId });
       return;
     }
     const requestedPageId = typeof (requestedContext as { activePageId?: unknown }).activePageId === "string"
       ? ((requestedContext as { activePageId: string }).activePageId || null) : null;
-    const pageInfo = getNativeDiagramPageInfo(diagramXml, requestedPageId);
+    const parsedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, computedRevision, requestedPageId);
+    if (!parsedSnapshot.ok) {
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
+      res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+      return;
+    }
+    const pageInfo = parsedSnapshot.snapshot.pageInfo;
     if (requestedPageId && pageInfo.id !== requestedPageId) {
       res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
       return;
     }
-    const allNativeCells = extractNativeEditTargets(diagramXml, pageInfo.id);
+    const allNativeCells = parsedSnapshot.snapshot.targets;
     const requestedSelection = (requestedContext as { selectedCell?: unknown }).selectedCell;
     let selectedCell: { cellId: string; pageId: string | null; label: string } | null = null;
     if (requestedSelection && typeof requestedSelection === "object" && !Array.isArray(requestedSelection)) {
@@ -569,10 +627,20 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     try {
       await deps.writeLog("request.session.acquire.started", { requestId, sessionId, model, standalone });
       const acquireStartedAt = Date.now();
+      const sessionWorkspace = standalone ? null : await deps.getProjectWorkspace();
+      const scopeKey = standalone
+        ? "standalone"
+        : "workspace:" + JSON.stringify([
+            sessionWorkspace?.id ?? null,
+            sessionWorkspace?.rootPath ?? null,
+            sessionWorkspace?.primaryDiagram ?? null
+          ]);
       const runtime = await deps.copilot.acquireSession({
         conversationId: sessionId,
         model,
         requestedEffort,
+        configRevisionId: config.revisionId,
+        scopeKey,
         prepare: async () => {
           const latestConfig = await deps.getStudioConfig();
           return {
@@ -583,7 +651,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
             ],
-            workspaceId: standalone ? undefined : (await deps.getProjectWorkspace())?.id
+            workspaceId: sessionWorkspace?.id
           };
         }
       });
@@ -603,12 +671,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         let contextUsage: ContextUsage | undefined;
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
         const projectContext = standalone
-          ? { mode: "standalone", workspace: null, snippets: [], diagram: context }
-          : await deps.collectAgentWorkspaceContext();
+          ? { mode: "standalone", workspace: null, snippets: [], diagram: context, cacheHits: 0, cacheMisses: 0, characterBudget: 0 }
+          : await deps.collectAgentWorkspaceContext(prompt);
         await deps.writeLog("turn.workspace-context.loaded", {
           sessionId,
           workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null,
-          snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0
+          snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0,
+          contextCacheHits: (projectContext as { cacheHits?: number }).cacheHits ?? 0,
+          contextCacheMisses: (projectContext as { cacheMisses?: number }).cacheMisses ?? 0,
+          contextCharacters: (projectContext as { characterBudget?: number }).characterBudget ?? null
         });
         let modelText = "";
         const sendAttempt = async (attempt: number, requestPrompt: string, timeoutMs: number, reason?: string): Promise<void> => {
@@ -631,7 +702,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           });
         };
 
-        const firstRequestPrompt = JSON.stringify({ request: prompt, diagram: context, projectWorkspace: projectContext });
+        // Keep stable context before the changing user request for providers supporting prefix caching.
+        const firstRequestPrompt = JSON.stringify({ projectWorkspace: projectContext, diagram: context, request: prompt });
         await sendAttempt(1, firstRequestPrompt, 50000);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;

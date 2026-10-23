@@ -891,10 +891,18 @@ registerCopilotIntentRoute(app, {
     const workspace = await getProjectWorkspace();
     if (!workspaceStateMatchesActiveDiagram(state, workspace) || typeof state.drawioXml !== "string") return null;
     const revision = workspaceRevision(state.drawioXml);
-    const versions = (await getDiagramVersions()).filter((version) =>
-      versionMatchesActiveDiagram(version, workspace) && workspaceRevision(version.drawioXml) === revision
-    );
-    const currentVersion = versions[versions.length - 1] ?? null;
+    const allVersions = await getDiagramVersions();
+    let currentVersion: DiagramVersion | null = null;
+    // Versions are immutable and retained in creation order. Search newest-first so a normal
+    // request usually hashes only the active revision rather than every historical XML snapshot.
+    for (let index = allVersions.length - 1; index >= 0; index--) {
+      const version = allVersions[index];
+      if (!versionMatchesActiveDiagram(version, workspace)) continue;
+      if (workspaceRevision(version.drawioXml) === revision) {
+        currentVersion = version;
+        break;
+      }
+    }
     return { drawioXml: state.drawioXml, revision, versionId: currentVersion?.id ?? null };
   },
   getWorkspaceVersionSnapshot: async (versionId: string) => {

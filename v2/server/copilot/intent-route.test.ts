@@ -453,6 +453,14 @@ describe("Copilot intent route result and revision contract", () => {
     expect(snapshots).toBe(2);
   });
 
+  it("loads authoritative workspace XML when the request contains only a revision", async () => {
+    const harness = await createServer({ copilot: reportingCopilot("answered", "No diagram changes are needed.") });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ diagramXml: undefined }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    expect(harness.snapshot).toHaveBeenCalled();
+  });
+
   it("resolves duplicate labels beyond the prompt's first 200 cells as ambiguous", async () => {
     const filler = Array.from({ length: 200 }, (_, index) =>
       '<mxCell id="extra-' + index + '" value="' + (index === 199 ? "Database" : "Extra " + index) + '" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'

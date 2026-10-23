@@ -35,6 +35,8 @@ export interface RuntimeSession {
   /** Effort the runtime actually accepted for this model. */
   reasoningEffort?: string;
   workspaceId?: string;
+  /** Stable isolation key for workspace / active diagram / standalone mode. */
+  scopeKey: string;
   lastUsedAt: number;
   /** Reusable when the runtime has to rebuild the session after a crash. */
   prepared: SessionPreparation;
@@ -46,6 +48,9 @@ export interface SessionRequest {
   conversationId: string;
   model: string;
   requestedEffort: "high" | "max";
+  /** Cheap identity fields used to decide reuse before constructing prompt/tools. */
+  configRevisionId: string;
+  scopeKey: string;
   prepare: () => Promise<SessionPreparation>;
 }
 
@@ -149,6 +154,7 @@ export class CopilotRuntime {
   private clientStart: Promise<CopilotClient> | null = null;
   private modelsCache: { at: number; models: ModelInfo[] } | null = null;
   private modelsInFlight: Promise<ModelInfo[]> | null = null;
+  private modelsRefreshInFlight: Promise<ModelInfo[]> | null = null;
   private readonly sessions = new Map<string, RuntimeSession>();
   private readonly sessionLocks = new Map<string, Promise<void>>();
   private readonly turnLocks = new Map<string, Promise<void>>();
@@ -298,14 +304,30 @@ export class CopilotRuntime {
   }
 
   /**
-   * Models the account may use. An empty answer is not cached: it usually means the runtime has not resolved
-   * entitlements yet (or the account is out of quota), and it would otherwise stick for the whole process.
-   * The SDK keeps its own copy of that empty answer, so `refresh: true` rebuilds the client to bypass it.
+   * Model catalog responses are cached locally for five minutes. Explicit refresh uses an
+   * isolated short-lived client: the SDK may cache an empty catalog internally, but refreshing
+   * a dropdown must not stop the active client or invalidate live conversation sessions.
    */
   async listModels(options: { refresh?: boolean } = {}): Promise<ModelInfo[]> {
-    if (options.refresh) await this.resetClient("models.refresh");
     const ttl = this.options.modelsCacheTtlMs ?? 5 * 60_000;
-    if (this.modelsCache && Date.now() - this.modelsCache.at < ttl) return this.modelsCache.models;
+    if (!options.refresh && this.modelsCache && Date.now() - this.modelsCache.at < ttl) {
+      return this.modelsCache.models;
+    }
+
+    if (options.refresh) {
+      this.modelsCache = null;
+      if (this.modelsRefreshInFlight) return this.modelsRefreshInFlight;
+      this.modelsRefreshInFlight = (async () => {
+        // Let an already-running normal lookup settle so it cannot overwrite the refreshed value.
+        await this.modelsInFlight?.catch(() => undefined);
+        const models = await this.fetchModelsFromIsolatedClient();
+        if (models.length) this.modelsCache = { at: Date.now(), models };
+        else await this.options.log("models.empty", { note: "the refreshed runtime returned no models; the empty result remains uncached" });
+        return models;
+      })().finally(() => { this.modelsRefreshInFlight = null; });
+      return this.modelsRefreshInFlight;
+    }
+
     if (this.modelsInFlight) return this.modelsInFlight;
     this.modelsInFlight = this.withClient("listModels", (client) => client.listModels())
       .then(async (models) => {
@@ -315,6 +337,27 @@ export class CopilotRuntime {
       })
       .finally(() => { this.modelsInFlight = null; });
     return this.modelsInFlight;
+  }
+
+  /** Query the same account/base directory without disturbing the active runtime client. */
+  private async fetchModelsFromIsolatedClient(): Promise<ModelInfo[]> {
+    const probe = new CopilotClient({
+      mode: "empty",
+      useLoggedInUser: true,
+      baseDirectory: this.options.baseDirectory || process.env.COPILOT_HOME || path.join(os.homedir(), ".copilot")
+    });
+    try {
+      await probe.start();
+      return await probe.listModels();
+    } finally {
+      try {
+        await probe.forceStop();
+      } catch (error) {
+        await this.options.log("models.refresh-client.stop.failed", {
+          error: messageOf(error)
+        });
+      }
+    }
   }
 
   /** Maps the requested effort onto what the chosen model actually supports. */
@@ -356,29 +399,34 @@ export class CopilotRuntime {
     return this.sessions.get(conversationId)?.observedModel;
   }
 
-  /** Returns a session matching the requested conversation, model, and configuration revision. */
+  /** Reuses a session without rebuilding its system prompt/tool definitions on every turn. */
   async acquireSession(request: SessionRequest): Promise<RuntimeSession> {
-    const prepared = await request.prepare();
     const reused = this.sessions.get(request.conversationId);
-    if (reused && this.matches(reused, request, prepared.configRevisionId)) {
+    if (reused && this.matches(reused, request)) {
       reused.lastUsedAt = Date.now();
       return reused;
     }
     return this.withSessionLock(request.conversationId, async () => {
       const current = this.sessions.get(request.conversationId);
-      if (current && this.matches(current, request, prepared.configRevisionId)) {
+      if (current && this.matches(current, request)) {
         current.lastUsedAt = Date.now();
         return current;
       }
-      if (current) await this.retireSession(current, "configuration.changed");
-      return this.openSession(request, prepared);
+      if (current) await this.retireSession(current, "configuration-or-scope-changed");
+
+      // Prompt construction, tool definitions and secondary configuration reads only happen
+      // when a new session really has to be opened.
+      const prepared = await request.prepare();
+      const effectiveRequest = { ...request, configRevisionId: prepared.configRevisionId };
+      return this.openSession(effectiveRequest, prepared);
     });
   }
 
-  private matches(session: RuntimeSession, request: SessionRequest, configRevisionId: string): boolean {
-    return session.configRevisionId === configRevisionId
+  private matches(session: RuntimeSession, request: SessionRequest): boolean {
+    return session.configRevisionId === request.configRevisionId
       && session.model === request.model
-      && session.requestedEffort === request.requestedEffort;
+      && session.requestedEffort === request.requestedEffort
+      && session.scopeKey === request.scopeKey;
   }
 
   private async withSessionLock<T>(conversationId: string, run: () => Promise<T>): Promise<T> {
@@ -546,6 +594,8 @@ export class CopilotRuntime {
         conversationId: previous.conversationId,
         model: previous.model,
         requestedEffort: previous.requestedEffort,
+        configRevisionId: previous.configRevisionId,
+        scopeKey: previous.scopeKey,
         prepare: async () => previous.prepared
       },
       previous.prepared
@@ -616,7 +666,7 @@ export class CopilotRuntime {
 
     // The runtime rejects session ids containing dots, so the studio conversation id is sanitized and the
     // configuration revision is folded into the id to isolate SDK history per revision.
-    const revisionKey = createHash("sha256").update([prepared.configRevisionId, request.model, effort].join("\0")).digest("hex").slice(0, 16);
+    const revisionKey = createHash("sha256").update([prepared.configRevisionId, request.model, effort, request.scopeKey].join("\0")).digest("hex").slice(0, 16);
     const sdkSessionId = (request.conversationId.replace(/[^a-zA-Z0-9-]/g, "-") + "-cfg-" + revisionKey).slice(0, 100);
 
     let resumed: CopilotSession | null = null;
@@ -658,6 +708,7 @@ export class CopilotRuntime {
       requestedEffort: effort,
       reasoningEffort: actualEffort,
       workspaceId: prepared.workspaceId,
+      scopeKey: request.scopeKey,
       lastUsedAt: Date.now(),
       prepared
     };

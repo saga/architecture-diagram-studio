@@ -49,6 +49,38 @@ export async function resolveWorkspaceRoot(requestedPath: string): Promise<{ roo
   return { rootPath: requested, repositoryRoot: false, requestedPath: requested };
 }
 export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWorkspace | null>) {
+  // Cache bounded excerpts only, never the authoritative file list or workspace state.
+  const snippetCache = new Map<string, { excerpt: string; truncated: boolean }>();
+  let snippetCacheCharacters = 0;
+  const MAX_SNIPPET_CACHE_ENTRIES = 400;
+  const MAX_SNIPPET_CACHE_CHARACTERS = 1_500_000;
+
+  function getCachedSnippet(key: string): { excerpt: string; truncated: boolean } | undefined {
+    const cached = snippetCache.get(key);
+    if (!cached) return undefined;
+    snippetCache.delete(key);
+    snippetCache.set(key, cached);
+    return cached;
+  }
+
+  function setCachedSnippet(key: string, value: { excerpt: string; truncated: boolean }): void {
+    const existing = snippetCache.get(key);
+    if (existing) {
+      snippetCacheCharacters -= existing.excerpt.length;
+      snippetCache.delete(key);
+    }
+    if (value.excerpt.length > MAX_SNIPPET_CACHE_CHARACTERS) return;
+    snippetCache.set(key, value);
+    snippetCacheCharacters += value.excerpt.length;
+    while (snippetCache.size > MAX_SNIPPET_CACHE_ENTRIES || snippetCacheCharacters > MAX_SNIPPET_CACHE_CHARACTERS) {
+      const oldestKey = snippetCache.keys().next().value as string | undefined;
+      if (oldestKey === undefined) break;
+      const oldest = snippetCache.get(oldestKey);
+      if (oldest) snippetCacheCharacters -= oldest.excerpt.length;
+      snippetCache.delete(oldestKey);
+    }
+  }
+
   async function scanWorkspaceFiles(workspace: ProjectWorkspace): Promise<WorkspaceFileEntry[]> {
     const root = await realpath(workspace.rootPath);
     const result: WorkspaceFileEntry[] = [];
@@ -106,31 +138,82 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
     if (!(await stat(absolutePath)).isFile()) throw new Error("The target is not a file");
     return { workspace, absolutePath };
   }
-  async function collectAgentWorkspaceContext(): Promise<unknown> {
+  async function collectAgentWorkspaceContext(prompt = ""): Promise<unknown> {
     const workspace = await getWorkspace();
-    if (!workspace) return { configured: false, instruction: "No project workspace is configured. Do not claim project-specific findings." };
+    if (!workspace) return { configured: false, instruction: "No project workspace is configured. Do not claim project-specific findings.", cacheHits: 0, cacheMisses: 0 };
+
     const files = await scanWorkspaceFiles(workspace);
-    const relevant = [
-      ...files.filter((file) => file.kind === "diagram").sort((a, b) => (a.path === workspace.primaryDiagram ? -1 : b.path === workspace.primaryDiagram ? 1 : 0)),
-      ...files.filter((file) => file.kind === "code").slice(0, 80),
-      ...files.filter((file) => file.kind === "document").slice(0, 80)
-    ].slice(0, 200);
+    const diagrams = files.filter((file) => file.kind === "diagram")
+      .sort((a, b) => (a.path === workspace.primaryDiagram ? -1 : b.path === workspace.primaryDiagram ? 1 : 0));
+    const codeAndDocs = files.filter((file) => file.kind === "code" || file.kind === "document");
+    const terms = new Set<string>();
+    const tokens = prompt.toLowerCase().match(/[a-z0-9_+-]{3,}|[\u4e00-\u9fff]{2,}/g) || [];
+    const stopwords = new Set(["please", "change", "update", "make", "diagram", "current", "selected", "element", "node", "add", "move", "rename", "with", "from", "into", "that", "this", "为我", "帮我", "这个", "一下", "修改", "添加", "节点", "元素"]);
+    for (const token of tokens) {
+      if (token.length <= 1 || stopwords.has(token)) continue;
+      if (/^[\u4e00-\u9fff]+$/.test(token)) {
+        for (let index = 0; index + 1 < token.length; index++) terms.add(token.slice(index, index + 2));
+      } else terms.add(token);
+    }
+    const guidePattern = /(^|\/)(readme|agents|architecture|design|contributing)(\.[^/]*)?$/i;
+    const ranked = codeAndDocs.map((file) => {
+      const normalizedPath = file.path.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ");
+      let score = guidePattern.test(file.path) ? 4 : 0;
+      for (const term of terms) if (normalizedPath.includes(term)) score += Math.min(3, Math.max(1, term.length / 4));
+      return { file, score };
+    }).sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path));
+
+    const selected: WorkspaceFileEntry[] = [];
+    const selectedPaths = new Set<string>();
+    const add = (file: WorkspaceFileEntry | undefined) => {
+      if (!file || selectedPaths.has(file.path) || selected.length >= 40) return;
+      selectedPaths.add(file.path);
+      selected.push(file);
+    };
+    add(diagrams.find((file) => file.path === workspace.primaryDiagram) || diagrams[0]);
+    for (const file of diagrams.filter((item) => item.path !== workspace.primaryDiagram).slice(0, 2)) add(file);
+    for (const item of ranked.slice(0, 37)) add(item.file);
+
     const snippets: Array<{ path: string; kind: string; content: string; truncated: boolean }> = [];
-    let budget = 90000;
-    for (const item of relevant) {
+    let budget = 26000;
+    let cacheHits = 0;
+    let cacheMisses = 0;
+    for (const item of selected) {
       if (budget <= 0) break;
-      if (item.size > (item.kind === "diagram" ? 20 * 1024 * 1024 : 512 * 1024) || item.kind === "other" ||
-          [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock"].includes(path.extname(item.path).toLowerCase())) continue;
-      const content = await resolveWorkspaceFile(item.path).then(({ absolutePath }) => readFile(absolutePath, "utf8")).catch(() => "");
-      const maxLength = item.kind === "diagram" ? 20000 : 4000;
-      const excerpt = content.slice(0, Math.min(content.length, budget, maxLength));
-      if (excerpt) { snippets.push({ path: item.path, kind: item.kind, content: excerpt, truncated: excerpt.length < content.length }); budget -= excerpt.length; }
+      const extension = path.extname(item.path).toLowerCase();
+      if (item.size > (item.kind === "diagram" ? 20 * 1024 * 1024 : 512 * 1024) ||
+          item.kind === "other" ||
+          [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock", ".min.js"].includes(extension)) continue;
+      const maxLength = item.kind === "diagram" ? 12000 : item.kind === "document" ? 5000 : 3500;
+      const cacheKey = [workspace.id, item.path, item.size, item.modifiedAt].join("\0");
+      let cached = getCachedSnippet(cacheKey);
+      if (cached) {
+        cacheHits++;
+      } else {
+        cacheMisses++;
+        const content = await resolveWorkspaceFile(item.path)
+          .then(({ absolutePath }) => readFile(absolutePath, "utf8"))
+          .catch(() => "");
+        cached = {
+          excerpt: content.slice(0, Math.min(content.length, maxLength)),
+          truncated: content.length > maxLength
+        };
+        if (cached.excerpt) setCachedSnippet(cacheKey, cached);
+      }
+      const clipped = cached.excerpt.slice(0, Math.min(cached.excerpt.length, budget, maxLength));
+      if (clipped) {
+        snippets.push({ path: item.path, kind: item.kind, content: clipped, truncated: cached.truncated || clipped.length < cached.excerpt.length });
+        budget -= clipped.length;
+      }
     }
     return {
       configured: true,
       workspace: { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath, primaryDiagram: workspace.primaryDiagram },
-      files: relevant.map(({ path: filePath, kind, size }) => ({ path: filePath, kind, size })),
-      snippets
+      files: selected.map(({ path: filePath, kind, size }) => ({ path: filePath, kind, size })),
+      snippets,
+      cacheHits,
+      cacheMisses,
+      characterBudget: 26000 - budget
     };
   }
   return { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext };

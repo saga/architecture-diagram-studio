@@ -203,7 +203,8 @@ export async function requestAIIntentPlan(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt, context, diagramXml: config.diagramXml, documentRevision: config.documentRevision,
+        prompt, context, documentRevision: config.documentRevision,
+        ...(config.standalone === true ? { diagramXml: config.diagramXml } : {}),
         ...(model ? { model } : {}),
         ...(config.sessionId ? { sessionId: config.sessionId } : {}),
         reasoningEffort: config.reasoningEffort || "max",
@@ -274,7 +275,8 @@ export async function confirmAIIntentProposal(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         proposalId, sessionId: config.sessionId, standalone: config.standalone === true,
-        diagramXml: config.diagramXml, documentRevision: config.documentRevision, context
+        ...(config.standalone === true ? { diagramXml: config.diagramXml } : {}),
+        documentRevision: config.documentRevision, context
       }),
       signal: AbortSignal.timeout(30_000)
     });
