@@ -206,19 +206,30 @@ test.describe("原生画布", () => {
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
       const requestId = 938272;
       const script = `
-        const parent = model.getDefaultParent();
-        const edges = graph.getChildCells(parent, false, true);
-        if (!edges.length) throw new Error("No connector cells found in the active layer");
-        edges.forEach((edge) => {
-          const next = (model.getStyle(edge) || "").split(";").filter(Boolean).filter((part) => {
-            const separator = part.indexOf("=");
-            const key = separator > 0 ? part.slice(0, separator) : part;
-            return !["edgeStyle", "curved", "orthogonalLoop", "jettySize"].includes(key);
-          });
-          next.push("curved=1");
-          model.setStyle(edge, next.join(";") + ";");
+        const edges = [];
+        function collect(parent) {
+          const count = model.getChildCount(parent);
+          for (let i = 0; i < count; i += 1) {
+            const cell = model.getChildAt(parent, i);
+            if (cell && cell.edge) edges.push(cell);
+            collect(cell);
+          }
+        }
+        collect(model.getRoot());
+        if (!edges.length) throw new Error("No connector cells found on the active page");
+        graph.setCellStyles("edgeStyle", "orthogonalEdgeStyle", edges);
+        graph.setCellStyles("curved", "1", edges);
+        graph.refresh();
+        if (graph.view && typeof graph.view.validate === "function") graph.view.validate();
+        const stylesVerified = edges.every((edge) => {
+          const style = model.getStyle(edge) || "";
+          return /(?:^|;)edgeStyle=orthogonalEdgeStyle(?:;|$)/.test(style) && /(?:^|;)curved=1(?:;|$)/.test(style);
         });
-        return { affectedEdges: edges.length };
+        const renderedEdges = edges.slice(0, 20).map((edge) => {
+          const state = graph.view && typeof graph.view.getState === "function" ? graph.view.getState(edge) : null;
+          return { id: edge.id, stateAvailable: Boolean(state), pointCount: state && state.absolutePoints ? state.absolutePoints.length : 0 };
+        });
+        return { affectedEdges: edges.length, stylesVerified, renderedEdges };
       `;
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
@@ -248,6 +259,10 @@ test.describe("原生画布", () => {
     });
 
     expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
+    expect(result.scriptResult).toMatchObject({
+      available: true,
+      value: { affectedEdges: expect.any(Number), stylesVerified: true, renderedEdges: expect.any(Array) }
+    });
     await expect.poll(async () => {
       const styles = edgeStyles(await readWorkspaceXml(workspace));
       return styles.length > 0 && styles.every((style) => /(?:^|;)curved=1(?:;|$)/.test(style));
@@ -260,7 +275,7 @@ test.describe("原生画布", () => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
       const requestId = 938273;
-      const script = 'graph.insertVertex(model.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
+      const script = 'graph.insertVertex(graph.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           window.removeEventListener("message", receive);
