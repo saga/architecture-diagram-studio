@@ -906,6 +906,7 @@
           if ((c4Request.kind === "person" && verifiedC4Style.indexOf("shape=mxgraph.c4.person2") < 0) ||
               verifiedC4Style.indexOf("fillColor=" + c4Preset.fill) < 0 ||
               verifiedC4Style.indexOf("strokeColor=" + c4Preset.stroke) < 0 ||
+              (c4Request.kind !== "person" && (verifiedC4Style.split(";").indexOf("rounded=1") < 0 || /(?:^|;)shape=/.test(verifiedC4Style))) ||
               !cell.value || cell.value.getAttribute("c4Name") !== c4Name ||
               cell.value.getAttribute("c4Type") !== c4Preset.type ||
               !cell.geometry || cell.geometry.width !== c4Preset.width || cell.geometry.height !== c4Preset.height) {
