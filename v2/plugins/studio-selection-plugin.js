@@ -476,8 +476,10 @@
         var operations;
         try { operations = JSON.parse(String(request.value || "[]")); } catch (_) { throw new Error("Batch edit payload is not valid JSON"); }
         if (!Array.isArray(operations) || operations.length < 1 || operations.length > 50) throw new Error("A batch must contain between 1 and 50 operations");
-        if (operations.some(function (operation) { return operation && operation.path === "cell:execute-script"; }) && operations.length !== 1) {
-          throw new Error("A native Draw.io script must be the only operation in its batch");
+        if (operations.some(function (operation) {
+          return operation && (operation.path === "cell:execute-script" || operation.path === "cell:auto-layout");
+        }) && operations.length !== 1) {
+          throw new Error("A native Draw.io script or Studio auto-layout plan must be the only operation in its batch");
         }
         var allCells = [];
         var originalRoot = activeModel.getRoot();
