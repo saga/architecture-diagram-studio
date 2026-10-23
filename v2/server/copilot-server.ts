@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
-import { resolveCopilotTurnTimeoutMs } from "./copilot/turn-timeout";
+import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
 import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 /**
@@ -351,6 +351,31 @@ function safeTerminalValue(value: unknown, depth = 0): unknown {
   return String(value);
 }
 
+
+const TERMINAL_INFO_FIELDS: Record<string, readonly string[]> = {
+  "request.received": ["requestId", "sessionId", "model", "requestedModel", "modelSource", "reasoningEffort", "standalone", "promptLength", "contextKind", "contextTitle", "cellCount"],
+  "request.session.acquire.completed": ["requestId", "sessionId", "sdkSessionId", "model", "reasoningEffort", "durationMs"],
+  "turn.started": ["requestId", "sessionId", "model", "reasoningEffort", "timeoutMs", "idleTimeoutMs"],
+  "turn.model-call.started": ["requestId", "sessionId", "attempt", "timeoutMs", "turnTimeoutMs", "idleTimeoutMs", "model", "promptLength", "requestPromptLength", "toolCount", "reason"],
+  "turn.model-call.completed": ["requestId", "sessionId", "attempt", "durationMs", "responseType", "responseAvailable"],
+  "turn.streaming.progress": ["requestId", "conversationId", "attempt", "model", "timeoutMs", "idleTimeoutMs", "phase", "elapsedMs", "quietMs", "sinceLastDeltaMs", "eventCount", "eventsSinceLastLog", "deltaBytesSinceLastLog", "totalDeltaBytes", "reasoningDeltaEvents", "reasoningDeltaBytes", "assistantDeltaEvents", "assistantDeltaBytes", "toolArgumentDeltaEvents", "toolArgumentDeltaBytes", "timeToFirstDeltaMs", "lastEventType", "lastProgressEventType", "toolName"],
+  "turn.streaming.timeout": ["requestId", "conversationId", "attempt", "model", "timeoutKind", "timeoutMs", "idleTimeoutMs", "errorMessage", "phase", "elapsedMs", "quietMs", "sinceLastDeltaMs", "eventCount", "eventsSinceLastLog", "deltaBytesSinceLastLog", "totalDeltaBytes", "reasoningDeltaEvents", "reasoningDeltaBytes", "assistantDeltaEvents", "assistantDeltaBytes", "toolArgumentDeltaEvents", "toolArgumentDeltaBytes", "timeToFirstDeltaMs", "lastEventType", "lastProgressEventType", "toolName"],
+  "turn.completed.with-native-edits": ["requestId", "sessionId", "durationMs", "operationCount"],
+  "turn.completed.proposal-required": ["requestId", "proposalId", "sessionId", "operationCount", "deleteCount", "documentRevision"]
+};
+
+function terminalLogSummary(event: string, record: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    timestamp: record.timestamp,
+    workspaceId: record.workspaceId ?? null,
+    event
+  };
+  for (const key of TERMINAL_INFO_FIELDS[event] ?? []) {
+    if (record[key] !== undefined) summary[key] = safeTerminalValue(record[key]);
+  }
+  return summary;
+}
+
 async function writeLog(event: string, fields: Record<string, unknown> = {}): Promise<void> {
   const record = { timestamp: new Date().toISOString(), workspaceId: projectWorkspace?.id ?? null, event, ...fields };
   const line = JSON.stringify(record) + "\n";
@@ -369,7 +394,7 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
   // the .warning/.failed suffix convention. Set STUDIO_LOG_LEVEL=info for routine lifecycle events.
   const terminalWarningEvents = new Set([
     "client.reset", "session.invalidated", "turn.recovering", "turn.abort.idle-timeout",
-    "model.substituted", "models.effort.unresolved"
+    "turn.streaming.timeout", "model.substituted", "models.effort.unresolved"
   ]);
   const isError = event.endsWith(".failed") || event.endsWith(".error") || event.endsWith(".fatal");
   const isWarning = event.endsWith(".conflict") || event.endsWith(".rejected") ||
@@ -378,9 +403,13 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
     const detail = typeof fields.stack === "string" ? fields.stack : JSON.stringify(record, null, 2);
     console.error("\n\u001b[1;31m[studio:ERROR] " + event + "\u001b[0m\n" + detail + "\n");
   } else if (isWarning) {
-    console.warn("\u001b[1;33m[studio:WARN] " + event + "\u001b[0m " + JSON.stringify(record));
-  } else if (process.env.STUDIO_LOG_LEVEL === "info") {
-    console.info(logPrefixForEvent(event) + " " + JSON.stringify(record));
+    const detail = TERMINAL_INFO_FIELDS[event] ? terminalLogSummary(event, record) : safeTerminalValue(record);
+    console.warn("\u001b[1;33m[studio:WARN] " + event + "\u001b[0m " + JSON.stringify(detail));
+  } else if (TERMINAL_INFO_FIELDS[event]) {
+    console.info(logPrefixForEvent(event) + " " + JSON.stringify(terminalLogSummary(event, record)));
+  } else if (process.env.STUDIO_LOG_LEVEL === "info" && event !== "sdk.event") {
+    // Raw SDK deltas remain in the JSONL trace. Printing one line per delta floods the terminal.
+    console.info(logPrefixForEvent(event) + " " + JSON.stringify(safeTerminalValue(record)));
   }
 }
 
@@ -1113,7 +1142,7 @@ app.use(async (error: unknown, req: Request, res: Response, next: NextFunction) 
 
 const server = app.listen(PORT, "127.0.0.1", () => {
   const provider = readCopilotProvider();
-  console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; routing=${describeModelRouting(provider)}; turnTimeoutMs=${resolveCopilotTurnTimeoutMs()}; logs=${LOG_FILE}`);
+  console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; routing=${describeModelRouting(provider)}; turnTimeoutMs=${resolveCopilotTurnTimeoutMs()}; turnIdleTimeoutMs=${resolveCopilotTurnIdleTimeoutMs()}; logs=${LOG_FILE}`);
   if (isModelConfiguredWithoutProvider(provider)) {
     console.warn(
       `[studio:server] ${provider.model} is configured as a model but no custom provider serves it: COPILOT_PROVIDER_BASE_URL is not set, `
