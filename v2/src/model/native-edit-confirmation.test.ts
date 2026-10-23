@@ -27,6 +27,30 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("confirms a mixed selection and document batch without expecting selection in XML", () => {
+    const labelAndStyleEdited = before
+      .replace('value="Old API"', 'value="Primary API"')
+      .replace('style="rounded=0;"', 'style="rounded=0;fillColor=#ff0000;"');
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: labelAndStyleEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
+      value: JSON.stringify([
+        { cellId: "api", path: "cell:select", value: "true" },
+        { cellId: "api", path: "label", value: "Primary API" },
+        { cellId: "api", path: "style:fillColor", value: "#ff0000" }
+      ])
+    })).toBe(true);
+  });
+
+  it("confirms a selection-only batch only when serialized document content is unchanged", () => {
+    const selection = JSON.stringify([{ cellId: "api", path: "cell:select", value: "true" }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: before, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: selection
+    })).toBe(true);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: unrelatedEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: selection
+    })).toBe(false);
+  });
+
   it("confirms every operation in a Copilot batch rather than just any document change", () => {
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: styleAndGeometryEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
