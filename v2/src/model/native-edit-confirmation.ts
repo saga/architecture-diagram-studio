@@ -79,7 +79,7 @@ function cellsForXml(xml: string): ModelRecords[] {
 
 function findCell(models: ModelRecords[], cellId: string, pageId?: string | null): CellRecord | null {
   for (const model of models) {
-    if (pageId && model.pageId !== pageId) continue;
+    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
     const cell = model.cells.find((item) => item.id === cellId);
     if (cell) return cell;
   }
