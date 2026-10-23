@@ -113,6 +113,8 @@ test("Copilot uses the same server intent contract while standalone edits stay o
     return name + " | lastAction=" + status + " | openDiagnostics=" + JSON.stringify(diagnostics);
   }, { timeout: 15_000 }).toBe("standalone.drawio");
   await waitForNativeEditor(page);
+  await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
+  await expect(nativeFrame(page).getByText("Workspace Data Store", { exact: true })).toHaveCount(0);
 
   let workspaceDocumentWrites = 0;
   await page.route("**/api/workspace/document", async (route) => {

@@ -569,6 +569,8 @@ export default function App() {
           return;
         }
       }
+      // Prevent the workspace bootstrap fallback from replacing this standalone XML with the workspace primary diagram.
+      if (projectWorkspace?.id) workspaceInitialLoadRef.current = projectWorkspace.id;
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle);
       setStandaloneFileName(file.name);
@@ -909,7 +911,7 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><strong>{projectWorkspace?.primaryDiagram || standaloneFileName || "Draw.io diagram"}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
+        <div className="document-breadcrumb"><strong>{standaloneFileName || projectWorkspace?.primaryDiagram || "Draw.io diagram"}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
           {([["diagram", "Diagram"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
