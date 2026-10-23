@@ -1,7 +1,7 @@
 # V2 原生脚本能力审查（`a44206c`）
 
-审查基线：`a44206c Add general native Draw.io script execution for Copilot`（2026-10-23 11:36）。
-实跑：`tsc --noEmit` 通过；`vitest` 153 个用例全绿（15 个文件）。
+审查基线：`a44206c Add general native Draw.io script execution for Copilot`（2026-10-23 11:36）为脚本能力；审查期间 `f598c4c Treat missing Copilot SDK sessions as recoverable resume misses`（11:41）合入，行号以 `f598c4c` 为准，该提交单独见 P2-6。
+实跑：`tsc --noEmit` 通过；`vitest` 155 个用例全绿（16 个文件）。
 
 ## 结论
 
@@ -14,7 +14,7 @@
 | 审阅边界 | 单 op 不触发 `proposal_required`；卡片只显示模型自述的 summary | 最危险的操作反而免审，且"审"的是散文不是代码 |
 | 回滚边界 | 只快照 active-page 的 mxCell；页结构/异步续体/整文档替换都在外面 | 仍对外报 `batchRolledBack: true` |
 
-清单：**P0 ×2、P1 ×5、P2 ×5**。其中 P0-1 是有意识的取舍（"local single-user workbench"），本文不主张撤掉能力，而是指出**取舍之后爆炸半径没有被界定**，并给出分层的收口方案。
+清单：**P0 ×2、P1 ×5、P2 ×6**。其中 P0-1 是有意识的取舍（"local single-user workbench"），本文不主张撤掉能力，而是指出**取舍之后爆炸半径没有被界定**，并给出分层的收口方案。
 
 ---
 
@@ -212,6 +212,18 @@ DrawioFrame.tsx:363-393 → App.tsx:1039-1092 → /api/copilot/intent/ack
 
 ---
 
+## P2-6 · `does not exist` 判据过宽，会把配置错误当成"会话历史缺失"
+
+**位置**：`server/copilot/session-resume-errors.ts:7`（`f598c4c` 新增）、调用点 `runtime.ts:677-693`。
+
+判据是 `/session not found|no such session|unknown session|does not exist|has been deleted/i`——前三条都带 session，最后 `does not exist` 是裸的。`resumeSession` 抛出的 "model ... does not exist"、"provider ... does not exist" 一类配置错误会命中，随后代码走 `session.created` 静默新建会话：真实的配置错误被降级成 `session.resume.missing`，同时用户丢失对话连续性。注释里"Auth, quota, transport 必须保持可见"的意图，被这个正则漏掉了。
+
+（这个正则本次只是从 `runtime.ts` 抽到独立函数，行为未变；抽出来之后更容易被后续复用，所以值得现在收紧。）
+
+**修法**：让 `does not exist` 必须与 `session` 同句出现，例如 `/session[^.]*does not exist/i`；并把这个分支的 `recovery: "createSession"` 打进 UI 可见的警告，而不是只写日志。
+
+---
+
 ## 仍然成立（上一份报告，未修）
 
 以下是 `V2-CODE-REVIEW-2026-10-23.md` 里已列、本次未改动的项，仅作提醒，不重复展开：
@@ -232,7 +244,7 @@ DrawioFrame.tsx:363-393 → App.tsx:1039-1092 → /api/copilot/intent/ack
 3. **确认语义收紧**：`missing-page` 判失败；强制"页集合不变 + 非目标页不变"；`batchRolledBack` 三态化，脚本不再声称已回滚。（P1-3、P1-4、P2-1）
 4. **时间边界**：先给"强制重载编辑器"的逃生路径，再把 Draw.io 移出主事件循环。（P0-2）
 5. **执行边界**：`/api/*` 加内存态 token（不落 `window`/`localStorage`），把脚本的破坏面压回"当前页的图"；中期换跨源 sandbox iframe。（P0-1）
-6. 性能与护栏：签名复用一次 parse、插件哈希纳入 bundle 校验、加 kill switch。（P2-2、P2-5、P2-4）
+6. 性能与护栏：签名复用一次 parse、插件哈希纳入 bundle 校验、加 kill switch；`session-resume-errors` 的判据收紧到"session 不存在"。（P2-2、P2-5、P2-4、P2-6）
 
 ---
 
