@@ -64,9 +64,24 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
         op: { type: "string", enum: ["run_drawio_script"] },
         target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
         summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
-        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body for pinned Draw.io v32.0.2. getDefaultParent/refresh/setCellStyles/insertVertex/insertEdge/removeCells belong to graph; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. Use listed methods on their declared owner. For unlisted native APIs, first probe typeof owner.method === 'function' on the exact Graph/Model/View object and call only if it exists. Do not author XML, manage pages, use network/storage, or call save/exit actions. Only scripts that pass the server-side insert-only AST checker are automatically dispatched without a separate confirmation click. All other scripts and repaired scripts require review. Keep the script scoped to the user's requested edit; never author replacement XML or invoke save/exit actions." }
+        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body for pinned Draw.io v32.0.2. getDefaultParent/refresh/setCellStyles/insertVertex/insertEdge/removeCells belong to graph; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. Use listed methods on their declared owner. For unlisted native APIs, first probe typeof owner.method === 'function' on the exact Graph/Model/View object and call only if it exists. Do not author XML, manage pages, use network/storage, or call save/exit actions. Only scripts that pass the server-side insert-only AST checker are automatically dispatched without a separate confirmation click. All other scripts and repaired scripts require review. Keep the script scoped to the user's requested edit; never author replacement XML or invoke save/exit actions." },
+        postconditions: {
+          type: "array", minItems: 1, maxItems: 12,
+          description: "Mandatory declarative assertions for the intended final state. Every assertion is checked against the live native model before the bridge reports success (otherwise the batch is rolled back) and again against serialized XML before Studio acknowledges success. References are exact cell IDs or unique visible labels; prefer IDs for renamed cells.",
+          items: {
+            oneOf: [
+              { type: "object", properties: { kind: { type: "string", enum: ["cell_added"] }, label: { type: "string", minLength: 1, maxLength: 500 }, cellType: { type: "string", enum: ["vertex", "edge"] } }, required: ["kind", "label"], additionalProperties: false },
+              { type: "object", properties: { kind: { type: "string", enum: ["cell_absent"] }, target: { type: "string", minLength: 1, maxLength: 500 } }, required: ["kind", "target"], additionalProperties: false },
+              { type: "object", properties: { kind: { type: "string", enum: ["label_equals"] }, target: { type: "string", minLength: 1, maxLength: 500 }, value: { type: "string", minLength: 1, maxLength: 500 } }, required: ["kind", "target", "value"], additionalProperties: false },
+              { type: "object", properties: { kind: { type: "string", enum: ["style_equals"] }, target: { type: "string", minLength: 1, maxLength: 500 }, key: { type: "string", minLength: 1, maxLength: 100 }, value: { type: "string", maxLength: 1000 } }, required: ["kind", "target", "key", "value"], additionalProperties: false },
+              { type: "object", properties: { kind: { type: "string", enum: ["geometry_matches"] }, target: { type: "string", minLength: 1, maxLength: 500 }, x: { type: "number", minimum: -1000000, maximum: 1000000 }, y: { type: "number", minimum: -1000000, maximum: 1000000 }, width: { type: "number", minimum: 1, maximum: 1000000 }, height: { type: "number", minimum: 1, maximum: 1000000 } }, required: ["kind", "target"], additionalProperties: false },
+              { type: "object", properties: { kind: { type: "string", enum: ["edge_connects"] }, source: { type: "string", minLength: 1, maxLength: 500 }, target: { type: "string", minLength: 1, maxLength: 500 } }, required: ["kind", "source", "target"], additionalProperties: false },
+              { type: "object", properties: { kind: { type: "string", enum: ["parent_is"] }, target: { type: "string", minLength: 1, maxLength: 500 }, parent: { type: "string", minLength: 1, maxLength: 500 } }, required: ["kind", "target", "parent"], additionalProperties: false }
+            ]
+          }
+        }
       },
-      required: ["op", "target", "summary", "script"],
+      required: ["op", "target", "summary", "script", "postconditions"],
       additionalProperties: false
     },
     {
