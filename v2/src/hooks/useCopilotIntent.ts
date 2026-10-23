@@ -258,7 +258,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 standalone: standaloneMode,
                 diagramXml: sourceXml,
                 documentRevision
-              }, "This is the single allowed repair attempt for the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Correct only the reported TypeError/ReferenceError, use the exact runtime API ownership, do not widen the change, and return exactly one corrected run_drawio_script operation. Do not claim the edit has been applied. This repaired script must be shown as a proposal and must await user confirmation.", {
+              }, "This is the single allowed repair attempt for the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Correct only the reported TypeError/ReferenceError, use the exact runtime API ownership, do not widen the change, and return exactly one corrected run_drawio_script operation. Do not claim the edit has been applied. This repaired script follows the normal native-script policy and should be returned as command_ready for automatic dispatch. Do not claim success; the client applies it and checks the native editor/persistence acknowledgement.", {
                 kind: "drawio",
                 title: nativePage.title || "Draw.io diagram",
                 activePageId,
@@ -274,6 +274,58 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   error: boundedError
                 }
               });
+              if (repairPlan.outcome === "command_ready") {
+                const command = repairPlan.nativeEdits;
+                if (command.documentRevision !== documentRevision || command.pageId !== activePageId) {
+                  throw new Error("The repaired script targets a stale revision or a different Draw.io page.");
+                }
+                const repairCellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId);
+                if (!repairCellPlan.ok) throw new Error("The repaired script is invalid: " + repairCellPlan.error);
+                if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable for script repair.");
+                const repairedExecution = await applyNativeCellEdits(repairCellPlan.edits, command.pageId, {
+                  requestId: command.requestId,
+                  sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
+                  standalone: standaloneMode,
+                  documentRevision
+                });
+                if (repairedExecution.ok) {
+                  recordDiagnostic("copilot.native-script-repair.applied", "The single corrected native script was automatically dispatched and acknowledged", {
+                    sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
+                    requestId: command.requestId,
+                    operationCount: command.operations.length,
+                    scriptResult: repairedExecution.scriptResult ?? null,
+                    documentRevision,
+                    pageId: activePageId
+                  });
+                  setMessages((items) => [...items, {
+                    role: "assistant",
+                    id: Date.now() + 1,
+                    text: "自动修正已应用：" + command.operations.map(describeNativeEditOperation).join("；") + "。" +
+                      (repairedExecution.auditWarning ? " 警告：" + repairedExecution.auditWarning : "")
+                  }]);
+                } else {
+                  const repairReason = repairedExecution.error || "Draw.io rejected the repaired script.";
+                  recordDiagnostic("copilot.native-script-repair.apply-failed", "The automatically dispatched corrected script was not acknowledged as applied", {
+                    sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
+                    requestId: command.requestId,
+                    errorMessage: repairReason,
+                    failureStage: repairedExecution.failureStage ?? null,
+                    rolledBack: repairedExecution.rolledBack,
+                    scriptResult: repairedExecution.scriptResult ?? null
+                  }, "error");
+                  setMessages((items) => [...items, {
+                    role: "assistant",
+                    id: Date.now() + 1,
+                    text: repairedExecution.failureStage === "persistence"
+                      ? "自动修正已在编辑器执行，但保存未获确认：" + repairReason + "。请从 History 检查或恢复版本。"
+                      : "自动修正未成功：" + repairReason + (repairedExecution.rolledBack
+                        ? "（编辑器已确认回滚）"
+                        : "（回滚状态未知，请从 History 检查或恢复版本）")
+                  }]);
+                }
+                return;
+              }
+
               const repairedScript = repairPlan.outcome === "proposal_required"
                 ? repairPlan.proposal.operations.find((operation) => operation.op === "run_drawio_script")
                 : undefined;
