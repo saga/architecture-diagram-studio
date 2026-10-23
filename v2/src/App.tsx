@@ -96,6 +96,7 @@ export default function App() {
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
+  const [nativeScriptSupported, setNativeScriptSupported] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [copilotSessionId, setCopilotSessionId] = useState(() => {
     try {
@@ -1129,12 +1130,13 @@ export default function App() {
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
-            onEditorStatusChange={setNativeEditorReady}
+            onEditorStatusChange={setNativeEditorReady} onScriptCapabilityStatusChange={setNativeScriptSupported}
             onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
           <span className="status-native" title={nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake"}>{nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"}</span>
+          <span className={nativeScriptSupported ? "status-native" : "status-native status-warn"} title={nativeScriptSupported ? "Pinned Draw.io script API manifest verified" : "Script operations disabled until the pinned Draw.io API manifest matches"}>{nativeScriptSupported ? "Native script ready" : "Native script disabled"}</span>
         </div></div>
       </main>
       <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
