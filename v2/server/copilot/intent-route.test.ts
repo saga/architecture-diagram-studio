@@ -273,6 +273,8 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("selectedCell.cellId");
     expect(prompt).toContain("return needs_clarification");
     expect(prompt).toContain("Alignment, distribution, grouping");
+    expect(prompt).toContain("run_drawio_script");
+    expect(prompt).toContain("actual Draw.io iframe");
   });
 
   it("returns stale_context when the source hash does not match the XML", async () => {
