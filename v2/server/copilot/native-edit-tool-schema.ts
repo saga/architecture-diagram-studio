@@ -63,10 +63,57 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       properties: {
         op: { type: "string", enum: ["run_drawio_script"] },
         target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
-        summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
-        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body for pinned Draw.io v32.0.2. getDefaultParent/refresh/setCellStyles/insertVertex/insertEdge/removeCells belong to graph; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. Use listed methods on their declared owner. For unlisted native APIs, first probe typeof owner.method === 'function' on the exact Graph/Model/View object and call only if it exists. Do not author XML, manage pages, use network/storage, or call save/exit actions. Only scripts that pass the server-side insert-only AST checker are automatically dispatched without a separate confirmation click. All other scripts and repaired scripts require review. Keep the script scoped to the user's requested edit; never author replacement XML or invoke save/exit actions." }
+        summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise description of the intended diagram change. This is not proof of success; success is determined from the declared postconditions." },
+        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body for pinned Draw.io v32.0.2. getDefaultParent/refresh/setCellStyles/insertVertex/insertEdge/removeCells belong to graph; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. Use APIs only on their declared owner. Do not author XML, manage pages, use network/storage, or call save/exit actions. Never infer success from a script return value or any XML change alone." },
+        postconditions: {
+          type: "array", minItems: 1, maxItems: 100,
+          description: "Required, machine-checkable terminal-state assertions. Every condition uses an exact native mxCell ID and must describe what the final diagram must contain, not what the script intends to do. Include all directly edited cells; new cells must be inserted with an explicit ID matching cellId. The live Draw.io model and the final serialized XML are checked independently. All conditions must match, at least one condition must become newly true, and unrelated pages/metadata must remain unchanged. If the outcome cannot be expressed here, do not use a script.",
+          items: {
+            type: "object",
+            properties: {
+              cellId: { type: "string", minLength: 1, maxLength: 200 },
+              exists: { type: "boolean", description: "Required. Use false to assert that the exact cell ID no longer exists; when false, no other fields are allowed." },
+              kind: { type: "string", enum: ["vertex", "edge"] },
+              label: { type: "string", maxLength: 500 },
+              parentId: { type: "string", maxLength: 200 },
+              sourceId: { type: "string", maxLength: 200 },
+              targetId: { type: "string", maxLength: 200 },
+              style: {
+                type: "object", minProperties: 1, maxProperties: 20,
+                propertyNames: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,79}$" },
+                additionalProperties: { type: "string", maxLength: 300 },
+                description: "Assert exact Draw.io style key values. An empty string asserts that the key is absent."
+              },
+              geometry: {
+                type: "object",
+                properties: {
+                  x: { type: "number", minimum: -1000000, maximum: 1000000 },
+                  y: { type: "number", minimum: -1000000, maximum: 1000000 },
+                  width: { type: "number", minimum: -1000000, maximum: 1000000 },
+                  height: { type: "number", minimum: -1000000, maximum: 1000000 },
+                  relative: { type: "boolean" },
+                  points: {
+                    type: "array", maxItems: 100,
+                    items: {
+                      type: "object",
+                      properties: {
+                        x: { type: "number", minimum: -1000000, maximum: 1000000 },
+                        y: { type: "number", minimum: -1000000, maximum: 1000000 }
+                      },
+                      required: ["x", "y"], additionalProperties: false
+                    }
+                  }
+                },
+                additionalProperties: false,
+                minProperties: 1
+              }
+            },
+            required: ["cellId", "exists"],
+            additionalProperties: false
+          }
+        }
       },
-      required: ["op", "target", "summary", "script"],
+      required: ["op", "target", "summary", "script", "postconditions"],
       additionalProperties: false
     },
     {
