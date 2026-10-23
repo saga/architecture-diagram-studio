@@ -136,7 +136,7 @@ describe("native edit XML confirmation", () => {
     const renamed = before.replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: JSON.stringify({ script: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
+      value: JSON.stringify({ script: 'model.setValue(model.getCell("api"), "New API");', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -147,11 +147,11 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a script only when its declared postconditions are serialized", () => {
+  it("rejects whitespace-only serialization without the claimed label change", () => {
     const renamed = before.replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: JSON.stringify({ script: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
+      value: JSON.stringify({ script: 'model.setValue(model.getCell("api"), "New API");', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -173,7 +173,7 @@ describe("native edit XML confirmation", () => {
       .replace('value="Before"', 'value="After"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: JSON.stringify({ script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
+      value: JSON.stringify({ script: 'model.setValue(model.getCell("api"), "New API");', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: multiPageBefore, xml: activeAndOtherChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -187,7 +187,7 @@ describe("native edit XML confirmation", () => {
       .replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: JSON.stringify({ script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
+      value: JSON.stringify({ script: 'model.setValue(model.getCell("api"), "New API");', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: withMetadata, xml: changedMetadataAndCell, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -205,7 +205,7 @@ describe("native edit XML confirmation", () => {
       .replace('customPageFlag="before"', 'customPageFlag="after"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: JSON.stringify({ script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
+      value: JSON.stringify({ script: 'model.setValue(model.getCell("api"), "New API");', postconditions: [{ kind: "label_equals", target: "api", value: "New API" }] })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: multiPageBefore, xml: activeCellAndOtherMetadataChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
