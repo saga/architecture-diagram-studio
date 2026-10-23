@@ -320,7 +320,20 @@
       }
       if (plan.engine !== "elk" && plan.engine !== "dagre") fail("Unsupported Studio layout engine.", true);
       if (!["layered", "mrtree", "radial", "stress", "force"].includes(plan.algorithm) ||
-          !["RIGHT", "LEFT", "DOWN", "UP"].includes(plan.direction)) fail("Unsupported Studio layout algorithm or direction.", true);
+          !["RIGHT", "LEFT", "DOWN", "UP"].includes(plan.direction) ||
+          (plan.engine === "dagre" && plan.algorithm !== "layered")) {
+        fail("Unsupported Studio layout algorithm or direction.", true);
+      }
+      function boundedPlanNumber(value, min, max) {
+        return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+      }
+      if (!boundedPlanNumber(plan.nodeSpacing, 5, 500) || !boundedPlanNumber(plan.layerSpacing, 10, 800) ||
+          !boundedPlanNumber(plan.iterations, 20, 3000) || !boundedPlanNumber(plan.randomSeed, 0, 100000) ||
+          !Number.isInteger(plan.iterations) || !Number.isInteger(plan.randomSeed) ||
+          !boundedPlanNumber(plan.margin, 0, 300) ||
+          ["ORTHOGONAL", "POLYLINE", "SPLINES"].indexOf(plan.edgeRouting) < 0) {
+        fail("The Studio layout plan contains invalid or out-of-range configuration values.", true);
+      }
       if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) {
         fail("The Studio layout plan is not bound to a valid native XML revision.", true);
       }
@@ -404,6 +417,13 @@
         })) fail("The layout plan contains invalid connector waypoints.", true);
         routesById[route.cellId] = route.points;
       });
+      var expectedEdgeIds = plan.expectedCells.filter(function (item) { return item.kind === "edge"; })
+        .map(function (item) { return item.cellId; }).sort();
+      var plannedEdgeIds = Object.keys(routesById).sort();
+      if (expectedEdgeIds.length !== plannedEdgeIds.length ||
+          expectedEdgeIds.some(function (id, index) { return id !== plannedEdgeIds[index]; })) {
+        fail("The layout plan does not contain a route result for every targeted connector.", true);
+      }
 
       var snapshots = plan.expectedCells.map(function (expected) {
         var cell = liveById[expected.cellId];
