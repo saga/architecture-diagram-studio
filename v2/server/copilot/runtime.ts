@@ -121,6 +121,8 @@ export interface CopilotRuntimeOptions {
   provider?: CopilotProvider;
 }
 
+const STREAM_PROGRESS_LOG_INTERVAL_MS = 30_000;
+
 const EFFORT_ORDER = ["max", "xhigh", "high", "medium", "low"] as const;
 type Effort = (typeof EFFORT_ORDER)[number];
 type SendBody = Parameters<CopilotSession["sendAndWait"]>[0];
@@ -562,7 +564,7 @@ export class CopilotRuntime {
           idleTimeoutMs,
           ...progress.snapshot(Date.now(), true)
         });
-      }, 5_000);
+      }, STREAM_PROGRESS_LOG_INTERVAL_MS);
 
       // The total deadline is an absolute cap; the idle deadline is refreshed only by meaningful stream/tool progress.
       const pending = session.session.sendAndWait(body as SendBody, timeoutMs > 0 ? timeoutMs + 1_000 : timeoutMs);
