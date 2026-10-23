@@ -254,6 +254,97 @@ function mapDirection(direction: NativeAutoLayoutDirection): "RIGHT" | "LEFT" | 
   return direction;
 }
 
+// Layered and Mr.Tree honor "elk.direction" natively. The compiled elkjs STRESS/FORCE
+// engines ignore it entirely (verified against the bundled ELK), and Radial is root-centric
+// with no meaningful edge direction, so Stress and Force get a deterministic post-layout
+// orientation emulation: align the dominant spread axis with the requested flow axis and
+// mirror the result until the aggregated edge flow matches the selected direction.
+const ELK_DIRECTION_AWARE_ALGORITHMS: ReadonlySet<NativeAutoLayoutAlgorithm> = new Set(["layered", "mrtree", "radial"]);
+
+const ANISOTROPY_ROTATION_THRESHOLD = 2.5;
+
+/** Deterministically orient an organic embedding toward the requested flow direction:
+ * rotate the principal spread axis onto the flow axis when the embedding is clearly
+ * anisotropic (e.g. a chain that STRESS lays out as a diagonal), then mirror until the
+ * aggregated edge flow matches the direction. A pure coordinate transform on the plan:
+ * node positions and connector bend points are transformed together; no model is rebuilt. */
+export function emulateEmbeddedFlowDirection(
+  positions: Map<string, Point>,
+  routes: Map<string, Point[]>,
+  vertices: ProjectedCell[],
+  edges: ProjectedCell[],
+  direction: NativeAutoLayoutDirection
+): void {
+  if (vertices.length === 0) return;
+  const sizes = new Map<string, { width: number; height: number }>();
+  const centers = new Map<string, Point>();
+  for (const vertex of vertices) {
+    const point = positions.get(vertex.id);
+    if (!point) return; // The engine skipped a vertex; leave the raw embedding untouched.
+    sizes.set(vertex.id, { width: vertex.width, height: vertex.height });
+    centers.set(vertex.id, { x: point.x + vertex.width / 2, y: point.y + vertex.height / 2 });
+  }
+
+  const centerValues = Array.from(centers.values());
+  const centroidX = centerValues.reduce((sum, point) => sum + point.x, 0) / centerValues.length;
+  const centroidY = centerValues.reduce((sum, point) => sum + point.y, 0) / centerValues.length;
+  const relOf = (point: Point): Point => ({ x: point.x - centroidX, y: point.y - centroidY });
+
+  // Covariance of the node centers around their centroid: 0.5*atan2(2Cxy, Cxx-Cyy) is the
+  // angle of the dominant eigenvector of this 2x2 symmetric matrix (the principal axis).
+  const cXX = centerValues.reduce((sum, point) => sum + relOf(point).x ** 2, 0);
+  const cYY = centerValues.reduce((sum, point) => sum + relOf(point).y ** 2, 0);
+  const cXY = centerValues.reduce((sum, point) => sum + relOf(point).x * relOf(point).y, 0);
+  const eigenRadius = Math.hypot((cXX - cYY) / 2, cXY);
+  const lambda1 = (cXX + cYY) / 2 + eigenRadius;
+  const lambda2 = (cXX + cYY) / 2 - eigenRadius;
+  const horizontalFlow = direction === "RIGHT" || direction === "LEFT";
+  const anisotropic = lambda1 > 0 && (lambda2 <= 0 || lambda1 / lambda2 >= ANISOTROPY_ROTATION_THRESHOLD);
+  // Organic shapes without a dominant axis are only mirrored, never arbitrarily rotated.
+  const rotation = anisotropic
+    ? horizontalFlow
+      ? -0.5 * Math.atan2(2 * cXY, cXX - cYY)
+      : Math.PI / 2 - 0.5 * Math.atan2(2 * cXY, cXX - cYY)
+    : 0;
+  const rotateOnly = (point: Point): Point => ({
+    x: point.x * Math.cos(rotation) - point.y * Math.sin(rotation),
+    y: point.x * Math.sin(rotation) + point.y * Math.cos(rotation)
+  });
+
+  // The aggregated edge flow, measured in the rotated space, decides the mirroring signs.
+  let flowX = 0;
+  let flowY = 0;
+  for (const edge of edges) {
+    const source = edge.sourceId ? centers.get(edge.sourceId) : undefined;
+    const target = edge.targetId ? centers.get(edge.targetId) : undefined;
+    if (!source || !target) continue;
+    const rotatedSource = rotateOnly(relOf(source));
+    const rotatedTarget = rotateOnly(relOf(target));
+    flowX += rotatedTarget.x - rotatedSource.x;
+    flowY += rotatedTarget.y - rotatedSource.y;
+  }
+  const mirrorX = (direction === "RIGHT" && flowX < 0) || (direction === "LEFT" && flowX > 0);
+  const mirrorY = (direction === "DOWN" && flowY < 0) || (direction === "UP" && flowY > 0);
+  const signX = mirrorX ? -1 : 1;
+  const signY = mirrorY ? -1 : 1;
+  if (rotation === 0 && !mirrorX && !mirrorY) return;
+
+  for (const [vertexId, center] of centers) {
+    const transformed = rotateOnly(relOf(center));
+    const size = sizes.get(vertexId)!;
+    positions.set(vertexId, {
+      x: centroidX + transformed.x * signX - size.width / 2,
+      y: centroidY + transformed.y * signY - size.height / 2
+    });
+  }
+  for (const [edgeId, points] of routes) {
+    routes.set(edgeId, points.map((point) => {
+      const transformed = rotateOnly(relOf(point));
+      return { x: centroidX + transformed.x * signX, y: centroidY + transformed.y * signY };
+    }));
+  }
+}
+
 function normalizePlan(
   projection: NativePageProjection,
   options: NativeAutoLayoutOptions,
@@ -368,19 +459,29 @@ export async function calculateNativeAutoLayout(
       routes.set(edge.id, (result?.points ?? []).slice(1, -1));
     }
   } else {
+    const layoutOptions: Record<string, string> = {
+      "elk.algorithm": options.algorithm,
+      "elk.direction": options.direction,
+      "elk.spacing.nodeNode": String(options.nodeSpacing),
+      "elk.layered.spacing.nodeNodeBetweenLayers": String(options.layerSpacing),
+      "elk.edgeRouting": options.edgeRouting,
+      "elk.separateConnectedComponents": "true",
+      "elk.randomSeed": String(options.randomSeed),
+      "elk.stress.iterationLimit": String(options.iterations),
+      "elk.force.iterations": String(options.iterations)
+    };
+    if (options.algorithm === "stress") {
+      // STRESS overrides most spacing controls; its desired edge length becomes the pitch,
+      // so derive it from the requested spacing plus the largest node to guarantee clearance.
+      const maxVertexWidth = Math.max(...projection.vertices.map((vertex) => vertex.width));
+      const maxVertexHeight = Math.max(...projection.vertices.map((vertex) => vertex.height));
+      layoutOptions["elk.stress.desiredEdgeLength"] = String(
+        Math.max(options.nodeSpacing, options.layerSpacing) + (maxVertexWidth + maxVertexHeight) / 2
+      );
+    }
     const graphInput = {
       id: "studio-native-layout",
-      layoutOptions: {
-        "elk.algorithm": options.algorithm,
-        "elk.direction": options.direction,
-        "elk.spacing.nodeNode": String(options.nodeSpacing),
-        "elk.layered.spacing.nodeNodeBetweenLayers": String(options.layerSpacing),
-        "elk.edgeRouting": options.edgeRouting,
-        "elk.separateConnectedComponents": "true",
-        "elk.randomSeed": String(options.randomSeed),
-        "elk.stress.iterationLimit": String(options.iterations),
-        "elk.force.iterations": String(options.iterations)
-      },
+      layoutOptions,
       children: projection.vertices.map((node) => ({ id: node.id, width: node.width, height: node.height })),
       edges: projection.edges
         .filter((edge) => edge.sourceId && edge.targetId)
@@ -394,6 +495,9 @@ export async function calculateNativeAutoLayout(
     for (const edge of result.edges ?? []) {
       const points = (edge.sections ?? []).flatMap((section) => section.bendPoints ?? []);
       if (projection.edges.some((candidate) => candidate.id === edge.id)) routes.set(edge.id, points);
+    }
+    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm)) {
+      emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
     }
   }
 
