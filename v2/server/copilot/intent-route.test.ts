@@ -425,7 +425,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.acknowledgements.pending.size).toBe(1);
   });
 
-  it("requires an explicit confirmation proposal for scripts outside the creation-only safe subset", async () => {
+  it("auto-dispatches any native script without a separate confirmation click", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot() });
     const requestContext = {
       kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
@@ -433,9 +433,10 @@ describe("Copilot intent route result and revision contract", () => {
     };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    expect((body.proposal as { operations: Array<{ op: string }> }).operations).toMatchObject([{ op: "run_drawio_script" }]);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<{ op: string }> }).operations)
+      .toMatchObject([{ op: "run_drawio_script", script: "return { checked: true };" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
   });
 
   it("requires review before even a single typed deletion", async () => {
