@@ -285,8 +285,8 @@ function normalizePlan(
   });
   const nativeRoutes: NativeLayoutEdgeRoute[] = [];
   for (const edge of projection.edges) {
-    const points = routes.get(edge.id);
-    if (!points) continue;
+    // An empty route explicitly clears stale waypoints left by a prior manual/automatic layout.
+    const points = routes.get(edge.id) ?? [];
     const translated = points.map((point) => ({ x: point.x + dx, y: point.y + dy }));
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid connector route.");
