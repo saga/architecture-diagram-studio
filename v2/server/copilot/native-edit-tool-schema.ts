@@ -47,6 +47,20 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
     {
       type: "object",
       properties: {
+        op: { type: "string", enum: ["set_c4_type"] },
+        target: { ...target, description: "Exact ID or unique label of an existing vertex. Edges, groups, and layer/root cells are not valid C4 targets." },
+        kind: {
+          type: "string",
+          enum: ["person", "system", "external"],
+          description: "Apply the pinned Draw.io C4 palette style and placeholder-backed C4 label. person uses mxgraph.c4.person2; system/external use the official C4 rounded-card styles, not a custom shape. Never substitute umlActor or swimlane."
+        }
+      },
+      required: ["op", "target", "kind"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
         op: { type: "string", enum: ["run_drawio_script"] },
         target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
         summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
