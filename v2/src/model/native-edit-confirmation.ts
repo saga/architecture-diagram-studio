@@ -164,7 +164,7 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" || !labelMatches(candidate, payload.label.trim())) continue;
       const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
-        oldCell.id === candidate.id && labelMatches(oldCell, payload.label!.toString())
+        oldCell.id === candidate.id && labelMatches(oldCell, expectedLabel)
       ));
       if (existedBefore) continue;
       const connected = model.cells.some((edge) => edge.cell.getAttribute("edge") === "1" &&
