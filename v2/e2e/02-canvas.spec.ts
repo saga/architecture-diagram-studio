@@ -14,7 +14,7 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 /** Reads geometry from native mxCells, handling both compressed and uncompressed Draw.io pages. */
-function cellX(xml: string, fragment: string): number | null {
+function cellPosition(xml: string, fragment: string): { x: number; y: number } | null {
   try {
     const source = parseDrawioXml(xml);
     const documentRoot = source.documentElement;
@@ -47,13 +47,18 @@ function cellX(xml: string, fragment: string): number | null {
         const geometry = cell.getElementsByTagName("mxGeometry").item(0);
         if (!geometry) continue;
         const x = Number(geometry.getAttribute("x"));
-        if (Number.isFinite(x)) return x;
+        const y = Number(geometry.getAttribute("y"));
+        if (Number.isFinite(x) && Number.isFinite(y)) return { x, y };
       }
     }
     return null;
   } catch {
     return null;
   }
+}
+
+function cellX(xml: string, fragment: string): number | null {
+  return cellPosition(xml, fragment)?.x ?? null;
 }
 
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
@@ -100,6 +105,33 @@ test.describe("原生画布", () => {
     await expect(page.locator(".drawio-error-banner")).toHaveCount(0);
     // The autosave contract lives in the status tooltip so the bar stays one short line.
     await expect(page.locator(".status-native")).toHaveAttribute("title", /edits autosave back into Studio/);
+  });
+
+  test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
+    const ids = ["client", "api", "worker", "queue", "database"];
+    const beforeXml = await readWorkspaceXml(workspace);
+    const beforePositions = ids.map((id) => cellPosition(beforeXml, id));
+    expect(beforePositions.every((position) => position !== null)).toBe(true);
+
+    const autoLayoutButton = page.getByRole("button", { name: "Auto layout", exact: true });
+    await expect(autoLayoutButton).toBeEnabled();
+    await autoLayoutButton.click();
+
+    // The click is only successful when Draw.io returns the post-layout XML and workspace
+    // persistence writes geometry changes; a present-but-inert toolbar button must fail here.
+    await expect.poll(async () => {
+      const afterXml = await readWorkspaceXml(workspace);
+      const afterPositions = ids.map((id) => cellPosition(afterXml, id));
+      return afterPositions.every((position) => position !== null) &&
+        afterPositions.some((position, index) =>
+          position !== null && beforePositions[index] !== null &&
+          (position.x !== beforePositions[index]!.x || position.y !== beforePositions[index]!.y));
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+
+    const frame = nativeFrame(page);
+    for (const label of ["Client", "API Service", "Background Worker", "Message Queue", "Database"]) {
+      await expect(frame.getByText(label, { exact: true })).toBeVisible();
+    }
   });
 
   test("拖动节点会把新的几何信息写回工作区文件", async ({ page }) => {

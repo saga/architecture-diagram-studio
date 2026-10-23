@@ -97,6 +97,7 @@ export default function App() {
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
   const [nativeScriptSupported, setNativeScriptSupported] = useState(false);
+  const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [copilotSessionId, setCopilotSessionId] = useState(() => {
     try {
@@ -843,6 +844,35 @@ export default function App() {
     recordDiagnostic("navigation.opened", "Opened a workspace page", { page });
   }
 
+  async function runAutoLayout() {
+    if (autoLayoutRunning) return;
+    const frame = drawioFrameRef.current;
+    if (!frame) {
+      setLastAction("Auto layout failed: the native Draw.io editor is unavailable");
+      return;
+    }
+    setAutoLayoutRunning(true);
+    setLastAction("Applying native Draw.io auto layout…");
+    recordDiagnostic("drawio.layout.ui.requested", "The user requested auto layout from the Studio toolbar", {
+      pageId: selectedNativePageId, documentRevision: calculateDrawioXmlRevision(drawioXml), drawioVersion: DRAWIO_VERSION
+    });
+    try {
+      const serializedXml = await frame.applyAutoLayout();
+      if (!isDrawioXmlDocument(serializedXml)) throw new Error("Draw.io did not return a valid serialized XML document.");
+      setLastAction("Auto layout applied; syncing native Draw.io XML");
+      recordDiagnostic("drawio.layout.ui.completed", "Native auto layout returned valid Draw.io XML", {
+        xmlLength: serializedXml.length, pageId: selectedNativePageId
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setLastAction("Auto layout failed: " + errorMessage);
+      recordDiagnostic("drawio.layout.ui.failed", "Auto layout failed or could not be confirmed", {
+        pageId: selectedNativePageId, errorMessage
+      }, "error");
+    } finally {
+      setAutoLayoutRunning(false);
+    }
+  }
 
   return (
     <ConfigProvider
@@ -1027,6 +1057,18 @@ export default function App() {
       <main className="main-panel">
         <div className="canvas-toolbar">
           <div className="canvas-title">Draw.io diagram</div>
+          <div className="canvas-toolbar-actions">
+            <Button
+              className="auto-layout-button"
+              type="primary"
+              loading={autoLayoutRunning}
+              disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+              title="Automatically rearrange the current page with Draw.io's native ELK horizontal-flow layout"
+              onClick={() => void runAutoLayout()}
+            >
+              Auto layout
+            </Button>
+          </div>
         </div>
 
         <div className="canvas-stage">
