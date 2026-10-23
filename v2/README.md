@@ -23,7 +23,7 @@ Automatic layout is calculated in Studio using `@dagrejs/dagre` and `elkjs`; V2 
 
 The toolbar exposes Dagre and ELK. Dagre supports directed layered placement in four directions; ELK supports Layered, Mr. Tree, Radial, Stress and Force, plus applicable direction, node/layer spacing, connector routing, iterations, seed and margin settings. Settings persist in this browser. The first implementation lays out top-level vertices and connectors in the default layer; other pages, layers and nested group contents remain unchanged.
 
-Copilot uses the same typed `auto_layout` operation and Studio planner as the toolbar. Whole-page layouts always require explicit confirmation and cannot be combined with unrelated edits in one batch. The bridge rejects stale cell sets or geometry and attempts to restore prior geometry if mutation fails. See [ADR-0013](../docs/adr/0013-studio-owned-layout-engines.md).
+The embedded Draw.io shape library panel is enabled by default, and its initial library list includes C4 alongside General, UML, ER, BPMN, Flowchart, Basic and Arrows. Users do not need to enable C4 manually from More Shapes. Copilot uses the same typed `auto_layout` operation and Studio planner as the toolbar. Whole-page layouts always require explicit confirmation and cannot be combined with unrelated edits in one batch. The bridge rejects stale cell sets or geometry and attempts to restore prior geometry if mutation fails. See [ADR-0013](../docs/adr/0013-studio-owned-layout-engines.md).
 
 ## Extension points for future native capabilities
 
