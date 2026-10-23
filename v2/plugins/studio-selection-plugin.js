@@ -46,31 +46,16 @@
 
     function runtimeMethods(target, preferred) {
       if (!target) return [];
-      var available = Object.create(null);
-      var current = target;
-      var depth = 0;
-      while (current && depth < 5) {
+      // Probe only the curated contract names instead of enumerating every prototype/getter.
+      // This avoids invoking incidental accessors and keeps inspection bounded on large graphs.
+      var names = [];
+      (preferred || []).forEach(function (name) {
         try {
-          Object.getOwnPropertyNames(current).forEach(function (name) {
-            if (!available[name] && name !== "constructor") {
-              var descriptor = Object.getOwnPropertyDescriptor(current, name);
-              if (descriptor && typeof descriptor.value === "function") available[name] = true;
-              else if (descriptor && typeof descriptor.get === "function") {
-                try { if (typeof target[name] === "function") available[name] = true; } catch (_) {}
-              }
-            }
-          });
-          current = Object.getPrototypeOf(current);
-        } catch (_) {
-          break;
-        }
-        depth++;
-      }
-      // Never dump the full mxGraph API (over a thousand methods) into the model context.
-      // This versioned contract deliberately exposes only the methods used by reviewed recipes.
-      return (preferred || []).filter(function (name, index, items) {
-        return available[name] && items.indexOf(name) === index;
+          if (names.indexOf(name) < 0 && typeof target[name] === "function") names.push(name);
+        } catch (_) {}
       });
+      // Never dump the full mxGraph API (over a thousand methods) into the model context.
+      return names;
     }
 
     var requiredRuntimeCapabilities = {
@@ -163,7 +148,7 @@
       };
       var root = activeModel && typeof activeModel.getRoot === "function" ? activeModel.getRoot() : null;
       var allCells = [];
-      var seenObjects = [];
+      var seenObjects = new Set();
       var stack = root ? [root] : [];
       var scannedParents = 0;
       var scanLimit = 10000;
@@ -172,15 +157,15 @@
       var scanTruncated = false;
       while (stack.length && scannedParents < scanLimit) {
         var parent = stack.pop();
-        if (!parent || seenObjects.indexOf(parent) >= 0) continue;
-        seenObjects.push(parent);
+        if (!parent || seenObjects.has(parent)) continue;
+        seenObjects.add(parent);
         scannedParents++;
         var childCount = 0;
         try { childCount = typeof activeModel.getChildCount === "function" ? activeModel.getChildCount(parent) : 0; } catch (_) {}
         for (var childIndex = childCount - 1; childIndex >= 0; childIndex--) {
           var child = null;
           try { child = activeModel.getChildAt(parent, childIndex); } catch (_) {}
-          if (!child || seenObjects.indexOf(child) >= 0) continue;
+          if (!child || seenObjects.has(child)) continue;
           var childId = runtimeCellId(child);
           if (childId !== "0" && childId !== "1") {
             allCells.push(child);
