@@ -17,7 +17,7 @@ export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 
 /** The bridge batch caps at 50 steps; typed moves are a single live-geometry delta. */
 export const MAX_NATIVE_EDIT_OPERATIONS = 20;
-export const MAX_NATIVE_SCRIPT_POSTCONDITIONS = 40;
+export const MAX_NATIVE_SCRIPT_POSTCONDITIONS = 100;
 
 export interface NativeScriptPostcondition {
   /** Exact native mxCell ID. New cells must be created with this ID so the host can verify them. */
