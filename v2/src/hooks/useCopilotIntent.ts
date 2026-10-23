@@ -9,6 +9,7 @@ import {
   type NativeEditExecution
 } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
+import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type Workspace = { id: string } | null;
@@ -26,6 +27,8 @@ interface CopilotIntentOptions {
   selectedNativeCellId: string | null;
   selectedNativePageId: string | null;
   getCurrentDiagramState?: () => { drawioXml: string; selectedNativeCellId: string | null; selectedNativePageId: string | null };
+  /** Read-only iframe inspection, matched to the XML revision/page about to be sent to the Agent. */
+  getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
@@ -42,7 +45,7 @@ interface CopilotIntentOptions {
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, persistWorkspaceDocument,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument,
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
   } = options;
 
@@ -95,6 +98,18 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const nativePage = getNativeDiagramPageInfo(sourceXml, sourcePageId);
       const activePageId = nativePage.id || sourcePageId;
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
+      let runtimeInspection: DrawioRuntimeInspection | undefined;
+      if (getRuntimeInspection) {
+        runtimeInspection = await getRuntimeInspection({ documentRevision, pageId: activePageId });
+        if (runtimeInspection.documentRevision !== documentRevision || runtimeInspection.pageId !== activePageId) {
+          throw new Error("The live Draw.io inspection did not match the source XML revision and active page. No Agent request was sent.");
+        }
+        const afterInspection = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        if (afterInspection.drawioXml !== sourceXml || afterInspection.selectedNativePageId !== sourcePageId ||
+            afterInspection.selectedNativeCellId !== sourceSelectedCellId) {
+          throw new Error("The diagram, page, or selection changed during runtime inspection. No Agent request was sent; retry against the current state.");
+        }
+      }
       const plan = await requestAIIntentPlan(
         { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
           diagramXml: sourceXml, documentRevision },
@@ -107,7 +122,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             cellId: sourceSelectedCellId, pageId: activePageId,
             label: selectedTarget?.name || sourceSelectedCellId
           } : null,
-          cells: nativeTargets
+          cells: nativeTargets,
+          ...(runtimeInspection ? { runtimeInspection } : {})
         }
       );
 
