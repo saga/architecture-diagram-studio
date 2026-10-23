@@ -7,8 +7,8 @@ interface MockCell {
   vertex: boolean;
   edge: boolean;
   style: string | null;
-  value: string;
-  geometry: null;
+  value: any;
+  geometry: any;
   parent: MockCell | null;
   children: MockCell[];
   source: MockCell | null;
@@ -36,7 +36,27 @@ function makeCell(id: string, options: Partial<Pick<MockCell, "vertex" | "edge" 
   };
 }
 
-function createHarness() {
+function mockGeometry(x: number, y: number, width: number, height: number) {
+  return { x, y, width, height, clone() { return mockGeometry(this.x, this.y, this.width, this.height); } };
+}
+
+function mockElement() {
+  const attributes: Record<string, string> = {};
+  return {
+    nodeType: 1,
+    nodeName: "object",
+    setAttribute(name: string, value: string) { attributes[name] = String(value); },
+    getAttribute(name: string) { return Object.prototype.hasOwnProperty.call(attributes, name) ? attributes[name] : null; },
+    hasAttribute(name: string) { return Object.prototype.hasOwnProperty.call(attributes, name); },
+    cloneNode() {
+      const cloned = mockElement();
+      Object.entries(attributes).forEach(([name, value]) => cloned.setAttribute(name, value));
+      return cloned;
+    }
+  };
+}
+
+function createHarness(options: { personShapeAvailable?: boolean } = {}) {
   const root = makeCell("0");
   const layer = makeCell("1");
   const service = makeCell("service", { vertex: true, style: "rounded=1;fillColor=#ffffff;" });
@@ -75,8 +95,8 @@ function createHarness() {
     endUpdate: () => undefined,
     addListener: () => undefined,
     setStyle: (cell: MockCell, style: string | null) => { cell.style = style; },
-    setValue: (cell: MockCell, value: string) => { cell.value = value; },
-    setGeometry: (cell: MockCell, geometry: null) => { cell.geometry = geometry; },
+    setValue: (cell: MockCell, value: any) => { cell.value = value; },
+    setGeometry: (cell: MockCell, geometry: any) => { cell.geometry = geometry; },
     setTerminal: (cell: MockCell, terminal: MockCell | null, source: boolean) => {
       if (source) cell.source = terminal;
       else cell.target = terminal;
@@ -134,6 +154,8 @@ function createHarness() {
     }) },
     parent,
     location: { origin: "http://studio.test" },
+    mxUtils: { createXmlDocument: () => ({ createElement: () => mockElement() }) },
+    mxCellRenderer: { defaultShapes: options.personShapeAvailable === false ? {} : { "mxgraph.c4.person2": function () { return undefined; } } },
     addEventListener: (_name: string, callback: (event: Record<string, any>) => void) => { messageHandler = callback; },
     setTimeout: () => undefined
   };
@@ -207,6 +229,36 @@ const curveAllConnectorsScript = [
 ].join("\n");
 
 describe("native Draw.io script bridge", () => {
+  it("applies the pinned Draw.io C4 Person shape and metadata as a typed native operation", () => {
+    const harness = createHarness();
+    harness.service.value = "Payment API";
+    harness.service.geometry = mockGeometry(10, 20, 120, 60);
+    const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: "person" }));
+
+    expect(result).toMatchObject({ event: "studioPropertyEditResult", success: true });
+    expect(harness.service.style).toContain("shape=mxgraph.c4.person2");
+    expect(harness.service.style).toContain("fillColor=#083F75");
+    expect(harness.service.value.getAttribute("c4Name")).toBe("Payment API");
+    expect(harness.service.value.getAttribute("c4Type")).toBe("Person");
+    expect(harness.service.value.getAttribute("placeholders")).toBe("1");
+    expect(harness.service.value.getAttribute("label")).toContain("%c4Name%");
+    expect(harness.service.geometry).toMatchObject({ width: 200, height: 180 });
+  });
+
+  it("rejects C4 Person when the real shape registry is missing and never uses a fallback", () => {
+    const harness = createHarness({ personShapeAvailable: false });
+    harness.service.value = "Payment API";
+    harness.service.geometry = mockGeometry(10, 20, 120, 60);
+    const originalStyle = harness.service.style;
+    const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: "person" }));
+
+    expect(result).toMatchObject({ event: "studioPropertyEditResult", success: false, batchRolledBack: true });
+    expect(result.error).toContain("No UML actor or other approximate fallback");
+    expect(harness.service.style).toBe(originalStyle);
+    expect(harness.service.value).toBe("Payment API");
+    expect(harness.service.geometry).toMatchObject({ width: 120, height: 60 });
+  });
+
   it("executes whole-page curved-edge changes including connectors inside groups", () => {
     const harness = createHarness();
     const result = harness.runScript(curveAllConnectorsScript);
