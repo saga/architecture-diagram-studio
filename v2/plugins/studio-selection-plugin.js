@@ -950,12 +950,12 @@
             if (!source || !target) return false;
             var sourceId = runtimeCellId(source);
             var targetId = runtimeCellId(target);
-            var relationExisted = Object.keys(beforeStateById).some(function (id) {
-              var state = beforeStateById[id];
-              return state.edge && state.sourceId === sourceId && state.targetId === targetId;
-            });
-            return !relationExisted && liveCells.some(function (cell) {
-              return cell.edge === true && cell.source === source && cell.target === target;
+            return liveCells.some(function (cell) {
+              if (cell.edge !== true || cell.source !== source || cell.target !== target) return false;
+              var id = runtimeCellId(cell);
+              var previous = beforeStateById[id];
+              return !previous || !previous.edge ||
+                previous.sourceId !== sourceId || previous.targetId !== targetId;
             });
           }
           var targetCell = resolveLiveConditionTarget(condition.target, liveCells);
