@@ -36,15 +36,15 @@ describe("native edit XML confirmation", () => {
       external: 'rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];'
     } as const;
     const c4Xml = (kind: "person" | "system" | "external") => before.replace(oldNode,
-      '<object id="api" placeholders="1" c4Name="Old API" c4Type="' + (kind === "person" ? "Person" : "Software System") +
-      '" c4Description="" label="' + template + '"><mxCell vertex="1" parent="1" style="' + styles[kind] +
+      '<object placeholders="1" c4Name="Old API" c4Type="' + (kind === "person" ? "Person" : "Software System") +
+      '" c4Description="" label="' + template + '"><mxCell id="api" vertex="1" parent="1" style="' + styles[kind] +
       '"><mxGeometry x="10" y="20" width="' + (kind === "person" ? 200 : 240) + '" height="' +
       (kind === "person" ? 180 : 120) + '" as="geometry"/></mxCell></object>');
     for (const kind of ["person", "system", "external"] as const) {
       expect(nativeEditIsReflectedInXml({
         beforeXml: before, xml: c4Xml(kind), cellId: "api", pageId: "p1",
         path: "cell:set-c4-type", value: JSON.stringify({ kind })
-      })).toBe(true);
+      }), "Expected canonical serialized C4 kind: " + kind).toBe(true);
     }
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: c4Xml("person").replace("shape=mxgraph.c4.person2", "shape=umlActor"),
