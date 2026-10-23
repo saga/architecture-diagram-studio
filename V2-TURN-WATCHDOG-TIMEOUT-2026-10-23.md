@@ -86,6 +86,6 @@ grep 'turn.model-call.completed' ~/.architecture-diagram-studio/logs/copilot-ses
 - 总回合超时继续由 `STUDIO_COPILOT_TURN_TIMEOUT_MS` 控制，默认 300000 ms；第一次调用与补救调用共享同一个总预算。
 - 新增 `STUDIO_COPILOT_TURN_IDLE_TIMEOUT_MS`，默认 90000 ms。连续 reasoning、文本或工具参数 delta，以及明确的 turn/tool 阶段转换会刷新空闲计时；没有有意义的流式进展时，仍会提前失败。总时限永远是硬上限。
 - 每 5 秒写入 `turn.streaming.progress`，只存事件计数、字节计数、阶段、活动间隔和工具名，不复制 delta 内容。超时另写 `turn.streaming.timeout`，明确标识 `idle` 或 `overall`，并包含终止时快照。
-- 服务端终端现在会显示经过白名单筛选的 request、model-call start/end、progress 和 timeout 摘要；即使开启 `STUDIO_LOG_LEVEL=info`，原始 `sdk.event` 也不会逐条刷终端。原始 SDK 事件仍保留在 JSONL trace 中。
+- 服务端终端现在会显示经过白名单筛选的 request、model-call start/end、progress 和 timeout 摘要；即使开启 `STUDIO_LOG_LEVEL=info`，原始 `sdk.event` 也不会逐条刷终端。SDK 事件记录仍保留在 JSONL trace 中，但单条事件的 detail 有长度限制。
 
 仍应单独评估、不要与 timeout patch 混改的项目：长会话的 context compaction/rotation（需决定摘要注入与 history/replay 语义）、按任务调低 reasoning effort（需有配置与质量验证），以及 C4 领域配方/typed operation 扩展（属于编辑契约，不是 watchdog 修复）。
