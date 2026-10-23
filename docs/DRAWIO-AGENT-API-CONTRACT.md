@@ -4,7 +4,7 @@ Versioned contract for the bundled Draw.io **v32.0.2** runtime. This is a compac
 
 ## Contract and trust boundaries
 
-1. Prefer typed operations for supported edits. Use `run_drawio_script` only for edits that cannot be expressed as typed operations.
+1. Prefer typed operations for supported edits, including `add_node_after` and `add_node_below` for creating a connected vertex. Use `run_drawio_script` only for effects that the typed allowlist cannot express, such as an independent edge or edge reconnection.
 2. Every `run_drawio_script` request requires explicit user confirmation, even when the script is a single operation.
 3. The host validates that the runtime bundle is pinned and that the required capability manifest matches. A missing, stale, or mismatched manifest disables script operations. Typed operations can still be used where supported.
 4. Scripts execute synchronously in the local Draw.io iframe. The bridge wraps a batch in a model update and attempts to roll back active-page cell changes when the script throws. Rollback cannot make arbitrary side effects reversible; scripts must stay within the cell model and Graph APIs listed below.
