@@ -359,7 +359,7 @@ describe("describeNativeEditOperation", () => {
     expect(describeNativeEditOperation({
       op: "run_drawio_script", target: "active_page", summary: "Rework layout", script: "return true;",
       postconditions: [{ cellId: "edge-1", exists: true, kind: "edge", style: { curved: "1" } }]
-    })).toContain("Rework layout (verified outcome: cell “edge-1”: kind=edge, style curved=1)");
+    })).toBe("Rework layout (postconditions: 1 native cell assertions)");
     expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” to the right of “xxx” and connect it");
     expect(describeNativeEditOperation({
       op: "add_node_after", target: "MRDE1TfU6mpqhOhdJKLE-1", targetLabel: "xxx", newLabel: "bbb"
