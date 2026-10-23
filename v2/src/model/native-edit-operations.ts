@@ -11,6 +11,26 @@ import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
 export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
 
+/** Style keys exposed by the bulk typed op. Values are constrained before they reach the bridge. */
+export const NATIVE_BULK_STYLE_VALUES = {
+  fillColor: "color",
+  strokeColor: "color",
+  fontColor: "color",
+  edgeStyle: ["orthogonalEdgeStyle", "elbowEdgeStyle", "entityRelationEdgeStyle", "none"],
+  curved: ["0", "1"],
+  rounded: ["0", "1"],
+  orthogonalLoop: ["0", "1"],
+  dashed: ["0", "1"],
+  jettySize: ["auto", "10", "20", "30", "40", "50"],
+  endArrow: ["none", "block", "classic", "open", "oval", "diamond"],
+  startArrow: ["none", "block", "classic", "open", "oval", "diamond"],
+  endFill: ["0", "1"],
+  startFill: ["0", "1"]
+} as const;
+export type NativeBulkStyleKey = keyof typeof NATIVE_BULK_STYLE_VALUES;
+export type NativeBulkCellKind = "vertex" | "edge" | "all";
+export const MAX_NATIVE_BRIDGE_BATCH_OPERATIONS = 50;
+
 /** Maximum length of a model-generated program executed by the local Draw.io editor. */
 export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 
@@ -21,6 +41,7 @@ export type NativeEditOperation =
   | { op: "select"; target: string }
   | { op: "set_label"; target: string; label: string }
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
+  | { op: "set_cells_style"; target: "active_page"; kinds: NativeBulkCellKind[]; add: Partial<Record<NativeBulkStyleKey, string>>; remove: NativeBulkStyleKey[] }
   | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
@@ -166,7 +187,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   return result;
 }
 
-const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "move", "resize", "delete", "add_node_after"] as const;
+const OPERATION_NAMES = ["select", "set_label", "set_style", "set_cells_style", "run_drawio_script", "move", "resize", "delete", "add_node_after"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -265,6 +286,45 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
           operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script });
           break;
         }
+        case "set_cells_style": {
+          if (target !== "active_page") throw new Error('set_cells_style target must be "active_page"');
+          if (!Array.isArray(raw.kinds) || raw.kinds.length < 1 || raw.kinds.length > 3 ||
+              raw.kinds.some((kind) => kind !== "vertex" && kind !== "edge" && kind !== "all")) {
+            throw new Error('kinds must contain vertex, edge, and/or all');
+          }
+          const kinds = [...new Set(raw.kinds as string[])];
+          if (kinds.includes("all") && kinds.length !== 1) throw new Error('"all" cannot be combined with vertex or edge');
+          const rawAdd = raw.add === undefined ? {} : raw.add;
+          if (!isRecord(rawAdd)) throw new Error("add must be an object of allowlisted style keys and values");
+          const add: Partial<Record<NativeBulkStyleKey, string>> = {};
+          const addEntries = Object.entries(rawAdd);
+          if (addEntries.length > 12) throw new Error("add can include at most 12 style keys");
+          for (const [key, rawValue] of addEntries) {
+            if (!(key in NATIVE_BULK_STYLE_VALUES)) throw new Error("Unsupported bulk style key “" + key + "”");
+            if (typeof rawValue !== "string" || !rawValue.trim()) throw new Error("Style value for “" + key + "” must be a non-empty string");
+            const rule = NATIVE_BULK_STYLE_VALUES[key as NativeBulkStyleKey];
+            let normalized: string;
+            if (rule === "color") {
+              const color = normalizeNativeColor(rawValue);
+              if (!color) throw new Error("Unsupported color for style key “" + key + "”: “" + rawValue + "”");
+              normalized = color;
+            } else {
+              const allowedValues = rule as readonly string[];
+              if (!allowedValues.includes(rawValue)) throw new Error("Invalid value “" + rawValue + "” for style key “" + key + "”");
+              normalized = rawValue;
+            }
+            add[key as NativeBulkStyleKey] = normalized;
+          }
+          if (!Array.isArray(raw.remove) || raw.remove.length > 12 ||
+              raw.remove.some((key) => typeof key !== "string" || !(key in NATIVE_BULK_STYLE_VALUES))) {
+            throw new Error("remove must be an array of allowlisted style keys");
+          }
+          const remove = [...new Set(raw.remove as string[])] as NativeBulkStyleKey[];
+          if (!Object.keys(add).length && !remove.length) throw new Error("set_cells_style needs at least one style addition or removal");
+          if (remove.some((key) => Object.prototype.hasOwnProperty.call(add, key))) throw new Error("A style key cannot be added and removed in the same operation");
+          operations.push({ op: name, target: "active_page", kinds: kinds as NativeBulkCellKind[], add, remove });
+          break;
+        }
         case "set_style": {
           const key = raw.key === undefined || raw.key === null ? "fillColor" : raw.key;
           if (typeof key !== "string" || !NATIVE_EDIT_STYLE_KEYS.includes(key as NativeEditStyleKey)) {
@@ -306,6 +366,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
+    case "set_cells_style": return `Update ${Object.keys(operation.add).length + operation.remove.length} style key(s) on active-page ${operation.kinds.join("/")}`;
     case "run_drawio_script": return operation.summary;
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
@@ -334,9 +395,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
     return { ok: false, error: "The Draw.io XML could not be indexed: " + (error instanceof Error ? error.message : String(error)) };
   }
   for (const operation of operations) {
-    const activePageScript = operation.op === "run_drawio_script" &&
+    const activePageOperation = (operation.op === "run_drawio_script" || operation.op === "set_cells_style") &&
       operation.target === "active_page" && operation.cellId === "__active_page__";
-    if (activePageScript) continue;
+    if (activePageOperation) continue;
     if (typeof operation.cellId !== "string" || !activeTargetIds.has(operation.cellId)) {
       return { ok: false, error: `Cell “${operation.targetLabel || operation.target}” is not present on the expected Draw.io page` };
     }
@@ -361,6 +422,29 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
       case "set_style":
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
         break;
+      case "set_cells_style": {
+        let targets: NativeEditTarget[];
+        try {
+          targets = extractNativeEditTargets(xml, pageId).filter((target) =>
+            operation.kinds.includes("all") || operation.kinds.includes(target.cellType)
+          );
+        } catch (error) {
+          return { ok: false, error: "Could not resolve active-page cells for bulk style update: " + (error instanceof Error ? error.message : String(error)) };
+        }
+        if (!targets.length) return { ok: false, error: "No active-page cells match the requested style scope" };
+        for (const target of targets) {
+          for (const [key, styleValue] of Object.entries(operation.add)) {
+            edits.push({ cellId: target.id, path: "style:" + key, value: styleValue });
+          }
+          for (const key of operation.remove) {
+            edits.push({ cellId: target.id, path: "style:" + key, value: "" });
+          }
+          if (edits.length > MAX_NATIVE_BRIDGE_BATCH_OPERATIONS) {
+            return { ok: false, error: `The style scope expands to more than ${MAX_NATIVE_BRIDGE_BATCH_OPERATIONS} verified changes. Narrow the cell kinds or edit a smaller selection.` };
+          }
+        }
+        break;
+      }
       case "run_drawio_script":
         edits.push({ cellId, path: "cell:execute-script", value: operation.script });
         break;
@@ -375,5 +459,6 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
     }
   }
+  if (edits.length > MAX_NATIVE_BRIDGE_BATCH_OPERATIONS) return { ok: false, error: `The edit plan expands to more than ${MAX_NATIVE_BRIDGE_BATCH_OPERATIONS} native changes` };
   return { ok: true, edits };
 }
