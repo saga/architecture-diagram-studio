@@ -55,8 +55,15 @@ describe("Draw.io runtime inspection contract", () => {
 
   it("keeps documented API ownership in sync with the required runtime manifest", () => {
     const contract = readFileSync(new URL("../../../docs/DRAWIO-AGENT-API-CONTRACT.md", import.meta.url), "utf8");
+    const plugin = readFileSync(new URL("../../plugins/studio-selection-plugin.js", import.meta.url), "utf8");
     for (const methods of Object.values(PINNED_RUNTIME_CAPABILITY_REQUIREMENTS)) {
       for (const method of methods) expect(contract).toContain(method);
+    }
+    for (const group of ["graph", "model", "view"] as const) {
+      const declaration = new RegExp(group + ":\\s*\\[([^\\]]*)\\]").exec(plugin);
+      expect(declaration, "plugin required capability group " + group).not.toBeNull();
+      const pluginMethods = [...(declaration?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+      expect(pluginMethods).toEqual([...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS[group]]);
     }
     expect(contract).toContain("Never call `model.getDefaultParent()`");
     expect(contract).not.toContain("labelOnCurve=1");
