@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
+import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
 
@@ -25,7 +26,7 @@ type NativeEditResult = {
   failureStage?: "editor" | "persistence";
   auditWarning?: string;
 };
-type PendingNativeEdit = { cellId: string; path: string; value: string; startedAt: number; beforeXml: string };
+type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
 type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; timeoutId?: number };
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
@@ -218,7 +219,7 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
       cellId: cellEdit.cellId, property: cellEdit.path, value: cellEdit.value, requestId: cellEdit.requestId,
       pageId: cellEdit.pageId, xmlLengthBefore: xml.length
     });
-    pendingNativeEditsRef.current.set(cellEdit.requestId, { cellId: cellEdit.cellId, path: cellEdit.path, value: cellEdit.value, startedAt: Date.now(), beforeXml: xml });
+    pendingNativeEditsRef.current.set(cellEdit.requestId, { cellId: cellEdit.cellId, pageId: cellEdit.pageId, path: cellEdit.path, value: cellEdit.value, startedAt: Date.now(), beforeXml: xml });
   }, [cellEdit, editorReady, bridgeReady]);
 
   useLayoutEffect(() => {
@@ -356,15 +357,26 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
             recordDiagnostic("drawio.document.xml.invalid", "Rejected a malformed native Draw.io XML payload", { event: data.event, xmlLength: data.xml.length }, "error");
             return;
           }
-          const pendingSaves = Array.from(pendingSaveConfirmationsRef.current.entries());
+          const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
           const deferredBatchAcks: NativeEditResult[] = [];
           for (const [requestId, pending] of pendingSaves) {
-            const changed = data.xml !== pending.beforeXml;
-            recordDiagnostic(changed ? "drawio.selection.property.save_confirmed" : "drawio.selection.property.save_unchanged",
-              changed ? "Native Draw.io serialization confirmed XML changed after the acknowledged edit" : "Native Draw.io serialized XML but no XML difference from the edit baseline was observed",
-              { requestId, cellId: pending.cellId, property: pending.path, value: pending.value,
-                durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
-                xmlChanged: changed, saveEvent: data.event, serializedByExport: exportSerialization });
+            const reflected = nativeEditIsReflectedInXml({
+              beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
+              path: pending.path, value: pending.value
+            });
+            if (!reflected) {
+              recordDiagnostic("drawio.selection.property.save-confirmation.unmatched",
+                "Ignored a serialized XML snapshot that did not reflect the requested native edit",
+                { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path,
+                  durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length,
+                  xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
+              continue;
+            }
+            recordDiagnostic("drawio.selection.property.save_confirmed",
+              "Native Draw.io XML serialization reflects the requested edit",
+              { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path, value: pending.value,
+                durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length,
+                xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization });
             if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
