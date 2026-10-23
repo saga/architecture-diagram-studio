@@ -97,6 +97,30 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   }));
 }
 
+function scriptModelEnvelopeSignature(xml: string, pageId?: string | null): string | null {
+  const models = modelRoots(xml);
+  const matching = models.find((entry) => entry.pageId === pageId) ??
+    (models.length === 1 && models[0]?.pageId === null ? models[0] : undefined);
+  if (!matching) return null;
+  const model = matching.model;
+  const root = directChild(model, "root");
+  if (!root) return null;
+  const attributes = (element: Element) => Array.from(element.attributes)
+    .map((attribute) => [attribute.name, attribute.value] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify({
+    modelAttributes: attributes(model),
+    rootAttributes: attributes(root),
+    nonRootChildren: elementChildren(model).filter((child) => child !== root).map(elementSignature)
+  });
+}
+
+function scriptModelEnvelopeIsUnchanged(beforeXml: string, afterXml: string, pageId?: string | null): boolean {
+  const before = scriptModelEnvelopeSignature(beforeXml, pageId);
+  const after = scriptModelEnvelopeSignature(afterXml, pageId);
+  return before !== null && before === after;
+}
+
 function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, pageId?: string | null): boolean {
   const beforeDocument = parseDrawioXml(beforeXml);
   const afterDocument = parseDrawioXml(afterXml);
@@ -666,7 +690,8 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
         seen.add(condition.cellId);
         return true;
       })) return false;
-      if (!scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId)) return false;
+      if (!scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId) ||
+          !scriptModelEnvelopeIsUnchanged(input.beforeXml, input.xml, input.pageId)) return false;
       if (!conditions.every((condition) => scriptPostconditionMatches(after, condition, input.pageId))) return false;
       return scriptChangesAreDeclared(before, after, conditions, input.pageId);
     }
