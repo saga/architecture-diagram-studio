@@ -17,6 +17,10 @@ const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
   </mxCell>
 </root></mxGraphModel></diagram></mxfile>`;
 
+const XML_WITH_CONNECTOR = XML.replace("</root>",
+  '<mxCell id="api" value="API" vertex="1" parent="1"><mxGeometry x="360" y="80" width="120" height="60" as="geometry"/></mxCell>' +
+  '<mxCell id="db-api" value="calls" edge="1" parent="1" source="db" target="api" style="endArrow=block;dashed=1;"><mxGeometry relative="1" as="geometry"/></mxCell></root>');
+
 describe("extractNativeEditTargets", () => {
   it("reads real vertex and edge ids from native XML without a DiagramDocument", () => {
     const xml = XML.replace(
@@ -73,8 +77,35 @@ describe("parseNativeEditOperations", () => {
     expect(parsed.error).toContain("newLabel");
   });
 
+  it("validates allowlisted bulk style patches and rejects unknown style keys/values", () => {
+    expect(parseNativeEditOperations([{
+      op: "set_cells_style", target: "active_page", kinds: ["edge"],
+      add: { edgeStyle: "orthogonalEdgeStyle", curved: "1", strokeColor: "blue" },
+      remove: ["orthogonalLoop", "jettySize"]
+    }])).toEqual({
+      ok: true,
+      operations: [{
+        op: "set_cells_style", target: "active_page", kinds: ["edge"],
+        add: { edgeStyle: "orthogonalEdgeStyle", curved: "1", strokeColor: "#0000ff" },
+        remove: ["orthogonalLoop", "jettySize"]
+      }]
+    });
+    expect(parseNativeEditOperations([{
+      op: "set_cells_style", target: "active_page", kinds: ["edge"],
+      add: { arbitraryStyleInjection: "1" }, remove: []
+    }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{
+      op: "set_cells_style", target: "active_page", kinds: ["edge"],
+      add: { curved: "sometimes" }, remove: []
+    }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{
+      op: "set_cells_style", target: "active_page", kinds: ["edge"],
+      add: { curved: "1" }, remove: ["curved"]
+    }]).ok).toBe(false);
+  });
+
   it("accepts general Draw.io code and requires it to be the only operation", () => {
-    const script = "const cells = graph.getChildCells(model.getDefaultParent(), true, true); return { inspected: cells.length };";
+    const script = "const cells = graph.getChildCells(graph.getDefaultParent(), true, true); return { inspected: cells.length };";
     expect(parseNativeEditOperations([{
       op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script
     }])).toEqual({
@@ -215,8 +246,50 @@ describe("toNativeCellEdits", () => {
     ]);
   });
 
+  it("expands one typed bulk style operation into individually verified native cell patches", () => {
+    const parsed = parseNativeEditOperations([{
+      op: "set_cells_style", target: "active_page", kinds: ["edge"],
+      add: { edgeStyle: "orthogonalEdgeStyle", curved: "1" },
+      remove: ["orthogonalLoop", "jettySize"]
+    }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const operation = {
+      ...parsed.operations[0]!,
+      cellId: "__active_page__", targetLabel: "active Draw.io page"
+    } as ResolvedNativeEditOperation;
+    const plan = toNativeCellEdits([operation], XML_WITH_CONNECTOR, "p1");
+    expect(plan).toEqual({
+      ok: true,
+      edits: [
+        { cellId: "db-api", path: "style:edgeStyle", value: "orthogonalEdgeStyle" },
+        { cellId: "db-api", path: "style:curved", value: "1" },
+        { cellId: "db-api", path: "style:orthogonalLoop", value: "" },
+        { cellId: "db-api", path: "style:jettySize", value: "" }
+      ]
+    });
+  });
+
+  it("rejects bulk style scopes that exceed the native bridge's atomic step limit", () => {
+    const edges = Array.from({ length: 30 }, (_, index) =>
+      '<mxCell id="edge-' + index + '" value="" edge="1" parent="1" source="db" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>'
+    ).join("");
+    const xml = XML_WITH_CONNECTOR.replace("</root>", edges + "</root>");
+    const parsed = parseNativeEditOperations([{
+      op: "set_cells_style", target: "active_page", kinds: ["edge"],
+      add: { edgeStyle: "orthogonalEdgeStyle", curved: "1" }, remove: []
+    }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const operation = { ...parsed.operations[0]!, cellId: "__active_page__", targetLabel: "active Draw.io page" } as ResolvedNativeEditOperation;
+    const plan = toNativeCellEdits([operation], xml, "p1");
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.error).toContain("more than 50");
+  });
+
   it("maps general native Draw.io code to the active-page execution bridge", () => {
-    const script = 'graph.getChildCells(model.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));';
+    const script = 'graph.getChildCells(graph.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));';
     const plan = toNativeCellEdits([{
       op: "run_drawio_script", target: "active_page", summary: "Curve all connectors", script,
       cellId: "__active_page__", targetLabel: "active Draw.io page"
