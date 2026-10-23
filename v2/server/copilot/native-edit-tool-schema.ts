@@ -50,7 +50,7 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
         op: { type: "string", enum: ["run_drawio_script"] },
         target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
         summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
-        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body that uses the native Draw.io editor API. Available variables: ui, editor, graph, model. Do not return XML or create a parallel diagram model." }
+        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body using native Draw.io APIs. Variables: ui (EditorUi), editor, graph (Graph), model (mxGraphModel). getDefaultParent() belongs to graph, never model. Do not return XML or create a parallel diagram model." }
       },
       required: ["op", "target", "summary", "script"],
       additionalProperties: false
