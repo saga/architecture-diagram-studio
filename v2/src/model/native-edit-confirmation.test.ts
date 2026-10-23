@@ -103,7 +103,10 @@ describe("native edit XML confirmation", () => {
     const renamed = before.replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);'
+      value: JSON.stringify({
+        script: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);',
+        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+      })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -118,7 +121,10 @@ describe("native edit XML confirmation", () => {
     const renamed = before.replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);'
+      value: JSON.stringify({
+        script: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);',
+        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+      })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -126,6 +132,16 @@ describe("native edit XML confirmation", () => {
     const whitespaceOnly = before.replace("</root>", "\n  </root>");
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
+  it("fails closed for raw scripts without declared postconditions even when XML changes", () => {
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: labelEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
+      value: JSON.stringify([{
+        cellId: "__active_page__", path: "cell:execute-script",
+        value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+      }])
     })).toBe(false);
   });
 
@@ -140,7 +156,10 @@ describe("native edit XML confirmation", () => {
       .replace('value="Before"', 'value="After"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+      value: JSON.stringify({
+        script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+      })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: multiPageBefore, xml: activeAndOtherChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -154,7 +173,10 @@ describe("native edit XML confirmation", () => {
       .replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+      value: JSON.stringify({
+        script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+      })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: withMetadata, xml: changedMetadataAndCell, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -172,7 +194,10 @@ describe("native edit XML confirmation", () => {
       .replace('customPageFlag="before"', 'customPageFlag="after"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+      value: JSON.stringify({
+        script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+      })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: multiPageBefore, xml: activeCellAndOtherMetadataChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -182,7 +207,10 @@ describe("native edit XML confirmation", () => {
   it("does not confirm a script after deleting the active page or its default layer", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.removeCells([model.getCell("1")]);'
+      value: JSON.stringify({
+        script: 'graph.removeCells([model.getCell("1")]);',
+        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+      })
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: "<mxfile></mxfile>", cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
