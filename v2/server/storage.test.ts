@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSerializedWriteQueue, isWorkspaceSaveContextCompatible, matchesWorkspaceRevision, retainRecentVersions, workspaceRevision } from "./storage";
+import { createSerializedWriteQueue, isWorkspaceSaveContextCompatible, matchesWorkspaceRevision, retainRecentVersions, runCompensatingTransaction, workspaceRevision } from "./storage";
 describe("server persistence primitives", () => {
   it("retains the most recent bounded number of versions per workspace", () => {
     const versions = Array.from({ length: 8 }, (_, index) => ({ id: "v" + index, workspaceId: "a" }));
@@ -40,6 +40,42 @@ describe("server persistence primitives", () => {
   it("tracks workspace revisions from the authoritative XML only", () => {
     expect(workspaceRevision("<xml/>")).not.toBe(workspaceRevision("<changed/>"));
     expect(workspaceRevision("<xml/>")).toBe(workspaceRevision("<xml/>"));
+  });
+  it("compensates completed writes in reverse order when a later write fails", async () => {
+    const values = { versions: "old", diagram: "old", state: "old" };
+    await expect(runCompensatingTransaction([
+      {
+        name: "versions",
+        apply: async () => { values.versions = "new"; },
+        rollback: async () => { values.versions = "old"; }
+      },
+      {
+        name: "diagram",
+        apply: async () => { values.diagram = "new"; },
+        rollback: async () => { values.diagram = "old"; }
+      },
+      {
+        name: "state",
+        apply: async () => { throw new Error("injected state write failure"); },
+        rollback: async () => { values.state = "old"; }
+      }
+    ])).rejects.toThrow("injected state write failure");
+    expect(values).toEqual({ versions: "old", diagram: "old", state: "old" });
+  });
+
+  it("reports compensation failures rather than hiding partial recovery", async () => {
+    await expect(runCompensatingTransaction([
+      {
+        name: "versions",
+        apply: async () => undefined,
+        rollback: async () => { throw new Error("versions rollback failed"); }
+      },
+      {
+        name: "diagram",
+        apply: async () => { throw new Error("diagram write failed"); },
+        rollback: async () => undefined
+      }
+    ])).rejects.toThrow("compensation was incomplete: versions: versions rollback failed");
   });
   it("keeps the write queue usable after a failed write", async () => {
     const write = createSerializedWriteQueue(), order: number[] = [];
