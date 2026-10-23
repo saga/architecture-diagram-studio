@@ -230,6 +230,56 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
+test("Copilot script proposals show the requested change but hide JavaScript bodies", async ({ page, request }) => {
+  await createWorkspace(request);
+  await openStudio(page);
+  await waitForNativeEditor(page);
+
+  const hiddenScriptSentinel = "HIDDEN_SCRIPT_SENTINEL_73491";
+  await page.route("**/api/copilot/intent", async (route) => {
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      documentRevision?: unknown; context?: { activePageId?: string | null };
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "proposal_required",
+        reply: "This action needs confirmation.",
+        proposal: {
+          id: "55555555-5555-4555-8555-555555555555",
+          summary: "Rearrange the diagram using the native editor",
+          operations: [{
+            op: "run_drawio_script",
+            target: "active_page",
+            summary: "Rearrange the diagram using the native editor",
+            script: "throw new Error('" + hiddenScriptSentinel + "');",
+            cellId: "__active_page__",
+            targetLabel: "active Draw.io page"
+          }],
+          pageId: requestBody.context?.activePageId ?? null,
+          documentRevision: String(requestBody.documentRevision ?? "")
+        },
+        sessionId: "e2e-script-proposal",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1
+      })
+    });
+  });
+
+  await page.getByRole("tab", { name: "Copilot" }).click();
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
+  await input.fill("Rearrange the diagram");
+  await input.press("Enter");
+
+  const proposalMessage = page.locator(".gemini-message.assistant").last();
+  await expect(proposalMessage).toContainText("Proposed changes");
+  await expect(proposalMessage).toContainText("Rearrange the diagram using the native editor");
+  await expect(proposalMessage.getByRole("button", { name: "Review and confirm changes" })).toBeVisible();
+  await expect(proposalMessage).not.toContainText(hiddenScriptSentinel);
+  await expect(proposalMessage).not.toContainText("throw new Error");
+  await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
+});
+
 test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
