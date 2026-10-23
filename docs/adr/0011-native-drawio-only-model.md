@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-22
+
+> **Layout decision update:** Layout-specific removal statements in this ADR are superseded by [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](./0013-studio-owned-layout-engines.md). The single native Draw.io model decision remains in force; only the implementation of layout capability is restored.
 - Supersedes: the `DiagramDocument`-centric editing, layout and proposal flows in ADR-0005, ADR-0006 and ADR-0010 where they require a complete semantic projection.
 
 ## Context
