@@ -42,6 +42,20 @@ describe("resolveNativeEditTargets", () => {
     });
   });
 
+  it("resolves a C4 kind against an existing vertex and rejects connector targets", () => {
+    const resolved = resolveNativeEditTargets(CONTEXT, [
+      { op: "set_c4_type", target: "Database", kind: "person" }
+    ]);
+    expect(resolved).toMatchObject({
+      ok: true,
+      operations: [{ op: "set_c4_type", kind: "person", cellId: "db", targetLabel: "Database" }]
+    });
+    const edge = resolveNativeEditTargets({ cells: [{ id: "calls", name: "calls", cellType: "edge" }] }, [
+      { op: "set_c4_type", target: "calls", kind: "system" }
+    ]);
+    expect(edge).toMatchObject({ ok: false, error: expect.stringContaining("must resolve to a vertex") });
+  });
+
   it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);
     const byLabel = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "database" }]);
