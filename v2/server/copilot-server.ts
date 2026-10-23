@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
-import { createSerializedWriteQueue, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
+import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 /**
  * The Copilot runtime reads its model provider configuration from the environment
@@ -685,19 +685,85 @@ app.put("/api/workspace/document", async (req, res) => {
           label,
           drawioXml
         };
-        diagramVersions = retainRecentVersions([...allVersions, version]);
-        await persistDiagramVersions(diagramVersions);
+        const nextVersions = retainRecentVersions([...allVersions, version]);
+        const nextState: WorkspaceState = {
+          ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null,
+          drawioXml, updatedAt: version.createdAt
+        };
+        let primaryDiagramPath: string | null = null;
+        let previousPrimaryDiagramXml: string | null = null;
+        let primaryDiagramExisted = false;
         if (workspace?.primaryDiagram && /\.(drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
-          const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true });
-          await writeTextAtomic(absolutePath, drawioXml);
-          await writeLog("workspace.primary-diagram.saved", { workspaceId: workspace.id, path: workspace.primaryDiagram, xmlLength: drawioXml.length, versionId: version.id });
+          const resolved = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true });
+          primaryDiagramPath = resolved.absolutePath;
+          try {
+            previousPrimaryDiagramXml = await readFile(primaryDiagramPath, "utf8");
+            primaryDiagramExisted = true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          }
         }
-        workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, drawioXml, updatedAt: version.createdAt };
-        await persistWorkspaceState(workspaceState);
-        await appendFile(APP_LOG_FILE, JSON.stringify({
-          timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
-          versionId: version.id, label, xmlLength: drawioXml.length
-        }) + "\n", "utf8");
+
+        const steps = [
+          {
+            name: "diagram-version-index",
+            apply: async () => {
+              await persistDiagramVersions(nextVersions);
+              diagramVersions = nextVersions;
+            },
+            rollback: async () => {
+              diagramVersions = allVersions;
+              await persistDiagramVersions(allVersions);
+            }
+          },
+          ...(primaryDiagramPath ? [{
+            name: "primary-diagram-file",
+            apply: async () => { await writeTextAtomic(primaryDiagramPath!, drawioXml); },
+            rollback: async () => {
+              if (primaryDiagramExisted) {
+                await writeTextAtomic(primaryDiagramPath!, previousPrimaryDiagramXml ?? "");
+              } else {
+                try { await unlink(primaryDiagramPath!); }
+                catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+              }
+            }
+          }] : []),
+          {
+            name: "workspace-state",
+            apply: async () => {
+              await persistWorkspaceState(nextState);
+              workspaceState = nextState;
+            },
+            rollback: async () => {
+              workspaceState = state;
+              await persistWorkspaceState(state);
+            }
+          }
+        ];
+        await runCompensatingTransaction(steps);
+
+        // Diagnostics are useful but not part of the document commit. A log-write failure
+        // must never turn an already committed document into a false HTTP save failure.
+        if (primaryDiagramPath && workspace?.primaryDiagram) {
+          try {
+            await writeLog("workspace.primary-diagram.saved", {
+              workspaceId: workspace.id, path: workspace.primaryDiagram,
+              xmlLength: drawioXml.length, versionId: version.id
+            });
+          } catch { /* Keep the committed XML/version even if diagnostics are unavailable. */ }
+        }
+        try {
+          await appendFile(APP_LOG_FILE, JSON.stringify({
+            timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
+            versionId: version.id, label, xmlLength: drawioXml.length
+          }) + "\n", "utf8");
+        } catch (error) {
+          try {
+            await writeLog("workspace.version.event-log.failed", {
+              versionId: version.id, errorMessage: error instanceof Error ? error.message : String(error)
+            });
+          } catch { /* Event logging is best-effort after the document commit. */ }
+        }
         return { status: 200 as const, saved: true, version, workspaceRevision: workspaceRevision(drawioXml) };
       }
       return { status: 200 as const, saved: false, version: workspaceVersions[workspaceVersions.length - 1] ?? null, workspaceRevision: currentRevision };
