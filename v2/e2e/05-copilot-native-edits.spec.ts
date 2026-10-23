@@ -274,7 +274,7 @@ test("Copilot script proposals show the requested change but hide JavaScript bod
   const proposalMessage = page.locator(".gemini-message.assistant").last();
   await expect(proposalMessage).toContainText("Proposed changes");
   await expect(proposalMessage).toContainText("Rearrange the diagram using the native editor");
-  await expect(proposalMessage.getByRole("button", { name: "Review and confirm changes" })).toBeVisible();
+  await expect(proposalMessage.getByRole("button", { name: "Confirm changes" })).toBeVisible();
   await expect(proposalMessage).not.toContainText(hiddenScriptSentinel);
   await expect(proposalMessage).not.toContainText("throw new Error");
   await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
@@ -337,7 +337,7 @@ test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自
   await expect(lastMessage).toContainText("Applied 2 native changes");
   await expect(lastMessage).toContainText('Add “ddd” below “Database” and connect it');
   await expect(lastMessage).toContainText('Add “eee” below “API Service” and connect it');
-  await expect(page.getByRole("button", { name: "Review and confirm changes" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
 
   const frame = nativeFrame(page);
   await expect(frame.getByText("ddd", { exact: true })).toBeVisible();
@@ -553,7 +553,7 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
   const proposalMessage = page.locator(".gemini-message.assistant").last();
   await expect(proposalMessage).toContainText("This batch contains multiple destructive operations");
   await expect(proposalMessage).toContainText("Delete “API Service”; Delete “Message Queue”");
-  const confirm = proposalMessage.getByRole("button", { name: "Review and confirm changes" });
+  const confirm = proposalMessage.getByRole("button", { name: "Confirm changes" });
   await expect(confirm).toBeVisible();
   await expect(nativeFrame(page).getByText("API Service", { exact: true })).toBeVisible();
   await expect(nativeFrame(page).getByText("Message Queue", { exact: true })).toBeVisible();
