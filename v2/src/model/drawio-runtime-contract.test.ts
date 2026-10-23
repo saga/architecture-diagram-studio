@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DRAWIO_RUNTIME_BRIDGE_VERSION,
@@ -50,6 +51,15 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.capabilities.view).toContain("getState");
     expect(result?.capabilityManifest.scriptSupported).toBe(true);
     expect(result?.cells[0]?.geometry).toMatchObject({ x: 10, y: 20, width: 100, height: 60 });
+  });
+
+  it("keeps documented API ownership in sync with the required runtime manifest", () => {
+    const contract = readFileSync(new URL("../../../docs/DRAWIO-AGENT-API-CONTRACT.md", import.meta.url), "utf8");
+    for (const methods of Object.values(PINNED_RUNTIME_CAPABILITY_REQUIREMENTS)) {
+      for (const method of methods) expect(contract).toContain(method);
+    }
+    expect(contract).toContain("Never call `model.getDefaultParent()`");
+    expect(contract).not.toContain("labelOnCurve=1");
   });
 
   it("rejects observations from a stale document, page, bridge, or Draw.io version", () => {
