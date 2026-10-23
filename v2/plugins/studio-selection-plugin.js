@@ -58,6 +58,18 @@
       // Resolve it per request rather than retaining the model from plugin startup.
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
+      // mxGraphModel does not expose setConnectable in every Draw.io build.
+      // Prefer a model/cell method when available; otherwise restore/set the native cell field.
+      function setCellConnectable(cell, value) {
+        if (!cell) throw new Error("Cannot change connectability on a missing cell");
+        if (typeof activeModel.setConnectable === "function") {
+          activeModel.setConnectable(cell, value);
+        } else if (typeof cell.setConnectable === "function") {
+          cell.setConnectable(value);
+        } else {
+          cell.connectable = value;
+        }
+      }
       var selectionOperation = String(request.path || "");
       var requestedPage = request.pageId;
       var activePage = currentPageId();
@@ -212,7 +224,7 @@
               }
               if ((restoreAll || paths.indexOf("cell:visible") >= 0) && typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
               if ((restoreAll || paths.indexOf("cell:collapsed") >= 0) && typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
-              if ((restoreAll || paths.indexOf("cell:connectable") >= 0) && typeof snapshot.connectable === "boolean") activeModel.setConnectable(item, snapshot.connectable);
+              if ((restoreAll || paths.indexOf("cell:connectable") >= 0) && typeof snapshot.connectable === "boolean") setCellConnectable(item, snapshot.connectable);
             } catch (rollbackError) {
               rollbackErrors.push({ cellId: snapshot.cell.id, error: rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError) });
             }
@@ -445,7 +457,7 @@
             var enabled = cellBool === "1" || cellBool === "true";
             if (cellKey === "visible") activeModel.setVisible(cell, enabled);
             else if (cellKey === "collapsed") activeModel.setCollapsed(cell, enabled);
-            else activeModel.setConnectable(cell, enabled);
+            else setCellConnectable(cell, enabled);
           } else if (cellKey === "source" || cellKey === "target") {
             var terminal = value ? activeModel.getCell(value) : null;
             if (value && !terminal) throw new Error("No cell exists with id " + value);
