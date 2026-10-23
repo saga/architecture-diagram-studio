@@ -200,6 +200,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
             operationCount: operations.length,
             steps: execution.steps.length,
+            scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
           });
           setMessages((items) => [...items, {
@@ -213,7 +214,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
           recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
             operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
-            rolledBack: execution.rolledBack,
+            rolledBack: execution.rolledBack, scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
           }, "error");
           setMessages((items) => [...items, {
