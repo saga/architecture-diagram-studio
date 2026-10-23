@@ -314,7 +314,8 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
           onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage,
             batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> : null,
             failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
-            rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [] });
+            rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
+            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null });
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
