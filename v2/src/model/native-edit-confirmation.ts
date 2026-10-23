@@ -96,6 +96,51 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   }));
 }
 
+function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, pageId?: string | null): boolean {
+  const beforeDocument = parseDrawioXml(beforeXml);
+  const afterDocument = parseDrawioXml(afterXml);
+  const beforeRoot = beforeDocument.documentElement;
+  const afterRoot = afterDocument.documentElement;
+  if (beforeRoot.nodeName !== afterRoot.nodeName) return false;
+
+  // A standalone mxGraphModel represents one page. For mxfile, require the same ordered
+  // page set and verify every non-target page is semantically unchanged.
+  if (beforeRoot.nodeName === "mxGraphModel") {
+    return JSON.stringify(elementSignature(beforeRoot)) !== JSON.stringify(elementSignature(afterRoot));
+  }
+  if (beforeRoot.nodeName !== "mxfile" || afterRoot.nodeName !== "mxfile" || !pageId) return false;
+
+  const beforePages = elementChildren(beforeRoot).filter((child) => child.nodeName === "diagram");
+  const afterPages = elementChildren(afterRoot).filter((child) => child.nodeName === "diagram");
+  const getPageIds = (pages: Element[]) => pages.map((page) => page.getAttribute("id") || null);
+  const beforeIds = getPageIds(beforePages);
+  const afterIds = getPageIds(afterPages);
+  if (beforeIds.some((id) => !id) || JSON.stringify(beforeIds) !== JSON.stringify(afterIds) || !beforeIds.includes(pageId)) {
+    return false;
+  }
+
+  const beforeCells = cellsForXml(beforeXml);
+  const afterCells = cellsForXml(afterXml);
+  // The active page must still exist with its root and default layer; otherwise a page/layer
+  // deletion or graph replacement must not masquerade as a successful cell edit.
+  for (const requiredId of ["0", "1"]) {
+    if (!findCell(beforeCells, requiredId, pageId) || !findCell(afterCells, requiredId, pageId)) return false;
+  }
+
+  for (const otherPageId of beforeIds) {
+    if (!otherPageId || otherPageId === pageId) continue;
+    if (semanticDiagramSignature(beforeXml, otherPageId) !== semanticDiagramSignature(afterXml, otherPageId)) {
+      return false;
+    }
+  }
+
+  // This signature includes the page name plus the full native mxGraphModel, including
+  // geometry, styles, page dimensions and grid settings. A style string alone is not enough.
+  const beforeTarget = semanticDiagramSignature(beforeXml, pageId);
+  const afterTarget = semanticDiagramSignature(afterXml, pageId);
+  return beforeTarget !== afterTarget;
+}
+
 function cellsForXml(xml: string): ModelRecords[] {
   return modelRoots(xml).map(({ pageId, model }) => {
     const root = directChild(model, "root");
@@ -299,7 +344,7 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       const script = operations[0];
       return script.cellId === "__active_page__" &&
         typeof script.value === "string" && Boolean(script.value.trim()) &&
-        semanticDiagramSignature(input.beforeXml, input.pageId) !== semanticDiagramSignature(input.xml, input.pageId);
+        scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
     }
     return operations.every((operation) =>
       Boolean(operation && typeof operation.cellId === "string" && typeof operation.path === "string" &&
