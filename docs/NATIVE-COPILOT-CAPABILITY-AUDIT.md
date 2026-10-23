@@ -76,7 +76,7 @@ Draw.io has multiple layers of capability: its standard iframe JSON protocol (lo
 | Color a cell | `style:<key>` | `set_style` limited to fill, stroke, font color | Correctly restricted; arbitrary keys would be unsafe |
 | Move / resize a node | Native geometry | `move`, `resize` | Covered for vertices; server rejects edges until routing-specific semantics exist |
 | Delete a cell | Native remove | `delete` | Covered with batch rollback for affected cells/edges |
-| Add a node connected to a target | Plugin inserts a vertex and an edge together | `add_node_after` | Basic path covered, but shape type and edge details are fixed |
+| Add a node connected to a target | Plugin inserts a vertex and an edge together | `add_node_after`, `add_node_below` | Right-of and below-source placements are typed and revision-bound; shape/style are fixed |
 | Add an independent edge / reconnect an existing edge | Native `graph.insertEdge` / `model.setTerminal` | `run_drawio_script` | Available through the native Graph/Model API; no one-off feature schema is needed |
 | Shape/stencil choice for a node | Native cell styles and shape libraries | `run_drawio_script` | Available through native style/stencil APIs; preserve existing unknown style properties when editing |
 | Routing / waypoints / edge geometry | Native edge styles and `mxGeometry` points | `run_drawio_script` | Available through native geometry/style APIs; inspect current edge geometry before mutation |
