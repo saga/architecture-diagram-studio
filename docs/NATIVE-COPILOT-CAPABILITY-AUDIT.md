@@ -7,9 +7,9 @@
 
 ## Executive finding
 
-The seven-operation allowlist is deliberately narrower than Draw.io's native API and should remain so. The substantive problems were in state binding and completion semantics, not simply a short schema: server target resolution depended on the model-facing cell list, a request did not carry a verifiable source revision, move compilation used stale coordinates, and the UI could report success before native XML serialization and workspace persistence had completed.
+The original typed-operation allowlist was deliberately narrower than Draw.io's native API, forcing every new capability to require changes across several layers. Keep typed operations for focused edits, but use the generic `run_drawio_script` entry point for complex operations directly against the native Draw.io Graph/Model API. The important protections remain source-revision/page binding, native editor execution, script-error rollback of active-page cells, serialized XML confirmation and workspace persistence.
 
-Those paths have now been tightened. The API uses a discriminated outcome union for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context` and `failed`; the separate final acknowledgement returns `applied` or `failed`. Review-required batches stay server-side until the user confirms them against the same revision. The acknowledgement is bound to the request, resolved targets, serialized XML revision and immutable version ID. Broader native operations remain intentionally unexposed.
+Those paths remain in place. The API uses a discriminated outcome union for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context` and `failed`; the separate final acknowledgement returns `applied` or `failed`. The acknowledgement is bound to the request, active page, serialized XML revision and immutable version ID. General scripts use the same revision-bound bridge and save/acknowledgement chain instead of requiring a feature-specific implementation.
 
 ## Findings and code changes
 
@@ -69,7 +69,7 @@ Relevant code: `v2/server/copilot/native-edit-tool-schema.ts`, `v2/server/copilo
 
 Draw.io has multiple layers of capability: its standard iframe JSON protocol (load/save/export/merge/patch and other editor actions) and V2's own plugin bridge for focused `mxCell` mutations. The Copilot Schema exposes only a safe subset of the latter; standard editor protocol features are not automatically Copilot operations. See [Draw.io Embed Mode](https://www.drawio.com/docs/reference/embed-mode/) and [Draw.io Style Reference](https://www.drawio.com/docs/reference/diagram-generation/style-reference/).
 
-| Capability | Native editor / plugin surface | Copilot allowlist now | Audit conclusion |
+| Capability | Native editor / plugin surface | Copilot entry point | Audit conclusion |
 | --- | --- | --- | --- |
 | Select an existing cell | Selection bridge | `select` | Covered |
 | Rename a cell | `label` | `set_label` | Covered |
@@ -77,9 +77,9 @@ Draw.io has multiple layers of capability: its standard iframe JSON protocol (lo
 | Move / resize a node | Native geometry | `move`, `resize` | Covered for vertices; server rejects edges until routing-specific semantics exist |
 | Delete a cell | Native remove | `delete` | Covered with batch rollback for affected cells/edges |
 | Add a node connected to a target | Plugin inserts a vertex and an edge together | `add_node_after` | Basic path covered, but shape type and edge details are fixed |
-| Add an independent edge / reconnect an existing edge | Plugin internals can manipulate edge terminals | None | **Functional gap**: no first-class `add_edge` or `set_edge_endpoints` operation |
-| Shape/stencil choice for a new node | Draw.io supports many shape styles/stencils | None; new node uses fixed rectangle-like style | **Functional gap** for architecture diagrams; add only through a validated shape allowlist |
-| Edge waypoints / routing | Plugin has `point:<index>:x/y`; Draw.io owns geometry | None | Candidate for a typed routing operation, not raw point paths |
+| Add an independent edge / reconnect an existing edge | Native `graph.insertEdge` / `model.setTerminal` | `run_drawio_script` | Available through the native Graph/Model API; no one-off feature schema is needed |
+| Shape/stencil choice for a node | Native cell styles and shape libraries | `run_drawio_script` | Available through native style/stencil APIs; preserve existing unknown style properties when editing |
+| Routing / waypoints / edge geometry | Native edge styles and `mxGeometry` points | `run_drawio_script` | Available through native geometry/style APIs; inspect current edge geometry before mutation |
 | Group/reparent, hide/show, collapse/expand | Plugin supports `cell:parent`, `cell:visible`, `cell:collapsed`, etc. | None | Leave unexposed until group-cycle, scope, undo/rollback and target semantics have tests |
 | Arbitrary style replacement / arbitrary style key | Plugin can accept `style` and `style:<key>` | None | Must stay blocked; the model should never overwrite a whole style string or choose arbitrary keys |
 | Page creation/deletion/reordering; broad layout | Draw.io/editor has richer editor actions; local plugin does not provide a governed Copilot contract for them | None | Future feature work only, via explicit revision-bound typed contracts |
@@ -88,10 +88,9 @@ Draw.io has multiple layers of capability: its standard iframe JSON protocol (lo
 
 1. **Independent edge creation and endpoint repair**: most material modeling gap; must validate both endpoints against the active page, reject edge-to-edge terminals, preserve labels/styles unless explicitly requested, and be covered by atomic rollback tests.
 2. **Node shape selection**: allow a small, documented set of Draw.io shape keys for insertion. Avoid arbitrary style strings.
-3. **Alignment/distribution and safe grouping**: add only as typed operations/plans against native cell IDs; don't revive a separate layout graph.
-4. **Connector routing/waypoints**: defer until there is a concrete use case and tests for edge labels, terminal anchors and rollback.
+3. **Do not add more per-feature operations.** Alignment, distribution, grouping, shape/stencil selection, connector routing/reconnection and other native actions should use the general script runtime. Add shared helpers only for API limitations or repeated failure patterns.
 
-The current seven operations should not be expanded with a generic `set_property`, raw `style`, arbitrary `cell:<anything>`, or raw XML operation.
+Do not add one operation type for every Draw.io feature. Use `run_drawio_script` for native Graph/Model operations instead of growing a feature-specific union. Raw replacement XML remains unsupported.
 
 ## Server vs. browser responsibility
 
@@ -110,7 +109,7 @@ The current seven operations should not be expanded with a generic `set_property
 1. Route-level tests cover typed no-mutation outcomes, source hash/page/selection mismatch, workspace changes during model latency, duplicate labels beyond the first 200 cells, standalone workspace isolation, identical focused-rename resolution in both request modes, proposal confirmation and stale revision, acknowledgement replay/expiry, immutable-version mismatch, persistence failure, conflicting terminal tools, and assertions on the canonical multilingual rename/move prompt policy. Unit tests cover localized label values, all four numeric move directions, resize/delete mapping, and explicit rejection of alignment/grouping/relation operations not yet supported. Browser E2E covers workspace edits, bulk-delete confirmation, standalone local-file persistence, workspace/standalone isolation, and workspace-save failure. The full suite passed in [V2 CI run 39880294805](https://github.com/saga/architecture-diagram-studio/actions/runs/39880294805).
 2. The discriminated result contract is implemented for the current allowlist. Remaining work is to expand the integration matrix for all error branches, not to add another outcome vocabulary.
 3. The workspace snapshot accessor validates the server's stored workspace state, not changes written directly to disk by another process. If V2 must tolerate external file edits while open, add a filesystem-aware freshness check before issuing a command and document the trade-off between file I/O and latency.
-4. Live-model natural-language paraphrase coverage remains incomplete: offline tests validate Chinese/English target values and preserve the prompt sent to the model, but do not assert every linguistic variant is interpreted identically by each live model release. Connector routing, node shape choice, alignment/grouping and richer relation edits are intentionally unsupported; do not expose them until typed native operations and rollback semantics exist.
+4. Live-model paraphrase and script-generation quality still need tests across model releases. Advanced editor/page UI state outside the active mxGraphModel is not fully rolled back if a script throws; active-page cell values, styles, geometry, terminals and reparenting are snapshotted for rollback.
 5. Standalone execution receipts explicitly say persistence is not managed by the server. This is intentional: a serialized XML event is not proof that a user-selected local file was written. If UI/product needs that guarantee, post a separate File System Access save result without treating it as a workspace version.
 
 ## ADR alignment matrix
@@ -125,4 +124,4 @@ The current seven operations should not be expanded with a generic `set_property
 
 ## Verification status
 
-Final verification passed for commit `e44d3939c889c8382561218a22fdfb90f0a46480`: typecheck, native XML/cell-operation/persistence tests, production build, and expanded Playwright E2E all succeeded. Run: [V2 CI 39880294805](https://github.com/saga/architecture-diagram-studio/actions/runs/39880294805). Earlier failed/cancelled runs drove fixes to the standalone file loading and queued autosave race. Remaining known gaps are live-model paraphrase quality, awareness of external file edits made by other processes, and intentionally unsupported connector routing / shape choice / alignment / grouping / richer relation editing.
+Final verification passed for commit `e44d3939c889c8382561218a22fdfb90f0a46480`: typecheck, native XML/cell-operation/persistence tests, production build, and expanded Playwright E2E all succeeded. Run: [V2 CI 39880294805](https://github.com/saga/architecture-diagram-studio/actions/runs/39880294805). Earlier failed/cancelled runs drove fixes to the standalone file loading and queued autosave race. Remaining known gaps are live-model script quality, rollback for document-level/page UI state outside the active mxGraphModel, and awareness of external file edits made by other processes.
