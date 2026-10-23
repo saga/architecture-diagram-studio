@@ -142,14 +142,14 @@ function createHarness() {
   runInNewContext(source, { window: windowMock, console });
   if (!messageHandler) throw new Error("Draw.io bridge did not register its message listener");
 
-  function runOperation(cellId: string, path: string, value: string) {
+  function runOperations(operations: Array<{ cellId: string; path: string; value: string }>) {
     messages.length = 0;
     const request = {
       event: "studioPropertyEditRequest",
       requestId: "test-request",
       cellId: "__batch__",
       path: "cell:batch",
-      value: JSON.stringify([{ cellId, path, value }])
+      value: JSON.stringify(operations)
     };
     messageHandler!({
       source: parent,
@@ -157,6 +157,10 @@ function createHarness() {
       data: JSON.stringify(request)
     });
     return messages.find((message) => message.event === "studioPropertyEditResult");
+  }
+
+  function runOperation(cellId: string, path: string, value: string) {
+    return runOperations([{ cellId, path, value }]);
   }
 
   function runScript(script: string) {
@@ -173,14 +177,14 @@ function createHarness() {
         requestId: "inspect-request",
         documentRevision: "a".repeat(64),
         drawioVersion: "v32.0.2",
-        maxCells: 120,
-        maxRenderedEdges: 60
+        maxCells: 60,
+        maxRenderedEdges: 24
       })
     });
     return messages.find((message) => message.event === "studioRuntimeInspectResult");
   }
 
-  return { rootEdge, nestedEdge, service, runScript, runOperation, runRuntimeInspect };
+  return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect };
 }
 
 const curveAllConnectorsScript = [
@@ -220,6 +224,17 @@ describe("native Draw.io script bridge", () => {
     expect(harness.nestedEdge.style).toContain("endArrow=block");
     expect(harness.service.style).toContain("fillColor=#ffffff");
     expect(harness.service.style).not.toContain("curved=1");
+  });
+
+  it("restores an originally undefined connectability field after a failed batch", () => {
+    const harness = createHarness();
+    harness.service.connectable = undefined as unknown as boolean;
+    const result = harness.runOperations([
+      { cellId: "service", path: "cell:connectable", value: "false" },
+      { cellId: "missing-cell", path: "label", value: "fail after connectability mutation" }
+    ]);
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(harness.service.connectable).toBeUndefined();
   });
 
   it("inspects native runtime capabilities and cells recursively, including edges inside groups", () => {
