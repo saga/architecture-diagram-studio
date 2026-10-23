@@ -55,10 +55,7 @@ export interface NativeLayoutExpectedCell {
   targetId: string | null;
 }
 
-export interface NativeLayoutPlan {
-  engine: NativeAutoLayoutEngine;
-  algorithm: NativeAutoLayoutAlgorithm;
-  direction: NativeAutoLayoutDirection;
+export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
   documentRevision: string;
   pageId: string | null;
   /** Every native cell ID on the source page, used for an optimistic stale-page check. */
@@ -308,8 +305,7 @@ function normalizePlan(
   });
 
   return {
-    engine: options.engine,
-    algorithm: options.algorithm,
+    ...options,
     direction: mapDirection(options.direction),
     documentRevision,
     pageId: projection.pageId,
