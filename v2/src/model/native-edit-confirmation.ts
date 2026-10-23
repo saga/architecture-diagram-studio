@@ -343,17 +343,29 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
     const operations: NativeEditOperation[] = input.path === "cell:batch"
       ? JSON.parse(input.value) as NativeEditOperation[]
       : [{ cellId: input.cellId, path: input.path, value: input.value }];
-    if (!Array.isArray(operations) || operations.length === 0) return false;
-    if (operations.length === 1 && operations[0].path === "cell:execute-script") {
-      const script = operations[0];
-      return script.cellId === "__active_page__" &&
+    if (!Array.isArray(operations) || operations.length === 0 ||
+        !operations.every((operation) => Boolean(operation && typeof operation.cellId === "string" &&
+          typeof operation.path === "string" && typeof operation.value === "string"))) return false;
+
+    // Selection is native UI state, not a serialized document mutation. Confirm that the
+    // target still exists, but never require a <mxCell> change for cell:select itself.
+    const selectionOperations = operations.filter((operation) => operation.path === "cell:select");
+    if (selectionOperations.some((operation) =>
+      !findCell(before, operation.cellId, input.pageId) || !findCell(after, operation.cellId, input.pageId)
+    )) return false;
+
+    const documentOperations = operations.filter((operation) => operation.path !== "cell:select");
+    if (documentOperations.length === 0) {
+      return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
+    }
+    if (documentOperations.length === 1 && documentOperations[0].path === "cell:execute-script") {
+      const script = documentOperations[0];
+      return operations.length === 1 && script.cellId === "__active_page__" &&
         typeof script.value === "string" && Boolean(script.value.trim()) &&
         scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
     }
-    return operations.every((operation) =>
-      Boolean(operation && typeof operation.cellId === "string" && typeof operation.path === "string" &&
-        typeof operation.value === "string" &&
-        operationIsReflected(before, after, operation, input.pageId))
+    return documentOperations.every((operation) =>
+      operationIsReflected(before, after, operation, input.pageId)
     );
   } catch {
     return false;
