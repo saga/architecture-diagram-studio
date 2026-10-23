@@ -161,12 +161,22 @@
 - 因此「31 s 才 ACK、32 s 才导出」的**完全合法**批次必然踩中：App 的 timer 在 30 s 已 fired 并删掉 resolver。
 - 迟到结果到达后，代码顺序是：算 revision（`App.tsx:1039`）→ `persistDocumentNow` 落盘（`:1043`）→ `POST /ack` 带 `outcome:"applied"`（`:1063-1072`）→ **最后**才走到 `if (result.path === "cell:batch" && !resolver)`（`:1102-1104`）静默返回，只留一条 warn 日志。
 - 注意 `:1094` 的「late」分支实际不可达：`:1027` 的 `resolver` 是当场从 `nativeEditResolversRef` 取的，而超时分支（`:497`）已经删掉了该 requestId，所以迟到时 `resolver === undefined`，整块被跳过——真正的落点是 `:1102`。即「丢弃」只发生在副作用之后。
-- 矛盾只在「慢成功」下出现；若 export 一直不返回，`DrawioFrame.tsx:280-294` 会 emit `success:false`，那条路径是自洽的。
+- 矛盾只在「慢成功」下出现；若 export 一直不返回，`DrawioFrame.tsx:286-294` 会 emit `success:false`，那条路径是自洽的。
 - 同一根因的第二个出口：`resolver(finalResult)`（`:1100`）在 async 回调里裸调用，没有 try/catch；`batchResults` 元素不是对象时 `:487` 的 `step.index` 会抛错，Promise 一直悬到超时，而 ack 已经写成 applied。
 
 后果：**UI 在第 30 秒就宣告「未确认」，而这条编辑真正生效落在第 31–60 秒之间**（窗口 2 从插件 ACK 才起算）。用户看到失败的那一刻文档其实还没被改，随后它被悄悄改了；用户基于「失败」去重试，而重试的基线文档已经含了上一次编辑 → 同一操作执行第二次（`add_node_after` 多一个节点、`delete` 删掉第二个目标），且界面没有任何对账入口。
 
-修法：**迟到回执零副作用**——把 late 判定提前到落盘/ack 之前（即以「当前是否还有等待者」决定要不要 persist + ack），并删掉 `:1095-1097` 那段不可达分支；或者在 late 时明确把 ack 降级为 `unobserved` 并让 UI 显示「结果未确认，请刷新画布」。不要再加第三个超时；`resolver()` 用 `try/finally` 保证一定 settle。
+修法：**不能只做「拦截」。** 只在副作用前拦掉迟到结果，会留下新的不一致——`DrawioFrame.tsx:392` 的 `onDocumentChange(data.xml)` 早于 `:393` 的批量回执，迟到的 XML 仍会被 250 ms 自动保存写进文档；于是变成「图变了、审计说 ack-expired、用户以为失败」三种说法，用户照样重试。
+
+推荐（对账）：保留 `:1039-1092`——服务端需要真相，`/ack` 会用 `getWorkspaceVersionSnapshot` 校验 `persistedRevision` / `versionId`（`intent-route.ts:309-331`）。只把「静默丢弃」改成「对账并纠正用户可见结论」：超时文案改为「仍在等待编辑器确认」而不是宣告失败；迟到成功时 `setLastAction` + 推一条 assistant 消息说明「该批次在超时后完成并已保存」，并删除 ackContext。这样三方一致，重试也不会发生。
+
+备选（最小成本）：超时即宣告失败 + 副作用前拦截。改动小，但只能消掉「三方不一致」，消不掉「图已变而用户以为失败」——上面的 `onDocumentChange` 路径仍在。要真拦住得把检查点搬进 DrawioFrame（`:388` 之前或 `:362-383` 的确认循环），这需要 App→DrawioFrame 的反向信号，而且拦住之后画布与权威 XML 会分叉，代价更大。服务端不会因此泄漏：pending 由 `expire()` 按 10 分钟 TTL 回收（`intent-route.ts:72-83`、`:128`），过期记 `ack-expired`。
+
+**残留风险（两种方案都有）**：用户可能在 30–60 s 窗口内已经手动重试，迟到成功与重试会叠加。要真正防重复，还需要「批次飞行中禁止再次派发」，或至少把超时文案写成「请勿重试，正在等待编辑器确认」。
+
+两种情况都要做：超时分支（`App.tsx:497`）补删 ackContext（现在只删 resolver，`nativeEditAckContextsRef` 会一直留着）；删掉 `:1095-1097` 死代码，保留 `:1102` 的防御语义；`resolver()` 包 `try/finally` 保证一定 settle。若采用备选方案，还要在超时分支登记「已向调用方报过失败」的 requestId，供回调侧判断是否跳过 persist/ack。
+
+**实现时的禁区**：不要用「`resolver` 缺失」作为「跳过 UI 更新」的通用条件——Inspector 的属性编辑路径（`App.tsx:1158-1161`）本来就没有 resolver 也没有 ackContext，它是靠这条回调刷新界面的；判据应当是「该 requestId 是否已经向调用方报过失败」。
 
 ---
 
