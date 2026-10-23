@@ -1,6 +1,12 @@
 export const PINNED_DRAWIO_VERSION = "v32.0.2";
 export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/1";
 
+export const PINNED_RUNTIME_CAPABILITY_REQUIREMENTS = {
+  graph: ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"],
+  model: ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate"],
+  view: ["getState", "validate"]
+} as const;
+
 export const RUNTIME_INSPECTION_LIMITS = {
   cells: 120,
   renderedEdges: 60,
@@ -188,12 +194,23 @@ export function normalizeDrawioRuntimeInspection(
       })
     : [];
 
+  const requiredGroups = normalizeMethodGroups(rawManifest.required);
+  const missingGroups = normalizeMethodGroups(rawManifest.missing);
+  const manifestMatchesContract = (Object.keys(PINNED_RUNTIME_CAPABILITY_REQUIREMENTS) as Array<keyof typeof PINNED_RUNTIME_CAPABILITY_REQUIREMENTS>)
+    .every((group) => {
+      const advertisedRequired = requiredGroups[group] ?? [];
+      const missing = missingGroups[group] ?? [];
+      const actuallyAvailable = capabilities[group] ?? [];
+      return PINNED_RUNTIME_CAPABILITY_REQUIREMENTS[group].every((method) =>
+        advertisedRequired.includes(method) && actuallyAvailable.includes(method) && !missing.includes(method)
+      );
+    });
   return {
     schemaVersion: 1,
     capabilityManifest: {
-      scriptSupported: rawManifest.scriptSupported === true,
-      required: normalizeMethodGroups(rawManifest.required),
-      missing: normalizeMethodGroups(rawManifest.missing)
+      scriptSupported: rawManifest.scriptSupported === true && manifestMatchesContract,
+      required: requiredGroups,
+      missing: missingGroups
     },
     bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
     drawioVersion: PINNED_DRAWIO_VERSION,
