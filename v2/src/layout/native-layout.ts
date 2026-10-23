@@ -220,13 +220,14 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   }
 
   const all = Array.from(byId.values());
-  const layerIds = new Set(all
-    .filter((cell) => cell.parentId === "0" && cell.kind === "other" && cell.visible)
-    .map((cell) => cell.id));
+  // Lay out one native layer at a time. The first root-level layer in mxGraphModel is Draw.io's
+  // default layer (normally ID "1"); cells in other layers and nested groups remain untouched.
+  const defaultLayer = all.find((cell) => cell.parentId === "0" && cell.kind === "other" && cell.visible);
+  const defaultLayerId = defaultLayer?.id ?? null;
   const vertices = all.filter((cell) =>
     cell.kind === "vertex" &&
     cell.hasGeometry &&
-    layerIds.has(cell.parentId || "") &&
+    cell.parentId === defaultLayerId &&
     cell.visible &&
     cell.width > 0 &&
     cell.height > 0
@@ -235,7 +236,7 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   const edges = all.filter((cell) =>
     cell.kind === "edge" &&
     cell.hasGeometry &&
-    layerIds.has(cell.parentId || "") &&
+    cell.parentId === defaultLayerId &&
     cell.visible &&
     cell.sourceId &&
     cell.targetId &&
