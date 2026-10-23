@@ -72,15 +72,17 @@ button:disabled { opacity: .58; cursor: wait; }
 .v1-note { margin: 12px 5px 0; font: 8px ui-monospace, monospace; color: #a0a9b5; text-align: center; }
 
 .main-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-/* The kicker above the title is gone, so the toolbar is a single compact row: the title no longer
-   needs its offset margin, and the inherited 1.9 line-height would add ~11px of dead space above
-   and below 17px text. */
-.canvas-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 10px 25px; flex-shrink: 0; }
-.canvas-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-shrink: 1; flex-wrap: wrap; min-width: 0; }
+/* One toolbar row. The static "Draw.io diagram" label is gone: it duplicated nothing and
+   stole ~165px from the control cluster, which is what pushed "Advanced" onto a second line. */
+.canvas-toolbar { display: flex; justify-content: flex-start; align-items: center; gap: 15px; padding: 10px 25px; flex-shrink: 0; }
+.canvas-toolbar-actions { display: flex; align-items: center; justify-content: flex-start; gap: 7px; flex-shrink: 1; flex-wrap: wrap; row-gap: 7px; min-width: 0; }
 .auto-layout-button.ant-btn { font-weight: 600; box-shadow: none; }
 .native-layout-field { display: inline-flex; align-items: center; gap: 6px; color: #718094; font-size: 11px; white-space: nowrap; }
-.native-layout-select { min-width: 132px; font-size: 11px; }
-.native-layout-direction.ant-select { min-width: 125px; }
+/* Fixed widths: an antd Select with only a min-width grows to fit the selected label, so picking
+   a long option ("Stress · relationships") widened the row and reflowed the whole toolbar. */
+.native-layout-select { width: 132px; flex: 0 0 auto; font-size: 11px; }
+.native-layout-algorithm.ant-select { width: 168px; }
+.native-layout-direction.ant-select { width: 136px; }
 .layout-direction-button.ant-btn, .layout-settings-button.ant-btn { box-shadow: none; font-size: 11px; padding-inline: 10px; }
 .layout-direction-button.ant-btn { color: #506075; }
 .layout-direction-button.ant-btn:hover, .layout-settings-button.ant-btn:hover { border-color: #bec9ef; color: #334ab4; }
@@ -89,7 +91,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .native-layout-routing-field { grid-column: 1 / -1; }
 .native-layout-settings-help { margin: 18px 0 0; color: #8a96a6; font-size: 11px; line-height: 1.6; }
 .canvas-kicker { font-size: 8px; letter-spacing: 1.15px; } .canvas-kicker span { color: #c0c6d0; margin: 0 3px; }
-.canvas-title { display: flex; align-items: center; gap: 11px; line-height: 1.3; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: #263446; }
 .canvas-subtitle { border-left: 1px solid #dfe4eb; padding-left: 10px; font-size: 10px; color: #8b97a7; font-weight: 400; letter-spacing: 0; }
 .canvas-tools { display: flex; align-items: center; gap: 9px; }
 .layout-profile-control { display: flex; align-items: center; gap: 5px; color: #7a8798; font-size: 10px; white-space: nowrap; }
@@ -111,7 +112,7 @@ button:disabled { opacity: .58; cursor: wait; }
 }
 @media (max-width: 720px) {
   .native-layout-field { flex: 1 1 150px; }
-  .native-layout-select, .native-layout-direction.ant-select { width: 100%; }
+  .native-layout-select, .native-layout-algorithm.ant-select, .native-layout-direction.ant-select { width: 100%; }
   .native-layout-settings-grid { grid-template-columns: minmax(0, 1fr); }
   .native-layout-routing-field { grid-column: auto; }
 }
@@ -520,7 +521,6 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .design-section { border-color: var(--theme-border); }
 .app-shell .brand-name,
 .app-shell .document-breadcrumb strong,
-.app-shell .canvas-title,
 .app-shell .panel-section-heading,
 .app-shell .field-label,
 .app-shell .diagram-kind b,
@@ -841,7 +841,9 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
   .topbar .crumb-sep,
   .topbar .document-breadcrumb strong { display: none; }
 }
-.canvas-toolbar { flex-wrap: wrap; row-gap: 10px; }
+/* Wrapping stays as the narrow-viewport fallback only. It used to apply at every width, so a
+   single long select label was enough to split the control row. */
+.canvas-toolbar { flex-wrap: wrap; row-gap: 7px; }
 .canvas-tools { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
 
 @media (max-width: 1200px) {
@@ -939,7 +941,6 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 }
 
 /* The only large size: page, panel and metric headings. */
-.app-shell .canvas-title,
 .app-shell .page-hero h1,
 .app-shell .copilot-page-hero h1,
 .app-shell .settings-card-heading h2,

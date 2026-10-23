@@ -1146,7 +1146,6 @@ export default function App() {
 
       <main className="main-panel">
         <div className="canvas-toolbar">
-          <div className="canvas-title">Draw.io diagram</div>
           <div className="canvas-toolbar-actions" role="group" aria-label="Layout controls">
             <label className="native-layout-field">
               <span>Layout engine</span>
@@ -1164,7 +1163,7 @@ export default function App() {
               <span>Algorithm</span>
               <Select<NativeAutoLayoutOptions["algorithm"]>
                 aria-label="Layout algorithm"
-                className="native-layout-select native-layout-engine"
+                className="native-layout-select native-layout-algorithm"
                 size="small"
                 value={nativeLayoutOptions.algorithm}
                 options={NATIVE_LAYOUT_ALGORITHMS}
