@@ -118,7 +118,22 @@ describe("resolveNativeEditTargets", () => {
     });
     const script = parseNativeEditOperations([{
       op: "run_drawio_script", target: "active_page", summary: "Curve all connectors",
-      script: 'graph.getChildCells(model.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));'
+      script: [
+        "var edges = [];",
+        "function collectEdges(parent) {",
+        "  var count = model.getChildCount(parent);",
+        "  for (var i = 0; i < count; i += 1) {",
+        "    var cell = model.getChildAt(parent, i);",
+        "    if (cell && cell.edge) edges.push(cell);",
+        "    collectEdges(cell);",
+        "  }",
+        "}",
+        "collectEdges(model.getRoot());",
+        "if (edges.length) {",
+        "  graph.setCellStyles('edgeStyle', null, edges);",
+        "  graph.setCellStyles('curved', '1', edges);",
+        "}"
+      ].join("\\n")
     }]);
     if (!script.ok) throw new Error(script.error);
     expect(resolveNativeEditTargets(CONTEXT, script.operations)).toMatchObject({
