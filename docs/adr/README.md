@@ -14,3 +14,6 @@
 | [0010](./0010-unified-server-side-copilot-intent-processing.md) | Unified Server-Side Copilot Intent Processing | Superseded where it depends on semantic model |
 | [0011](./0011-native-drawio-only-model.md) | Native Draw.io Is the Only Diagram Model | Accepted |
 | [0012](./0012-native-diagram-extension-contracts.md) | Native Diagram Extension Contracts Without a Parallel Model | Accepted |
+| [0013](./0013-studio-owned-layout-engines.md) | Studio-Owned Dagre/ELK Layout Is a Core Feature | Accepted |
+| [0014](./0014-typed-native-drawio-c4-conversion.md) | Typed Native Draw.io C4 Conversion | Accepted |
+| [0015](./0015-tool-guided-copilot-shape-discovery.md) | Tool-Guided Copilot Instructions and Draw.io Shape Discovery | Accepted |

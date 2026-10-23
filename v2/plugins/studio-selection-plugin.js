@@ -89,7 +89,7 @@
       return { requested: requested, registered: registered };
     }
 
-    function buildCapabilityManifest(capabilities, shapeNames) {
+    function buildCapabilityManifest(capabilities, jsShapeClassNames) {
       var required = {
         graph: requiredRuntimeCapabilities.graph.slice(),
         model: requiredRuntimeCapabilities.model.slice(),
@@ -104,7 +104,7 @@
         scriptSupported: Object.keys(missing).every(function (group) { return missing[group].length === 0; }),
         required: required,
         missing: missing,
-        shapes: inspectShapeCapabilities(shapeNames)
+        jsShapeClasses: inspectShapeCapabilities(jsShapeClassNames)
       };
     }
 
@@ -266,12 +266,12 @@
       }
       return {
         schemaVersion: 1,
-        bridgeVersion: "studio-native-runtime/2",
+        bridgeVersion: "studio-native-runtime/3",
         drawioVersion: typeof options.drawioVersion === "string" ? options.drawioVersion : "unknown",
         documentRevision: typeof options.documentRevision === "string" ? options.documentRevision : "",
         pageId: currentPageId(),
         capabilities: capabilities,
-        capabilityManifest: buildCapabilityManifest(capabilities, options.shapeNames),
+        capabilityManifest: buildCapabilityManifest(capabilities, options.jsShapeClassNames),
         counts: { cells: allCells.length, vertices: vertexCount, edges: edgeCount },
         cells: cells,
         renderedEdges: renderedEdges,
@@ -1123,7 +1123,7 @@
             drawioVersion: typeof request.drawioVersion === "string" ? request.drawioVersion : "unknown",
             maxCells: request.maxCells,
             maxRenderedEdges: request.maxRenderedEdges,
-            shapeNames: request.shapeNames
+            jsShapeClassNames: request.jsShapeClassNames
           });
           publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: true, inspection: inspection });
         } catch (inspectionError) {

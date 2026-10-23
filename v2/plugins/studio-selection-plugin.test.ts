@@ -195,7 +195,7 @@ function createHarness(options: { personShapeAvailable?: boolean; customShapeAva
     return runOperation("__active_page__", "cell:execute-script", script);
   }
 
-  function runRuntimeInspect(shapeNames: string[] = []) {
+  function runRuntimeInspect(jsShapeClassNames: string[] = []) {
     messages.length = 0;
     messageHandler!({
       source: parent,
@@ -207,7 +207,7 @@ function createHarness(options: { personShapeAvailable?: boolean; customShapeAva
         drawioVersion: "v32.0.2",
         maxCells: 60,
         maxRenderedEdges: 24,
-        shapeNames
+        jsShapeClassNames
       })
     });
     return messages.find((message) => message.event === "studioRuntimeInspectResult");
@@ -318,7 +318,7 @@ describe("native Draw.io script bridge", () => {
       success: true,
       inspection: {
         schemaVersion: 1,
-        bridgeVersion: "studio-native-runtime/2",
+        bridgeVersion: "studio-native-runtime/3",
         drawioVersion: "v32.0.2",
         documentRevision: "a".repeat(64),
         counts: { cells: 6, vertices: 4, edges: 2 },
@@ -339,7 +339,7 @@ describe("native Draw.io script bridge", () => {
       success: true,
       inspection: {
         capabilityManifest: {
-          shapes: {
+          jsShapeClasses: {
             requested: ["mxgraph.c4.person2", "mxgraph.test.cloud", "mxgraph.not.registered"],
             registered: {
               "mxgraph.c4.person2": true,

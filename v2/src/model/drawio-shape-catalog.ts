@@ -1,0 +1,57 @@
+/**
+ * Curated, local shape catalogue for common native Draw.io primitives.
+ * This intentionally is not a complete inventory of the thousands of Draw.io shapes.
+ * A search miss is inconclusive and must never be treated as an availability result.
+ */
+export interface DrawioShapeCatalogEntry {
+  id: string;
+  title: string;
+  category: string;
+  kind: "vertex" | "edge";
+  style: string;
+  width: number;
+  height: number;
+  tags: string[];
+}
+export interface DrawioShapeSearchResult extends Omit<DrawioShapeCatalogEntry, "tags"> {
+  matchedTags: string[];
+}
+const SHAPE_CATALOG: readonly DrawioShapeCatalogEntry[] = [
+  { id: "basic.rectangle", title: "Rectangle / Process", category: "Basic", kind: "vertex", style: "whiteSpace=wrap;html=1;", width: 140, height: 60, tags: ["rectangle", "rect", "box", "process", "service", "component", "矩形", "方框", "流程", "流程节点"] },
+  { id: "basic.rounded-rectangle", title: "Rounded Rectangle", category: "Basic", kind: "vertex", style: "rounded=1;whiteSpace=wrap;html=1;", width: 140, height: 60, tags: ["rounded", "rounded rectangle", "application", "service", "圆角矩形", "圆角", "服务", "应用"] },
+  { id: "basic.ellipse", title: "Ellipse / Circle", category: "Basic", kind: "vertex", style: "ellipse;whiteSpace=wrap;html=1;", width: 80, height: 80, tags: ["ellipse", "circle", "oval", "start", "end", "椭圆", "圆形", "开始", "结束"] },
+  { id: "flowchart.decision", title: "Flowchart Decision / Diamond", category: "Flowchart", kind: "vertex", style: "rhombus;whiteSpace=wrap;html=1;", width: 120, height: 80, tags: ["decision", "diamond", "condition", "gateway", "判断", "菱形", "条件", "网关"] },
+  { id: "flowchart.database", title: "Database Cylinder", category: "Flowchart", kind: "vertex", style: "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;", width: 100, height: 70, tags: ["database", "cylinder", "data store", "storage", "db", "数据库", "存储", "圆柱"] },
+  { id: "flowchart.document", title: "Flowchart Document", category: "Flowchart", kind: "vertex", style: "shape=mxgraph.flowchart.document;whiteSpace=wrap;html=1;", width: 120, height: 80, tags: ["document", "file", "paper", "report", "文档", "文件", "报告"] },
+  { id: "network.cloud", title: "Cloud", category: "Network", kind: "vertex", style: "shape=cloud;whiteSpace=wrap;html=1;", width: 120, height: 80, tags: ["cloud", "network", "internet", "云", "云端", "网络", "互联网"] },
+  { id: "uml.actor", title: "UML Actor", category: "UML", kind: "vertex", style: "shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;", width: 30, height: 60, tags: ["uml", "actor", "participant", "stick figure", "参与者", "演员", "用例"] },
+  { id: "uml.lifeline", title: "UML Lifeline", category: "UML", kind: "vertex", style: "shape=umlLifeline;perimeter=lifelinePerimeter;size=16;", width: 20, height: 100, tags: ["uml", "lifeline", "sequence", "participant", "生命线", "时序", "参与者"] },
+  { id: "connector.orthogonal-arrow", title: "Orthogonal Arrow Connector", category: "Connector", kind: "edge", style: "edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;", width: 0, height: 0, tags: ["connector", "edge", "arrow", "orthogonal", "link", "连接线", "连线", "箭头", "直角"] }
+];
+function normalize(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().trim();
+}
+function tokenize(query: string): string[] {
+  return [...new Set(normalize(query).split(/[^\p{L}\p{N}]+/u).filter((part) => part.length > 0))];
+}
+export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeSearchResult[] {
+  const tokens = tokenize(query);
+  if (tokens.length === 0) return [];
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(8, Math.floor(limit))) : 5;
+  const scored = SHAPE_CATALOG.map((entry) => {
+    const searchable = normalize([entry.id, entry.title, entry.category, ...entry.tags].join(" "));
+    const matchedTags = entry.tags.filter((tag) => tokens.some((token) => normalize(tag).includes(token) || token.includes(normalize(tag))));
+    const allMatched = tokens.every((token) => searchable.includes(token));
+    const exactId = normalize(entry.id) === normalize(query);
+    const score = tokens.reduce((sum, token) => sum + (searchable.includes(token) ? 1 : 0), 0);
+    return { entry, matchedTags, allMatched, exactId, score };
+  }).filter((item) => item.exactId || item.allMatched);
+  return scored
+    .sort((a, b) => Number(b.exactId) - Number(a.exactId) || b.score - a.score || a.entry.title.localeCompare(b.entry.title))
+    .slice(0, safeLimit)
+    .map(({ entry, matchedTags }) => ({
+      id: entry.id, title: entry.title, category: entry.category, kind: entry.kind,
+      style: entry.style, width: entry.width, height: entry.height, matchedTags
+    }));
+}
+export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-1";

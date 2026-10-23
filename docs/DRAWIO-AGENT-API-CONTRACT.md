@@ -22,8 +22,21 @@ Versioned contract for the bundled Draw.io **v32.0.2** runtime. This is a compac
 
 **Never call `model.getDefaultParent()` or `model.refresh()`.** These are Graph-level methods, not Model methods. Use `graph.getDefaultParent()` and `graph.refresh()`. Use the compact `runtimeInspection.capabilities` list as the reviewed common subset. It is not a full mxGraph API inventory. For an unlisted native API needed by a task, first probe `typeof owner.method === "function"` on the exact Graph/Model/View object inside the script; call it only if present, and still verify its postcondition. The capability manifest reports method presence, not signature or semantic correctness.
 
-Shape registration is reported separately under `runtimeInspection.capabilityManifest.shapes`. Request exact shape IDs to inspect, then consult `shapes.registered[id]`. This result reflects `mxCellRenderer.defaultShapes`, not `mxStencilRegistry`: the stencil registry stores a different kind of definition. A missing or false registration result must not be replaced with a guess. Use a typed, canonical operation for a supported concept; otherwise report that the requested shape is unavailable.
+## Shape discovery
 
+There are three different concepts; do not conflate them:
+
+- **search_drawio_shapes** searches a curated local catalogue and returns a vetted title, exact style string, dimensions and category. The starter catalogue includes common primitives and selected flowchart/UML items; it is not exhaustive.
+- **runtimeInspection.capabilityManifest.jsShapeClasses.registered[id]** reports an own-property registration in mxCellRenderer.defaultShapes for explicitly requested identifiers. It only indicates registration of a JavaScript shape class in this live, revision-bound runtime.
+- **mxStencilRegistry** is a different registry. Calling mxStencilRegistry.getStencil(id) is not a universal availability test for all Draw.io shapes. Stencils, basic shapes and JavaScript shape classes follow different resolution paths, and some shapes may be loaded lazily.
+
+A catalogue miss is inconclusive. Do not invent style IDs or silently substitute a different notation. Use the typed set_c4_type operation for C4 Person, Software System and External Software System; do not script their shape styles or placeholder metadata. For an out-of-catalogue domain-specific shape, report that no verified definition is available rather than claiming the shape is absent from Draw.io.
+
+## Validation and postconditions
+
+A successful API call or changed XML revision is not proof of the requested outcome. Verify the native model state and, when visual appearance matters, the rendered state.
+
+For typed C4 conversion, the bridge and host check the canonical Person shape or rounded-card style, C4 placeholder-backed label metadata, expected dimensions and serialized XML. A UML actor, swimlane or arbitrary rounded rectangle is not an acceptable fallback for C4 Person. For other scripts, return a small JSON-safe result with the IDs and facts needed to validate the requested effect; inspect rendered connector points before claiming routing or curvature. The host still waits for editor acknowledgement and required workspace-persistence acknowledgement before reporting success.
 ## Recipes
 
 ### Enumerate all cells, including group descendants

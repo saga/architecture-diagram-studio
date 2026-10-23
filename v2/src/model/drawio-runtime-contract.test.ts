@@ -30,7 +30,7 @@ function inspection(overrides: Record<string, unknown> = {}) {
         view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
       },
       missing: { graph: [], model: [], view: [] },
-      shapes: { requested: ["mxgraph.c4.person2"], registered: { "mxgraph.c4.person2": true } }
+      jsShapeClasses: { requested: ["mxgraph.c4.person2"], registered: { "mxgraph.c4.person2": true } }
     },
     counts: { cells: 1, vertices: 1, edges: 0 },
     cells: [{
@@ -51,7 +51,7 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.capabilities.graph).toContain("getDefaultParent");
     expect(result?.capabilities.view).toContain("getState");
     expect(result?.capabilityManifest.scriptSupported).toBe(true);
-    expect(result?.capabilityManifest.shapes.registered["mxgraph.c4.person2"]).toBe(true);
+    expect(result?.capabilityManifest.jsShapeClasses.registered["mxgraph.c4.person2"]).toBe(true);
     expect(result?.cells[0]?.geometry).toMatchObject({ x: 10, y: 20, width: 100, height: 60 });
   });
 
@@ -65,20 +65,20 @@ describe("Draw.io runtime inspection contract", () => {
           view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
         },
         missing: { graph: [], model: [], view: [] },
-        shapes: {
+        jsShapeClasses: {
           requested: ["mxgraph.c4.person2", "mxgraph.missing", "mxgraph.c4.person2", "not a shape", "constructor"],
           registered: { "mxgraph.c4.person2": true, "mxgraph.missing": false, "not requested": true }
         }
       }
     }));
-    expect(result?.capabilityManifest.shapes).toEqual({
+    expect(result?.capabilityManifest.jsShapeClasses).toEqual({
       requested: ["mxgraph.c4.person2", "mxgraph.missing"],
       registered: { "mxgraph.c4.person2": true, "mxgraph.missing": false }
     });
   });
 
   it("bounds the number of queried shape names", () => {
-    const names = Array.from({ length: RUNTIME_INSPECTION_LIMITS.shapeNames + 10 }, (_, index) => "mxgraph.test.shape" + index);
+    const names = Array.from({ length: RUNTIME_INSPECTION_LIMITS.jsShapeClassNames + 10 }, (_, index) => "mxgraph.test.shape" + index);
     const registered = Object.fromEntries(names.map((name) => [name, true]));
     const result = normalizeDrawioRuntimeInspection(inspection({
       capabilityManifest: {
@@ -89,11 +89,11 @@ describe("Draw.io runtime inspection contract", () => {
           view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
         },
         missing: { graph: [], model: [], view: [] },
-        shapes: { requested: names, registered }
+        jsShapeClasses: { requested: names, registered }
       }
     }));
-    expect(result?.capabilityManifest.shapes.requested).toHaveLength(RUNTIME_INSPECTION_LIMITS.shapeNames);
-    expect(Object.keys(result?.capabilityManifest.shapes.registered ?? {})).toHaveLength(RUNTIME_INSPECTION_LIMITS.shapeNames);
+    expect(result?.capabilityManifest.jsShapeClasses.requested).toHaveLength(RUNTIME_INSPECTION_LIMITS.jsShapeClassNames);
+    expect(Object.keys(result?.capabilityManifest.jsShapeClasses.registered ?? {})).toHaveLength(RUNTIME_INSPECTION_LIMITS.jsShapeClassNames);
   });
 
   it("keeps documented API ownership in sync with the required runtime manifest", () => {

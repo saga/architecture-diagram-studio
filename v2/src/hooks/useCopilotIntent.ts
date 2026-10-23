@@ -30,7 +30,7 @@ interface CopilotIntentOptions {
   selectedNativePageId: string | null;
   getCurrentDiagramState?: () => { drawioXml: string; selectedNativeCellId: string | null; selectedNativePageId: string | null };
   /** Read-only iframe inspection, matched to the XML revision/page about to be sent to the Agent. */
-  getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null; shapeNames?: string[] }) => Promise<DrawioRuntimeInspection>;
+  getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
@@ -102,13 +102,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       let runtimeInspection: DrawioRuntimeInspection | undefined;
       if (getRuntimeInspection) {
-        const requestedShapeNames = new Set<string>();
-        if (/\bc4\b/i.test(requestText)) requestedShapeNames.add("mxgraph.c4.person2");
+        const requestedJsShapeClassNames = new Set<string>();
+        if (/\bc4\b/i.test(requestText)) requestedJsShapeClassNames.add("mxgraph.c4.person2");
         for (const match of requestText.match(/\bmxgraph(?:\.[A-Za-z0-9_-]+)+\b/gi) ?? []) {
-          if (requestedShapeNames.size < 40) requestedShapeNames.add(match);
+          if (requestedJsShapeClassNames.size < 40) requestedJsShapeClassNames.add(match);
         }
         runtimeInspection = await getRuntimeInspection({
-          documentRevision, pageId: activePageId, shapeNames: [...requestedShapeNames].slice(0, 40)
+          documentRevision, pageId: activePageId, jsShapeClassNames: [...requestedJsShapeClassNames].slice(0, 40)
         });
         if (runtimeInspection.documentRevision !== documentRevision || runtimeInspection.pageId !== activePageId) {
           throw new Error("The live Draw.io inspection did not match the source XML revision and active page. No Agent request was sent.");

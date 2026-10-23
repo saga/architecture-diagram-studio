@@ -156,7 +156,7 @@ fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;
 
 ## 五、建议的修法（按投入排序）
 
-1. **把"形状是否可用"变成可查询能力**：`capabilityManifest` 增加 `shapes` 段（从 `mxCellRenderer.defaultShapes` 取键），`inspectRuntime({ shapeNames: ['mxgraph.c4.person2'] })` 返回布尔；prompt 里明确"不要用 `mxStencilRegistry.getStencil` 判断 shape 是否存在"。
+1. **把"形状是否可用"变成可查询能力**：`capabilityManifest` 增加 `shapes` 段（从 `mxCellRenderer.defaultShapes` 取键），`inspectRuntime({ jsShapeClassNames: ['mxgraph.c4.person2'] })` 返回布尔；prompt 里明确"不要用 `mxStencilRegistry.getStencil` 判断 shape 是否存在"。
 2. **内置一张形状目录**（服务端常量，随 prompt 下发）：C4 的 person/system/external 三套 style 模板 + 色值，和"system 不是 shape"这一条。这张表比让模型自由发挥可靠得多，也顺带解决配色偏差。
 3. **成功判定纳入 `scriptResult`**：约定脚本必须返回 `{ changedCells, fallbacks }`；`fallbacks` 非空时 UI 不得显示 "Applied"，改为"已应用，但 C4 形状不可用，已按 X 近似——是否保留？"。至少要把 fallback 写进那条 assistant 消息。
 4. **`scriptResult` 回灌模型**：把它作为下一轮的上下文（或触发一次自动修复轮），而不是只写日志。现在的"用户手动重试"等于让模型在无反馈下重掷骰子。
@@ -179,8 +179,8 @@ fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;
 3. C4 转换不再允许通过 `run_drawio_script` 自由模拟；缺少 Person shape 时明确失败，不降级为 `umlActor`、`swimlane` 或其他近似形状。
 4. 桥接执行后会校验样式、C4 标签元数据和尺寸；宿主收到序列化 XML 后再次验证结果。只有 XML 改变但实际不是要求的 C4 形状，不再算成功。
 5. 补充了 operation/parser、目标解析、原生桥接和序列化后置条件测试。架构约束记录在 [ADR-0014 — Typed Native Draw.io C4 Conversion](docs/adr/0014-typed-native-drawio-c4-conversion.md)。
-6. 通用运行时能力清单新增 `capabilityManifest.shapes`：调用方可传入一组 shape ID，桥接直接读取 `mxCellRenderer.defaultShapes` 并逐个返回注册结果，不再把 stencil registry 与原生 shape registry 混为一谈。查询结果经过名称校验与数量限制，并有独立回归测试。Agent prompt 明确禁止将 `mxStencilRegistry.getStencil` 当作 shape 存在性探测，也禁止因查询失败而猜测替代图形。
-7. runtime bridge 协议升为 `studio-native-runtime/2`，配置偏好版本也升级，确保既有浏览器配置重新读取默认 C4 图形库列表。
+6. 通用运行时能力清单新增 `capabilityManifest.jsShapeClasses`：调用方可传入一组 shape ID，桥接直接读取 `mxCellRenderer.defaultShapes` 并逐个返回注册结果，不再把 stencil registry 与原生 shape registry 混为一谈。查询结果经过名称校验与数量限制，并有独立回归测试。Agent prompt 明确禁止将 `mxStencilRegistry.getStencil` 当作 shape 存在性探测，也禁止因查询失败而猜测替代图形。
+7. runtime bridge 协议升为 `studio-native-runtime/3`，配置偏好版本也升级，确保既有浏览器配置重新读取默认 C4 图形库列表。
 
 本次新增的 type/contract/plugin 测试已写入仓库，但当前执行环境无法运行 TypeScript、Vitest 或生产构建；不能据此宣称已通过这些验证。
 
