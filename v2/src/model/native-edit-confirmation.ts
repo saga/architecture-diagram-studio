@@ -227,8 +227,19 @@ function styleKeyMatches(style: string, key: string, expected: string): boolean 
   });
   const matching = entries.filter((entry) => entry.key === key);
   const normalized = expected.toLowerCase();
-  if (expected === "" || normalized === "0" || normalized === "false") return matching.length === 0;
-  if (normalized === "1" || normalized === "true") return matching.some((entry) => entry.value === null);
+  if (expected === "") return matching.length === 0;
+  if (normalized === "0" || normalized === "false") {
+    return matching.length === 0 || matching.some((entry) => {
+      const value = (entry.value || "").toLowerCase();
+      return value === "0" || value === "false";
+    });
+  }
+  if (normalized === "1" || normalized === "true") {
+    return matching.some((entry) => {
+      const value = (entry.value || "").toLowerCase();
+      return entry.value === null || value === "1" || value === "true";
+    });
+  }
   return matching.some((entry) => entry.value === expected);
 }
 
