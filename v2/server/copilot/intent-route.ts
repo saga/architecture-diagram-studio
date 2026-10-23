@@ -11,6 +11,7 @@ import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
+import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -138,6 +139,8 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
 }
 
 function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[]): boolean {
+  // Script code runs with the native editor API in the iframe. Require review even for one script.
+  if (operations.some((operation) => operation.op === "run_drawio_script")) return true;
   const deletes = operations.filter((operation) => operation.op === "delete").length;
   return deletes >= 2 || operations.length >= 10;
 }
@@ -367,15 +370,16 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const instructions = [
       "You operate on native Draw.io cells only. The mxfile XML held by the native Draw.io editor is the only diagram model.",
       "Ignore legacy instructions and reports that refer to DiagramDocument, projectionComplete, semantic completeness gates, semantic layout, or preview-based semantic proposals. Those concepts and flows must never block a supported native-cell edit.",
+      "The request context includes a bounded runtimeInspection from the actual Draw.io iframe, tied to this exact XML revision and page. It exposes only reviewed capability methods actually found at runtime. Never invent methods or put a Graph method on model or vice versa. If runtimeInspection is absent or capabilityManifest.scriptSupported is false, do not propose run_drawio_script; use a supported typed operation or report unsupported/ask for clarification.",
       "The request context contains cells from the active Draw.io page, with exact id, visible label, and cellType. selectedCell contains the current native selection and page id when there is a selection. When the user refers to the current or selected element, use selectedCell.cellId directly; use its visible label in user-facing summaries. If the request depends on the current/selected cell and selectedCell is null, return needs_clarification rather than guessing from a label.",
       "Interpret Chinese and English rename requests through the same operation. Examples: `rename X to Y`, `change X's name to Y`, `把 X 改名为 Y`, and `将 X 的名称改成 Y` all mean set_label with target X and label Y. Preserve the requested new label Y verbatim; resolved targetLabel is the old label and must not replace the requested label.",
       "For a numeric move of the selected/current vertex, send a numeric pixel delta: up means dx=0 and negative dy; down means dx=0 and positive dy; left means negative dx and dy=0; right means positive dx and dy=0. Use selectedCell.cellId when the user says selected/current. If no selection exists, ask for clarification. A vertex move is not an edge-routing or endpoint edit.",
       "For diagram changes, call propose_native_edits. Keep simple typed operations for focused select/rename/color/move/resize/delete/add-node tasks. For compound design changes or anything outside those simple operations, use exactly one run_drawio_script operation; do not declare a native action unsupported merely because there is no dedicated operation type.",
-      "run_drawio_script must be the only operation in its batch, target \"active_page\", include a concise summary, and contain a synchronous JavaScript body. It runs inside the actual Draw.io iframe with variables ui (Draw.io EditorUi), editor (ui.editor), graph (the live native Draw.io Graph) and model (the live mxGraphModel). Use native APIs directly: inspect cells with graph.getChildCells and graph.convertValueToString, or enumerate a model recursively with model.getChildCount/model.getChildAt; create cells with graph.insertVertex/graph.insertEdge; edit labels/styles/geometry with graph/model APIs; delete via graph.removeCells; group via graph.groupCells; align via graph.alignCells; reconnect via model.setTerminal; inspect and invoke existing UI actions through ui.actions.get(name) where applicable. The native runtime is the source of truth; do not write/replace XML or build a second diagram model. Preserve style keys not mentioned by the user. Scripts must be synchronous; do not use async functions or promises.",
+      "run_drawio_script must be the only operation in its batch, target \"active_page\", include a concise summary, and contain a synchronous JavaScript body. For this pinned v32.0.2 contract, graph owns getDefaultParent/getChildCells/setCellStyles/insertVertex/insertEdge/removeCells/refresh; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. model has NO getDefaultParent and NO refresh. Use only methods present in runtimeInspection.capabilities for that object. Do not call editor.setGraphXml, manage pages, invoke save/exit actions, use network/storage APIs, or replace XML. Preserve unrelated style keys. Scripts must be synchronous and always require explicit user confirmation.",
       "API ownership matters: graph.getDefaultParent() is a Graph method, not an mxGraphModel method. Never call model.getDefaultParent(). The model API for tree traversal is model.getRoot(), model.getChildCount(parent), and model.getChildAt(parent, index).",
       "For whole-page edits, recursively traverse from model.getRoot() with model.getChildCount/getChildAt; graph.getChildCells(graph.getDefaultParent(), ...) only covers that parent and can miss edges nested inside groups.",
-      "To make connectors visibly curved, do not remove edgeStyle: an empty/none edgeStyle can compute only a straight start-to-end path, and curved=1 on a path without non-collinear waypoints can still render as a straight line. For a curve-style conversion use the documented Draw.io combination edgeStyle=orthogonalEdgeStyle;curved=1, plus curveGeometry=1 and labelOnCurve=1 so labels/line jumps follow the painted curve. This intentionally changes routing mode but preserves unrelated style keys such as arrows, color and dashes.",
-      "Do not treat a successful setCellStyles call as proof of the requested visual effect. Before mutation, inspect the available graph/model methods and each affected cell's current style/geometry. After mutation, run graph.refresh() and graph.view.validate() when available, read model.getStyle(edge) to verify the style keys, then inspect graph.view.getState(edge).absolutePoints. If the computed points are all collinear, the result is still visually straight; add a safe waypoint to the edge geometry or report that the desired visual result could not be verified, rather than claiming success.",
+      "For curved connectors on the pinned v32.0.2 bundle, do not clear edgeStyle and do not use labelOnCurve (not supported by this pinned build). Start by preserving unrelated style and setting edgeStyle=orthogonalEdgeStyle plus curved=1. Only add curveGeometry if validated on this bundle. After graph.refresh() and graph.view.validate() when available, inspect graph.view.getState(edge).absolutePoints. A style string alone does not prove the line is curved; if rendered points remain collinear, inspect or set valid non-collinear geometry waypoints using the correct parent coordinate space and then re-validate. If that cannot be verified, report the limitation instead of claiming success.",
+      "Return a small JSON-safe result object from the script (counts, changed IDs, style keys, validation result, and rendered edge points inspected). The bridge exposes this as scriptResult. Use inspectRuntime(options) for a bounded read-only snapshot. If the script throws, the batch is rolled back and the exact error is surfaced. Do not claim a visual postcondition unless you checked it.",
       "For any setXXX API, confirm the method exists on the correct runtime object (typeof object.method === 'function'), use the API documented for the bundled Draw.io/mxGraph version, and verify both stored model state and relevant rendered cell state. Do not assume methods exist just because similarly named APIs exist on other mxGraph objects or versions.",
       "The native bridge wraps the script in one mxGraphModel update and snapshots active-page cells so model changes can be rolled back if the script throws. The source revision and active page are checked before dispatch; do not report success until serialized XML and workspace persistence are acknowledged. This is a local single-user workbench, so use the actual Draw.io API rather than waiting for new per-feature allowlist entries.",
       "For any request that does not produce an edit or a selection, call report_intent_outcome. Use answered for informational requests, needs_clarification when the target/request is ambiguous or missing required information, and unsupported only when the desired outcome cannot be achieved through the current native Draw.io runtime. Do not make up success.",
@@ -422,7 +426,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit one batch of native Draw.io changes. Use focused typed operations for simple edits, or one run_drawio_script operation for any complex/unlisted native editor task. The script executes inside the live Draw.io iframe with ui, editor, graph and model variables and can call native Graph/Model APIs instead of a growing feature-specific allowlist. Script mode must be the only operation in the batch, target active_page and provide a concise summary. The server validates the revision/page; the browser runs the script in the native editor, rolls back active-page cell changes if it throws, and requires serialized XML plus persistence acknowledgement before reporting success. Do not produce replacement XML or guess target IDs; inspect live cells when needed.",
+      description: "Submit one batch of native Draw.io changes. Prefer typed operations for supported edits. run_drawio_script is a fallback only when the request cannot be expressed by a typed operation, is available only when the attached pinned-version runtime capability manifest matches, and always requires explicit user confirmation. It runs inside the live iframe, must be the only operation in a batch, and must be synchronous. Do not produce replacement XML or guess target IDs; verify postconditions before returning.",
       parameters: {
         type: "object",
         properties: {
@@ -441,6 +445,19 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (!parsed.ok) {
           await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, error: parsed.error });
           throw new Error(parsed.error);
+        }
+        if (parsed.operations.some((operation) => operation.op === "run_drawio_script")) {
+          const activeContext = contextBySession.get(sessionId);
+          const runtime = activeContext && typeof activeContext === "object"
+            ? (activeContext as { runtimeInspection?: { capabilityManifest?: { scriptSupported?: boolean; missing?: Record<string, string[]> } } }).runtimeInspection
+            : undefined;
+          if (!runtime?.capabilityManifest?.scriptSupported) {
+            await deps.writeLog("tool.propose_native_edits.rejected", {
+              sessionId, reason: "runtime_capability_manifest_missing_or_mismatched",
+              missing: runtime?.capabilityManifest?.missing ?? null
+            });
+            throw new Error("run_drawio_script is disabled because the pinned Draw.io runtime capability manifest is missing or mismatched. Use a supported typed operation instead.");
+          }
         }
         const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
         if (!resolved.ok) {
@@ -603,6 +620,16 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     if (selectedCell && !visibleCells.some((cell) => cell.id === selectedCell!.cellId)) {
       visibleCells = [...visibleCells.slice(0, 199), allNativeCells.find((cell) => cell.id === selectedCell!.cellId)!];
     }
+    const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
+    const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
+      documentRevision: computedRevision, pageId: pageInfo.id, drawioVersion: PINNED_DRAWIO_VERSION
+    });
+    if (suppliedRuntimeInspection !== undefined && !runtimeInspection) {
+      await deps.writeLog("request.runtime-inspection.rejected", {
+        requestId, sessionId, reason: "snapshot_did_not_match_revision_page_or_pinned_runtime",
+        expectedRevision: computedRevision, expectedPageId: pageInfo.id, expectedDrawioVersion: PINNED_DRAWIO_VERSION
+      });
+    }
     const context = {
       kind: "drawio",
       title: typeof (requestedContext as { title?: unknown }).title === "string"
@@ -610,7 +637,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         : pageInfo.title || "Draw.io diagram",
       activePageId: pageInfo.id,
       selectedCell,
-      cells: visibleCells
+      cells: visibleCells,
+      ...(runtimeInspection ? { runtimeInspection } : {})
     };
     if (!standalone) {
       let authoritative: { drawioXml: string; revision: string } | null;
