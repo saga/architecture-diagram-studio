@@ -107,7 +107,7 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.cells).toHaveLength(RUNTIME_INSPECTION_LIMITS.cells);
     expect(result?.renderedEdges).toHaveLength(RUNTIME_INSPECTION_LIMITS.renderedEdges);
     expect(result?.cells[0]?.label).toHaveLength(250);
-    expect(result?.cells[0]?.style).toHaveLength(1200);
+    expect(result?.cells[0]?.style).toHaveLength(400);
     expect(result?.truncated).toBe(true);
   });
 
