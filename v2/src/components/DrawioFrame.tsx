@@ -135,7 +135,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   useImperativeHandle(ref, () => ({
     applyAutoLayout: () => new Promise<string>((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
-      if (!editorReady || !bridgeReady || !target) {
+      if (!editorReady || !target) {
         reject(new Error("The native Draw.io editor is not ready for auto layout."));
         return;
       }
