@@ -50,7 +50,7 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
         op: { type: "string", enum: ["run_drawio_script"] },
         target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
         summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
-        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body for pinned Draw.io v32.0.2. getDefaultParent/refresh/setCellStyles/insertVertex/insertEdge/removeCells belong to graph; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. Use only methods in the attached runtimeInspection capability manifest. Do not author XML, manage pages, use network/storage, or call save/exit actions. Scripts always require explicit user confirmation." }
+        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body for pinned Draw.io v32.0.2. getDefaultParent/refresh/setCellStyles/insertVertex/insertEdge/removeCells belong to graph; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. Use listed methods on their declared owner. For unlisted native APIs, first probe typeof owner.method === 'function' on the exact Graph/Model/View object and call only if it exists. Do not author XML, manage pages, use network/storage, or call save/exit actions. Scripts always require explicit user confirmation." }
       },
       required: ["op", "target", "summary", "script"],
       additionalProperties: false
