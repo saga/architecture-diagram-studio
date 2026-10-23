@@ -58,6 +58,24 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
     {
       type: "object",
       properties: {
+        op: { type: "string", enum: ["auto_layout"] },
+        target: { type: "string", enum: ["active_page"], description: "Always target the active native Draw.io page. Auto layout is a whole-page operation and must be the only item in the batch." },
+        engine: { type: "string", enum: ["elk", "dagre"], default: "elk", description: "Studio-owned layout engine. Never call Draw.io's built-in layout action." },
+        algorithm: { type: "string", enum: ["layered", "mrtree", "radial", "stress", "force"], default: "layered", description: "ELK algorithm; Dagre uses its directed layered algorithm." },
+        direction: { type: "string", enum: ["RIGHT", "LEFT", "DOWN", "UP"], default: "RIGHT", description: "Layout direction." },
+        nodeSpacing: { type: "number", minimum: 5, maximum: 500, default: 64, description: "Gap between peer nodes." },
+        layerSpacing: { type: "number", minimum: 10, maximum: 800, default: 90, description: "Gap between ranks/layers." },
+        edgeRouting: { type: "string", enum: ["ORTHOGONAL", "POLYLINE", "SPLINES"], default: "ORTHOGONAL", description: "ELK connector routing style." },
+        iterations: { type: "integer", minimum: 20, maximum: 3000, default: 300, description: "ELK stress/force iteration limit." },
+        randomSeed: { type: "integer", minimum: 0, maximum: 100000, default: 1, description: "Reproducible seed for algorithms that use randomness." },
+        margin: { type: "number", minimum: 0, maximum: 300, default: 30, description: "Canvas margin after layout normalization." }
+      },
+      required: ["op", "target"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
         op: { type: "string", enum: ["move"] },
         target: { ...target, description: "Exact cell ID or unique exact label of a vertex. Moving connector routing is not supported by this operation." },
         dx: { type: "number", minimum: -10000, maximum: 10000, description: "Required horizontal delta." },
