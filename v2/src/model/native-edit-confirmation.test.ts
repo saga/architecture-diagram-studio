@@ -145,6 +145,19 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("does not confirm a script when only an unrelated cell changed", () => {
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: unrelatedEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
+      value: JSON.stringify([{
+        cellId: "__active_page__", path: "cell:execute-script",
+        value: JSON.stringify({
+          script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+          postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+        })
+      }])
+    })).toBe(false);
+  });
+
   it("does not confirm a script that also changes a non-target page", () => {
     const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root>' +
       '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
