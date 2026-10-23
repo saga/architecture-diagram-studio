@@ -100,7 +100,6 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       },
       required: ["op", "target", "newLabel"],
       additionalProperties: false
-    }
     },
     {
       type: "object",
