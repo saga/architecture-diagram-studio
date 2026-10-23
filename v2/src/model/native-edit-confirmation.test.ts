@@ -46,6 +46,14 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("accepts a bare mxGraphModel when the editor page ID is not present in the source XML", () => {
+    const bareBefore = before.replace('<mxfile><diagram id="p1" name="Overview">', '').replace('</diagram></mxfile>', '');
+    const bareAfter = bareBefore.replace('value="Old API"', 'value="New API"');
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: bareBefore, xml: bareAfter, cellId: "api", pageId: "p1", path: "label", value: "New API"
+    })).toBe(true);
+  });
+
   it("validates the intended edit inside a compressed native Draw.io page", () => {
     const model = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
       '<mxCell id="api" value="After" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell>' +
