@@ -274,9 +274,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 ? repairPlan.proposal.operations.find((operation) => operation.op === "run_drawio_script")
                 : undefined;
               if (repairPlan.outcome === "proposal_required" && repairedScript?.op === "run_drawio_script") {
-                let longestBacktickRun = 0;
-                for (const run of repairedScript.script.match(/\x60+/g) || []) longestBacktickRun = Math.max(longestBacktickRun, run.length);
-                const fence = "\x60".repeat(Math.max(3, longestBacktickRun + 1));
                 recordDiagnostic("copilot.native-script-repair.proposal-ready", "The repaired native script was returned as a confirmation proposal; it has not been executed", {
                   sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
                   proposalId: repairPlan.proposal.id,
@@ -288,9 +285,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   role: "assistant",
                   id: Date.now() + 1,
                   text: "自动修正提案（1/1）： " + repairPlan.proposal.summary +
-                    "\n\n**Exact corrected native script for review:**\n" + fence + "javascript\n" +
-                    repairedScript.script + "\n" + fence +
-                    "\n\n尚未执行。请审阅代码并确认；确认后才会应用修改。",
+                    "\n\n尚未执行。确认后才会应用修改。",
                   proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary }
                 }]);
                 return;
