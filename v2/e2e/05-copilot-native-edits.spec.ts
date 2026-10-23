@@ -213,7 +213,7 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 
   const lastMessage = page.locator(".gemini-message.assistant").last();
   await expect(lastMessage).toContainText("Applied 1 native change");
-  await expect(lastMessage).toContainText("Add “bbb” after “Database” and connect it");
+  await expect(lastMessage).toContainText("Add “bbb” to the right of “Database” and connect it");
   await expect(lastMessage).not.toContainText(/preview|confirm/i);
   expect(seenPrompt).toContain("Database");
 
