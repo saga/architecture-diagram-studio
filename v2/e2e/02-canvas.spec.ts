@@ -248,8 +248,10 @@ test.describe("原生画布", () => {
     });
 
     expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
-    await expect.poll(async () => edgeStyles(await readWorkspaceXml(workspace)).filter((style) => /(?:^|;)curved=1(?:;|$)/.test(style)).length,
-      { timeout: 30_000, intervals: [500] }).toBeGreaterThan(0);
+    await expect.poll(async () => {
+      const styles = edgeStyles(await readWorkspaceXml(workspace));
+      return styles.length > 0 && styles.every((style) => /(?:^|;)curved=1(?:;|$)/.test(style));
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
   });
 
   test("原生批量编辑逐步执行，失败时回滚并报告失败步骤", async ({ page }) => {
