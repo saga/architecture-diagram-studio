@@ -4,7 +4,11 @@ export const DRAWIO_REFERENCE_TOPICS = [
   "overview", "api_ownership", "shape_discovery", "script_safety", "postconditions", "recipes", "all"
 ] as const;
 export type DrawioReferenceTopic = (typeof DRAWIO_REFERENCE_TOPICS)[number];
-const REFERENCE_URL = new URL("../../../docs/DRAWIO-AGENT-API-CONTRACT.md", import.meta.url);
+const REFERENCE_URLS = [
+  // Source execution (v2/server/copilot) and compiled execution (v2/dist/server/copilot).
+  new URL("../../../docs/DRAWIO-AGENT-API-CONTRACT.md", import.meta.url),
+  new URL("../../../../docs/DRAWIO-AGENT-API-CONTRACT.md", import.meta.url)
+];
 const MAX_REFERENCE_CHARS = 18_000;
 function getSection(markdown: string, heading: string): string {
   const markers = [...markdown.matchAll(/^## (.+)$/gm)];
@@ -33,8 +37,16 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
   ].filter(Boolean).join("\n\n");
 }
 export async function readDrawioAgentReference(topic: DrawioReferenceTopic): Promise<string> {
-  const markdown = await readFile(REFERENCE_URL, "utf8");
-  return selectDrawioReferenceSections(markdown, topic);
+  let lastError: unknown;
+  for (const url of REFERENCE_URLS) {
+    try {
+      const markdown = await readFile(url, "utf8");
+      return selectDrawioReferenceSections(markdown, topic);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Unable to load the local Draw.io Agent API reference.");
 }
 export function isDrawioReferenceTopic(value: unknown): value is DrawioReferenceTopic {
   return typeof value === "string" && (DRAWIO_REFERENCE_TOPICS as readonly string[]).includes(value);

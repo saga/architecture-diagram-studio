@@ -389,7 +389,7 @@ describe("Copilot intent route result and revision contract", () => {
       { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(copilot.getPreparedSystemMessage()).toContain("must not be scripted");
+    expect(copilot.getPreparedSystemMessage()).toContain("prefer typed operations");
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
@@ -401,13 +401,13 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
     const prompt = copilot.getPreparedSystemMessage();
-    expect(prompt).toContain("把 X 改名为 Y");
+    expect(prompt).toContain("Preserve requested rename text verbatim");
     expect(prompt).toContain("negative dy");
     expect(prompt).toContain("selectedCell.cellId");
-    expect(prompt).toContain("return needs_clarification");
-    expect(prompt).toContain("alignment, distribution, grouping");
+    expect(prompt).toContain("No result is not proof that Draw.io lacks a shape");
     expect(prompt).toContain("run_drawio_script");
-    expect(prompt).toContain("actual Draw.io iframe");
+    expect(prompt).toContain("runtimeInspection is bound to this XML revision and page");
+    expect(prompt.length).toBeLessThan(2800);
   });
 
   it("auto-dispatches insertion-only native scripts after static validation", async () => {
