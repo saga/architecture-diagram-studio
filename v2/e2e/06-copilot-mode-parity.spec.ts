@@ -78,16 +78,26 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   const savedWorkspaceXml = await readWorkspaceXml(workspace);
   expect(savedWorkspaceXml).not.toBe(originalWorkspaceXml);
 
-  // Force the non-File-System-Access fallback so Playwright can supply a real standalone file.
-  await page.evaluate(() => {
-    Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
-  });
+  // Provide a deterministic File System Access handle so the test exercises the standalone-file adapter.
+  await page.evaluate((xml) => {
+    const file = new File([xml], "standalone.drawio", { type: "application/xml" });
+    Object.defineProperty(window, "__mockStandaloneFileSavedXml", { configurable: true, writable: true, value: xml });
+    const handle = {
+      name: file.name,
+      getFile: async () => file,
+      createWritable: async () => ({
+        write: async (value: string) => {
+          (window as Window & { __mockStandaloneFileSavedXml?: string }).__mockStandaloneFileSavedXml = value;
+        },
+        close: async () => undefined
+      })
+    };
+    Object.defineProperty(window, "showOpenFilePicker", {
+      configurable: true, writable: true,
+      value: async () => [handle]
+    });
+  }, originalWorkspaceXml);
   await page.getByRole("button", { name: "Open Draw.io" }).click();
-  await page.locator('input[type="file"][accept*=".dio"]').setInputFiles({
-    name: "standalone.drawio",
-    mimeType: "application/xml",
-    buffer: Buffer.from(originalWorkspaceXml, "utf8")
-  });
   await expect(page.locator(".document-breadcrumb strong")).toHaveText("standalone.drawio");
   await waitForNativeEditor(page);
 
@@ -103,6 +113,9 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied 1 native change");
   await expect(nativeFrame(page).getByText("Local Data Store", { exact: true })).toBeVisible();
   await expect.poll(async () => (await readWorkspaceXml(workspace)).includes('value="Workspace Data Store"')).toBe(true);
+  await expect.poll(async () => page.evaluate(() =>
+    (window as Window & { __mockStandaloneFileSavedXml?: string }).__mockStandaloneFileSavedXml || ""
+  )).toContain('value="Local Data Store"');
 
   expect(intentCalls).toBe(2);
   expect(seenPrompts).toEqual([
