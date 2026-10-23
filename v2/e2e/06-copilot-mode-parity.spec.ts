@@ -98,7 +98,20 @@ test("Copilot uses the same server intent contract while standalone edits stay o
     });
   }, originalWorkspaceXml);
   await page.getByRole("button", { name: "Open Draw.io" }).click();
-  await expect(page.locator(".document-breadcrumb strong")).toHaveText("standalone.drawio");
+  await expect.poll(async () => {
+    const name = (await page.locator(".document-breadcrumb strong").textContent())?.trim() || "";
+    if (name === "standalone.drawio") return name;
+    const status = (await page.locator(".status-left").textContent())?.trim() || "";
+    const diagnostics = await page.evaluate(() => {
+      try {
+        const raw = localStorage.getItem("architecture-diagram-studio:v2:diagnostic-traces") || "[]";
+        const entries = JSON.parse(raw) as Array<{ event?: string; message?: string; details?: unknown }>;
+        return entries.filter((entry) => typeof entry.event === "string" && entry.event.startsWith("drawio.open.standalone"))
+          .slice(-4).map((entry) => ({ event: entry.event, message: entry.message, details: entry.details }));
+      } catch { return []; }
+    });
+    return name + " | lastAction=" + status + " | openDiagnostics=" + JSON.stringify(diagnostics);
+  }, { timeout: 15_000 }).toBe("standalone.drawio");
   await waitForNativeEditor(page);
 
   let workspaceDocumentWrites = 0;
