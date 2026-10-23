@@ -837,6 +837,7 @@
         if (typeof activeGraph.scrollCellToVisible === "function") activeGraph.scrollCellToVisible(cell);
         return { selected: true, cellId: cell.id };
       }
+      var c4EditResult = null;
       activeModel.beginUpdate();
       try {
         if (path === "cell:set-c4-type") {
@@ -912,7 +913,7 @@
               !cell.geometry || cell.geometry.width !== c4Preset.width || cell.geometry.height !== c4Preset.height) {
             throw new Error("C4 conversion postcondition failed; the native shape, label metadata, or dimensions did not match the requested C4 preset");
           }
-          return { c4Type: c4Request.kind, c4Name: c4Name, styleVerified: true, placeholders: true, width: c4Preset.width, height: c4Preset.height };
+          c4EditResult = { c4Type: c4Request.kind, c4Name: c4Name, styleVerified: true, placeholders: true, width: c4Preset.width, height: c4Preset.height };
         } else if (path === "label") {
           var current = cell.value;
           if (current && typeof current === "object" && current.nodeType === 1) {
@@ -1061,6 +1062,7 @@
       // editor dirty while the host requests an explicit XML export for confirmation.
       if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
       if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+      return c4EditResult;
     }
 
     window.addEventListener("message", function (event) {
