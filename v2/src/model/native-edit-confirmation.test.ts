@@ -109,6 +109,19 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("does not accept an assertion that was already true before an unrelated script change", () => {
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: JSON.stringify({
+        script: 'model.setValue(model.getCell("db"), "Warehouse");',
+        postconditions: [{ kind: "label_equals", target: "api", value: "Old API" }]
+      })
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: unrelatedEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
   it("checks newly added cells, styles, geometry and edge endpoints in serialized XML", () => {
     const withNodeAndEdge = before.replace('</root>',
       '<mxCell id="new" value="New Service" vertex="1" parent="1" style="rounded=1;fillColor=#ff0000;">' +
