@@ -9,7 +9,25 @@ import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type 
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
-const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&noSaveBtn=1&noExitBtn=1";
+/**
+ * Keep the native shape panel available in the embedded editor. `libraries=1`
+ * enables palettes in embed mode; omitting `sidebar=0` prevents hiding the panel.
+ */
+export const DRAWIO_EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
+
+/**
+ * C4 is built into the pinned Draw.io bundle as the `c4` palette. The version bump
+ * intentionally refreshes older persisted library preferences so C4 is visible by default.
+ */
+export const DRAWIO_EDITOR_CONFIG = {
+  version: "2026-10-c4-default-library-v1",
+  defaultFonts: ["Inter", "Arial"],
+  defaultPageFormat: "A4",
+  defaultLibraries: "general;uml;er;bpmn;flowchart;basic;arrows2;c4",
+  autosave: 1,
+  noSaveBtn: true,
+  noExitBtn: true
+} as const;
 const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
 const RUNTIME_INSPECTION_TIMEOUT_MS = 5_000;
 const AUTO_LAYOUT_TIMEOUT_MS = 30_000;
@@ -289,7 +307,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     const timeout = window.setTimeout(() => {
       setStartupError("Draw.io did not finish the embed handshake within 20 seconds. Check the [studio:v2] drawio output in the terminal, or re-initialise the editor.");
       recordDiagnostic("drawio.init.timeout", "Timed out waiting for the Draw.io embed to initialise", {
-        iframeLoaded, ready: editorReady, url: EMBED_URL, timeoutMs: 20000
+        iframeLoaded, ready: editorReady, url: DRAWIO_EMBED_URL, timeoutMs: 20000
       }, "error");
     }, 20_000);
     return () => window.clearTimeout(timeout);
@@ -547,7 +565,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         recordDiagnostic("drawio.handshake.configure", "Draw.io requested configuration");
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
           action: "configure",
-          config: { defaultFonts: ["Inter", "Arial"], defaultPageFormat: "A4", autosave: 1, noSaveBtn: true, noExitBtn: true }
+          config: DRAWIO_EDITOR_CONFIG
         }), window.location.origin);
       }
       if (data.event === "load") {
@@ -715,18 +733,18 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         <span>{startupError}</span><button type="button" onClick={retryEditor}>Re-initialise</button>
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"
-        src={EMBED_URL}
+        src={DRAWIO_EMBED_URL}
         onLoad={() => {
           setIframeLoaded(true);
           iframeLoadedRef.current = true;
           hideSaveAndExitControls();
-          recordDiagnostic("drawio.iframe.loaded", "The Draw.io iframe fired its browser load event; still waiting for embed init", { url: EMBED_URL, frameKey });
+          recordDiagnostic("drawio.iframe.loaded", "The Draw.io iframe fired its browser load event; still waiting for embed init", { url: DRAWIO_EMBED_URL, frameKey });
         }}
         onError={() => {
           embedUiObserverRef.current?.disconnect();
           embedUiObserverRef.current = null;
           setStartupError("The browser could not load the local Draw.io page. Check that /drawio/index.html exists.");
-          recordDiagnostic("drawio.iframe.load.failed", "The browser could not load the local Draw.io iframe", { url: EMBED_URL }, "error");
+          recordDiagnostic("drawio.iframe.load.failed", "The browser could not load the local Draw.io iframe", { url: DRAWIO_EMBED_URL }, "error");
         }}
         allow="clipboard-read; clipboard-write" />
     </div>
