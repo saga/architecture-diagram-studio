@@ -123,6 +123,19 @@ function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, page
     return false;
   }
 
+  const pageMetadataSignature = (page: Element): string => JSON.stringify({
+    attributes: Array.from(page.attributes)
+      .map((attribute) => [attribute.name, attribute.value] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+    nonModelChildren: elementChildren(page)
+      .filter((child) => child.nodeName !== "mxGraphModel")
+      .map(elementSignature)
+  });
+  const targetBeforePage = beforePages.find((page) => page.getAttribute("id") === pageId);
+  const targetAfterPage = afterPages.find((page) => page.getAttribute("id") === pageId);
+  if (!targetBeforePage || !targetAfterPage ||
+      pageMetadataSignature(targetBeforePage) !== pageMetadataSignature(targetAfterPage)) return false;
+
   const beforeCells = cellsForXml(beforeXml);
   const afterCells = cellsForXml(afterXml);
   // The active page must still exist with its root and default layer; otherwise a page/layer
