@@ -402,7 +402,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("answered");
     const prompt = copilot.getPreparedSystemMessage();
     expect(prompt).toContain("Preserve requested rename text verbatim");
-    expect(prompt).toContain("negative dy");
+    expect(prompt).toContain("up/left negative, down/right positive");
     expect(prompt).toContain("selectedCell.cellId");
     expect(prompt).toContain("no result is not proof that Draw.io lacks a shape");
     expect(prompt).toContain("run_drawio_script");
