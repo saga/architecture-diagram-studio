@@ -127,6 +127,8 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     return separator < 0 ? entry : entry.slice(0, separator);
   }
 
+  let editorModifiedCalls = 0;
+  let graphRefreshCalls = 0;
   const graph: Record<string, any> = {
     getModel: () => model,
     getSelectionModel: () => ({ addListener: () => undefined }),
@@ -139,7 +141,7 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
         model.setStyle(cell, entries.length ? entries.join(";") + ";" : null);
       }
     },
-    refresh: () => undefined
+    refresh: () => { graphRefreshCalls += 1; }
   };
 
   const messages: Array<Record<string, any>> = [];
@@ -149,7 +151,7 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
   let messageHandler: ((event: Record<string, any>) => void) | null = null;
   const windowMock = {
     Draw: { loadPlugin: (callback: (ui: Record<string, any>) => void) => callback({
-      editor: { graph, setModified: () => undefined },
+      editor: { graph, setModified: () => { editorModifiedCalls += 1; } },
       addListener: () => undefined
     }) },
     parent,
@@ -206,7 +208,8 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     return messages.find((message) => message.event === "studioRuntimeInspectResult");
   }
 
-  return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect };
+  return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect,
+    getEditorModifiedCalls: () => editorModifiedCalls, getGraphRefreshCalls: () => graphRefreshCalls };
 }
 
 const curveAllConnectorsScript = [
@@ -253,6 +256,8 @@ describe("native Draw.io script bridge", () => {
       expect(harness.service.value.getAttribute("label")).toContain("%c4Name%");
       expect(harness.service.value.getAttribute("label")).toContain("%c4Type%");
       expect(harness.service.geometry).toMatchObject({ width: c4.width, height: c4.height });
+      expect(harness.getEditorModifiedCalls()).toBe(1);
+      expect(harness.getGraphRefreshCalls()).toBe(1);
     }
   });
 
