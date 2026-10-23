@@ -102,6 +102,30 @@ test.describe("原生画布", () => {
     await expect(page.locator(".status-native")).toHaveAttribute("title", /edits autosave back into Studio/);
   });
 
+  test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
+    const ids = ["client", "api", "worker", "queue", "database"];
+    const beforeXml = await readWorkspaceXml(workspace);
+    const beforePositions = ids.map((id) => cellX(beforeXml, id));
+    expect(beforePositions.every((position) => position !== null)).toBe(true);
+
+    const autoLayoutButton = page.getByRole("button", { name: "Auto layout", exact: true });
+    await expect(autoLayoutButton).toBeEnabled();
+    await autoLayoutButton.click();
+
+    // The click is only successful when Draw.io returns the post-layout XML and workspace
+    // persistence writes geometry changes; a present-but-inert toolbar button must fail here.
+    await expect.poll(async () => {
+      const afterXml = await readWorkspaceXml(workspace);
+      const afterPositions = ids.map((id) => cellX(afterXml, id));
+      return afterPositions.some((position, index) => position !== beforePositions[index]);
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+
+    const frame = nativeFrame(page);
+    for (const label of ["Client", "API Service", "Background Worker", "Message Queue", "Database"]) {
+      await expect(frame.getByText(label, { exact: true })).toBeVisible();
+    }
+  });
+
   test("拖动节点会把新的几何信息写回工作区文件", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
     const beforeX = cellX(before, "client");
