@@ -351,7 +351,7 @@ function operationIsReflected(
       styleKeyMatches(style, "fillColor", preset.fill) &&
       styleKeyMatches(style, "strokeColor", preset.stroke) &&
       styleKeyMatches(style, "fontColor", "#ffffff") &&
-      (preset.shape ? styleKeyMatches(style, "shape", preset.shape) : styleKeyMatches(style, "rounded", "1") && styleKeyMatches(style, "shape", "")) &&
+      (preset.shape ? styleKeyMatches(style, "shape", preset.shape) : style.split(";").some((entry) => entry === "rounded=1") && styleKeyMatches(style, "shape", "")) &&
       numericAttribute(nextCell.geometry, "width") === preset.width &&
       numericAttribute(nextCell.geometry, "height") === preset.height;
   }
