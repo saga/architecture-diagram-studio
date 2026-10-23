@@ -91,11 +91,12 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
 
 function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsupported", reply: string) {
   let activeSession: Record<string, unknown> = {};
-  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
   return {
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
+    getPreparedSystemMessage: () => prepared.systemMessage,
     acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
@@ -256,6 +257,22 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("failed");
     expect(harness.acknowledgements.pending.size).toBe(0);
     expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(true);
+  });
+
+  it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
+    const copilot = reportingCopilot("answered", "No document change is needed.");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "把当前选中的 Database 向上移动 10px"
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const prompt = copilot.getPreparedSystemMessage();
+    expect(prompt).toContain("把 X 改名为 Y");
+    expect(prompt).toContain("negative dy");
+    expect(prompt).toContain("selectedCell.cellId");
+    expect(prompt).toContain("return needs_clarification");
+    expect(prompt).toContain("Alignment, distribution, grouping");
   });
 
   it("returns stale_context when the source hash does not match the XML", async () => {

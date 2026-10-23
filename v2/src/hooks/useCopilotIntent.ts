@@ -129,8 +129,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         model: plan.model || aiModel.trim() || "server-default",
         durationMs: plan.durationMs,
         outcome: plan.outcome,
-        nativeEditCount: plan.nativeEdits?.operations.length ?? 0,
-        hasSelection: Boolean(plan.selection),
+        nativeEditCount: plan.outcome === "command_ready" ? plan.nativeEdits.operations.length : 0,
+        hasSelection: plan.outcome === "selected" || (plan.outcome === "command_ready" && Boolean(plan.selection)),
         replyLength: plan.reply.length
       });
 
@@ -144,10 +144,11 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       if (plan.outcome === "answered" || plan.outcome === "needs_clarification" ||
           plan.outcome === "unsupported" || plan.outcome === "stale_context" || plan.outcome === "failed") {
+        const failure = "error" in plan ? plan.error : undefined;
         recordDiagnostic("copilot.intent.outcome", "Copilot returned a no-mutation outcome", {
-          outcome: plan.outcome, sessionId: plan.sessionId || copilotSessionId, reply: plan.reply, error: plan.error ?? null
+          outcome: plan.outcome, sessionId: plan.sessionId || copilotSessionId, reply: plan.reply, error: failure ?? null
         }, plan.outcome === "failed" || plan.outcome === "stale_context" ? "warn" : "info");
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply || plan.error || "The diagram was not changed." }]);
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply || failure || "The diagram was not changed." }]);
         return;
       }
       if (plan.outcome === "applied") {
@@ -155,7 +156,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         return;
       }
 
-      if (plan.nativeEdits) {
+      if (plan.outcome === "command_ready") {
         if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable; no change was applied.");
         if (plan.nativeEdits.documentRevision !== documentRevision || plan.nativeEdits.pageId !== activePageId) {
           throw new Error("The native edit plan is stale or targets another Draw.io page. No change was applied.");
@@ -214,7 +215,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
 
       const selection = plan.selection;
-      if (selection) {
+      if (plan.outcome === "selected") {
+        const selection = plan.selection;
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
         if ((selection.pageId ?? null) !== (activePageId ?? null)) throw new Error("The selection result targets a different Draw.io page; no selection changed.");
         applyNativeCellEdit(selection.cellId, "cell:select", selection.pageId || "");

@@ -47,20 +47,6 @@ export interface CopilotNativeEditProposal {
 
 interface OutcomeBase extends CopilotResponseMetadata {
   reply: string;
-  /** Shared optional fields simplify exhaustive transport handling; each outcome narrows their meaning. */
-  nativeEdits?: CopilotNativeEditCommand;
-  selection?: CopilotSelection;
-  proposal?: CopilotNativeEditProposal;
-  question?: string;
-  reason?: string;
-  error?: string;
-  requestId?: string;
-  documentRevision?: string | null;
-  persistedRevision?: string | null;
-  resolvedTargets?: Array<{ cellId: string; label: string }>;
-  editorAcknowledged?: boolean;
-  persistenceStatus?: string;
-  failureStage?: "editor" | "persistence" | null;
 }
 
 export type CopilotIntentResponse =

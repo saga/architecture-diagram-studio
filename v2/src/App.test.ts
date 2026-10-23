@@ -17,7 +17,8 @@ describe("native Draw.io Copilot contract", () => {
       model: "stub-model"
     }));
     expect(response.outcome).toBe("command_ready");
-    expect(response.nativeEdits?.operations[0]).toMatchObject({
+    if (response.outcome !== "command_ready") throw new Error("Expected a validated native command");
+    expect(response.nativeEdits.operations[0]).toMatchObject({
       op: "add_node_after", cellId: "db", newLabel: "Audit Service"
     });
     expect(response.reply).toBe("Add an audit service");
@@ -51,7 +52,8 @@ describe("native Draw.io Copilot contract", () => {
         documentRevision: "revision-1"
       }
     }));
-    expect(response.nativeEdits?.operations[0]).toMatchObject({
+    if (response.outcome !== "command_ready") throw new Error("Expected a validated native command");
+    expect(response.nativeEdits.operations[0]).toMatchObject({
       op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store"
     });
   });
