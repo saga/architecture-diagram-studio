@@ -1,5 +1,6 @@
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 import { parseDrawioXml } from "./drawio-xml-dom";
+import type { NativeScriptPostcondition } from "./native-edit-operations";
 
 export interface NativeEditOperation {
   cellId: string;
@@ -244,12 +245,68 @@ function attributeMatches(element: Element, name: string, expected: string): boo
   return element.getAttribute(name) === expected;
 }
 
-function pointFor(record: CellRecord, index: number): Element | null {
-  if (!record.geometry) return null;
-  const points = elementChildren(record.geometry)
+function pointsFor(record: CellRecord): Element[] {
+  if (!record.geometry) return [];
+  return elementChildren(record.geometry)
     .filter((child) => child.nodeName === "Array" && child.getAttribute("as") === "points")
     .flatMap((array) => elementChildren(array).filter((child) => child.nodeName === "mxPoint"));
-  return points[index] ?? null;
+}
+
+function pointFor(record: CellRecord, index: number): Element | null {
+  return pointsFor(record)[index] ?? null;
+}
+
+function styleAssertionMatches(style: string, key: string, expected: string): boolean {
+  const entries = style.split(";").filter(Boolean).map((entry) => {
+    const separator = entry.indexOf("=");
+    return separator < 0 ? { key: entry, value: null as string | null } : { key: entry.slice(0, separator), value: entry.slice(separator + 1) };
+  });
+  const matching = entries.filter((entry) => entry.key === key);
+  if (expected === "") return matching.length === 0;
+  return matching.some((entry) => entry.value === expected);
+}
+
+function scriptPostconditionMatches(
+  records: ModelRecords[],
+  condition: NativeScriptPostcondition,
+  pageId?: string | null
+): boolean {
+  const record = findCell(records, condition.cellId, pageId);
+  if (!condition.exists) return !record;
+  if (!record) return false;
+  if (condition.kind === "vertex" && record.cell.getAttribute("vertex") !== "1") return false;
+  if (condition.kind === "edge" && record.cell.getAttribute("edge") !== "1") return false;
+  if (condition.label !== undefined && !labelMatches(record, condition.label)) return false;
+  if (condition.parentId !== undefined && (record.cell.getAttribute("parent") || "") !== condition.parentId) return false;
+  if (condition.sourceId !== undefined && (record.cell.getAttribute("source") || "") !== condition.sourceId) return false;
+  if (condition.targetId !== undefined && (record.cell.getAttribute("target") || "") !== condition.targetId) return false;
+  const style = record.cell.getAttribute("style") || "";
+  if (condition.style && Object.entries(condition.style).some(([key, expected]) =>
+    !styleAssertionMatches(style, key, expected)
+  )) return false;
+  if (condition.geometry) {
+    const geometry = condition.geometry;
+    if (!record.geometry) return false;
+    for (const key of ["x", "y", "width", "height"] as const) {
+      if (geometry[key] !== undefined) {
+        const actual = numericAttribute(record.geometry, key);
+        if (actual === null || Math.abs(actual - geometry[key]!) > 0.02) return false;
+      }
+    }
+    if (geometry.relative !== undefined && boolAttribute(record.geometry, "relative", false) !== geometry.relative) return false;
+    if (geometry.points !== undefined) {
+      const actualPoints = pointsFor(record);
+      if (actualPoints.length !== geometry.points.length) return false;
+      for (let index = 0; index < geometry.points.length; index += 1) {
+        const actual = actualPoints[index]!;
+        const expected = geometry.points[index]!;
+        const x = numericAttribute(actual, "x");
+        const y = numericAttribute(actual, "y");
+        if (x === null || y === null || Math.abs(x - expected.x) > 0.02 || Math.abs(y - expected.y) > 0.02) return false;
+      }
+    }
+  }
+  return true;
 }
 
 function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operation: NativeEditOperation, pageId?: string | null): boolean {
@@ -439,10 +496,30 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
     }
     if (documentOperations.length === 1 && documentOperations[0].path === "cell:execute-script") {
-      const script = documentOperations[0];
-      return operations.length === 1 && script.cellId === "__active_page__" &&
-        typeof script.value === "string" && Boolean(script.value.trim()) &&
-        scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
+      const scriptOperation = documentOperations[0];
+      if (operations.length !== 1 || scriptOperation.cellId !== "__active_page__") return false;
+      let payload: { script?: unknown; postconditions?: unknown };
+      try { payload = JSON.parse(scriptOperation.value) as { script?: unknown; postconditions?: unknown }; }
+      catch { return false; }
+      if (typeof payload.script !== "string" || !payload.script.trim() ||
+          !Array.isArray(payload.postconditions) || payload.postconditions.length < 1 ||
+          payload.postconditions.length > 100) return false;
+      const conditions = payload.postconditions as NativeScriptPostcondition[];
+      const seen = new Set<string>();
+      if (!conditions.every((condition) => {
+        if (!condition || typeof condition.cellId !== "string" || !condition.cellId.trim() ||
+            typeof condition.exists !== "boolean" || seen.has(condition.cellId)) return false;
+        seen.add(condition.cellId);
+        return true;
+      })) return false;
+      if (!scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId)) return false;
+      const newlySatisfied = conditions.some((condition) =>
+        !scriptPostconditionMatches(before, condition, input.pageId) &&
+        scriptPostconditionMatches(after, condition, input.pageId)
+      );
+      return newlySatisfied && conditions.every((condition) =>
+        scriptPostconditionMatches(after, condition, input.pageId)
+      );
     }
     return documentOperations.every((operation) =>
       operationIsReflected(before, after, operation, input.pageId)
