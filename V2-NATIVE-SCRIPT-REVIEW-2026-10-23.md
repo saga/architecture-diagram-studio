@@ -257,3 +257,14 @@ DrawioFrame.tsx:363-393 → App.tsx:1039-1092 → /api/copilot/intent/ack
 - **抛错回滚 + 覆盖测试**：`e2e/02-canvas.spec.ts` 新增两条用例，分别验证"脚本改样式并落盘"与"抛错后新建节点被删除且 XML 回到 before"。
 - **原有保证没被削掉**：revision/page 绑定、序列化 XML 确认、持久化确认、ack 的 versionId/revision 对账全部保留，脚本走的是同一条链路。
 - **签名忽略空白与属性顺序**（`:64-73`）：Draw.io 序列化噪声不会导致误判，这个细节处理得对。
+
+
+---
+
+## Follow-up: UX change for creation-only scripts (2026-10-23)
+
+The original finding that arbitrary same-origin JavaScript must not auto-run still stands. V2 now has a deliberately narrow exception for the user experience: a server-side TypeScript AST checker may dispatch a script without the confirmation click only when it contains new-cell insertion calls only (graph.insertVertex and graph.insertEdge), at most 6 vertices and 8 edges (12 insertions total), and a single model.beginUpdate / try / finally / model.endUpdate transaction. Every insertion must be a direct statement in the protected try body and use the default graph parent. The script must call graph.refresh and return a read-only result that inspects a newly inserted cell. The script is capped at 12 KiB.
+
+The checker rejects edits to existing cells, deletion APIs, other mutating calls, dynamic method dispatch, browser/network/storage globals, async code, unbounded loops, unsupported syntax and any script it cannot prove fits this subset. Repaired scripts always require review. A single typed deletion now also requires confirmation; batch-size review remains in place. Chat output hides script source and shows the change summary only.
+
+This is a bounded exception, not permission to auto-run arbitrary scripts. A syntax or capability change must fail closed to the confirmation proposal; the editor acknowledgement and persistence/revision checks remain the source of truth for success.

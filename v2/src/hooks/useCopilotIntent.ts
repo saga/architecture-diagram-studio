@@ -9,6 +9,7 @@ import {
   type NativeEditExecution
 } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
+import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
@@ -151,11 +152,14 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       });
 
       if (plan.outcome === "proposal_required") {
+        const safeReply = hideNativeScriptDetails(plan.reply);
+        const safeSummary = hideNativeScriptDetails(plan.proposal.summary);
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
-          text: plan.reply + "\n\n**Proposed changes:** " + plan.proposal.summary +
+          text: (safeReply || "A diagram change is ready for review.") +
+            "\n\n**Proposed changes:** " + (safeSummary || "Apply the proposed diagram changes.") +
             "\n\nNothing has been changed yet. Confirm to apply this proposal to the current diagram.",
-          proposal: { id: plan.proposal.id, summary: plan.proposal.summary }
+          proposal: { id: plan.proposal.id, summary: safeSummary || "Apply the proposed diagram changes." }
         }]);
         return;
       }

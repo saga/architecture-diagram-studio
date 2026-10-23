@@ -16,6 +16,20 @@ const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '<mxCell id="api" value="API Service" vertex="1" parent="1"><mxGeometry x="200" y="20" width="120" height="60" as="geometry"/></mxCell>' +
   '</root></mxGraphModel></diagram></mxfile>';
 
+const SAFE_CREATION_SCRIPT = [
+  "var parent = graph.getDefaultParent();",
+  "var source = model.getCell('db');",
+  "var target = null;",
+  "var edge = null;",
+  "model.beginUpdate();",
+  "try {",
+  "  target = graph.insertVertex(parent, null, 'ddd', 100, 160, 120, 60, 'rounded=0;whiteSpace=wrap;html=1;');",
+  "  edge = graph.insertEdge(parent, null, '', source, target, 'endArrow=block;endFill=1;curved=1;');",
+  "} finally { model.endUpdate(); }",
+  "graph.refresh();",
+  "return { nodeId: target.id, edgeId: edge.id, sourceId: model.getTerminal(edge, true).id, targetId: model.getTerminal(edge, false).id };"
+].join("\n");
+
 type ServerHarness = {
   baseUrl: string;
   server: Server;
@@ -184,7 +198,7 @@ function belowNodesCopilot() {
   };
 }
 
-function proposingCopilot() {
+function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "delete", target: "Database" }, { op: "delete", target: "API Service" }]) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -206,14 +220,14 @@ function proposingCopilot() {
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
           .find((candidate) => candidate.name === "propose_native_edits");
         if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
-        await tool.handler({ operations: [{ op: "delete", target: "Database" }, { op: "delete", target: "API Service" }] });
+        await tool.handler({ operations });
         return { message: { data: { content: "Delete both nodes." } }, modelCallUsages: [] };
       }
     })
   };
 }
 
-function scriptProposingCopilot() {
+function scriptProposingCopilot(script = "return { checked: true };", summary = "Read-only runtime script for confirmation-gate test") {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -237,8 +251,8 @@ function scriptProposingCopilot() {
         if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
         await tool.handler({ operations: [{
           op: "run_drawio_script", target: "active_page",
-          summary: "Read-only runtime script for confirmation-gate test",
-          script: "return { checked: true };"
+          summary,
+          script
         }] });
         return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
       }
@@ -395,7 +409,23 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("actual Draw.io iframe");
   });
 
-  it("requires an explicit confirmation proposal for every native script operation", async () => {
+  it("auto-dispatches insertion-only native scripts after static validation", async () => {
+    const harness = await createServer({
+      copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
+    });
+    const requestContext = {
+      kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
+      runtimeInspection: compatibleRuntimeInspection()
+    };
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    const nativeEdits = body.nativeEdits as { operations: Array<Record<string, unknown>> };
+    expect(nativeEdits.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+  });
+
+  it("requires an explicit confirmation proposal for scripts outside the creation-only safe subset", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot() });
     const requestContext = {
       kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
@@ -405,6 +435,15 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("proposal_required");
     expect((body.proposal as { operations: Array<{ op: string }> }).operations).toMatchObject([{ op: "run_drawio_script" }]);
+    expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("requires review before even a single typed deletion", async () => {
+    const harness = await createServer({ copilot: proposingCopilot([{ op: "delete", target: "Database" }]) });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("proposal_required");
+    expect((body.proposal as { operations: Array<{ op: string }> }).operations).toHaveLength(1);
     expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
