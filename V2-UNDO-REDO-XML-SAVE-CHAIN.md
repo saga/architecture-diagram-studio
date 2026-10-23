@@ -20,7 +20,7 @@
 
 | 原发现 | 当前结论 | 处置 |
 |---|---|---|
-| §4.1 向 Draw.io 发送不支持的 `action: "save"` | 已修复 | 当前宿主使用 `{ action: "export", format: "xml" }` 请求序列化；待确认记录增加 30 秒超时，防止不相关的后续保存被误记成原请求的确认。 |
+| §4.1 向 Draw.io 发送不支持的 `action: "save"` | 已修复 | 使用 `{ action: "export", format: "xml" }` 请求序列化；只允许显式 XML export 响应参与确认，并逐项验证目标单元格/属性的期望结果。普通 autosave 不会清除待确认项，匹配失败则等待超时并 fail closed。 |
 | §4.2 XML 校验前更新 `lastSent` | 已修复 | 当前只在接收端通过 `isDrawioXmlDocument` 校验后，才更新 `lastSent`。 |
 | §4.3 恢复版本会清空原生 Undo 栈 | 行为仍然存在，提示已补充 | 恢复本地或服务器历史版本后，状态栏说明原生 Undo/Redo 历史已重置；继续回退应使用版本历史。 |
 | §4.4 409 后每次编辑都重复失败 | 已修复 | 首次 409 后熔断自动保存，不自动覆盖服务器版本；本地编辑仍留在画布。先导出本地草稿，再恢复/重新加载权威版本才解除熔断。 |
@@ -138,3 +138,29 @@
 4. **暂不做**：历史版本 hash 去重。undo/redo 回到既有内容仍是一项用户可见操作，是否合并版本属于历史产品语义，不应为减少日志而擅自抹掉时间线。版本数量上限已控制存储增长。
 
 主链（undo/redo → 保存到 XML 文件）**无需另建任何保存实现**。
+
+
+## 2026-10-23 追加复核：确认请求必须与预期编辑结果对应
+
+### 修复：禁止把任意不同的 XML 快照当作 Copilot 编辑确认
+
+旧逻辑在收到 save、autosave 或 export XML 后，会遍历并清除全部 pendingSaveConfirmationsRef 项；只要 XML 与编辑前快照不同，就把待确认批编辑作为成功回执。这会把同一时刻发生的无关用户编辑误认为 Copilot 修改已被序列化。
+
+当前实现调整为：
+
+- save / autosave 只更新当前原生 XML 与保存链，不消费属性编辑确认。
+- 只有带 format: "xml" 的显式 export 响应才尝试确认待处理编辑。
+- 通过 nativeEditIsReflectedInXml 读取完整 Draw.io XML（包括压缩页），验证目标 cell、属性和值是否体现请求结果；批量编辑要求每一项操作都能在快照中验证。
+- 不匹配的快照只记录 drawio.selection.property.save-confirmation.unmatched，保留超时计时器和待确认项；未知操作按 fail-closed 处理，不发虚假的成功回执。
+- 页面 ID 随待确认记录一起保存，避免同一文档不同页具有相同 cell ID 时跨页匹配。
+- 增加单元测试覆盖无关节点变化、批量操作缺项和压缩页面的确认场景。
+
+协议限制：Draw.io 的 embed export 响应没有透传 Studio 请求 ID，因此无法用 request ID 做一对一相关联。当前采用“显式 export + 请求结果内容匹配”的确认方式；不匹配时宁可报告超时，也不把无关快照误认为成功。
+
+### 仍需明确的持久化边界
+
+/api/workspace/document 对版本索引、主 .drawio 文件和 workspace state 的多次写入并不是跨文件原子事务。单个文件通过临时文件重命名写入，并不能保证多个文件共同提交或共同回滚。若写入在中途失败，可能留下部分已写入的状态。后续应单独加入带文件系统故障注入的服务端测试和补偿/恢复策略；当前不能把这一边界表述成已解决。
+
+### 验证状态
+
+本次代码改动新增 native-edit-confirmation.test.ts，覆盖核心内容匹配规则。还需通过仓库自身的 npm test、npm run typecheck、npm run build 与原生 Draw.io E2E 验证；源码提交本身不等于这些命令已通过。
