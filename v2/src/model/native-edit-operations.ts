@@ -478,23 +478,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
     case "set_c4_type": return `Convert “${target}” to the native C4 ${operation.kind === "person" ? "Person" : operation.kind === "system" ? "Software System" : "External Software System"} style`;
-    case "run_drawio_script": {
-      const describeCondition = (condition: NativeScriptPostcondition): string => {
-        if (!condition.exists) return `cell “${condition.cellId}” is absent`;
-        const details: string[] = [];
-        if (condition.kind) details.push(`kind=${condition.kind}`);
-        if (condition.label !== undefined) details.push(`label=“${condition.label}”`);
-        if (condition.parentId !== undefined) details.push(`parent=${condition.parentId || "(none)"}`);
-        if (condition.sourceId !== undefined) details.push(`source=${condition.sourceId || "(none)"}`);
-        if (condition.targetId !== undefined) details.push(`target=${condition.targetId || "(none)"}`);
-        if (condition.style) details.push("style " + Object.entries(condition.style).map(([key, value]) => key + "=" + (value === "" ? "(absent)" : value)).join(", "));
-        if (condition.geometry) details.push("geometry " + Object.entries(condition.geometry).map(([key, value]) =>
-          key === "points" ? "points=" + JSON.stringify(value) : key + "=" + String(value)
-        ).join(", "));
-        return `cell “${condition.cellId}”: ${details.join(", ")}`;
-      };
-      return operation.summary + " (verified outcome: " + operation.postconditions.map(describeCondition).join("; ") + ")";
-    }
+    case "run_drawio_script":
+      return operation.summary + " (postconditions: " + operation.postconditions.length + " native cell assertions)";
     case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
       " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
