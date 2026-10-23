@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
-type Workspace = { id: string } | null;
+type Workspace = { id: string; primaryDiagram?: string | null } | null;
+function getWorkspaceKey(workspace: Workspace): string | null {
+  return workspace ? JSON.stringify([workspace.id, workspace.primaryDiagram ?? null]) : null;
+}
+type SaveConflict = { workspaceKey: string | null; currentRevision: string | null };
 type ChatMessage = { role: "assistant" | "user"; id: number; text: string };
 type Diagnostic = (event: string, message: string, details?: Record<string, unknown>, level?: "debug" | "info" | "warn" | "error") => void;
 interface Options {
@@ -13,6 +17,7 @@ interface SaveOptions {
   /** Debounced autosaves must not persist an XML snapshot after the editor or workspace has moved on. */
   onlyIfCurrent?: boolean;
   expectedWorkspaceId?: string | null;
+  expectedWorkspaceKey?: string | null;
 }
 export function useWorkspacePersistence(options: Options) {
   const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
@@ -21,23 +26,70 @@ export function useWorkspacePersistence(options: Options) {
   const lastPersistedVersionIdRef = useRef<string | null>(null);
   const currentXmlRef = useRef(drawioXml);
   const currentWorkspaceIdRef = useRef<string | null>(projectWorkspace?.id ?? null);
-  // Keep these refs current during render so already-queued work can detect a mode/document switch.
+  const currentWorkspaceKeyRef = useRef<string | null>(getWorkspaceKey(projectWorkspace));
+  const saveConflictRef = useRef<SaveConflict | null>(null);
+  const pausedAutosaveLoggedRef = useRef(false);
+  // Keep these refs current during render so queued work detects an XML, workspace or diagram switch.
   currentXmlRef.current = drawioXml;
   currentWorkspaceIdRef.current = projectWorkspace?.id ?? null;
+  currentWorkspaceKeyRef.current = getWorkspaceKey(projectWorkspace);
+
+  const clearSaveConflict = useCallback((reason: string) => {
+    const previous = saveConflictRef.current;
+    saveConflictRef.current = null;
+    pausedAutosaveLoggedRef.current = false;
+    if (previous) onDiagnostic("workspace.persist.conflict.cleared",
+      "Workspace saving was re-enabled after an authoritative context change",
+      { reason, previousWorkspaceKey: previous.workspaceKey,
+        currentWorkspaceKey: currentWorkspaceKeyRef.current, conflictingRevision: previous.currentRevision }, "info");
+  }, [onDiagnostic]);
+
+  useEffect(() => {
+    const conflict = saveConflictRef.current;
+    if (conflict && conflict.workspaceKey !== currentWorkspaceKeyRef.current) {
+      clearSaveConflict("workspace-changed");
+    }
+  }, [projectWorkspace?.id, projectWorkspace?.primaryDiagram, clearSaveConflict]);
+
   const persistDocumentNow = useCallback((xml: string, label = "Autosave", saveOptions?: SaveOptions): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
       if (saveOptions?.onlyIfCurrent &&
           (currentXmlRef.current !== xml ||
-           currentWorkspaceIdRef.current !== saveOptions.expectedWorkspaceId)) {
+           currentWorkspaceIdRef.current !== saveOptions.expectedWorkspaceId ||
+           currentWorkspaceKeyRef.current !== saveOptions.expectedWorkspaceKey)) {
         onDiagnostic("workspace.persist.stale-autosave.skipped", "Skipped a queued autosave because its XML or workspace context is no longer current", {
           xmlLength: xml.length, expectedWorkspaceId: saveOptions.expectedWorkspaceId ?? null,
           currentWorkspaceId: currentWorkspaceIdRef.current,
+          expectedWorkspaceKey: saveOptions.expectedWorkspaceKey ?? null,
+          currentWorkspaceKey: currentWorkspaceKeyRef.current,
           currentXmlLength: currentXmlRef.current.length
         }, "info");
         return {
           saved: false, workspaceRevision: serverRevisionRef.current,
           version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null
         };
+      }
+      const existingConflict = saveConflictRef.current;
+      if (existingConflict && existingConflict.workspaceKey !== currentWorkspaceKeyRef.current) {
+        clearSaveConflict("workspace-changed");
+      }
+      if (saveConflictRef.current) {
+        const errorMessage = "Workspace saving is paused after a revision conflict. Export the local draft, then restore or reload an authoritative server version before continuing.";
+        if (saveOptions?.onlyIfCurrent) {
+          if (!pausedAutosaveLoggedRef.current) {
+            pausedAutosaveLoggedRef.current = true;
+            onDiagnostic("workspace.persist.autosave.paused",
+              "Skipped autosave while a revision conflict remains unresolved",
+              { workspaceKey: saveConflictRef.current.workspaceKey, conflictingRevision: saveConflictRef.current.currentRevision,
+                xmlLength: xml.length }, "warn");
+          }
+          return {
+            saved: false, workspaceRevision: serverRevisionRef.current,
+            version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null,
+            error: errorMessage
+          };
+        }
+        throw new Error(errorMessage);
       }
       // The explicit Copilot save and the debounced autosave can observe the same editor event.
       // Avoid creating two version records for the same exact XML snapshot.
@@ -54,12 +106,18 @@ export function useWorkspacePersistence(options: Options) {
       });
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
-        setLastAction("Save conflict: the server has a newer diagram revision. The local changes were not written; reload the latest version before continuing.");
-        onDiagnostic("workspace.persist.conflict", "The server rejected a stale diagram save; the newer revision was preserved", {
-          baseRevision, currentRevision: payload.workspaceRevision ?? payload.currentRevision ?? null,
-          xmlLength: xml.length
+        const conflictingRevision = payload.workspaceRevision ?? payload.currentRevision ?? null;
+        saveConflictRef.current = {
+          workspaceKey: currentWorkspaceKeyRef.current,
+          currentRevision: typeof conflictingRevision === "string" ? conflictingRevision : null
+        };
+        pausedAutosaveLoggedRef.current = false;
+        setLastAction("Save conflict: local edits remain in this editor but were not written. Automatic saves are paused; export a copy before restoring or reloading a server version.");
+        onDiagnostic("workspace.persist.conflict", "The server rejected a stale diagram save; further automatic saves are paused and the newer revision was preserved", {
+          baseRevision, currentRevision: saveConflictRef.current.currentRevision,
+          workspaceKey: saveConflictRef.current.workspaceKey, xmlLength: xml.length
         }, "error");
-        throw new Error(payload.error || "The diagram changed in another editor. Reload the latest version before continuing.");
+        throw new Error(payload.error || "The diagram changed in another editor. Export the local draft, then restore or reload the latest version before continuing.");
       }
       if (!response.ok) throw new Error(payload.error || "HTTP " + response.status + " while saving the document");
       if (typeof payload.workspaceRevision === "string" || payload.workspaceRevision === null) serverRevisionRef.current = payload.workspaceRevision ?? null;
@@ -74,7 +132,7 @@ export function useWorkspacePersistence(options: Options) {
     });
     saveQueueRef.current = operation.catch(() => undefined);
     return operation;
-  }, [onDiagnostic, setLastAction]);
+  }, [clearSaveConflict, onDiagnostic, setLastAction]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace || lastPersistedXmlRef.current !== null) return;
     if (typeof serverRevisionRef.current === "string") lastPersistedXmlRef.current = drawioXml;
@@ -83,9 +141,10 @@ export function useWorkspacePersistence(options: Options) {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     // The native Draw.io XML is the complete document. Save it directly without comparing a model projection.
     const expectedWorkspaceId = projectWorkspace.id;
+    const expectedWorkspaceKey = getWorkspaceKey(projectWorkspace);
     const timer = window.setTimeout(() => {
       void persistDocumentNow(drawioXml, saveLabelRef.current, {
-        onlyIfCurrent: true, expectedWorkspaceId
+        onlyIfCurrent: true, expectedWorkspaceId, expectedWorkspaceKey
       }).catch((error: unknown) => {
         onDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
           errorMessage: error instanceof Error ? error.message : String(error), xmlLength: drawioXml.length
@@ -106,5 +165,5 @@ export function useWorkspacePersistence(options: Options) {
       }, "error");
     });
   }, [copilotSessionId, messages, serverHydrated, workspaceContentReady, projectWorkspace, onDiagnostic]);
-  return { persistDocumentNow };
+  return { persistDocumentNow, clearSaveConflict };
 }

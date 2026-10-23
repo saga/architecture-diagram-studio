@@ -6,6 +6,7 @@ import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette
 export const DRAWIO_VERSION = "v32.0.2";
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&noSaveBtn=1&noExitBtn=1";
+const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 type NativeEditResult = {
@@ -25,7 +26,7 @@ type NativeEditResult = {
   auditWarning?: string;
 };
 type PendingNativeEdit = { cellId: string; path: string; value: string; startedAt: number; beforeXml: string };
-type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult };
+type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; timeoutId?: number };
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
@@ -76,6 +77,14 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
+
+  useEffect(() => () => {
+    for (const pending of pendingSaveConfirmationsRef.current.values()) {
+      if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+    }
+    pendingSaveConfirmationsRef.current.clear();
+    pendingNativeEditsRef.current.clear();
+  }, []);
 
   // The editor's readiness is surfaced in the app's bottom status bar, so the canvas stays flush
   // against the stage instead of carrying its own header strip.
@@ -258,10 +267,32 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           if (requestId !== null && pending) {
-            pendingSaveConfirmationsRef.current.set(requestId, {
+            const previous = pendingSaveConfirmationsRef.current.get(requestId);
+            if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
+            const confirmation: PendingSaveConfirmation = {
               ...pending,
               ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
-            });
+            };
+            confirmation.timeoutId = window.setTimeout(() => {
+              if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
+              pendingSaveConfirmationsRef.current.delete(requestId);
+              const errorMessage = "Draw.io acknowledged the native edit but did not serialize XML within 30 seconds.";
+              recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
+                "Timed out waiting for a serialized XML snapshot after a native property edit",
+                { requestId, cellId: confirmation.cellId, property: confirmation.path,
+                  timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS,
+                  durationMs: Date.now() - confirmation.startedAt }, "warn");
+              if (confirmation.deferredBatchAck) {
+                onNativeEditResultRef.current?.({
+                  ...confirmation.deferredBatchAck,
+                  success: false,
+                  error: errorMessage,
+                  failureStage: "editor",
+                  auditWarning: "The edit was not confirmed by a serialized document; verify the canvas before retrying."
+                });
+              }
+            }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
+            pendingSaveConfirmationsRef.current.set(requestId, confirmation);
           }
           // Copilot batch success is deferred until the native editor has serialized XML. A graph-model
           // mutation acknowledgement alone is not proof that the resulting document was captured.
@@ -335,6 +366,7 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
                 durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
                 xmlChanged: changed, saveEvent: data.event, serializedByExport: exportSerialization });
             if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
+            if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
           if (duplicateXml) {

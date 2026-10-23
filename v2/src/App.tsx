@@ -191,7 +191,7 @@ export default function App() {
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
+  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
 
   // The native Draw.io editor is the only canvas; typed edits preserve unrelated XML cells.
 
@@ -596,6 +596,7 @@ export default function App() {
       }
       // Prevent the workspace bootstrap fallback from replacing this standalone XML with the workspace primary diagram.
       if (projectWorkspace?.id) workspaceInitialLoadRef.current = projectWorkspace.id;
+      clearSaveConflict("standalone-document-opened");
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle);
       setStandaloneFileName(file.name);
@@ -773,9 +774,10 @@ export default function App() {
       }, "error");
       return;
     }
+    clearSaveConflict("standalone-history-restore");
     setNativeXmlOverride(entry.xml);
     setLocalHistoryOpen(false);
-    setLastAction("Restored local snapshot: " + entry.label);
+    setLastAction("Restored local snapshot: " + entry.label + "; native Undo/Redo history was reset.");
     recordDiagnostic("copilot.standalone.history.restored", "Restored a validated local Draw.io XML snapshot", {
       fileName: standaloneFileName, snapshotId: entry.id, xmlLength: entry.xml.length, previousXmlLength: currentXml.length
     });
@@ -790,11 +792,12 @@ export default function App() {
         throw new Error(result.error || "Server-side native Draw.io version restore failed");
       }
       serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
+      clearSaveConflict("server-version-restore");
       setNativeXmlOverride(restoredXml);
       setServerXmlAvailable(true);
       setWorkspaceContentReady(true);
       setRevision((value) => value + 1);
-      setLastAction("Restored native Draw.io XML from server version history");
+      setLastAction("Restored native Draw.io XML from server version history; native Undo/Redo history was reset. Use version history to return to an earlier snapshot.");
       setVersionHistoryOpen(false);
       recordDiagnostic("workspace.version.restored", "Restored the full native Draw.io XML snapshot", {
         sourceVersionId: versionId, newVersionId: result.version?.id, xmlLength: restoredXml.length
