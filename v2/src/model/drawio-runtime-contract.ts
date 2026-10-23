@@ -1,5 +1,5 @@
 export const PINNED_DRAWIO_VERSION = "v32.0.2";
-export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/1";
+export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/2";
 
 export const PINNED_RUNTIME_CAPABILITY_REQUIREMENTS = {
   graph: ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"],
@@ -12,7 +12,9 @@ export const RUNTIME_INSPECTION_LIMITS = {
   renderedEdges: 24,
   methodsPerObject: 180,
   geometryPoints: 8,
-  renderedPoints: 12
+  renderedPoints: 12,
+  shapeNames: 40,
+  shapeNameLength: 160
 } as const;
 
 export type RuntimeCapabilityGroup = "ui" | "editor" | "graph" | "model" | "view" | "vertexCell" | "edgeCell";
@@ -41,12 +43,20 @@ export interface DrawioRuntimeCell {
   geometry: RuntimeGeometry | null;
 }
 
+export interface DrawioShapeCapabilityManifest {
+  /** Names queried against mxCellRenderer.defaultShapes in the live iframe. */
+  requested: string[];
+  /** One explicit registration result for each requested shape name. */
+  registered: Record<string, boolean>;
+}
+
 export interface DrawioRuntimeInspection {
   schemaVersion: 1;
   capabilityManifest: {
     scriptSupported: boolean;
     required: Partial<Record<RuntimeCapabilityGroup, string[]>>;
     missing: Partial<Record<RuntimeCapabilityGroup, string[]>>;
+    shapes: DrawioShapeCapabilityManifest;
   };
   bridgeVersion: string;
   drawioVersion: string;
@@ -196,6 +206,18 @@ export function normalizeDrawioRuntimeInspection(
 
   const requiredGroups = normalizeMethodGroups(rawManifest.required);
   const missingGroups = normalizeMethodGroups(rawManifest.missing);
+  const rawShapes = isRecord(rawManifest.shapes) ? rawManifest.shapes : {};
+  const requestedShapeNames = Array.isArray(rawShapes.requested)
+    ? [...new Set(rawShapes.requested.slice(0, RUNTIME_INSPECTION_LIMITS.shapeNames * 4).filter((name): name is string =>
+        typeof name === "string" &&
+        name.length <= RUNTIME_INSPECTION_LIMITS.shapeNameLength &&
+        /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) &&
+        !["__proto__", "constructor", "prototype"].includes(name)
+      ))].slice(0, RUNTIME_INSPECTION_LIMITS.shapeNames)
+    : [];
+  const rawRegisteredShapes = isRecord(rawShapes.registered) ? rawShapes.registered : {};
+  const registeredShapeNames: Record<string, boolean> = {};
+  for (const name of requestedShapeNames) registeredShapeNames[name] = rawRegisteredShapes[name] === true;
   const manifestMatchesContract = (Object.keys(PINNED_RUNTIME_CAPABILITY_REQUIREMENTS) as Array<keyof typeof PINNED_RUNTIME_CAPABILITY_REQUIREMENTS>)
     .every((group) => {
       const advertisedRequired = requiredGroups[group] ?? [];
@@ -210,7 +232,8 @@ export function normalizeDrawioRuntimeInspection(
     capabilityManifest: {
       scriptSupported: rawManifest.scriptSupported === true && manifestMatchesContract,
       required: requiredGroups,
-      missing: missingGroups
+      missing: missingGroups,
+      shapes: { requested: requestedShapeNames, registered: registeredShapeNames }
     },
     bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
     drawioVersion: PINNED_DRAWIO_VERSION,
