@@ -1136,8 +1136,11 @@ export default function App() {
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
-          <span className="status-native" title={nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake"}>{nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"}</span>
-          <span className={nativeScriptSupported ? "status-native" : "status-native status-warn"} title={nativeScriptSupported ? "Pinned Draw.io script API manifest verified" : "Script operations disabled until the pinned Draw.io API manifest matches"}>{nativeScriptSupported ? "Native script ready" : "Native script disabled"}</span>
+          <span className={nativeScriptSupported ? "status-native" : "status-native status-warn"}
+            title={(nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake") +
+              (nativeScriptSupported ? " · Pinned Draw.io script API manifest verified" : " · Script operations disabled until the pinned Draw.io API manifest matches")}>
+            {nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"} · {nativeScriptSupported ? "Native script ready" : "Native script disabled"}
+          </span>
         </div></div>
       </main>
       <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
