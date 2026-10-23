@@ -493,7 +493,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "set_c4_type" ? { c4Kind: operation.kind } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) }))
@@ -501,7 +501,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return {
           // This is tool feedback for the model, not the browser protocol response. Do not expose requiresClientExecution here; it is easy to misread as a user-confirmation requirement.
           accepted: true, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "set_c4_type" ? { c4Kind: operation.kind } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) })),
