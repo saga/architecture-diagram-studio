@@ -150,8 +150,8 @@
     // and pinned bundle version; the active page ID is always read from Draw.io itself.
     function inspectDrawioRuntime(ui, activeGraph, activeModel, options) {
       options = options && typeof options === "object" ? options : {};
-      var maxCells = Math.max(1, Math.min(120, Math.floor(Number(options.maxCells) || 120)));
-      var maxRenderedEdges = Math.max(0, Math.min(60, Math.floor(Number(options.maxRenderedEdges) || 60)));
+      var maxCells = Math.max(1, Math.min(60, Math.floor(Number(options.maxCells) || 60)));
+      var maxRenderedEdges = Math.max(0, Math.min(24, Math.floor(Number(options.maxRenderedEdges) || 24)));
       var capabilities = {
         ui: runtimeMethods(ui, ["actions", "addListener", "getCurrentFile", "getCurrentPage"]),
         editor: runtimeMethods(ui && ui.editor, ["graph", "undoManager", "setModified", "execute"]),
@@ -228,7 +228,7 @@
           parentId: runtimeCellId(cell.parent),
           kind: cell.vertex ? "vertex" : cell.edge ? "edge" : "cell",
           label: runtimeCellLabel(cell, activeGraph),
-          style: typeof style === "string" ? style.slice(0, 1200) : "",
+          style: typeof style === "string" ? style.slice(0, 400) : "",
           sourceId: runtimeCellId(cell.source),
           targetId: runtimeCellId(cell.target),
           connectable: connectable,
