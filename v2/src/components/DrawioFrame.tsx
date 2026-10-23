@@ -20,7 +20,7 @@ export const DRAWIO_EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure
  * intentionally refreshes older persisted library preferences so C4 is visible by default.
  */
 export const DRAWIO_EDITOR_CONFIG = {
-  version: "2026-10-c4-default-library-v1",
+  version: "2026-10-c4-default-library-v2",
   defaultFonts: ["Inter", "Arial"],
   defaultPageFormat: "A4",
   defaultLibraries: "general;uml;er;bpmn;flowchart;basic;arrows2;c4",
@@ -36,7 +36,7 @@ export { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
 export type { NativeAutoLayoutOptions, NativeLayoutPlan };
 
 export interface DrawioFrameHandle {
-  inspectRuntime(input: { documentRevision: string; pageId: string | null }): Promise<DrawioRuntimeInspection>;
+  inspectRuntime(input: { documentRevision: string; pageId: string | null; shapeNames?: string[] }): Promise<DrawioRuntimeInspection>;
   /** Applies a revision/page-bound Dagre or ELK geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
 }
@@ -216,7 +216,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       });
     },
-    inspectRuntime: ({ documentRevision, pageId }) => new Promise((resolve, reject) => {
+    inspectRuntime: ({ documentRevision, pageId, shapeNames }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
         reject(new Error("The native Draw.io runtime is not ready for inspection. Wait for the editor status to become ready, then retry."));
@@ -238,7 +238,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           drawioVersion: DRAWIO_VERSION,
           expectedPageId: pageId,
           maxCells: 60,
-          maxRenderedEdges: 24
+          maxRenderedEdges: 24,
+          shapeNames: Array.isArray(shapeNames) ? shapeNames.slice(0, 40) : []
         }), window.location.origin);
         recordDiagnostic("drawio.runtime-inspection.requested", "Requested a read-only snapshot of the live native Draw.io runtime", {
           requestId, documentRevision, pageId, drawioVersion: DRAWIO_VERSION
