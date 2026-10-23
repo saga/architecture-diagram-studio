@@ -130,8 +130,12 @@ describe("resolveNativeEditTargets", () => {
         "}",
         "collectEdges(model.getRoot());",
         "if (edges.length) {",
-        "  graph.setCellStyles('edgeStyle', null, edges);",
+        "  graph.setCellStyles('edgeStyle', 'orthogonalEdgeStyle', edges);",
         "  graph.setCellStyles('curved', '1', edges);",
+        "  graph.setCellStyles('curveGeometry', '1', edges);",
+        "  graph.setCellStyles('labelOnCurve', '1', edges);",
+        "  graph.refresh();",
+        "  if (graph.view && typeof graph.view.validate === 'function') graph.view.validate();",
         "}"
       ].join("\n")
     }]);

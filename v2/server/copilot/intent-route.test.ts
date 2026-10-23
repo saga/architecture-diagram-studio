@@ -6,6 +6,9 @@ import type { CopilotRuntime } from "./runtime";
 import { NativeExecutionAcknowledgements, registerCopilotIntentRoute } from "./intent-route";
 import { workspaceRevision } from "../storage";
 import type { ResolvedNativeEditOperation } from "../../src/model/native-edit-operations";
+import {
+  DRAWIO_RUNTIME_BRIDGE_VERSION, PINNED_DRAWIO_VERSION, PINNED_RUNTIME_CAPABILITY_REQUIREMENTS
+} from "../../src/model/drawio-runtime-contract";
 
 const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -177,6 +180,70 @@ function proposingCopilot() {
   };
 }
 
+function scriptProposingCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "propose_native_edits");
+        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
+        await tool.handler({ operations: [{
+          op: "run_drawio_script", target: "active_page",
+          summary: "Read-only runtime script for confirmation-gate test",
+          script: "return { checked: true };"
+        }] });
+        return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
+      }
+    })
+  };
+}
+
+function compatibleRuntimeInspection() {
+  const revision = workspaceRevision(XML);
+  return {
+    schemaVersion: 1,
+    bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
+    drawioVersion: PINNED_DRAWIO_VERSION,
+    documentRevision: revision,
+    pageId: "p1",
+    capabilities: {
+      ui: [], editor: [],
+      graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
+      model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
+      view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view],
+      vertexCell: [], edgeCell: []
+    },
+    capabilityManifest: {
+      scriptSupported: true,
+      required: {
+        graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
+        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
+        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
+      },
+      missing: { graph: [], model: [], view: [] }
+    },
+    counts: { cells: 2, vertices: 2, edges: 0 },
+    cells: [],
+    renderedEdges: [],
+    truncated: false
+  };
+}
+
 function conflictingCopilot() {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -275,6 +342,31 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("Alignment, distribution, grouping");
     expect(prompt).toContain("run_drawio_script");
     expect(prompt).toContain("actual Draw.io iframe");
+  });
+
+  it("requires an explicit confirmation proposal for every native script operation", async () => {
+    const harness = await createServer({ copilot: scriptProposingCopilot() });
+    const requestContext = {
+      kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
+      runtimeInspection: compatibleRuntimeInspection()
+    };
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("proposal_required");
+    expect((body.proposal as { operations: Array<{ op: string }> }).operations).toMatchObject([{ op: "run_drawio_script" }]);
+    expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("rejects native script operations when the runtime capability manifest is absent", async () => {
+    const harness = await createServer({ copilot: scriptProposingCopilot() });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(502);
+    expect(body.outcome).toBe("failed");
+    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(harness.logs.some((entry) =>
+      entry.event === "tool.propose_native_edits.rejected" &&
+      entry.fields?.reason === "runtime_capability_manifest_missing_or_mismatched"
+    )).toBe(true);
   });
 
   it("returns stale_context when the source hash does not match the XML", async () => {
