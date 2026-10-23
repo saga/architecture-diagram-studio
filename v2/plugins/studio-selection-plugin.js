@@ -308,6 +308,147 @@
       return container.outerHTML;
     }
 
+    function applyNativeLayoutPlan(plan, activeGraph, activeModel) {
+      function fail(message, rollbackConfirmed) {
+        var error = new Error(message);
+        error.rollbackConfirmed = rollbackConfirmed === true;
+        throw error;
+      }
+      if (!plan || typeof plan !== "object" || !Array.isArray(plan.expectedPageCellIds) ||
+          !Array.isArray(plan.expectedCells) || !Array.isArray(plan.positions) || !Array.isArray(plan.edgeRoutes)) {
+        fail("The Studio layout plan is malformed; nothing was changed.", true);
+      }
+      if (plan.engine !== "elk" && plan.engine !== "dagre") fail("Unsupported Studio layout engine.", true);
+      if (!["layered", "mrtree", "radial", "stress", "force"].includes(plan.algorithm) ||
+          !["RIGHT", "LEFT", "DOWN", "UP"].includes(plan.direction)) fail("Unsupported Studio layout algorithm or direction.", true);
+      if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) {
+        fail("The Studio layout plan is not bound to a valid native XML revision.", true);
+      }
+      if (plan.positions.length < 1 || plan.positions.length > 5000 ||
+          plan.expectedPageCellIds.length > 20000 || plan.expectedCells.length > 10000 ||
+          plan.edgeRoutes.length > 10000) fail("The Studio layout plan exceeds native editor limits.", true);
+      var livePageId = currentPageId();
+      if ((plan.pageId || null) !== (livePageId || null)) {
+        fail("The active Draw.io page changed after layout calculation. Recalculate layout before applying it.", true);
+      }
+      var root = activeModel.getRoot();
+      var liveCells = [];
+      var seenObjects = new Set();
+      var stack = [root];
+      while (stack.length) {
+        var parent = stack.pop();
+        if (!parent || seenObjects.has(parent)) continue;
+        seenObjects.add(parent);
+        liveCells.push(parent);
+        var childCount = activeModel.getChildCount(parent);
+        for (var index = childCount - 1; index >= 0; index--) {
+          var child = activeModel.getChildAt(parent, index);
+          if (child) stack.push(child);
+        }
+        if (liveCells.length > 20000) fail("The active page is too large for safe automatic layout.", true);
+      }
+      var liveById = Object.create(null);
+      liveCells.forEach(function (cell) {
+        var id = runtimeCellId(cell);
+        if (id) liveById[id] = cell;
+      });
+      var expectedIds = plan.expectedPageCellIds.slice().map(String).sort();
+      var liveIds = liveCells.map(runtimeCellId).filter(Boolean).sort();
+      if (expectedIds.length !== liveIds.length ||
+          expectedIds.some(function (id, index) { return id !== liveIds[index]; })) {
+        fail("The native page's cell set changed while the layout was being calculated. No layout was applied.", true);
+      }
+      function near(actual, expected) {
+        return Number.isFinite(Number(actual)) && Math.abs(Number(actual) - Number(expected)) < 0.02;
+      }
+      plan.expectedCells.forEach(function (expected) {
+        var cell = liveById[expected.cellId];
+        if (!cell || !cell.geometry || runtimeCellId(cell.parent) !== expected.parentId) {
+          fail("A layout target was deleted, moved to another parent, or lost its geometry: " + expected.cellId, true);
+        }
+        if (!near(cell.geometry.x, expected.x) || !near(cell.geometry.y, expected.y) ||
+            !near(cell.geometry.width, expected.width) || !near(cell.geometry.height, expected.height)) {
+          fail("Native geometry changed after layout calculation; no nodes were moved. Recalculate layout and retry.", true);
+        }
+        if (expected.kind === "edge" &&
+            (runtimeCellId(cell.source) !== expected.sourceId || runtimeCellId(cell.target) !== expected.targetId)) {
+          fail("A connector endpoint changed after layout calculation; no layout was applied.", true);
+        }
+        if (expected.kind === "vertex" && !cell.vertex) fail("A layout target is no longer a vertex: " + expected.cellId, true);
+        if (expected.kind === "edge" && !cell.edge) fail("A layout target is no longer a connector: " + expected.cellId, true);
+      });
+      var positionsById = Object.create(null);
+      plan.positions.forEach(function (item) {
+        if (!item || typeof item.cellId !== "string" ||
+            !Number.isFinite(item.x) || !Number.isFinite(item.y) ||
+            Math.abs(item.x) > 1000000 || Math.abs(item.y) > 1000000 ||
+            positionsById[item.cellId]) fail("The layout plan contains duplicate or invalid node coordinates.", true);
+        var target = liveById[item.cellId];
+        if (!target || !target.vertex || !target.geometry) fail("A layout plan references a missing vertex: " + item.cellId, true);
+        positionsById[item.cellId] = { x: item.x, y: item.y };
+      });
+      if (Object.keys(positionsById).length !== plan.expectedCells.filter(function (item) { return item.kind === "vertex"; }).length) {
+        fail("The layout plan does not contain every expected vertex exactly once.", true);
+      }
+      var routesById = Object.create(null);
+      plan.edgeRoutes.forEach(function (route) {
+        if (!route || typeof route.cellId !== "string" || !Array.isArray(route.points) || routesById[route.cellId]) {
+          fail("The layout plan contains a duplicate or invalid connector route.", true);
+        }
+        if (!liveById[route.cellId] || !liveById[route.cellId].edge || !liveById[route.cellId].geometry) {
+          fail("A layout plan references a missing connector: " + route.cellId, true);
+        }
+        if (route.points.length > 100 || route.points.some(function (point) {
+          return !point || !Number.isFinite(point.x) || !Number.isFinite(point.y) ||
+            Math.abs(point.x) > 1000000 || Math.abs(point.y) > 1000000;
+        })) fail("The layout plan contains invalid connector waypoints.", true);
+        routesById[route.cellId] = route.points;
+      });
+
+      var snapshots = plan.expectedCells.map(function (expected) {
+        var cell = liveById[expected.cellId];
+        return { cell: cell, geometry: cell.geometry.clone() };
+      });
+      var changedVertices = 0;
+      var changedEdges = 0;
+      activeModel.beginUpdate();
+      try {
+        plan.positions.forEach(function (item) {
+          var cell = liveById[item.cellId];
+          var geometry = cell.geometry.clone();
+          geometry.x = item.x;
+          geometry.y = item.y;
+          activeModel.setGeometry(cell, geometry);
+          changedVertices++;
+        });
+        plan.edgeRoutes.forEach(function (route) {
+          var cell = liveById[route.cellId];
+          var geometry = cell.geometry.clone();
+          geometry.points = route.points.length ? route.points.map(function (point) {
+            if (typeof window.mxPoint === "function") return new window.mxPoint(point.x, point.y);
+            return { x: point.x, y: point.y };
+          }) : null;
+          activeModel.setGeometry(cell, geometry);
+          changedEdges++;
+        });
+      } catch (mutationError) {
+        var rollbackErrors = [];
+        snapshots.forEach(function (snapshot) {
+          try { activeModel.setGeometry(snapshot.cell, snapshot.geometry); }
+          catch (rollbackError) { rollbackErrors.push(rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError)); }
+        });
+        fail("Studio auto layout failed while applying geometry: " +
+          (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) +
+          (rollbackErrors.length ? "; geometry rollback was incomplete: " + rollbackErrors.join("; ") : "; prior geometry was restored."),
+          rollbackErrors.length === 0);
+      } finally {
+        activeModel.endUpdate();
+      }
+      if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+      if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+      return { changedVertices: changedVertices, changedEdges: changedEdges, engine: plan.engine, algorithm: plan.algorithm };
+    }
+
     function editCell(request) {
       // Draw.io can replace the active graph model when loading a new document.
       // Resolve it per request rather than retaining the model from plugin startup.
@@ -375,7 +516,8 @@
         }
         operations.forEach(function (operation) {
           if (!operation || typeof operation.cellId !== "string") return;
-          if (operation.path === "cell:execute-script" && operation.cellId === "__active_page__") {
+          if ((operation.path === "cell:execute-script" || operation.path === "cell:auto-layout") &&
+              operation.cellId === "__active_page__") {
             allCells.forEach(function (item) {
               if (!item || item.id === "0" || item.id === "1") return;
               affectedIds[item.id] = true;
@@ -629,6 +771,15 @@
         if (typeof activeGraph.refresh === "function") activeGraph.refresh();
         return;
       }
+      if (request.cellId === "__active_page__" && selectionOperation === "cell:auto-layout") {
+        var layoutPlan;
+        try { layoutPlan = JSON.parse(String(request.value || "null")); }
+        catch (_) { throw new Error("Studio auto-layout plan is not valid JSON"); }
+        if (!layoutPlan || layoutPlan.pageId !== (currentPageId() || null)) {
+          throw new Error("The active Draw.io page changed after layout calculation. Re-run auto layout.");
+        }
+        return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
+      }
       if (request.cellId === "__active_page__" && selectionOperation === "cell:execute-script") {
         var script = String(request.value || "");
         if (!script.trim()) throw new Error("The native Draw.io script is empty");
@@ -821,7 +972,24 @@
       try { request = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
       catch (_) { return; }
       if (!request || typeof request !== "object") return;
-      if (request.event === "studioRuntimeInspectRequest") {
+      if (request.event === "studioNativeLayoutRequest") {
+        try {
+          var layoutGraph = currentGraph();
+          var layoutModel = typeof layoutGraph.getModel === "function" ? layoutGraph.getModel() : model;
+          var layoutResult = applyNativeLayoutPlan(request.plan, layoutGraph, layoutModel);
+          publish({
+            event: "studioNativeLayoutResult", requestId: request.requestId, success: true,
+            changedVertices: layoutResult.changedVertices, changedEdges: layoutResult.changedEdges,
+            engine: layoutResult.engine, algorithm: layoutResult.algorithm
+          });
+        } catch (layoutError) {
+          publish({
+            event: "studioNativeLayoutResult", requestId: request.requestId, success: false,
+            error: layoutError && layoutError.message ? String(layoutError.message) : String(layoutError),
+            rollbackConfirmed: Boolean(layoutError && layoutError.rollbackConfirmed)
+          });
+        }
+      } else if (request.event === "studioRuntimeInspectRequest") {
         try {
           var inspectGraph = currentGraph();
           var inspectModel = typeof inspectGraph.getModel === "function" ? inspectGraph.getModel() : model;
