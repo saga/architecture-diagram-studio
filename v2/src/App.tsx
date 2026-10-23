@@ -7,7 +7,7 @@ import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
 import { downloadText } from "./model/download-text";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
-import DrawioFrame, { DRAWIO_VERSION } from "./components/DrawioFrame";
+import DrawioFrame, { DRAWIO_VERSION, type DrawioFrameHandle } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
@@ -84,6 +84,7 @@ export default function App() {
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
+  const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
@@ -460,6 +461,11 @@ export default function App() {
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
     getCurrentDiagramState: () => latestDiagramStateRef.current,
+    getRuntimeInspection: ({ documentRevision, pageId }) => {
+      const frame = drawioFrameRef.current;
+      if (!frame) throw new Error("The native Draw.io frame is unavailable; no Agent request was sent.");
+      return frame.inspectRuntime({ documentRevision, pageId });
+    },
     persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
     applyNativeCellEdit: (cellId, path, value) => {
@@ -1022,7 +1028,7 @@ export default function App() {
         </div>
 
         <div className="canvas-stage">
-                      <DrawioFrame xml={drawioXml} theme={uiTheme}
+                      <DrawioFrame ref={drawioFrameRef} xml={drawioXml} theme={uiTheme}
             onNativeEditResult={async (result) => {
               const requestId = result.requestId;
               const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
@@ -1119,7 +1125,7 @@ export default function App() {
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
