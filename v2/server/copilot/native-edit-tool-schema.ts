@@ -47,6 +47,31 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
     {
       type: "object",
       properties: {
+        op: { type: "string", enum: ["set_cells_style"] },
+        target: { type: "string", enum: ["active_page"] },
+        kinds: {
+          type: "array", minItems: 1, maxItems: 3,
+          items: { type: "string", enum: ["vertex", "edge", "all"] },
+          description: "Cell types to change. Use [\"edge\"] for connectors, [\"vertex\"] for nodes, or [\"all\"] for both."
+        },
+        add: {
+          type: "object", maxProperties: 12,
+          propertyNames: { enum: ["fillColor", "strokeColor", "fontColor", "edgeStyle", "curved", "rounded", "orthogonalLoop", "dashed", "jettySize", "endArrow", "startArrow", "endFill", "startFill"] },
+          additionalProperties: { type: "string", minLength: 1, maxLength: 100 },
+          description: "Style values to set. Values are validated against a server-side allowlist; unrelated style keys are preserved."
+        },
+        remove: {
+          type: "array", maxItems: 12,
+          items: { type: "string", enum: ["fillColor", "strokeColor", "fontColor", "edgeStyle", "curved", "rounded", "orthogonalLoop", "dashed", "jettySize", "endArrow", "startArrow", "endFill", "startFill"] },
+          description: "Style keys to remove; may be an empty array when add contains values."
+        }
+      },
+      required: ["op", "target", "kinds", "add", "remove"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
         op: { type: "string", enum: ["run_drawio_script"] },
         target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
         summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
