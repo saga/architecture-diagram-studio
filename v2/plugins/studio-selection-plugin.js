@@ -908,8 +908,19 @@
           });
           var matches = entries.filter(function (entry) { return entry.key === key; });
           var normalized = String(expected).toLowerCase();
-          if (expected === "" || normalized === "0" || normalized === "false") return matches.length === 0;
-          if (normalized === "1" || normalized === "true") return matches.some(function (entry) { return entry.value === null; });
+          if (expected === "") return matches.length === 0;
+          if (normalized === "0" || normalized === "false") {
+            return matches.length === 0 || matches.some(function (entry) {
+              var value = String(entry.value == null ? "" : entry.value).toLowerCase();
+              return value === "0" || value === "false";
+            });
+          }
+          if (normalized === "1" || normalized === "true") {
+            return matches.some(function (entry) {
+              var value = String(entry.value == null ? "" : entry.value).toLowerCase();
+              return entry.value === null || value === "1" || value === "true";
+            });
+          }
           return matches.some(function (entry) { return entry.value === expected; });
         }
         function resolveLiveConditionTarget(reference, liveCells) {
