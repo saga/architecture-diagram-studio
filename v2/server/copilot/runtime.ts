@@ -310,6 +310,9 @@ export class CopilotRuntime {
    */
   async listModels(options: { refresh?: boolean } = {}): Promise<ModelInfo[]> {
     const ttl = this.options.modelsCacheTtlMs ?? 5 * 60_000;
+    // Normal callers arriving during an explicit refresh share its promise instead of starting
+    // a competing query on the long-lived client and potentially overwriting the refreshed cache.
+    if (!options.refresh && this.modelsRefreshInFlight) return this.modelsRefreshInFlight;
     if (!options.refresh && this.modelsCache && Date.now() - this.modelsCache.at < ttl) {
       return this.modelsCache.models;
     }
