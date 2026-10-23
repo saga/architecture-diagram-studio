@@ -106,6 +106,10 @@ function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, page
   // A standalone mxGraphModel represents one page. For mxfile, require the same ordered
   // page set and verify every non-target page is semantically unchanged.
   if (beforeRoot.nodeName === "mxGraphModel") {
+    const beforeCells = cellsForXml(beforeXml);
+    const afterCells = cellsForXml(afterXml);
+    if (!findCell(beforeCells, "0", pageId) || !findCell(beforeCells, "1", pageId) ||
+        !findCell(afterCells, "0", pageId) || !findCell(afterCells, "1", pageId)) return false;
     return JSON.stringify(elementSignature(beforeRoot)) !== JSON.stringify(elementSignature(afterRoot));
   }
   if (beforeRoot.nodeName !== "mxfile" || afterRoot.nodeName !== "mxfile" || !pageId) return false;
