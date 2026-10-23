@@ -187,8 +187,10 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     return runOperations([{ cellId, path, value }]);
   }
 
-  function runScript(script: string) {
-    return runOperation("__active_page__", "cell:execute-script", script);
+  function runScript(script: string, postconditions: Array<Record<string, unknown>> = [
+    { cellId: "service", exists: true, style: { fillColor: "#ffffff" } }
+  ]) {
+    return runOperation("__active_page__", "cell:execute-script", JSON.stringify({ script, postconditions }));
   }
 
   function runRuntimeInspect() {
@@ -277,12 +279,19 @@ describe("native Draw.io script bridge", () => {
 
   it("executes whole-page curved-edge changes including connectors inside groups", () => {
     const harness = createHarness();
-    const result = harness.runScript(curveAllConnectorsScript);
+    const result = harness.runScript(curveAllConnectorsScript, [
+      { cellId: "edge-root", exists: true, kind: "edge", sourceId: "service", targetId: "database",
+        style: { edgeStyle: "orthogonalEdgeStyle", curved: "1" } },
+      { cellId: "edge-nested", exists: true, kind: "edge", sourceId: "nested-service", targetId: "database",
+        style: { edgeStyle: "orthogonalEdgeStyle", curved: "1" } }
+    ]);
 
     expect(result).toMatchObject({
       success: true,
       scriptResult: { available: true, value: { affectedEdges: 2, checkedApiOwner: true } }
     });
+    expect(result.batchResults[0].value).toContain('"postconditions"');
+    expect(result.scriptResult).toBeDefined();
     expect(harness.rootEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
     expect(harness.rootEdge.style).toContain("curved=1");
     expect(harness.rootEdge.style).toContain("dashed=1");
@@ -292,6 +301,16 @@ describe("native Draw.io script bridge", () => {
     expect(harness.nestedEdge.style).toContain("endArrow=block");
     expect(harness.service.style).toContain("fillColor=#ffffff");
     expect(harness.service.style).not.toContain("curved=1");
+  });
+
+  it("rejects raw scripts without machine-checkable postconditions", () => {
+    const harness = createHarness();
+    const before = harness.rootEdge.style;
+    const result = harness.runOperation("__active_page__", "cell:execute-script",
+      'graph.setCellStyles("curved", "1", [graph.getModel().getCell("edge-root")]);');
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(result.error).toContain("JSON object with declared postconditions");
+    expect(harness.rootEdge.style).toBe(before);
   });
 
   it("restores an originally undefined connectability field after a failed batch", () => {
