@@ -230,6 +230,94 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
+test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
+  await openStudio(page);
+  await waitForNativeEditor(page);
+
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as {
+      requestId?: string; outcome?: string; serializedXmlRevision?: string | null;
+      persistedRevision?: string | null; versionId?: string | null;
+    };
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
+  await page.route("**/api/copilot/intent", async (route) => {
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      prompt?: unknown; documentRevision?: unknown; context?: { activePageId?: string | null };
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "command_ready",
+        reply: "Added ddd below Database and eee below API Service.",
+        nativeEdits: {
+          operations: [
+            { op: "add_node_below", target: "Database", cellId: "database", targetLabel: "Database", newLabel: "ddd" },
+            { op: "add_node_below", target: "API Service", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
+          ],
+          summary: "Add ddd below Database and eee below API Service; connect each new node to its source",
+          requestId: "44444444-4444-4444-8444-444444444444",
+          pageId: requestBody.context?.activePageId ?? null,
+          documentRevision: String(requestBody.documentRevision ?? "")
+        },
+        sessionId: "e2e-native-add-below",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
+        toolsUsed: ["propose_native_edits"]
+      })
+    });
+  });
+
+  await page.getByRole("tab", { name: "Copilot" }).click();
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
+  await input.fill("在 Database 和 API Service 下方分别新增 ddd 和 eee，并连接各自来源节点");
+  await input.press("Enter");
+
+  const lastMessage = page.locator(".gemini-message.assistant").last();
+  await expect(lastMessage).toContainText("Applied 2 native changes");
+  await expect(lastMessage).toContainText('Add “ddd” below “Database” and connect it');
+  await expect(lastMessage).toContainText('Add “eee” below “API Service” and connect it');
+  await expect(page.getByRole("button", { name: "Review and confirm changes" })).toHaveCount(0);
+
+  const frame = nativeFrame(page);
+  await expect(frame.getByText("ddd", { exact: true })).toBeVisible();
+  await expect(frame.getByText("eee", { exact: true })).toBeVisible();
+  await expect.poll(async () => {
+    const xml = await readWorkspaceXml(workspace);
+    const geometry = (matcher: RegExp) => {
+      const cell = matcher.exec(xml)?.[0];
+      const attributes = cell ? /<mxGeometry\\b([^>]*)/.exec(cell)?.[1] : undefined;
+      const x = attributes ? Number(/\\bx="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
+      const y = attributes ? Number(/\\by="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
+      const width = attributes ? Number(/\\bwidth="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
+      const height = attributes ? Number(/\\bheight="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
+      return { x, y, width, height, id: cell ? /\\bid="([^"]+)"/.exec(cell)?.[1] : undefined };
+    };
+    const database = geometry(/<mxCell\\b(?=[^>]*\\bid="database")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
+    const api = geometry(/<mxCell\\b(?=[^>]*\\bid="api")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
+    const ddd = geometry(/<mxCell\\b(?=[^>]*\\bvalue="ddd")(?=[^>]*\\bvertex="1")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
+    const eee = geometry(/<mxCell\\b(?=[^>]*\\bvalue="eee")(?=[^>]*\\bvertex="1")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
+    if (![database, api, ddd, eee].every((cell) => Number.isFinite(cell.x) && Number.isFinite(cell.y) && Number.isFinite(cell.height) && Boolean(cell.id))) return false;
+    const edges = Array.from(xml.matchAll(/<mxCell\\b[^>]*\\bedge="1"[^>]*>/g), (match) => match[0]);
+    const dddConnected = edges.some((edge) => edge.includes('source="database"') && edge.includes('target="' + ddd.id + '"'));
+    const eeeConnected = edges.some((edge) => edge.includes('source="api"') && edge.includes('target="' + eee.id + '"'));
+    return dddConnected && eeeConnected &&
+      ddd.y >= database.y + database.height && eee.y >= api.y + api.height &&
+      Math.abs((ddd.x + ddd.width / 2) - (database.x + database.width / 2)) < 1 &&
+      Math.abs((eee.x + eee.width / 2) - (api.x + api.width / 2)) < 1;
+  }, { timeout: 20_000, intervals: [250] }).toBe(true);
+});
+
 test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、重命名、移动、删除的结果", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   const stateResponse = await request.get("/api/workspace/state");
