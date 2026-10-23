@@ -455,40 +455,72 @@ function postconditionIsReflected(
       return Boolean(oldTarget && !recordsForPage(after, pageId).some((record) => record.id === oldTarget.id));
     }
     case "label_equals": {
-      const target = resolveUniqueRecord(after, condition.target, pageId);
-      return Boolean(target && labelMatches(target, condition.value));
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = previous
+        ? recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null
+        : null;
+      return Boolean(target && normalizeLabel(findText(previous!)) !== normalizeLabel(condition.value) &&
+        labelMatches(target, condition.value));
     }
     case "style_equals": {
-      const target = resolveUniqueRecord(after, condition.target, pageId);
-      return Boolean(target && styleKeyMatches(target.cell.getAttribute("style") || "", condition.key, condition.value));
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = previous
+        ? recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null
+        : null;
+      if (!previous || !target) return false;
+      const oldStyle = previous.cell.getAttribute("style") || "";
+      const nextStyle = target.cell.getAttribute("style") || "";
+      return !styleKeyMatches(oldStyle, condition.key, condition.value) &&
+        styleKeyMatches(nextStyle, condition.key, condition.value);
     }
     case "geometry_matches": {
-      const target = resolveUniqueRecord(after, condition.target, pageId);
-      if (!target?.geometry) return false;
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = previous
+        ? recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null
+        : null;
+      if (!previous?.geometry || !target?.geometry) return false;
+      let changed = false;
       for (const key of ["x", "y", "width", "height"] as const) {
         const expected = condition[key];
         if (expected !== undefined) {
-          const actual = numericAttribute(target.geometry, key);
-          if (actual === null || Math.abs(actual - expected) >= 0.01) return false;
+          const oldValue = numericAttribute(previous.geometry, key);
+          const nextValue = numericAttribute(target.geometry, key);
+          if (oldValue === null || nextValue === null || Math.abs(nextValue - expected) >= 0.01) return false;
+          if (Math.abs(oldValue - expected) >= 0.01) changed = true;
         }
       }
-      return condition.x !== undefined || condition.y !== undefined ||
-        condition.width !== undefined || condition.height !== undefined;
+      return changed;
     }
     case "edge_connects": {
-      const source = resolveUniqueRecord(after, condition.source, pageId);
-      const target = resolveUniqueRecord(after, condition.target, pageId);
+      const previousSource = resolveUniqueRecord(before, condition.source, pageId);
+      const previousTarget = resolveUniqueRecord(before, condition.target, pageId);
+      const source = previousSource
+        ? recordsForPage(after, pageId).find((record) => record.id === previousSource.id) ?? null
+        : resolveUniqueRecord(after, condition.source, pageId);
+      const target = previousTarget
+        ? recordsForPage(after, pageId).find((record) => record.id === previousTarget.id) ?? null
+        : resolveUniqueRecord(after, condition.target, pageId);
       if (!source || !target) return false;
-      return recordsForPage(after, pageId).some((record) =>
+      const relationExisted = Boolean(previousSource && previousTarget &&
+        recordsForPage(before, pageId).some((record) =>
+          record.cell.getAttribute("edge") === "1" &&
+          record.cell.getAttribute("source") === previousSource.id &&
+          record.cell.getAttribute("target") === previousTarget.id
+        ));
+      return !relationExisted && recordsForPage(after, pageId).some((record) =>
         record.cell.getAttribute("edge") === "1" &&
         record.cell.getAttribute("source") === source.id &&
         record.cell.getAttribute("target") === target.id
       );
     }
     case "parent_is": {
-      const target = resolveUniqueRecord(after, condition.target, pageId);
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      if (!previous) return false;
+      const target = recordsForPage(after, pageId).find((record) => record.id === previous.id);
       const parent = resolveUniqueRecord(after, condition.parent, pageId);
-      return Boolean(target && parent && target.cell.getAttribute("parent") === parent.id);
+      return Boolean(target && parent &&
+        (previous.cell.getAttribute("parent") || "") !== parent.id &&
+        target.cell.getAttribute("parent") === parent.id);
     }
     default:
       return false;
