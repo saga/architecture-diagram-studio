@@ -212,7 +212,7 @@ describe("emulateEmbeddedFlowDirection", () => {
     emulateEmbeddedFlowDirection(positions, routes, vertices, edges, "UP");
     const centerYs = Array.from(positions.values(), (point) => point.y + 20);
     // The vertical chain is mirrored so the flow now runs bottom-to-top.
-    expect(Array.from(positions, ([id, point]) => point.y + 20)[0] - Array.from(positions, ([id, point]) => point.y + 20)[1])
+    expect(Array.from(positions, ([, point]) => point.y + 20)[0] - Array.from(positions, ([, point]) => point.y + 20)[1])
       .toBeGreaterThan(0);
     expect(Math.max(...centerYs) - Math.min(...centerYs)).toBeGreaterThan(200);
   });
