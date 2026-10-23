@@ -28,11 +28,14 @@ export function useWorkspacePersistence(options: Options) {
   const currentWorkspaceIdRef = useRef<string | null>(projectWorkspace?.id ?? null);
   const currentWorkspaceKeyRef = useRef<string | null>(getWorkspaceKey(projectWorkspace));
   const saveConflictRef = useRef<SaveConflict | null>(null);
+  const saveEpochRef = useRef(0);
   const pausedAutosaveLoggedRef = useRef(false);
   // Keep these refs current during render so queued work detects an XML, workspace or diagram switch.
   currentXmlRef.current = drawioXml;
   currentWorkspaceIdRef.current = projectWorkspace?.id ?? null;
-  currentWorkspaceKeyRef.current = getWorkspaceKey(projectWorkspace);
+  const nextWorkspaceKey = getWorkspaceKey(projectWorkspace);
+  if (currentWorkspaceKeyRef.current !== nextWorkspaceKey) saveEpochRef.current += 1;
+  currentWorkspaceKeyRef.current = nextWorkspaceKey;
 
   const clearSaveConflict = useCallback((reason: string, nextXml?: string, alreadyPersisted = false) => {
     const previous = saveConflictRef.current;
@@ -40,6 +43,8 @@ export function useWorkspacePersistence(options: Options) {
     // It must see that its XML is stale before the conflict latch is released.
     if (typeof nextXml === "string") currentXmlRef.current = nextXml;
     if (alreadyPersisted && typeof nextXml === "string") lastPersistedXmlRef.current = nextXml;
+    // Invalidate queued operations captured before a server restore/document switch.
+    saveEpochRef.current += 1;
     saveConflictRef.current = null;
     pausedAutosaveLoggedRef.current = false;
     if (previous) onDiagnostic("workspace.persist.conflict.cleared",
@@ -56,7 +61,21 @@ export function useWorkspacePersistence(options: Options) {
   }, [projectWorkspace?.id, projectWorkspace?.primaryDiagram, clearSaveConflict]);
 
   const persistDocumentNow = useCallback((xml: string, label = "Autosave", saveOptions?: SaveOptions): Promise<SaveResult> => {
+    const scheduledWorkspaceKey = currentWorkspaceKeyRef.current;
+    const scheduledSaveEpoch = saveEpochRef.current;
     const operation = saveQueueRef.current.then(async () => {
+      if (scheduledSaveEpoch !== saveEpochRef.current || scheduledWorkspaceKey !== currentWorkspaceKeyRef.current) {
+        const message = "Skipped a queued save because the active document context changed before it could be written.";
+        onDiagnostic("workspace.persist.queued-save.invalidated", message, {
+          scheduledWorkspaceKey, currentWorkspaceKey: currentWorkspaceKeyRef.current,
+          scheduledSaveEpoch, currentSaveEpoch: saveEpochRef.current, xmlLength: xml.length
+        }, saveOptions?.onlyIfCurrent ? "info" : "warn");
+        if (saveOptions?.onlyIfCurrent) {
+          return { saved: false, workspaceRevision: serverRevisionRef.current,
+            version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null, error: message };
+        }
+        throw new Error(message);
+      }
       if (saveOptions?.onlyIfCurrent &&
           (currentXmlRef.current !== xml ||
            currentWorkspaceIdRef.current !== saveOptions.expectedWorkspaceId ||
