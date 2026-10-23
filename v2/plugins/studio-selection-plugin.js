@@ -354,6 +354,7 @@
           throw new Error("A native Draw.io script must be the only operation in its batch");
         }
         var allCells = [];
+        var originalRoot = activeModel.getRoot();
         function collect(parent) {
           var count = activeModel.getChildCount(parent);
           for (var i = 0; i < count; i++) {
@@ -362,7 +363,15 @@
             collect(child);
           }
         }
-        collect(activeModel.getRoot());
+        collect(originalRoot);
+        var originalTreeSnapshot = allCells.map(function (item) {
+          return {
+            cell: item,
+            id: item && item.id,
+            parent: item && item.parent,
+            index: item && item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1
+          };
+        });
         var originalCellsById = Object.create(null);
         allCells.forEach(function (item) { if (item && item.id) originalCellsById[item.id] = item; });
         var affectedIds = Object.create(null);
@@ -507,6 +516,44 @@
             }
           });
           var failure = new Error("Batch rolled back after operation " + (failedIndex + 1) + " failed: " + (error && error.message ? error.message : String(error)));
+          // Do not claim a clean rollback if a script detached the default layer, replaced
+          // the root, changed cell IDs/order, or swapped the active Graph/Model. Those effects
+          // exceed the regular mxCell property snapshot and require user recovery.
+          var verifiedCellsAfterRollback = [];
+          function collectVerified(parent) {
+            var verifiedCount = activeModel.getChildCount(parent);
+            for (var verifiedIndex = 0; verifiedIndex < verifiedCount; verifiedIndex++) {
+              var verifiedCell = activeModel.getChildAt(parent, verifiedIndex);
+              verifiedCellsAfterRollback.push(verifiedCell);
+              collectVerified(verifiedCell);
+            }
+          }
+          try {
+            collectVerified(activeModel.getRoot());
+          } catch (verificationError) {
+            rollbackErrors.push({ cellId: "__active_page__", error: "Could not verify the native cell tree after rollback: " +
+              (verificationError && verificationError.message ? String(verificationError.message) : String(verificationError)) });
+          }
+          var graphModelUnchanged = false;
+          try {
+            graphModelUnchanged = currentGraph() === activeGraph &&
+              typeof activeGraph.getModel === "function" && activeGraph.getModel() === activeModel &&
+              activeModel.getRoot() === originalRoot;
+          } catch (_) {}
+          if (!graphModelUnchanged) {
+            rollbackErrors.push({ cellId: "__active_page__", error: "The active Graph, Model, or root changed during the script; snapshot rollback cannot confirm full restoration." });
+          }
+          var treeRestored = verifiedCellsAfterRollback.length === originalTreeSnapshot.length &&
+            originalTreeSnapshot.every(function (snapshot, index) {
+              var current = verifiedCellsAfterRollback[index];
+              if (current !== snapshot.cell || current.id !== snapshot.id || current.parent !== snapshot.parent) return false;
+              if (snapshot.index >= 0 && snapshot.parent && typeof snapshot.parent.getIndex === "function" &&
+                  snapshot.parent.getIndex(current) !== snapshot.index) return false;
+              return true;
+            });
+          if (!treeRestored) {
+            rollbackErrors.push({ cellId: "__active_page__", error: "The native cell tree/order does not match its pre-script snapshot after rollback." });
+          }
           failure.batchResults = batchResults;
           failure.failedIndex = failedIndex;
           failure.rollbackErrors = rollbackErrors;
