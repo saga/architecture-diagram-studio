@@ -202,7 +202,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             operationCount: operations.length,
             steps: execution.steps.length,
             scriptResult: execution.scriptResult ?? null,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
+            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           });
           setMessages((items) => [...items, {
             role: "assistant",
@@ -322,7 +322,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
             operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
             rolledBack: execution.rolledBack, scriptResult: execution.scriptResult ?? null,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
+            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           }, "error");
           setMessages((items) => [...items, {
             role: "assistant",
