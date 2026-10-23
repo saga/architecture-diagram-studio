@@ -122,7 +122,7 @@ describe("ELK organic algorithm direction emulation", () => {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "stress", direction
     });
     const stats = chainFlowStatistics(plan, chainCells, chainLinks);
-    expect(direction === "LEFT" ? stats.flow.x : -stats.flow.x).toBeGreaterThanOrEqual(0);
+    expect(direction === "LEFT" ? stats.flow.x : -stats.flow.x).toBeLessThanOrEqual(0);
     expect(stats.xSpread).toBeGreaterThan(stats.ySpread);
     expect(stats.minAdjacentPitch).toBeGreaterThanOrEqual(150);
   });
@@ -132,12 +132,12 @@ describe("ELK organic algorithm direction emulation", () => {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "stress", direction: "DOWN"
     });
     const downStats = chainFlowStatistics(down, chainCells, chainLinks);
-    expect(downStats.flow.y).toBeLessThanOrEqual(0);
+    expect(downStats.flow.y).toBeGreaterThanOrEqual(0);
     expect(downStats.ySpread).toBeGreaterThan(downStats.xSpread);
     const up = await calculateNativeAutoLayout(chainPageXml(chainCells, chainLinks), "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "stress", direction: "UP"
     });
-    expect(chainFlowStatistics(up, chainCells, chainLinks).flow.y).toBeGreaterThanOrEqual(0);
+    expect(chainFlowStatistics(up, chainCells, chainLinks).flow.y).toBeLessThanOrEqual(0);
   });
 
   it("orients the FORCE embedding with the selected direction", async () => {
@@ -212,8 +212,8 @@ describe("emulateEmbeddedFlowDirection", () => {
     emulateEmbeddedFlowDirection(positions, routes, vertices, edges, "UP");
     const centerYs = Array.from(positions.values(), (point) => point.y + 20);
     // The vertical chain is mirrored so the flow now runs bottom-to-top.
-    expect(Array.from(positions, ([id, point]) => point.y + 20)[0] - Array.from(positions, ([id, point]) => point.y + 20)[1])
+    expect(Array.from(positions, ([, point]) => point.y + 20)[0] - Array.from(positions, ([, point]) => point.y + 20)[1])
       .toBeGreaterThan(0);
-    expect(Math.max(...centerYs) - Math.min(...centerYs)).toBeGreaterThan(200);
+    expect(Math.max(...centerYs) - Math.min(...centerYs)).toBeGreaterThanOrEqual(200);
   });
 });

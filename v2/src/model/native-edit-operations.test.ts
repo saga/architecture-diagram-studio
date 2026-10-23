@@ -68,6 +68,23 @@ describe("parseNativeEditOperations", () => {
     expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
   });
 
+  it("uses a typed native C4 operation with the canonical type instead of an arbitrary style script", () => {
+    const parsed = parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "system" }]);
+    expect(parsed).toMatchObject({ ok: true, operations: [{ op: "set_c4_type", target: "Database", kind: "system" }] });
+    expect(describeNativeEditOperation({ op: "set_c4_type", target: "Database", targetLabel: "Database", kind: "system" }))
+      .toContain("C4 Software System style");
+    if (!parsed.ok) return;
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation, cellId: "db", targetLabel: "Database"
+    })) as ResolvedNativeEditOperation[];
+    expect(toNativeCellEdits(resolved, XML, "p1")).toMatchObject({
+      ok: true,
+      edits: [{ cellId: "db", path: "cell:set-c4-type", value: JSON.stringify({ kind: "system" }) }]
+    });
+    expect(parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "swimlane" }]))
+      .toMatchObject({ ok: false, error: expect.stringContaining("kind must be") });
+  });
+
   it("plans bounded below-and-connect operations without native script code", () => {
     const parsed = parseNativeEditOperations([
       { op: "add_node_below", target: "Database", newLabel: "ddd" },

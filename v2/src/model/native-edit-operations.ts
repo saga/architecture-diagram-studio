@@ -22,6 +22,7 @@ export type NativeEditOperation =
   | { op: "select"; target: string }
   | { op: "set_label"; target: string; label: string }
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
+  | { op: "set_c4_type"; target: string; kind: "person" | "system" | "external" }
   | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
   | ({ op: "auto_layout"; target: "active_page" } & NativeAutoLayoutOptions)
   | { op: "move"; target: string; dx: number; dy: number }
@@ -169,7 +170,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   return result;
 }
 
-const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "auto_layout", "move", "resize", "delete", "add_node_after", "add_node_below"] as const;
+const OPERATION_NAMES = ["select", "set_label", "set_style", "set_c4_type", "run_drawio_script", "auto_layout", "move", "resize", "delete", "add_node_after", "add_node_below"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -263,6 +264,14 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
         case "set_label":
           operations.push({ op: name, target, label: textField(raw, "label", 500) });
           break;
+        case "set_c4_type": {
+          const kind = raw.kind;
+          if (kind !== "person" && kind !== "system" && kind !== "external") {
+            throw new Error('kind must be "person", "system", or "external"');
+          }
+          operations.push({ op: name, target, kind });
+          break;
+        }
         case "run_drawio_script": {
           if (target !== "active_page") throw new Error('run_drawio_script target must be "active_page"');
           const script = raw.script;
@@ -344,6 +353,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
+    case "set_c4_type": return `Convert “${target}” to the native C4 ${operation.kind === "person" ? "Person" : operation.kind === "system" ? "Software System" : "External Software System"} style`;
     case "run_drawio_script": return operation.summary;
     case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
       " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
@@ -404,6 +414,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "set_style":
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
+        break;
+      case "set_c4_type":
+        edits.push({ cellId, path: "cell:set-c4-type", value: JSON.stringify({ kind: operation.kind }) });
         break;
       case "run_drawio_script":
         edits.push({ cellId, path: "cell:execute-script", value: operation.script });

@@ -169,3 +169,16 @@ fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;
 对 typed operation 来说这几乎等价于"用户要的改了"；但对 `run_drawio_script` 这种不透明操作，三者经常不是一回事。这次的两次执行都是"链路全绿、结果全错"，而 UI 用的还是模型自己写的那句 summary（`native-edit-operations.ts` 的 `describeNativeEditOperation` 对脚本直接返回 `summary`）——**用户看到的成功文案，正是把错误结果描述成正确结果的那句话**。
 
 如果只修一处，优先修 R4：让 `scriptResult` 里的 fallback / assertion 决定回执措辞。它不依赖模型变聪明，也不依赖形状目录是否完整。
+
+## 修复状态（2026-10-23）
+
+上述根因已按代码修复，而不是继续要求模型试写脚本：
+
+1. 新增 typed native operation `set_c4_type`，只接受 `person`、`system`、`external` 三种类型，且只允许目标为现有顶点。
+2. 桥接层使用 pinned Draw.io C4 palette 的真实样式、尺寸及 `object placeholders` 标签元数据。Person 从 `mxCellRenderer.defaultShapes["mxgraph.c4.person2"]` 检查注册；Software System / External Software System 使用标准圆角卡片。
+3. C4 转换不再允许通过 `run_drawio_script` 自由模拟；缺少 Person shape 时明确失败，不降级为 `umlActor`、`swimlane` 或其他近似形状。
+4. 桥接执行后会校验样式、C4 标签元数据和尺寸；宿主收到序列化 XML 后再次验证结果。只有 XML 改变但实际不是要求的 C4 形状，不再算成功。
+5. 补充了 operation/parser、目标解析、原生桥接和序列化后置条件测试。架构约束记录在 [ADR-0014 — Typed Native Draw.io C4 Conversion](docs/adr/0014-typed-native-drawio-c4-conversion.md)。
+
+回归验证结果以对应修复分支的 CI 为准；创建 PR 后将记录测试结果。
+

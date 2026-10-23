@@ -330,6 +330,31 @@ function operationIsReflected(
   const value = operation.value;
   const path = operation.path;
   if (path === "label") return labelMatches(nextCell, value);
+  if (path === "cell:set-c4-type") {
+    let payload: { kind?: unknown };
+    try { payload = JSON.parse(value) as { kind?: unknown }; } catch { return false; }
+    const presets = {
+      person: { type: "Person", fill: "#083F75", stroke: "#06315C", width: 200, height: 180, shape: "mxgraph.c4.person2" },
+      system: { type: "Software System", fill: "#1061B0", stroke: "#0D5091", width: 240, height: 120, shape: null },
+      external: { type: "Software System", fill: "#8C8496", stroke: "#736782", width: 240, height: 120, shape: null }
+    } as const;
+    if (payload.kind !== "person" && payload.kind !== "system" && payload.kind !== "external") return false;
+    const preset = presets[payload.kind];
+    const style = nextCell.cell.getAttribute("style") || "";
+    const labelTemplate = nextCell.wrapper.getAttribute("label") || "";
+    return nextCell.cell.getAttribute("vertex") === "1" &&
+      nextCell.wrapper.getAttribute("placeholders") === "1" &&
+      Boolean(nextCell.wrapper.getAttribute("c4Name")?.trim()) &&
+      nextCell.wrapper.getAttribute("c4Type") === preset.type &&
+      nextCell.wrapper.hasAttribute("c4Description") &&
+      labelTemplate.includes("%c4Name%") && labelTemplate.includes("%c4Type%") &&
+      styleKeyMatches(style, "fillColor", preset.fill) &&
+      styleKeyMatches(style, "strokeColor", preset.stroke) &&
+      styleKeyMatches(style, "fontColor", "#ffffff") &&
+      (preset.shape ? styleKeyMatches(style, "shape", preset.shape) : style.split(";").some((entry) => entry === "rounded=1") && styleKeyMatches(style, "shape", "")) &&
+      numericAttribute(nextCell.geometry, "width") === preset.width &&
+      numericAttribute(nextCell.geometry, "height") === preset.height;
+  }
   if (path === "style") return (nextCell.cell.getAttribute("style") || "") === value;
   if (path.startsWith("style:")) return styleKeyMatches(nextCell.cell.getAttribute("style") || "", path.slice(6), value);
   if (path.startsWith("valueAttr:")) {
