@@ -187,6 +187,21 @@ let workspaceState: WorkspaceState | null = null;
 let diagramVersions: DiagramVersion[] | null = null;
 let diagramVersionsLoad: Promise<DiagramVersion[]> | null = null;
 
+type CachedXmlRevision = { xml: string; revision: string };
+const workspaceStateRevisionCache = new WeakMap<object, CachedXmlRevision>();
+const diagramVersionRevisionCache = new WeakMap<object, CachedXmlRevision>();
+function cachedXmlRevision(
+  cache: WeakMap<object, CachedXmlRevision>,
+  owner: object,
+  xml: string
+): string {
+  const existing = cache.get(owner);
+  if (existing?.xml === xml) return existing.revision;
+  const revision = workspaceRevision(xml);
+  cache.set(owner, { xml, revision });
+  return revision;
+}
+
 async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(file, "utf8")) as T; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback; throw error; }
@@ -890,7 +905,7 @@ registerCopilotIntentRoute(app, {
     const state = await getWorkspaceState();
     const workspace = await getProjectWorkspace();
     if (!workspaceStateMatchesActiveDiagram(state, workspace) || typeof state.drawioXml !== "string") return null;
-    const revision = workspaceRevision(state.drawioXml);
+    const revision = cachedXmlRevision(workspaceStateRevisionCache, state, state.drawioXml);
     const allVersions = await getDiagramVersions();
     let currentVersion: DiagramVersion | null = null;
     // Versions are immutable and retained in creation order. Search newest-first so a normal
@@ -898,7 +913,7 @@ registerCopilotIntentRoute(app, {
     for (let index = allVersions.length - 1; index >= 0; index--) {
       const version = allVersions[index];
       if (!versionMatchesActiveDiagram(version, workspace)) continue;
-      if (workspaceRevision(version.drawioXml) === revision) {
+      if (cachedXmlRevision(diagramVersionRevisionCache, version, version.drawioXml) === revision) {
         currentVersion = version;
         break;
       }
@@ -910,7 +925,7 @@ registerCopilotIntentRoute(app, {
     const version = (await getDiagramVersions()).find((item) =>
       item.id === versionId && versionMatchesActiveDiagram(item, workspace)
     );
-    return version ? { drawioXml: version.drawioXml, revision: workspaceRevision(version.drawioXml), versionId: version.id } : null;
+    return version ? { drawioXml: version.drawioXml, revision: cachedXmlRevision(diagramVersionRevisionCache, version, version.drawioXml), versionId: version.id } : null;
   },
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();

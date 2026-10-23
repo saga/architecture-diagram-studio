@@ -699,16 +699,26 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
         await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
-        const projectContext = standalone
+        const collectedContext = standalone
           ? { mode: "standalone", workspace: null, snippets: [], diagram: context, cacheHits: 0, cacheMisses: 0, characterBudget: 0 }
           : await deps.collectAgentWorkspaceContext(prompt);
+        const contextRecord = { ...((collectedContext || {}) as Record<string, unknown>) };
+        const contextCacheHits = typeof contextRecord.cacheHits === "number" ? contextRecord.cacheHits : 0;
+        const contextCacheMisses = typeof contextRecord.cacheMisses === "number" ? contextRecord.cacheMisses : 0;
+        const contextCharacters = typeof contextRecord.characterBudget === "number" ? contextRecord.characterBudget : null;
+        // These fields are diagnostics, not business context. Leaving them out keeps the prompt prefix
+        // stable when the same workspace files are served from cache on a later turn.
+        delete contextRecord.cacheHits;
+        delete contextRecord.cacheMisses;
+        delete contextRecord.characterBudget;
+        const projectContext = contextRecord;
         await deps.writeLog("turn.workspace-context.loaded", {
           sessionId,
           workspaceId: (projectContext as { workspace?: { id?: string } }).workspace?.id || null,
           snippetCount: (projectContext as { snippets?: unknown[] }).snippets?.length || 0,
-          contextCacheHits: (projectContext as { cacheHits?: number }).cacheHits ?? 0,
-          contextCacheMisses: (projectContext as { cacheMisses?: number }).cacheMisses ?? 0,
-          contextCharacters: (projectContext as { characterBudget?: number }).characterBudget ?? null
+          contextCacheHits,
+          contextCacheMisses,
+          contextCharacters
         });
         let modelText = "";
         const sendAttempt = async (attempt: number, requestPrompt: string, timeoutMs: number, reason?: string): Promise<void> => {

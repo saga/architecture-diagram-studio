@@ -30,6 +30,29 @@ describe("workspace file service", () => {
       await expect(service.resolveWorkspaceFile("escape.txt")).rejects.toThrow(/symlinks/);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it("reuses task-relevant excerpts and invalidates them when file metadata changes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "studio-context-cache-"));
+    const workspace: ProjectWorkspace = { schemaVersion: 1, id: "context-cache", name: "test", rootPath: root, primaryDiagram: null, includePatterns: [], excludePatterns: [], createdAt: "", updatedAt: "" };
+    try {
+      await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(root, "src"), { recursive: true }));
+      await writeFile(path.join(root, "README.md"), "Workspace instructions and architecture context.", "utf8");
+      await writeFile(path.join(root, "src", "account-mapping.ts"), "export const accountMapping = 'before';", "utf8");
+      await writeFile(path.join(root, "src", "billing.ts"), "export const billing = true;", "utf8");
+      const service = createWorkspaceFileService(async () => workspace);
+      const first = await service.collectAgentWorkspaceContext("update account mapping") as { cacheHits?: number; cacheMisses?: number; snippets?: Array<{ path: string; content: string }> };
+      const second = await service.collectAgentWorkspaceContext("update account mapping") as { cacheHits?: number; cacheMisses?: number; snippets?: Array<{ path: string; content: string }> };
+      expect(first.cacheMisses).toBeGreaterThan(0);
+      expect(second.cacheHits).toBeGreaterThan(0);
+
+      await writeFile(path.join(root, "src", "account-mapping.ts"), "export const accountMapping = 'updated-content';", "utf8");
+      const third = await service.collectAgentWorkspaceContext("update account mapping") as { cacheHits?: number; cacheMisses?: number; snippets?: Array<{ path: string; content: string }> };
+      expect(third.cacheMisses).toBeGreaterThan(0);
+      expect(third.snippets?.find((item) => item.path === "src/account-mapping.ts")?.content).toContain("updated-content");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("resolves the supplied directory when no Git root exists", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "studio-root-"));
     try {
