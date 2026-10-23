@@ -1,10 +1,10 @@
 # diagram-design 风格与布局实施评估及计划
 
-> **历史研究与候选需求（非当前实施清单）。** ADR-0011 移除了 `DiagramDocument` 和依赖它的自定义布局/质量实现；本计划保留的是视觉、几何与可访问性原则，不是可直接迁移的代码。复用边界由 [ADR-0012](./adr/0012-native-diagram-extension-contracts.md) 定义：未来布局/样式能力通过 `NativeDiagramOperationProvider` 产生类型化原生操作，质量/可访问性通过 `NativeDiagramAnalysisProvider` 产生诊断。当前只有这些接口，没有已注册的布局或质量 provider。
+> **历史研究与候选需求（非当前实施清单）。** ADR-0011 移除了 `DiagramDocument` 和依赖它的语义布局/质量实现；本计划保留的是视觉、几何与可访问性原则，不是可直接迁移的代码。布局现状以 [ADR-0013](./adr/0013-studio-owned-layout-engines.md) 为准：V2 已恢复 Studio 自己运行的 Dagre/ELK，通过临时 native mxCell 投影计算坐标，再写回原生 Draw.io；不恢复旧模型或旧布局管线。未来额外的通用布局/样式能力可通过 [ADR-0012](./adr/0012-native-diagram-extension-contracts.md) 定义的契约接入，质量/可访问性继续使用 `NativeDiagramAnalysisProvider`。
 
 ## 结论
 
-原始研究建议过沿用 ELK/Dagre 与若干质量指标，但这是旧语义图版本的决策，不是当前 V2 的技术基线。仍可复用几何约束、连接器语法、视觉 token 和可访问性原则；未来实现必须遵照 ADR-0012，不能直接搬回旧 layout engine 或其模型依赖。示例图的复杂度上限也不应变成通用硬限制。
+原始研究里的布局实现与 `DiagramDocument` 绑定，因此不得直接搬回 V2；但 Dagre/ELK 算法本身是核心产品能力，已由 ADR-0013 规定以 native-cell planner 方式恢复。仍可复用几何约束、连接器语法、视觉 token 和可访问性原则；后续布局扩展必须继续使用原生 XML 为真源且不能引入持久化第二模型。示例图的复杂度上限也不应变成通用硬限制。
 
 本文的模块名、测试名和阶段状态属于旧实现。当前 V2 基线是完整原生 XML、`native-edit-operations.ts` 和原生 Draw.io bridge；不能引用本计划里的已删除函数作为当前 API。未来实现应通过 `src/model/native-diagram-capabilities.ts` 定义的接口接入，并复用统一 XML schema、操作验证、revision 检查和 editor acknowledgement。
 
@@ -82,7 +82,7 @@
 1. 每阶段都要补对应单测，禁止只改评分而没有几何样例。
 2. 优先检查硬约束：语义有效性、节点重叠、连线穿节点、越界；再优化交叉、标签、对齐、留白和复杂度。
 3. 每次重新路由后重新评估质量，避免局部修复制造新问题。
-4. 保持原生 Draw.io 为唯一画布。不直接搬入 ELK/Dagre 或 SVG 渲染实现；未来布局能力可实现为 native-cell operation provider，针对原生 mxCell 输出类型化操作，不得重建整份 XML。
+4. 保持原生 Draw.io 为唯一画布。不直接迁移旧的 ELK/Dagre + DiagramDocument 实现，也不搬入 SVG 渲染实现。V2 的现行 Studio-owned Dagre/ELK 能力按 ADR-0013 针对原生 mxCell 计算几何计划，只回写坐标和 waypoints，不重建整份 XML。
 5. 最终以 V2 typecheck、单元测试和生产构建结果作为交付门槛。
 
 ## 实施状态（代码已提交到 main）
