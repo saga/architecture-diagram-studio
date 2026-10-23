@@ -293,7 +293,7 @@ test.describe("原生画布", () => {
     expect(result.rollbackErrors).toEqual([]);
     await expect.poll(async () => {
       const xml = await readWorkspaceXml(workspace);
-      return xml.includes("Temporary script node");
+      return cellX(xml, "Temporary script node") !== null;
     }, { timeout: 10_000, intervals: [250] }).toBe(false);
     expect(await readWorkspaceXml(workspace)).toBe(before);
   });
