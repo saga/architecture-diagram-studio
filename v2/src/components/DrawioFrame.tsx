@@ -10,9 +10,12 @@ const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32e
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&noSaveBtn=1&noExitBtn=1";
 const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
 const RUNTIME_INSPECTION_TIMEOUT_MS = 5_000;
+const AUTO_LAYOUT_TIMEOUT_MS = 30_000;
 
 export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null }): Promise<DrawioRuntimeInspection>;
+  /** Applies the embedded Draw.io ELK horizontal-flow layout and resolves with verified native XML. */
+  applyAutoLayout(): Promise<string>;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -42,6 +45,13 @@ type PendingRuntimeInspection = {
   timeoutId: number;
   documentRevision: string;
   pageId: string | null;
+};
+type PendingAutoLayout = {
+  resolve: (xml: string) => void;
+  reject: (error: Error) => void;
+  timeoutId: number;
+  startedAt: number;
+  awaitingExport: boolean;
 };
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
@@ -76,6 +86,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const pendingNativeEditsRef = useRef(new Map<number, PendingNativeEdit>());
   const pendingSaveConfirmationsRef = useRef(new Map<number, PendingSaveConfirmation>());
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
+  const pendingAutoLayoutRef = useRef<PendingAutoLayout | null>(null);
   const runtimeInspectionSequenceRef = useRef(0);
   const runtimeManifestCompatibleRef = useRef<boolean | null>(null);
   const iframeLoadedRef = useRef(false);
@@ -99,7 +110,61 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
 
+  function finishPendingAutoLayout(xml: string) {
+    const pending = pendingAutoLayoutRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingAutoLayoutRef.current = null;
+    recordDiagnostic("drawio.layout.completed", "Native Draw.io auto layout was applied and serialized", {
+      durationMs: Date.now() - pending.startedAt, xmlLength: xml.length, layout: "elkLayered", direction: "RIGHT"
+    });
+    pending.resolve(xml);
+  }
+
+  function rejectPendingAutoLayout(error: Error) {
+    const pending = pendingAutoLayoutRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingAutoLayoutRef.current = null;
+    recordDiagnostic("drawio.layout.failed", "Native Draw.io auto layout could not be confirmed", {
+      durationMs: Date.now() - pending.startedAt, errorMessage: error.message
+    }, "error");
+    pending.reject(error);
+  }
+
   useImperativeHandle(ref, () => ({
+    applyAutoLayout: () => new Promise<string>((resolve, reject) => {
+      const target = iframeRef.current?.contentWindow;
+      if (!editorReady || !bridgeReady || !target) {
+        reject(new Error("The native Draw.io editor is not ready for auto layout."));
+        return;
+      }
+      if (pendingAutoLayoutRef.current) {
+        reject(new Error("An auto layout operation is already running."));
+        return;
+      }
+      if (pendingNativeEditsRef.current.size > 0 || pendingSaveConfirmationsRef.current.size > 0) {
+        reject(new Error("Wait for the current native edit to finish saving before applying auto layout."));
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        rejectPendingAutoLayout(new Error("Draw.io did not confirm auto layout and XML serialization within 30 seconds."));
+      }, AUTO_LAYOUT_TIMEOUT_MS);
+      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false };
+      try {
+        target.postMessage(JSON.stringify({
+          action: "layout",
+          layouts: [{ layout: "elkLayered", config: { "elk.direction": "RIGHT" } }]
+        }), window.location.origin);
+        recordDiagnostic("drawio.layout.requested", "Requested Draw.io's built-in ELK horizontal-flow layout", {
+          drawioVersion: DRAWIO_VERSION, layout: "elkLayered", direction: "RIGHT"
+        });
+      } catch (error) {
+        rejectPendingAutoLayout(new Error("Could not send the native Draw.io auto-layout request: " +
+          (error instanceof Error ? error.message : String(error))));
+      }
+    }),
     inspectRuntime: ({ documentRevision, pageId }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
@@ -141,6 +206,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     }
     pendingSaveConfirmationsRef.current.clear();
     pendingNativeEditsRef.current.clear();
+    rejectPendingAutoLayout(new Error("Draw.io editor closed before auto layout completed."));
     for (const pending of pendingRuntimeInspectionsRef.current.values()) {
       window.clearTimeout(pending.timeoutId);
       pending.reject(new Error("Draw.io editor was closed before runtime inspection completed."));
@@ -462,19 +528,37 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         setStartupError(null);
         setEditorReady(true);
       }
+      if (data.event === "layout") {
+        const pending = pendingAutoLayoutRef.current;
+        if (pending && !pending.awaitingExport) {
+          pending.awaitingExport = true;
+          recordDiagnostic("drawio.layout.acknowledged", "Draw.io acknowledged the layout action; requesting the resulting native XML");
+          try {
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+          } catch (error) {
+            rejectPendingAutoLayout(new Error("Draw.io finished the layout but the updated XML could not be requested: " +
+              (error instanceof Error ? error.message : String(error))));
+          }
+        }
+      }
       if (data.event === "error") {
         const message = typeof data.message === "string" ? data.message.slice(0, 300) : "Draw.io returned an unspecified error.";
         setStartupError("Draw.io error: " + message);
         recordDiagnostic("drawio.editor.error", "The Draw.io editor reported an error", { message }, "error");
+        rejectPendingAutoLayout(new Error("Draw.io reported an error during auto layout: " + message));
       }
       const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
-      const exportSerialization = data.event === "export" && data.format === "xml" && pendingSerialization;
+      const exportSerialization = data.event === "export" && data.format === "xml" &&
+        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true);
       if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
           if (!isDrawioXmlDocument(data.xml)) {
             setStartupError("Draw.io returned an invalid XML document. The previous saved source was preserved.");
             recordDiagnostic("drawio.document.xml.invalid", "Rejected a malformed native Draw.io XML payload", { event: data.event, xmlLength: data.xml.length }, "error");
+            if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) {
+              rejectPendingAutoLayout(new Error("Draw.io auto layout returned invalid XML; the previous saved source was preserved."));
+            }
             return;
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
@@ -503,6 +587,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           }
           if (duplicateXml) {
             for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
+            if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
             return;
           }
           lastSent.current = data.xml;
@@ -511,6 +596,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           });
           onDocumentChangeRef.current(data.xml);
           for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
+          if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
@@ -547,6 +633,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }
 
   function retryEditor() {
+    rejectPendingAutoLayout(new Error("Draw.io editor was re-initialised before auto layout completed."));
     recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", { previousFrameKey: frameKey }, "warn");
     lastSent.current = "";
     setEditorReady(false);
