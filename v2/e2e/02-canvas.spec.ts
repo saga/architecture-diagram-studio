@@ -61,6 +61,42 @@ function cellX(xml: string, fragment: string): number | null {
   return cellPosition(xml, fragment)?.x ?? null;
 }
 
+/** Returns cell IDs of native connector cells from inline or compressed Draw.io pages. */
+function edgeCellIds(xml: string): string[] {
+  try {
+    const source = parseDrawioXml(xml);
+    const documentRoot = source.documentElement;
+    const models: Element[] = [];
+    if (documentRoot.nodeName === "mxGraphModel") {
+      models.push(documentRoot as unknown as Element);
+    } else if (documentRoot.nodeName === "mxfile") {
+      for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
+        const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
+        if (inlineModel) {
+          models.push(inlineModel);
+          continue;
+        }
+        const payload = (page.textContent || "").trim();
+        if (!payload) continue;
+        try {
+          const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
+          if (decoded.documentElement.nodeName === "mxGraphModel") {
+            models.push(decoded.documentElement as unknown as Element);
+          }
+        } catch { /* Continue with the other pages. */ }
+      }
+    }
+    return models.flatMap((model) =>
+      Array.from(model.getElementsByTagName("mxCell"))
+        .filter((cell) => cell.getAttribute("edge") === "1")
+        .map((cell) => cell.getAttribute("id") || "")
+        .filter(Boolean)
+    );
+  } catch {
+    return [];
+  }
+}
+
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
 function edgeStyles(xml: string): string[] {
   try {
@@ -258,9 +294,13 @@ test.describe("原生画布", () => {
   });
   test("Copilot 可以通过通用原生脚本修改 Draw.io 连线样式", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
-    expect(edgeStyles(before).length, "fixture should contain native connector cells").toBeGreaterThan(0);
+    const connectorIds = edgeCellIds(before);
+    expect(connectorIds.length, "fixture should contain native connector cells").toBeGreaterThan(0);
+    const postconditions = connectorIds.slice(0, 12).map((id) => ({
+      kind: "style_equals", target: id, key: "curved", value: "1"
+    }));
 
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (scriptPostconditions) => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
       const requestId = 938272;
@@ -312,10 +352,13 @@ test.describe("原生画布", () => {
         requestId,
         cellId: "__batch__",
         path: "cell:batch",
-        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+        value: JSON.stringify([{
+          cellId: "__active_page__", path: "cell:execute-script",
+          value: JSON.stringify({ script, postconditions: scriptPostconditions })
+        }])
       }), window.location.origin);
       return response;
-    });
+    }, postconditions);
 
     expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
     expect(result.scriptResult).toMatchObject({
@@ -335,6 +378,7 @@ test.describe("原生画布", () => {
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
       const requestId = 938273;
       const script = 'graph.insertVertex(graph.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
+      const postconditions = [{ kind: "cell_added", label: "Temporary script node", cellType: "vertex" }];
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           window.removeEventListener("message", receive);
@@ -357,7 +401,10 @@ test.describe("原生画布", () => {
         requestId,
         cellId: "__batch__",
         path: "cell:batch",
-        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+        value: JSON.stringify([{
+          cellId: "__active_page__", path: "cell:execute-script",
+          value: JSON.stringify({ script, postconditions })
+        }])
       }), window.location.origin);
       return response;
     });
