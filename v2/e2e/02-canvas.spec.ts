@@ -259,8 +259,13 @@ test.describe("原生画布", () => {
   test("Copilot 可以通过通用原生脚本修改 Draw.io 连线样式", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
     expect(edgeStyles(before).length, "fixture should contain native connector cells").toBeGreaterThan(0);
+    const edgeIds = Array.from(before.matchAll(/<mxCell\b([^>]*)>/g))
+      .filter((match) => /\bedge="1"/.test(match[1]))
+      .map((match) => /\bid="([^"]+)"/.exec(match[1])?.[1])
+      .filter((id): id is string => Boolean(id));
+    expect(edgeIds.length, "fixture should expose stable native edge IDs for semantic assertions").toBeGreaterThan(0);
 
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (postconditionEdgeIds: string[]) => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
       const requestId = 938272;
@@ -312,10 +317,19 @@ test.describe("原生画布", () => {
         requestId,
         cellId: "__batch__",
         path: "cell:batch",
-        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+        value: JSON.stringify([{
+          cellId: "__active_page__", path: "cell:execute-script",
+          value: JSON.stringify({
+            script,
+            postconditions: postconditionEdgeIds.map((cellId) => ({
+              cellId, exists: true, kind: "edge",
+              style: { edgeStyle: "orthogonalEdgeStyle", curved: "1" }
+            }))
+          })
+        }])
       }), window.location.origin);
       return response;
-    });
+    }, edgeIds);
 
     expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
     expect(result.scriptResult).toMatchObject({
@@ -334,7 +348,7 @@ test.describe("原生画布", () => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
       const requestId = 938273;
-      const script = 'graph.insertVertex(graph.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
+      const script = 'graph.insertVertex(graph.getDefaultParent(), "temporary-script-node", "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           window.removeEventListener("message", receive);
@@ -357,7 +371,14 @@ test.describe("原生画布", () => {
         requestId,
         cellId: "__batch__",
         path: "cell:batch",
-        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+        value: JSON.stringify([{
+          cellId: "__active_page__", path: "cell:execute-script",
+          value: JSON.stringify({
+            script,
+            postconditions: [{ cellId: "temporary-script-node", exists: true, kind: "vertex",
+              label: "Temporary script node", parentId: "1", geometry: { x: 100, y: 100, width: 120, height: 60 } }]
+          })
+        }])
       }), window.location.origin);
       return response;
     });
