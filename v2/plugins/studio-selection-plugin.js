@@ -55,6 +55,9 @@
             if (!available[name] && name !== "constructor") {
               var descriptor = Object.getOwnPropertyDescriptor(current, name);
               if (descriptor && typeof descriptor.value === "function") available[name] = true;
+              else if (descriptor && typeof descriptor.get === "function") {
+                try { if (typeof target[name] === "function") available[name] = true; } catch (_) {}
+              }
             }
           });
           current = Object.getPrototypeOf(current);
@@ -63,14 +66,35 @@
         }
         depth++;
       }
-      var names = [];
-      (preferred || []).forEach(function (name) {
-        if (available[name] && names.indexOf(name) < 0) names.push(name);
+      // Never dump the full mxGraph API (over a thousand methods) into the model context.
+      // This versioned contract deliberately exposes only the methods used by reviewed recipes.
+      return (preferred || []).filter(function (name, index, items) {
+        return available[name] && items.indexOf(name) === index;
       });
-      Object.keys(available).sort().forEach(function (name) {
-        if (names.indexOf(name) < 0 && names.length < 180) names.push(name);
+    }
+
+    var requiredRuntimeCapabilities = {
+      graph: ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"],
+      model: ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate"],
+      view: ["getState", "validate"]
+    };
+
+    function buildCapabilityManifest(capabilities) {
+      var required = {
+        graph: requiredRuntimeCapabilities.graph.slice(),
+        model: requiredRuntimeCapabilities.model.slice(),
+        view: requiredRuntimeCapabilities.view.slice()
+      };
+      var missing = {};
+      Object.keys(required).forEach(function (group) {
+        var present = capabilities[group] || [];
+        missing[group] = required[group].filter(function (name) { return present.indexOf(name) < 0; });
       });
-      return names.slice(0, 180);
+      return {
+        scriptSupported: Object.keys(missing).every(function (group) { return missing[group].length === 0; }),
+        required: required,
+        missing: missing
+      };
     }
 
     function runtimeCellId(cell) {
@@ -236,6 +260,7 @@
         documentRevision: typeof options.documentRevision === "string" ? options.documentRevision : "",
         pageId: currentPageId(),
         capabilities: capabilities,
+        capabilityManifest: buildCapabilityManifest(capabilities),
         counts: { cells: allCells.length, vertices: vertexCount, edges: edgeCount },
         cells: cells,
         renderedEdges: renderedEdges,
