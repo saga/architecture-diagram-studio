@@ -129,6 +129,20 @@ export function useWorkspacePersistence(options: Options) {
       });
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
+        // A request can finish after restore/workspace-switch invalidated its context.
+        // Do not let that old conflict pause the newly authoritative document.
+        if (scheduledSaveEpoch !== saveEpochRef.current || scheduledWorkspaceKey !== currentWorkspaceKeyRef.current) {
+          const message = "Ignored a save conflict from an outdated document context.";
+          onDiagnostic("workspace.persist.stale-conflict.ignored", message, {
+            scheduledWorkspaceKey, currentWorkspaceKey: currentWorkspaceKeyRef.current,
+            scheduledSaveEpoch, currentSaveEpoch: saveEpochRef.current, xmlLength: xml.length
+          }, "warn");
+          if (saveOptions?.onlyIfCurrent) {
+            return { saved: false, workspaceRevision: serverRevisionRef.current,
+              version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null, error: message };
+          }
+          throw new Error(message);
+        }
         const conflictingRevision = payload.workspaceRevision ?? payload.currentRevision ?? null;
         saveConflictRef.current = {
           workspaceKey: currentWorkspaceKeyRef.current,
