@@ -296,19 +296,19 @@ test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自
     const xml = await readWorkspaceXml(workspace);
     const geometry = (matcher: RegExp) => {
       const cell = matcher.exec(xml)?.[0];
-      const attributes = cell ? /<mxGeometry\\b([^>]*)/.exec(cell)?.[1] : undefined;
-      const x = attributes ? Number(/\\bx="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
-      const y = attributes ? Number(/\\by="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
-      const width = attributes ? Number(/\\bwidth="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
-      const height = attributes ? Number(/\\bheight="([- .\\d]+)"/.exec(attributes)?.[1]) : NaN;
-      return { x, y, width, height, id: cell ? /\\bid="([^"]+)"/.exec(cell)?.[1] : undefined };
+      const attributes = cell ? /<mxGeometry\b([^>]*)/.exec(cell)?.[1] : undefined;
+      const x = attributes ? Number(/\bx="([- .\d]+)"/.exec(attributes)?.[1]) : NaN;
+      const y = attributes ? Number(/\by="([- .\d]+)"/.exec(attributes)?.[1]) : NaN;
+      const width = attributes ? Number(/\bwidth="([- .\d]+)"/.exec(attributes)?.[1]) : NaN;
+      const height = attributes ? Number(/\bheight="([- .\d]+)"/.exec(attributes)?.[1]) : NaN;
+      return { x, y, width, height, id: cell ? /\bid="([^"]+)"/.exec(cell)?.[1] : undefined };
     };
-    const database = geometry(/<mxCell\\b(?=[^>]*\\bid="database")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
-    const api = geometry(/<mxCell\\b(?=[^>]*\\bid="api")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
-    const ddd = geometry(/<mxCell\\b(?=[^>]*\\bvalue="ddd")(?=[^>]*\\bvertex="1")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
-    const eee = geometry(/<mxCell\\b(?=[^>]*\\bvalue="eee")(?=[^>]*\\bvertex="1")[^>]*>[\\s\\S]*?<mxGeometry\\b[^>]*[\\s\\S]*?<\\/mxCell>/);
+    const database = geometry(/<mxCell\b(?=[^>]*\bid="database")[^>]*>[\s\S]*?<mxGeometry\b[^>]*[\s\S]*?<\/mxCell>/);
+    const api = geometry(/<mxCell\b(?=[^>]*\bid="api")[^>]*>[\s\S]*?<mxGeometry\b[^>]*[\s\S]*?<\/mxCell>/);
+    const ddd = geometry(/<mxCell\b(?=[^>]*\bvalue="ddd")(?=[^>]*\bvertex="1")[^>]*>[\s\S]*?<mxGeometry\b[^>]*[\s\S]*?<\/mxCell>/);
+    const eee = geometry(/<mxCell\b(?=[^>]*\bvalue="eee")(?=[^>]*\bvertex="1")[^>]*>[\s\S]*?<mxGeometry\b[^>]*[\s\S]*?<\/mxCell>/);
     if (![database, api, ddd, eee].every((cell) => Number.isFinite(cell.x) && Number.isFinite(cell.y) && Number.isFinite(cell.height) && Boolean(cell.id))) return false;
-    const edges = Array.from(xml.matchAll(/<mxCell\\b[^>]*\\bedge="1"[^>]*>/g), (match) => match[0]);
+    const edges = Array.from(xml.matchAll(/<mxCell\b[^>]*\bedge="1"[^>]*>/g), (match) => match[0]);
     const dddConnected = edges.some((edge) => edge.includes('source="database"') && edge.includes('target="' + ddd.id + '"'));
     const eeeConnected = edges.some((edge) => edge.includes('source="api"') && edge.includes('target="' + eee.id + '"'));
     return dddConnected && eeeConnected &&
