@@ -1231,7 +1231,7 @@ export default function App() {
               <InputNumber
                 aria-label="Node spacing"
                 min={5}
-                max={200}
+                max={500}
                 step={5}
                 value={nativeLayoutOptions.nodeSpacing}
                 onChange={(value) => {
@@ -1245,7 +1245,7 @@ export default function App() {
               <InputNumber
                 aria-label="Layer spacing"
                 min={10}
-                max={500}
+                max={800}
                 step={10}
                 disabled={nativeLayoutOptions.engine !== "dagre" && nativeLayoutOptions.algorithm !== "layered"}
                 value={nativeLayoutOptions.layerSpacing}
@@ -1288,7 +1288,8 @@ export default function App() {
                   { value: "POLYLINE", label: "Polyline" },
                   { value: "SPLINES", label: "Curved / splines" }
                 ]}
-                onChange={(edgeRouting) => setNativeLayoutOptions((current) => ({ ...current, edgeRouting }))}\n                disabled={nativeLayoutOptions.engine !== "elk"}
+                onChange={(edgeRouting) => setNativeLayoutOptions((current) => ({ ...current, edgeRouting }))}
+                disabled={nativeLayoutOptions.engine !== "elk"}
                 style={{ width: "100%" }}
               />
             </label>
