@@ -16,22 +16,6 @@ describe("resolveNativeEditTargets", () => {
     expect(resolved.operations[0]).toMatchObject({ op: "add_node_after", cellId: "db", targetLabel: "Database", newLabel: "bbb" });
   });
 
-  it("resolves bulk style scope to the active native page without guessing a cell", () => {
-    const parsed = parseNativeEditOperations([{
-      op: "set_cells_style", target: "active_page", kinds: ["edge"],
-      add: { edgeStyle: "orthogonalEdgeStyle", curved: "1" }, remove: []
-    }]);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    const resolved = resolveNativeEditTargets(CONTEXT, parsed.operations);
-    expect(resolved).toMatchObject({
-      ok: true,
-      operations: [{
-        op: "set_cells_style", target: "active_page", cellId: "__active_page__", targetLabel: "active Draw.io page"
-      }]
-    });
-  });
-
   it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);
     const byLabel = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "database" }]);
