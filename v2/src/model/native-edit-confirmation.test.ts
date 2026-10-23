@@ -99,21 +99,25 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a script only when native diagram content changes", () => {
-    const renamed = before.replace('value="Old API"', 'value="New API"');
+  it("confirms a script only when a newly created native cell matches all postconditions", () => {
+    const createdCell = '<mxCell id="script-new" value="New" vertex="1" parent="1"><mxGeometry x="10" y="10" width="100" height="40" as="geometry"/></mxCell>';
+    const created = before.replace("</root>", createdCell + "</root>");
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
       value: JSON.stringify({
-        script: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);',
-        postconditions: [{ cellId: "api", exists: true, label: "New API" }]
+        script: 'graph.insertVertex(graph.getDefaultParent(), "script-new", "New", 10, 10, 100, 40);',
+        postconditions: [{
+          cellId: "script-new", exists: true, kind: "vertex", label: "New", parentId: "1",
+          geometry: { x: 10, y: 10, width: 100, height: 40 }
+        }]
       })
     }]);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+      beforeXml: before, xml: created, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
     })).toBe(true);
-    const whitespaceOnly = before.replace("</root>", "\n  </root>");
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+      beforeXml: before, xml: before.replace("</root>", createdCell.replace('value="New"', 'value="Wrong"') + "</root>"),
+      cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
     })).toBe(false);
   });
 
@@ -151,7 +155,7 @@ describe("native edit XML confirmation", () => {
       value: JSON.stringify([{
         cellId: "__active_page__", path: "cell:execute-script",
         value: JSON.stringify({
-          script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+          script: 'model.setValue(model.getCell("api"), "New API");',
           postconditions: [{ cellId: "api", exists: true, label: "New API" }]
         })
       }])
