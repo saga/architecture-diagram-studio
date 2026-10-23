@@ -416,6 +416,7 @@
             style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
             index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
             visible: item.visible, collapsed: item.collapsed, connectable: item.connectable,
+            ownsConnectable: Object.prototype.hasOwnProperty.call(item, "connectable"),
             paths: (pathsById[item.id] || []).slice(), restoreAll: Boolean(restoreAllIds[item.id]) };
         });
         var batchResults = [];
@@ -496,7 +497,11 @@
               }
               if ((restoreAll || paths.indexOf("cell:visible") >= 0) && typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
               if ((restoreAll || paths.indexOf("cell:collapsed") >= 0) && typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
-              if ((restoreAll || paths.indexOf("cell:connectable") >= 0) && typeof snapshot.connectable === "boolean") setCellConnectable(item, snapshot.connectable);
+              if (restoreAll || paths.indexOf("cell:connectable") >= 0) {
+                if (typeof snapshot.connectable === "boolean") setCellConnectable(item, snapshot.connectable);
+                else if (snapshot.ownsConnectable) item.connectable = snapshot.connectable;
+                else delete item.connectable;
+              }
             } catch (rollbackError) {
               rollbackErrors.push({ cellId: snapshot.cell.id, error: rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError) });
             }
