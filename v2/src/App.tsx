@@ -483,7 +483,8 @@ export default function App() {
             error: result.error,
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
-            rolledBack: result.success ? false : result.batchRolledBack !== false,
+            // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
+            rolledBack: result.success ? false : result.batchRolledBack === true,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error }))
           });
         });
