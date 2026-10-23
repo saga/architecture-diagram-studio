@@ -179,6 +179,8 @@ fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;
 3. C4 转换不再允许通过 `run_drawio_script` 自由模拟；缺少 Person shape 时明确失败，不降级为 `umlActor`、`swimlane` 或其他近似形状。
 4. 桥接执行后会校验样式、C4 标签元数据和尺寸；宿主收到序列化 XML 后再次验证结果。只有 XML 改变但实际不是要求的 C4 形状，不再算成功。
 5. 补充了 operation/parser、目标解析、原生桥接和序列化后置条件测试。架构约束记录在 [ADR-0014 — Typed Native Draw.io C4 Conversion](docs/adr/0014-typed-native-drawio-c4-conversion.md)。
+6. 通用运行时能力清单新增 `capabilityManifest.shapes`：调用方可传入一组 shape ID，桥接直接读取 `mxCellRenderer.defaultShapes` 并逐个返回注册结果，不再把 stencil registry 与原生 shape registry 混为一谈。查询结果经过名称校验与数量限制，并有独立回归测试。Agent prompt 明确禁止将 `mxStencilRegistry.getStencil` 当作 shape 存在性探测，也禁止因查询失败而猜测替代图形。
+7. runtime bridge 协议升为 `studio-native-runtime/2`，配置偏好版本也升级，确保既有浏览器配置重新读取默认 C4 图形库列表。
 
-回归验证结果以对应修复分支的 CI 为准；创建 PR 后将记录测试结果。
+本次新增的 type/contract/plugin 测试已写入仓库，但当前执行环境无法运行 TypeScript、Vitest 或生产构建；不能据此宣称已通过这些验证。
 
