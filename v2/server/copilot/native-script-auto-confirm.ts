@@ -182,7 +182,8 @@ export function isAutoConfirmableCreationScript(script: string): boolean {
     ts.ScriptKind.JS
   );
   const firstStatement = source.statements[0];
-  if (source.parseDiagnostics.length !== 0 || source.statements.length !== 1 ||
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics;
+  if ((parseDiagnostics?.length ?? 0) !== 0 || source.statements.length !== 1 ||
       !firstStatement || !ts.isFunctionDeclaration(firstStatement)) return false;
   const wrapper = firstStatement;
   if (!wrapper.body) return false;
@@ -220,7 +221,7 @@ export function isAutoConfirmableCreationScript(script: string): boolean {
         locals.add(node.name.text);
         helperNodes.push(node);
         for (const parameter of node.parameters) {
-          if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotToken) valid = false;
+          if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken) valid = false;
           else {
             if (NATIVE_BINDINGS.has(parameter.name.text)) valid = false;
             locals.add(parameter.name.text);
