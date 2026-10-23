@@ -303,6 +303,18 @@ describe("native Draw.io script bridge", () => {
     expect(harness.service.style).not.toContain("curved=1");
   });
 
+  it("rolls back a script when its declared semantic result does not match the live model", () => {
+    const harness = createHarness();
+    const beforeStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      'graph.setCellStyles("curved", "1", [model.getCell("edge-root")]);',
+      [{ cellId: "edge-root", exists: true, kind: "edge", style: { curved: "0" } }]
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(result.error).toContain("postcondition verification failed");
+    expect(harness.rootEdge.style).toBe(beforeStyle);
+  });
+
   it("rejects raw scripts without machine-checkable postconditions", () => {
     const harness = createHarness();
     const before = harness.rootEdge.style;
