@@ -494,9 +494,6 @@
       postconditions.forEach(function (condition) { conditionsById[condition.cellId] = condition; });
       var ids = new Set(Object.keys(beforeFacts).concat(Object.keys(afterFacts)));
       var changedCount = 0;
-      ids.forEach(function (id) {
-        if (!changedCount && false) return;
-      });
       for (var id of ids) {
         var before = beforeFacts[id];
         var after = afterFacts[id];
