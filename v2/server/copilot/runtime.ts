@@ -226,13 +226,27 @@ export class CopilotRuntime {
         await client.start();
       } catch (error) {
         this.clientStart = null;
-        await this.options.log("client.start.failed", { error: messageOf(error) });
+        this.logDetached("client.start.failed", { error: messageOf(error) });
         throw error;
       }
+
+      // stop() is terminal for this runtime. A startup already in flight when
+      // shutdown begins must dispose its own client instead of publishing it.
+      if (this.stopping) {
+        try {
+          await client.stop();
+        } catch {
+          // Shutdown must not be undone by late startup cleanup.
+        }
+        throw new Error("Copilot runtime was stopped while the client was starting");
+      }
+
       this.client = client;
       this.clientStart = null;
       this.watchLifecycle(client);
-      await this.options.log("client.started", {
+      // Observability must not turn a successfully started client into a failed
+      // getClient() promise (or leave callers holding a client after shutdown).
+      this.logDetached("client.started", {
         defaultModel: this.options.defaultModel,
         provider: this.provider.mode,
         providerHost: this.provider.host ?? null,
