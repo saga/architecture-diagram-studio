@@ -226,7 +226,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const failedScriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
           const scriptRuntimeError = failedStep?.path === "cell:execute-script" &&
             typeof failedStep.error === "string" &&
-            /\\b(?:TypeError|ReferenceError)\\b/.test(failedStep.error);
+            /\b(?:TypeError|ReferenceError)\b/.test(failedStep.error);
           const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
           const shouldTryScriptRepair = Boolean(
             failedScriptOperation &&
