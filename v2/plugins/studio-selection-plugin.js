@@ -322,10 +322,10 @@
             targetId: runtimeCellId(cell.target) || "",
             style: typeof style === "string" ? style : "",
             geometry: geometry ? {
-              x: Number(geometry.x) || 0,
-              y: Number(geometry.y) || 0,
-              width: Number(geometry.width) || 0,
-              height: Number(geometry.height) || 0,
+              x: Number.isFinite(Number(geometry.x)) ? Number(geometry.x) : null,
+              y: Number.isFinite(Number(geometry.y)) ? Number(geometry.y) : null,
+              width: Number.isFinite(Number(geometry.width)) ? Number(geometry.width) : null,
+              height: Number.isFinite(Number(geometry.height)) ? Number(geometry.height) : null,
               relative: geometry.relative === true,
               points: Array.isArray(geometry.points) ? geometry.points.map(function (point) {
                 return { x: Number(point.x), y: Number(point.y) };
@@ -460,7 +460,8 @@
         if (!actual.geometry) return false;
         var geometry = condition.geometry;
         for (var key of ["x", "y", "width", "height"]) {
-          if (geometry[key] !== undefined && Math.abs(actual.geometry[key] - geometry[key]) > 0.02) return false;
+          if (geometry[key] !== undefined &&
+              (!Number.isFinite(actual.geometry[key]) || Math.abs(actual.geometry[key] - geometry[key]) > 0.02)) return false;
         }
         if (geometry.relative !== undefined && actual.geometry.relative !== geometry.relative) return false;
         if (geometry.points !== undefined) {
@@ -468,7 +469,8 @@
           for (var pointIndex = 0; pointIndex < geometry.points.length; pointIndex += 1) {
             var actualPoint = actual.geometry.points[pointIndex];
             var expectedPoint = geometry.points[pointIndex];
-            if (Math.abs(actualPoint.x - expectedPoint.x) > 0.02 ||
+            if (!Number.isFinite(actualPoint.x) || !Number.isFinite(actualPoint.y) ||
+                Math.abs(actualPoint.x - expectedPoint.x) > 0.02 ||
                 Math.abs(actualPoint.y - expectedPoint.y) > 0.02) return false;
           }
         }
