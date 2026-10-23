@@ -451,7 +451,9 @@
           var failedOperation = operations[failedIndex];
           batchResults.push({ index: failedIndex + 1, cellId: failedOperation && failedOperation.cellId || null,
             path: failedOperation && failedOperation.path || null, value: failedOperation && failedOperation.value || null,
-            success: false, error: error && error.message ? String(error.message) : String(error) });
+            success: false,
+            error: (error && error.name ? String(error.name) + ": " : "") +
+              (error && error.message ? String(error.message) : String(error)) });
           for (var createdIndex = batchCreatedCells.length - 1; createdIndex >= 0; createdIndex--) {
             try {
               var createdCell = batchCreatedCells[createdIndex];
