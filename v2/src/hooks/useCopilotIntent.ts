@@ -151,20 +151,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       });
 
       if (plan.outcome === "proposal_required") {
-        const scriptReview = plan.proposal.operations
-          .filter((operation) => operation.op === "run_drawio_script")
-          .map((operation) => {
-            let longestBacktickRun = 0;
-            const runs = operation.script.match(/`+/g) || [];
-            for (const run of runs) longestBacktickRun = Math.max(longestBacktickRun, run.length);
-            const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
-            return "\n\n**Exact native script for review:**\n" + fence + "javascript\n" +
-              operation.script + "\n" + fence;
-          }).join("");
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: plan.reply + "\n\n**Proposed changes:** " + plan.proposal.summary +
-            scriptReview + "\n\nNo change has been applied yet. Review the exact script and confirm only if its effects are acceptable.",
+            "\n\nNothing has been changed yet. Confirm to apply this proposal to the current diagram.",
           proposal: { id: plan.proposal.id, summary: plan.proposal.summary }
         }]);
         return;
