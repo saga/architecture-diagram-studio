@@ -68,4 +68,4 @@ jobs:
       - name: Bundle Draw.io and install the selection bridge
         run: DRAWIO_WAR=/tmp/draw.war npm run drawio:fetch
       - name: Test native canvas, XML history and Copilot edits
-        run: npm run test:e2e -- e2e/02-canvas.spec.ts e2e/04-history-io.spec.ts e2e/05-copilot-native-edits.spec.ts
+        run: npm run test:e2e -- e2e/02-canvas.spec.ts e2e/04-history-io.spec.ts e2e/05-copilot-native-edits.spec.ts e2e/06-copilot-mode-parity.spec.ts
