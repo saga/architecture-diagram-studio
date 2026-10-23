@@ -72,19 +72,28 @@ function elementSignature(element: Element): unknown {
   return [element.nodeName, attributes, text, elementChildren(element).map(elementSignature)];
 }
 
-function semanticDiagramSignature(xml: string): string {
+function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   const document = parseDrawioXml(xml);
   const root = document.documentElement;
   if (root.nodeName !== "mxfile") return JSON.stringify(elementSignature(root));
+  const pages = elementChildren(root).filter((child) => child.nodeName === "diagram");
+  const page = pageId ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : null;
+  if (pageId) {
+    if (!page) return "missing-page:" + pageId;
+    const models = modelRoots(xml);
+    const matchingModel = models.find((entry) => entry.pageId === pageId);
+    return JSON.stringify({
+      pageId,
+      pageName: page.getAttribute("name") || null,
+      model: matchingModel ? elementSignature(matchingModel.model) : null
+    });
+  }
   const models = modelRoots(xml);
-  return JSON.stringify(elementChildren(root)
-    .filter((child) => child.nodeName === "diagram")
-    .map((page) => {
-      const pageId = page.getAttribute("id") || null;
-      const pageName = page.getAttribute("name") || null;
-      const matchingModel = models.find((entry) => entry.pageId === pageId);
-      return { pageId, pageName, model: matchingModel ? elementSignature(matchingModel.model) : null };
-    }));
+  return JSON.stringify(pages.map((candidate) => {
+    const candidateId = candidate.getAttribute("id") || null;
+    const matchingModel = models.find((entry) => entry.pageId === candidateId);
+    return { pageId: candidateId, pageName: candidate.getAttribute("name") || null, model: matchingModel ? elementSignature(matchingModel.model) : null };
+  }));
 }
 
 function cellsForXml(xml: string): ModelRecords[] {
@@ -290,7 +299,7 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       const script = operations[0];
       return script.cellId === "__active_page__" &&
         typeof script.value === "string" && Boolean(script.value.trim()) &&
-        semanticDiagramSignature(input.beforeXml) !== semanticDiagramSignature(input.xml);
+        semanticDiagramSignature(input.beforeXml, input.pageId) !== semanticDiagramSignature(input.xml, input.pageId);
     }
     return operations.every((operation) =>
       Boolean(operation && typeof operation.cellId === "string" && typeof operation.path === "string" &&
