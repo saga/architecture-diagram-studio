@@ -856,11 +856,26 @@
         var cellsBeforeScript = readLiveCells();
         var beforeById = Object.create(null);
         var beforeLabelsById = Object.create(null);
+        var beforeStateById = Object.create(null);
         cellsBeforeScript.forEach(function (cell) {
           var id = runtimeCellId(cell);
           if (!id) return;
+          var geometry = cell.geometry;
           beforeById[id] = cell;
           beforeLabelsById[id] = normalizeConditionText(runtimeCellLabel(cell, activeGraph));
+          beforeStateById[id] = {
+            label: beforeLabelsById[id],
+            style: typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style,
+            geometry: geometry ? {
+              x: Number(geometry.x), y: Number(geometry.y),
+              width: Number(geometry.width), height: Number(geometry.height)
+            } : null,
+            parentId: runtimeCellId(cell.parent),
+            sourceId: runtimeCellId(cell.source),
+            targetId: runtimeCellId(cell.target),
+            vertex: cell.vertex === true,
+            edge: cell.edge === true
+          };
         });
         function resolveBeforeCell(reference) {
           var key = String(reference == null ? "" : reference);
@@ -897,6 +912,20 @@
           if (normalized === "1" || normalized === "true") return matches.some(function (entry) { return entry.value === null; });
           return matches.some(function (entry) { return entry.value === expected; });
         }
+        function resolveLiveConditionTarget(reference, liveCells) {
+          var oldCell = resolveBeforeCell(reference);
+          if (oldCell) return activeModel.getCell(runtimeCellId(oldCell)) || null;
+          var key = String(reference == null ? "" : reference);
+          var byId = activeModel.getCell(key);
+          if (byId && !beforeById[runtimeCellId(byId)]) return byId;
+          var normalized = normalizeConditionText(key);
+          var addedMatches = liveCells.filter(function (cell) {
+            var id = runtimeCellId(cell);
+            return id && !beforeById[id] &&
+              normalizeConditionText(runtimeCellLabel(cell, activeGraph)) === normalized;
+          });
+          return addedMatches.length === 1 ? addedMatches[0] : null;
+        }
         function postconditionSatisfied(condition) {
           var liveCells = readLiveCells();
           if (condition.kind === "cell_added") {
@@ -916,33 +945,52 @@
             return Boolean(oldTarget && !activeModel.getCell(runtimeCellId(oldTarget)));
           }
           if (condition.kind === "edge_connects") {
-            var source = resolveLiveCell(condition.source, liveCells);
-            var target = resolveLiveCell(condition.target, liveCells);
+            var source = resolveLiveConditionTarget(condition.source, liveCells);
+            var target = resolveLiveConditionTarget(condition.target, liveCells);
             if (!source || !target) return false;
-            return liveCells.some(function (cell) {
+            var sourceId = runtimeCellId(source);
+            var targetId = runtimeCellId(target);
+            var relationExisted = Object.keys(beforeStateById).some(function (id) {
+              var state = beforeStateById[id];
+              return state.edge && state.sourceId === sourceId && state.targetId === targetId;
+            });
+            return !relationExisted && liveCells.some(function (cell) {
               return cell.edge === true && cell.source === source && cell.target === target;
             });
           }
-          var targetCell = resolveLiveCell(condition.target, liveCells);
+          var targetCell = resolveLiveConditionTarget(condition.target, liveCells);
           if (!targetCell) return false;
+          var targetId = runtimeCellId(targetCell);
+          var beforeState = beforeStateById[targetId];
           if (condition.kind === "label_equals") {
-            return normalizeConditionText(runtimeCellLabel(targetCell, activeGraph)) === normalizeConditionText(condition.value);
+            var expectedLabel = normalizeConditionText(condition.value);
+            return normalizeConditionText(runtimeCellLabel(targetCell, activeGraph)) === expectedLabel &&
+              (!beforeState || beforeState.label !== expectedLabel);
           }
           if (condition.kind === "style_equals") {
             var style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(targetCell) : targetCell.style;
-            return styleHasKey(style, String(condition.key), String(condition.value));
+            return styleHasKey(style, String(condition.key), String(condition.value)) &&
+              (!beforeState || !styleHasKey(beforeState.style, String(condition.key), String(condition.value)));
           }
           if (condition.kind === "geometry_matches") {
             if (!targetCell.geometry) return false;
-            return ["x", "y", "width", "height"].every(function (key) {
+            var geometryChanged = !beforeState || !beforeState.geometry;
+            var geometryMatches = ["x", "y", "width", "height"].every(function (key) {
               if (condition[key] === undefined) return true;
-              return Number.isFinite(Number(targetCell.geometry[key])) &&
-                Math.abs(Number(targetCell.geometry[key]) - Number(condition[key])) < 0.01;
-            }) && ["x", "y", "width", "height"].some(function (key) { return condition[key] !== undefined; });
+              var actual = Number(targetCell.geometry[key]);
+              if (!Number.isFinite(actual) || Math.abs(actual - Number(condition[key])) >= 0.01) return false;
+              if (beforeState && beforeState.geometry &&
+                  (!Number.isFinite(beforeState.geometry[key]) ||
+                   Math.abs(beforeState.geometry[key] - Number(condition[key])) >= 0.01)) geometryChanged = true;
+              return true;
+            });
+            return geometryMatches && geometryChanged &&
+              ["x", "y", "width", "height"].some(function (key) { return condition[key] !== undefined; });
           }
           if (condition.kind === "parent_is") {
-            var parentCell = resolveLiveCell(condition.parent, liveCells);
-            return Boolean(parentCell && runtimeCellId(targetCell.parent) === runtimeCellId(parentCell));
+            var parentCell = resolveLiveConditionTarget(condition.parent, liveCells);
+            return Boolean(parentCell && runtimeCellId(targetCell.parent) === runtimeCellId(parentCell) &&
+              (!beforeState || beforeState.parentId !== runtimeCellId(parentCell)));
           }
           return false;
         }
