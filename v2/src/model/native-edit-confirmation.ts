@@ -309,6 +309,160 @@ function scriptPostconditionMatches(
   return true;
 }
 
+function scriptCellKind(record: CellRecord): string {
+  if (record.cell.getAttribute("vertex") === "1") return "vertex";
+  if (record.cell.getAttribute("edge") === "1") return "edge";
+  return "cell";
+}
+
+function scriptCellLabel(record: CellRecord): string {
+  if (record.wrapper !== record.cell) {
+    const wrapperLabel = record.wrapper.getAttribute("label");
+    if (wrapperLabel !== null) return wrapperLabel;
+    const wrapperValue = record.wrapper.getAttribute("value");
+    if (wrapperValue !== null) return wrapperValue;
+  }
+  return record.cell.getAttribute("value") || "";
+}
+
+function scriptStyleMap(style: string): Record<string, string | null> {
+  const entries: Record<string, string | null> = Object.create(null);
+  for (const part of style.split(";").filter(Boolean)) {
+    const separator = part.indexOf("=");
+    entries[separator < 0 ? part : part.slice(0, separator)] =
+      separator < 0 ? null : part.slice(separator + 1);
+  }
+  return entries;
+}
+
+function scriptGeometryState(record: CellRecord): {
+  x: number | null; y: number | null; width: number | null; height: number | null;
+  relative: boolean; points: Array<{ x: number | null; y: number | null }>;
+} | null {
+  if (!record.geometry) return null;
+  return {
+    x: numericAttribute(record.geometry, "x"),
+    y: numericAttribute(record.geometry, "y"),
+    width: numericAttribute(record.geometry, "width"),
+    height: numericAttribute(record.geometry, "height"),
+    relative: boolAttribute(record.geometry, "relative", false),
+    points: pointsFor(record).map((point) => ({
+      x: numericAttribute(point, "x"),
+      y: numericAttribute(point, "y")
+    }))
+  };
+}
+
+/** Properties not covered by the postcondition contract must not change implicitly. */
+function unmodeledCellSignature(record: CellRecord): string {
+  const attributeSignature = (element: Element, excluded: ReadonlySet<string>) =>
+    Array.from(element.attributes)
+      .filter((attribute) => !excluded.has(attribute.name))
+      .map((attribute) => [attribute.name, attribute.value] as const)
+      .sort(([left], [right]) => left.localeCompare(right));
+  const standardCellAttributes = new Set([
+    "id", "value", "style", "vertex", "edge", "parent", "source", "target"
+  ]);
+  const wrapperAttributes = record.wrapper === record.cell
+    ? attributeSignature(record.wrapper, standardCellAttributes)
+    : attributeSignature(record.wrapper, new Set(["id", "label", "value"]));
+  const wrapperChildren = record.wrapper === record.cell
+    ? []
+    : elementChildren(record.wrapper).filter((child) => child !== record.cell).map(elementSignature);
+  const cellChildren = elementChildren(record.cell)
+    .filter((child) => child !== record.geometry)
+    .map(elementSignature);
+  const geometryUnknown = record.geometry ? {
+    attributes: attributeSignature(record.geometry, new Set(["x", "y", "width", "height", "relative"])),
+    children: elementChildren(record.geometry)
+      .filter((child) => !(child.nodeName === "Array" && child.getAttribute("as") === "points"))
+      .map(elementSignature)
+  } : null;
+  return JSON.stringify({ wrapperAttributes, wrapperChildren, cellChildren, geometryUnknown });
+}
+
+function scriptChangesAreDeclared(
+  before: ModelRecords[],
+  after: ModelRecords[],
+  conditions: NativeScriptPostcondition[],
+  pageId?: string | null
+): boolean {
+  const pageModel = (models: ModelRecords[]) =>
+    models.find((model) => model.pageId === pageId) ??
+    (models.length === 1 && models[0]?.pageId === null ? models[0] : undefined);
+  const beforeModel = pageModel(before);
+  const afterModel = pageModel(after);
+  if (!beforeModel || !afterModel) return false;
+  const beforeById = new Map(beforeModel.cells.map((record) => [record.id, record]));
+  const afterById = new Map(afterModel.cells.map((record) => [record.id, record]));
+  const conditionById = new Map(conditions.map((condition) => [condition.cellId, condition]));
+  const ids = new Set([...beforeById.keys(), ...afterById.keys()]);
+  let changedCount = 0;
+
+  for (const id of ids) {
+    const oldRecord = beforeById.get(id);
+    const nextRecord = afterById.get(id);
+    if (JSON.stringify(oldRecord ? elementSignature(oldRecord.wrapper) : null) ===
+        JSON.stringify(nextRecord ? elementSignature(nextRecord.wrapper) : null)) continue;
+    changedCount += 1;
+    if (id === "0" || id === "1") return false;
+    const condition = conditionById.get(id);
+    if (!condition ||
+        scriptPostconditionMatches(before, condition, pageId) ||
+        !scriptPostconditionMatches(after, condition, pageId)) return false;
+    if (!oldRecord || !nextRecord) continue;
+
+    if (scriptCellKind(oldRecord) !== scriptCellKind(nextRecord) &&
+        condition.kind !== scriptCellKind(nextRecord)) return false;
+    if (scriptCellLabel(oldRecord) !== scriptCellLabel(nextRecord) &&
+        (condition.label === undefined || !labelMatches(nextRecord, condition.label))) return false;
+    for (const key of ["parent", "source", "target"] as const) {
+      const beforeValue = oldRecord.cell.getAttribute(key) || "";
+      const afterValue = nextRecord.cell.getAttribute(key) || "";
+      const conditionKey = key === "parent" ? "parentId" : key === "source" ? "sourceId" : "targetId";
+      if (beforeValue !== afterValue && condition[conditionKey] !== afterValue) return false;
+    }
+
+    const oldStyle = scriptStyleMap(oldRecord.cell.getAttribute("style") || "");
+    const nextStyle = scriptStyleMap(nextRecord.cell.getAttribute("style") || "");
+    const allStyleKeys = new Set([...Object.keys(oldStyle), ...Object.keys(nextStyle)]);
+    for (const key of allStyleKeys) {
+      if (oldStyle[key] === nextStyle[key] &&
+          Object.prototype.hasOwnProperty.call(oldStyle, key) === Object.prototype.hasOwnProperty.call(nextStyle, key)) continue;
+      const expected = condition.style?.[key];
+      const asserted = condition.style !== undefined && Object.prototype.hasOwnProperty.call(condition.style, key);
+      if (!asserted || (expected === "" ? Object.prototype.hasOwnProperty.call(nextStyle, key) : nextStyle[key] !== expected)) return false;
+    }
+
+    const oldGeometry = scriptGeometryState(oldRecord);
+    const nextGeometry = scriptGeometryState(nextRecord);
+    if (Boolean(oldGeometry) !== Boolean(nextGeometry) && !condition.geometry) return false;
+    if (oldGeometry && nextGeometry) {
+      for (const key of ["x", "y", "width", "height"] as const) {
+        const oldValue = oldGeometry[key];
+        const nextValue = nextGeometry[key];
+        if (oldValue === nextValue) continue;
+        const expected = condition.geometry?.[key];
+        if (expected === undefined || nextValue === null || Math.abs(expected - nextValue) > 0.02) return false;
+      }
+      if (oldGeometry.relative !== nextGeometry.relative &&
+          condition.geometry?.relative !== nextGeometry.relative) return false;
+      const samePoints = JSON.stringify(oldGeometry.points) === JSON.stringify(nextGeometry.points);
+      if (!samePoints) {
+        const expectedPoints = condition.geometry?.points;
+        if (!expectedPoints || expectedPoints.length !== nextGeometry.points.length ||
+            expectedPoints.some((point, index) => {
+              const actual = nextGeometry.points[index];
+              return !actual || actual.x === null || actual.y === null ||
+                Math.abs(point.x - actual.x) > 0.02 || Math.abs(point.y - actual.y) > 0.02;
+            })) return false;
+      }
+    }
+    if (unmodeledCellSignature(oldRecord) !== unmodeledCellSignature(nextRecord)) return false;
+  }
+  return changedCount > 0;
+}
+
 function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operation: NativeEditOperation, pageId?: string | null): boolean {
   let payload: { label?: unknown };
   try { payload = JSON.parse(operation.value) as { label?: unknown }; } catch { return false; }
@@ -513,13 +667,8 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
         return true;
       })) return false;
       if (!scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId)) return false;
-      const newlySatisfied = conditions.some((condition) =>
-        !scriptPostconditionMatches(before, condition, input.pageId) &&
-        scriptPostconditionMatches(after, condition, input.pageId)
-      );
-      return newlySatisfied && conditions.every((condition) =>
-        scriptPostconditionMatches(after, condition, input.pageId)
-      );
+      if (!conditions.every((condition) => scriptPostconditionMatches(after, condition, input.pageId))) return false;
+      return scriptChangesAreDeclared(before, after, conditions, input.pageId);
     }
     return documentOperations.every((operation) =>
       operationIsReflected(before, after, operation, input.pageId)
