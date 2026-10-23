@@ -3,6 +3,7 @@ import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRun
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
+import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
@@ -85,6 +86,8 @@ const SAVE_AND_EXIT_SELECTOR = [
 
 const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange, onScriptCapabilityStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const xmlRef = useRef(xml);
+  xmlRef.current = xml;
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onNativeEditResultRef = useRef(onNativeEditResult);
@@ -144,7 +147,12 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }
 
   useImperativeHandle(ref, () => ({
-    applyAutoLayout: (plan) => new Promise<string>((resolve, reject) => {
+    applyAutoLayout: async (plan) => {
+      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
+      if (currentRevision !== plan.documentRevision) {
+        throw new Error("The native Draw.io XML changed after layout calculation. No layout was applied; recalculate and retry.");
+      }
+      return await new Promise<string>((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
         reject(new Error("The native Draw.io editor is not ready for auto layout."));
@@ -188,7 +196,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         rejectPendingAutoLayout(new Error("Could not send the native layout plan to Draw.io: " +
           (error instanceof Error ? error.message : String(error))));
       }
-    }),
+      });
+    },
     inspectRuntime: ({ documentRevision, pageId }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
