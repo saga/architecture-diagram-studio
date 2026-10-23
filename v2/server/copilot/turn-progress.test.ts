@@ -27,6 +27,15 @@ describe("CopilotTurnProgress", () => {
     expect(snapshot.toolName).toBe("propose_native_edits");
   });
 
+  it("does not treat empty tool-argument chunks as progress", () => {
+    const progress = new CopilotTurnProgress(100);
+    expect(progress.observe("assistant.tool_call_delta", {
+      toolName: "propose_native_edits",
+      inputDelta: ""
+    }, 1_100)).toBe(false);
+    expect(progress.snapshot(1_200).quietMs).toBe(1_100);
+  });
+
   it("does not treat passive usage metadata as progress", () => {
     const progress = new CopilotTurnProgress(100);
     expect(progress.observe("session.usage_info", { currentTokens: 400 }, 5_000)).toBe(false);
