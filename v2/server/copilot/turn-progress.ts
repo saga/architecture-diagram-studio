@@ -91,7 +91,7 @@ export class CopilotTurnProgress {
       const bytes = Buffer.byteLength(delta, "utf8");
       this.totalDeltaBytes += bytes;
       this.windowDeltaBytes += bytes;
-      if (delta.length > 0 || inputDelta !== undefined) {
+      if (delta.length > 0) {
         this.firstDeltaAt ??= now;
         this.lastDeltaAt = now;
       }
@@ -118,7 +118,7 @@ export class CopilotTurnProgress {
     else if (/assistant\.turn_start|assistant\.turn_started/i.test(type)) this.phase = "model_call_started";
     else if (/assistant\.turn_end|session\.idle/i.test(type)) this.phase = "finalizing";
 
-    const meaningfulDelta = hasDelta && (delta.length > 0 || inputDelta !== undefined);
+    const meaningfulDelta = hasDelta && delta.length > 0;
     const meaningfulTransition = /assistant\.turn_start|assistant\.turn_started|assistant\.tool_call|tool.*execution_start|tool.*execution_started|tool.*execution_complete|tool.*execution_failed|session\.idle/i.test(eventType);
     const isProgress = meaningfulDelta || meaningfulTransition;
     if (isProgress) {
