@@ -37,6 +37,11 @@ export interface DrawioRuntimeCell {
 
 export interface DrawioRuntimeInspection {
   schemaVersion: 1;
+  capabilityManifest: {
+    scriptSupported: boolean;
+    required: Partial<Record<RuntimeCapabilityGroup, string[]>>;
+    missing: Partial<Record<RuntimeCapabilityGroup, string[]>>;
+  };
   bridgeVersion: string;
   drawioVersion: string;
   documentRevision: string;
@@ -117,7 +122,7 @@ export function normalizeDrawioRuntimeInspection(
   if (expected.documentRevision && documentRevision !== expected.documentRevision) return null;
 
   const pageId = stringOrNull(value.pageId, 200);
-  if (expected.pageId && pageId !== expected.pageId) return null;
+  if (expected.pageId !== undefined && pageId !== expected.pageId) return null;
 
   const rawCapabilities = isRecord(value.capabilities) ? value.capabilities : {};
   const capabilities = {} as Record<RuntimeCapabilityGroup, string[]>;
@@ -130,6 +135,20 @@ export function normalizeDrawioRuntimeInspection(
       : [];
   }
 
+  const rawManifest = isRecord(value.capabilityManifest) ? value.capabilityManifest : {};
+  const normalizeMethodGroups = (candidate: unknown): Partial<Record<RuntimeCapabilityGroup, string[]>> => {
+    const source = isRecord(candidate) ? candidate : {};
+    const output: Partial<Record<RuntimeCapabilityGroup, string[]>> = {};
+    for (const group of CAPABILITY_GROUPS) {
+      const methods = source[group];
+      if (Array.isArray(methods)) {
+        output[group] = [...new Set(methods.filter((method): method is string =>
+          typeof method === "string" && /^[A-Za-z_$][A-Za-z0-9_$]{0,79}$/.test(method)
+        ).slice(0, RUNTIME_INSPECTION_LIMITS.methodsPerObject))];
+      }
+    }
+    return output;
+  };
   const rawCounts = isRecord(value.counts) ? value.counts : {};
   const count = (key: "cells" | "vertices" | "edges") => {
     const number = rawCounts[key];
@@ -171,6 +190,11 @@ export function normalizeDrawioRuntimeInspection(
 
   return {
     schemaVersion: 1,
+    capabilityManifest: {
+      scriptSupported: rawManifest.scriptSupported === true,
+      required: normalizeMethodGroups(rawManifest.required),
+      missing: normalizeMethodGroups(rawManifest.missing)
+    },
     bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
     drawioVersion: PINNED_DRAWIO_VERSION,
     documentRevision,
