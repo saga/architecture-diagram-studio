@@ -11,8 +11,6 @@ import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
 export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
 
-export const MAX_NATIVE_BRIDGE_BATCH_OPERATIONS = 50;
-
 /** Maximum length of a model-generated program executed by the local Draw.io editor. */
 export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 
