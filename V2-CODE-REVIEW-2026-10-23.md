@@ -29,7 +29,7 @@
 | P1-5 | P1 | 每轮 Copilot 请求都全量扫描工作区 | 每个 turn | 3k 文件 65 ms；10k 上限内线性增长 |
 | P1-6 | P1 | 聊天文本无长度上限 | 粘贴长文 / 恶意 body | 单条 25 MB 可写进 `workspace.json` 并每轮重写 |
 | P1-7 | P1 | standalone 下 Import 到已打开文件后不会写盘 | 导入后直接关闭 | 导入内容丢失，UI 却显示「Imported」 |
-| P1-8 | P1 | 原生编辑 30 s 超时后的迟到结果仍会落盘并记为 applied | 编辑器慢 / 大图批量 | UI 判失败、磁盘和服务器判成功；重试即重复编辑 |
+| P1-8 | P1 | 批量编辑「慢成功」时回执先后颠倒：UI 判失败，磁盘/服务器判成功 | 批量 30 s 以上才回 ACK | 重试即重复编辑，无对账入口 |
 
 ---
 
@@ -153,18 +153,20 @@
 
 修法：导入后显式写一次文件（或把 `standaloneLastSavedXmlRef` 置为导入前的值，让自动保存自然触发）。
 
-### P1-8 · 批量原生编辑 30 秒超时后的「迟到结果」仍会落盘并记账，但 UI 已经判失败
+### P1-8 · 批量原生编辑「慢成功」时回执先后颠倒：UI 判失败，磁盘和服务器判成功
 
 作用域仅限**批量路径** `applyNativeCellEdits`（`App.tsx:474-502`、`:1025-1105`）；单条属性编辑路径（`:465-473`）不写 ack 上下文、无 resolver、无超时，不受影响。
 
-- 超时分支只删 resolver，**不删** ack 上下文，也不取消编辑：`App.tsx:494-500`（`nativeEditResolversRef.delete`，`nativeEditAckContextsRef` 保留）。
-- 迟到结果到达时：`resolver` 已不存在，但 `acknowledgement` 还在，于是代码照常
-  1. `persistDocumentNow(result.serializedXml, "Copilot native edit")` 把结果写进工作区（`:1043`）；
-  2. `POST /api/copilot/intent/ack`，`outcome` 传 `"applied"`（`:1063-1072`）；
-  3. 然后 `:1102` 才判断「无人等待」，只记一条 `unobserved` 日志。
-- 此时用户看到的是 `useCopilotIntent` 在 30 s 时返回的「Nothing was applied / 编辑未确认」，而磁盘和服务器都认为这笔编辑已生效。用户按提示重试 → 同一操作执行第二次（`add_node_after` 会再多一个节点，`delete` 会删掉第二个目标）；更麻烦的是重试所基于的文档**已经被第一次编辑改过**，而界面没有任何对账入口。
+- 两个 30 s 窗口的起点不同：App 侧从**派发**起算（`App.tsx:494-500`）；DrawioFrame 侧从**插件 ACK 到达**起算（`DrawioFrame.tsx:277-296`，等 `export` 回序列化 XML）。成功回执的唯一出口是 `DrawioFrame.tsx:360-393`（`deferredBatchAcks` → `:385` / `:393`）。
+- 因此「31 s 才 ACK、32 s 才导出」的**完全合法**批次必然踩中：App 的 timer 在 30 s 已 fired 并删掉 resolver。
+- 迟到结果到达后，代码顺序是：算 revision（`App.tsx:1039`）→ `persistDocumentNow` 落盘（`:1043`）→ `POST /ack` 带 `outcome:"applied"`（`:1063-1072`）→ **最后**才走到 `if (result.path === "cell:batch" && !resolver)`（`:1102-1104`）静默返回，只留一条 warn 日志。
+- 注意 `:1094` 的「late」分支实际不可达：`:1027` 的 `resolver` 是当场从 `nativeEditResolversRef` 取的，而超时分支（`:497`）已经删掉了该 requestId，所以迟到时 `resolver === undefined`，整块被跳过——真正的落点是 `:1102`。即「丢弃」只发生在副作用之后。
+- 矛盾只在「慢成功」下出现；若 export 一直不返回，`DrawioFrame.tsx:280-294` 会 emit `success:false`，那条路径是自洽的。
+- 同一根因的第二个出口：`resolver(finalResult)`（`:1100`）在 async 回调里裸调用，没有 try/catch；`batchResults` 元素不是对象时 `:487` 的 `step.index` 会抛错，Promise 一直悬到超时，而 ack 已经写成 applied。
 
-修法：超时即视作编辑可能已生效——要么让调用方在超时后进入「unknown，需刷新确认」而不是「失败」，要么在超时分支直接丢弃迟到结果并明确告知「已放弃确认，请刷新画布」。二者选一，不能一边判失败一边落盘。
+后果：**UI 在第 30 秒就宣告「未确认」，而这条编辑真正生效落在第 31–60 秒之间**（窗口 2 从插件 ACK 才起算）。用户看到失败的那一刻文档其实还没被改，随后它被悄悄改了；用户基于「失败」去重试，而重试的基线文档已经含了上一次编辑 → 同一操作执行第二次（`add_node_after` 多一个节点、`delete` 删掉第二个目标），且界面没有任何对账入口。
+
+修法：**迟到回执零副作用**——把 late 判定提前到落盘/ack 之前（即以「当前是否还有等待者」决定要不要 persist + ack），并删掉 `:1095-1097` 那段不可达分支；或者在 late 时明确把 ack 降级为 `unobserved` 并让 UI 显示「结果未确认，请刷新画布」。不要再加第三个超时；`resolver()` 用 `try/finally` 保证一定 settle。
 
 ---
 
@@ -183,7 +185,7 @@
 | 聊天 PUT 没有串行化 | `useWorkspacePersistence.ts:222-233` | 文档保存有 `saveQueueRef`，聊天没有；两次请求乱序落地会回退聊天记录 |
 | 工作区不匹配后首次保存必然 409 | `useWorkspaceBootstrap.ts:74-77` + `:131-136` | 该分支把 `serverRevisionRef` 置空，而补载主图的路径不回填 revision，下一次自动保存 baseRevision 为 null → 409 → 冲突闩锁（只能手动 reload 解除） |
 | standalone 恢复服务器版本会写本地文件 | `App.tsx:796-814` | `restoreVersion` 不更新 `standaloneLastSavedXmlRef`，自动保存会把恢复内容写进当前打开的本地文件 |
-| 回执回调无 try/catch | `App.tsx:1025-1101` | `resolver()` 放在 `persistDocumentNow` 与 `/ack` 之后，前面任一步抛错（例如 `batchResults` 含 null 元素时 `:487` 的 `step.index` 取空引用）都会跳过 `resolver()`，调用方只能等 30 s 超时，而 ack 可能已经发出 |
+| 回执回调的 settle 不保证 | 见 P1-8 第二条 | `resolver()` 不在 try/finally 内，`batchResults` 元素未校验；已归入 P1-8 |
 | 非安全上下文下 Copilot 整体不可用 | `aiProvider.ts:182`（`globalThis.crypto.subtle`） | `dev:web`/`preview` 绑 `0.0.0.0`，用 `http://<LAN IP>:5173` 打开时 `crypto.subtle` 为 `undefined`，第一次请求就在算 revision 时抛错 |
 | 提交前未跑类型检查 | 历史 `b3e6ada` | 该提交上 `tsc --noEmit` 报 TS6133（`native-edit-confirmation.ts:158`），CI 第一步就会红；11:05 的提交已修好。建议加 pre-commit |
 
