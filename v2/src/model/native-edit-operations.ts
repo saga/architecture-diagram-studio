@@ -25,7 +25,8 @@ export type NativeEditOperation =
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
   | { op: "delete"; target: string }
-  | { op: "add_node_after"; target: string; newLabel: string };
+  | { op: "add_node_after"; target: string; newLabel: string }
+  | { op: "add_node_below"; target: string; newLabel: string };
 
 /** An operation whose target label was resolved to a concrete Draw.io cell by the server. */
 export type ResolvedNativeEditOperation = NativeEditOperation & { cellId: string; targetLabel: string };
@@ -166,7 +167,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   return result;
 }
 
-const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "move", "resize", "delete", "add_node_after"] as const;
+const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "move", "resize", "delete", "add_node_after", "add_node_below"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -250,6 +251,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
           operations.push({ op: name, target });
           break;
         case "add_node_after":
+        case "add_node_below":
           operations.push({ op: name, target, newLabel: textField(raw, "newLabel", 500) });
           break;
         case "set_label":
@@ -310,7 +312,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
     case "delete": return `Delete “${target}”`;
-    case "add_node_after": return `Add “${operation.newLabel}” after “${target}” and connect it`;
+    case "add_node_after": return `Add “${operation.newLabel}” to the right of “${target}” and connect it`;
+    case "add_node_below": return `Add “${operation.newLabel}” below “${target}” and connect it`;
   }
 }
 
@@ -354,6 +357,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "add_node_after":
         edits.push({ cellId, path: "cell:add-node-after", value: JSON.stringify({ label: operation.newLabel }) });
+        break;
+      case "add_node_below":
+        edits.push({ cellId, path: "cell:add-node-below", value: JSON.stringify({ label: operation.newLabel }) });
         break;
       case "set_label":
         edits.push({ cellId, path: "label", value: operation.label });
