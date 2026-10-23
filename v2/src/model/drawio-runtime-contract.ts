@@ -8,11 +8,11 @@ export const PINNED_RUNTIME_CAPABILITY_REQUIREMENTS = {
 } as const;
 
 export const RUNTIME_INSPECTION_LIMITS = {
-  cells: 120,
-  renderedEdges: 60,
+  cells: 60,
+  renderedEdges: 24,
   methodsPerObject: 180,
-  geometryPoints: 20,
-  renderedPoints: 24
+  geometryPoints: 8,
+  renderedPoints: 12
 } as const;
 
 export type RuntimeCapabilityGroup = "ui" | "editor" | "graph" | "model" | "view" | "vertexCell" | "edgeCell";
@@ -170,7 +170,7 @@ export function normalizeDrawioRuntimeInspection(
           parentId: stringOrNull(cell.parentId, 200),
           kind,
           label: typeof cell.label === "string" ? cell.label.slice(0, 250) : "",
-          style: typeof cell.style === "string" ? cell.style.slice(0, 1200) : "",
+          style: typeof cell.style === "string" ? cell.style.slice(0, 400) : "",
           sourceId: stringOrNull(cell.sourceId, 200),
           targetId: stringOrNull(cell.targetId, 200),
           connectable: booleanOrNull(cell.connectable),
