@@ -131,10 +131,14 @@ function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, page
       .filter((child) => child.nodeName !== "mxGraphModel")
       .map(elementSignature)
   });
-  const targetBeforePage = beforePages.find((page) => page.getAttribute("id") === pageId);
-  const targetAfterPage = afterPages.find((page) => page.getAttribute("id") === pageId);
-  if (!targetBeforePage || !targetAfterPage ||
-      pageMetadataSignature(targetBeforePage) !== pageMetadataSignature(targetAfterPage)) return false;
+  // The envelope/attributes of every page must remain unchanged, not only its ID/name.
+  // This prevents a script from changing page-level flags while a cell mutation masks it.
+  for (const candidateId of beforeIds) {
+    const beforePage = beforePages.find((page) => page.getAttribute("id") === candidateId);
+    const afterPage = afterPages.find((page) => page.getAttribute("id") === candidateId);
+    if (!beforePage || !afterPage ||
+        pageMetadataSignature(beforePage) !== pageMetadataSignature(afterPage)) return false;
+  }
 
   const beforeCells = cellsForXml(beforeXml);
   const afterCells = cellsForXml(afterXml);
