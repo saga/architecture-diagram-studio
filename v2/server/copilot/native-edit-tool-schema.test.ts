@@ -9,6 +9,7 @@ type OperationBranch = {
     key?: { type?: string; enum?: readonly string[]; default?: string };
     script?: { type?: string; minLength?: number; maxLength?: number };
     summary?: { type?: string; minLength?: number; maxLength?: number };
+    postconditions?: { type?: string; minItems?: number; maxItems?: number; items?: { oneOf?: unknown[] } };
   };
   required: readonly string[];
   additionalProperties: boolean;
@@ -41,7 +42,7 @@ describe("native edit tool parameter schema", () => {
       select: ["op", "target"],
       set_label: ["op", "target", "label"],
       set_style: ["op", "target", "color"],
-      run_drawio_script: ["op", "target", "summary", "script"],
+      run_drawio_script: ["op", "target", "summary", "script", "postconditions"],
       move: ["op", "target", "dx", "dy"],
       resize: ["op", "target", "width", "height"],
       delete: ["op", "target"],
@@ -58,8 +59,12 @@ describe("native edit tool parameter schema", () => {
     const styleBranch = branches.find((candidate) => candidate.properties.op.enum.includes("set_style"));
     expect(styleBranch?.properties.key).toMatchObject({ enum: ["fillColor", "strokeColor", "fontColor"], default: "fillColor" });
     const scriptBranch = branches.find((candidate) => candidate.properties.op.enum.includes("run_drawio_script"));
-    expect(scriptBranch?.required).toEqual(["op", "target", "summary", "script"]);
+    expect(scriptBranch?.required).toEqual(["op", "target", "summary", "script", "postconditions"]);
     expect(scriptBranch?.properties.target).toMatchObject({ enum: ["active_page"] });
     expect(scriptBranch?.properties.script).toMatchObject({ type: "string", minLength: 1, maxLength: 50000 });
+    expect(scriptBranch?.properties.postconditions).toMatchObject({
+      type: "array", minItems: 1, maxItems: 12, items: { oneOf: expect.any(Array) }
+    });
+    expect(scriptBranch?.properties.postconditions?.items?.oneOf).toHaveLength(7);
   });
 });
