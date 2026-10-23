@@ -17,6 +17,7 @@ const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
   </mxCell>
 </root></mxGraphModel></diagram></mxfile>`;
 
+
 describe("extractNativeEditTargets", () => {
   it("reads real vertex and edge ids from native XML without a DiagramDocument", () => {
     const xml = XML.replace(
@@ -74,7 +75,7 @@ describe("parseNativeEditOperations", () => {
   });
 
   it("accepts general Draw.io code and requires it to be the only operation", () => {
-    const script = "const cells = graph.getChildCells(model.getDefaultParent(), true, true); return { inspected: cells.length };";
+    const script = "const cells = graph.getChildCells(graph.getDefaultParent(), true, true); return { inspected: cells.length };";
     expect(parseNativeEditOperations([{
       op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script
     }])).toEqual({
@@ -216,7 +217,7 @@ describe("toNativeCellEdits", () => {
   });
 
   it("maps general native Draw.io code to the active-page execution bridge", () => {
-    const script = 'graph.getChildCells(model.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));';
+    const script = 'graph.getChildCells(graph.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));';
     const plan = toNativeCellEdits([{
       op: "run_drawio_script", target: "active_page", summary: "Curve all connectors", script,
       cellId: "__active_page__", targetLabel: "active Draw.io page"

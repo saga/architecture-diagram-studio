@@ -53,6 +53,8 @@ export interface NativeEditExecution {
   failureStage?: "editor" | "persistence";
   /** The local edit may be saved even if its final audit receipt could not be accepted by the server. */
   auditWarning?: string;
+  /** Bounded return value from a native Draw.io script, when one was supplied. */
+  scriptResult?: unknown;
   rolledBack: boolean;
   steps: NativeBatchStepResult[];
 }
@@ -332,9 +334,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
     return { ok: false, error: "The Draw.io XML could not be indexed: " + (error instanceof Error ? error.message : String(error)) };
   }
   for (const operation of operations) {
-    const activePageScript = operation.op === "run_drawio_script" &&
+    const activePageOperation = (operation.op === "run_drawio_script") &&
       operation.target === "active_page" && operation.cellId === "__active_page__";
-    if (activePageScript) continue;
+    if (activePageOperation) continue;
     if (typeof operation.cellId !== "string" || !activeTargetIds.has(operation.cellId)) {
       return { ok: false, error: `Cell “${operation.targetLabel || operation.target}” is not present on the expected Draw.io page` };
     }

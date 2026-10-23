@@ -1,13 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
 
-export const DRAWIO_VERSION = "v32.0.2";
+export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
 const EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&sidebar=0&noSaveBtn=1&noExitBtn=1";
 const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
+const RUNTIME_INSPECTION_TIMEOUT_MS = 5_000;
+
+export interface DrawioFrameHandle {
+  inspectRuntime(input: { documentRevision: string; pageId: string | null }): Promise<DrawioRuntimeInspection>;
+}
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
 type NativeEditResult = {
@@ -25,9 +31,18 @@ type NativeEditResult = {
   /** Set by the host when the editor accepted the edit but required persistence failed. */
   failureStage?: "editor" | "persistence";
   auditWarning?: string;
+  /** Bounded JSON-safe value returned by a native script after its own postcondition checks. */
+  scriptResult?: unknown;
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
 type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; timeoutId?: number };
+type PendingRuntimeInspection = {
+  resolve: (inspection: DrawioRuntimeInspection) => void;
+  reject: (error: Error) => void;
+  timeoutId: number;
+  documentRevision: string;
+  pageId: string | null;
+};
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
@@ -37,6 +52,7 @@ interface Props {
   theme: string;
   /** Reports the embed handshake state so the app's single status bar can show it. */
   onEditorStatusChange?: (ready: boolean) => void;
+  onScriptCapabilityStatusChange?: (compatible: boolean) => void;
 }
 
 /**
@@ -51,7 +67,7 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props) {
+const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange, onScriptCapabilityStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
@@ -59,6 +75,9 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
   const lastHandledCellEditRequestRef = useRef<number | null>(null);
   const pendingNativeEditsRef = useRef(new Map<number, PendingNativeEdit>());
   const pendingSaveConfirmationsRef = useRef(new Map<number, PendingSaveConfirmation>());
+  const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
+  const runtimeInspectionSequenceRef = useRef(0);
+  const runtimeManifestCompatibleRef = useRef<boolean | null>(null);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   const themeRef = useRef(theme);
@@ -75,9 +94,46 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
+  const [runtimeScriptSupported, setRuntimeScriptSupported] = useState<boolean | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    inspectRuntime: ({ documentRevision, pageId }) => new Promise((resolve, reject) => {
+      const target = iframeRef.current?.contentWindow;
+      if (!editorReady || !bridgeReady || !target) {
+        reject(new Error("The native Draw.io runtime is not ready for inspection. Wait for the editor status to become ready, then retry."));
+        return;
+      }
+      const requestId = "runtime-inspect-" + (++runtimeInspectionSequenceRef.current);
+      const timeoutId = window.setTimeout(() => {
+        const pending = pendingRuntimeInspectionsRef.current.get(requestId);
+        if (!pending) return;
+        pendingRuntimeInspectionsRef.current.delete(requestId);
+        reject(new Error("The native Draw.io runtime did not answer the read-only inspection request within 5 seconds."));
+      }, RUNTIME_INSPECTION_TIMEOUT_MS);
+      pendingRuntimeInspectionsRef.current.set(requestId, { resolve, reject, timeoutId, documentRevision, pageId });
+      try {
+        target.postMessage(JSON.stringify({
+          event: "studioRuntimeInspectRequest",
+          requestId,
+          documentRevision,
+          drawioVersion: DRAWIO_VERSION,
+          expectedPageId: pageId,
+          maxCells: 60,
+          maxRenderedEdges: 24
+        }), window.location.origin);
+        recordDiagnostic("drawio.runtime-inspection.requested", "Requested a read-only snapshot of the live native Draw.io runtime", {
+          requestId, documentRevision, pageId, drawioVersion: DRAWIO_VERSION
+        });
+      } catch (error) {
+        window.clearTimeout(timeoutId);
+        pendingRuntimeInspectionsRef.current.delete(requestId);
+        reject(new Error("Could not send the Draw.io runtime inspection request: " + (error instanceof Error ? error.message : String(error))));
+      }
+    })
+  }), [editorReady, bridgeReady]);
 
   useEffect(() => () => {
     for (const pending of pendingSaveConfirmationsRef.current.values()) {
@@ -85,6 +141,11 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
     }
     pendingSaveConfirmationsRef.current.clear();
     pendingNativeEditsRef.current.clear();
+    for (const pending of pendingRuntimeInspectionsRef.current.values()) {
+      window.clearTimeout(pending.timeoutId);
+      pending.reject(new Error("Draw.io editor was closed before runtime inspection completed."));
+    }
+    pendingRuntimeInspectionsRef.current.clear();
   }, []);
 
   // The editor's readiness is surfaced in the app's bottom status bar, so the canvas stays flush
@@ -92,6 +153,10 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
   useEffect(() => {
     onEditorStatusChange?.(editorReady);
   }, [editorReady, onEditorStatusChange]);
+
+  useEffect(() => {
+    onScriptCapabilityStatusChange?.(runtimeScriptSupported === true);
+  }, [runtimeScriptSupported, onScriptCapabilityStatusChange]);
 
   useEffect(() => {
     let active = true;
@@ -246,8 +311,61 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
         });
       }
 
+      if (data.event === "studioRuntimeInspectResult") {
+        const requestId = typeof data.requestId === "string" ? data.requestId : null;
+        const pending = requestId ? pendingRuntimeInspectionsRef.current.get(requestId) : undefined;
+        if (requestId && pending) {
+          window.clearTimeout(pending.timeoutId);
+          pendingRuntimeInspectionsRef.current.delete(requestId);
+          if (data.success !== true) {
+            const message = typeof data.error === "string" ? data.error : "The native Draw.io runtime inspection failed.";
+            pending.reject(new Error(message));
+          } else {
+            const inspection = normalizeDrawioRuntimeInspection(data.inspection, {
+              documentRevision: pending.documentRevision,
+              pageId: pending.pageId,
+              drawioVersion: DRAWIO_VERSION
+            });
+            if (!inspection) {
+              pending.reject(new Error("The runtime inspection did not match the pinned Draw.io version, active page, and source document revision."));
+            } else {
+              if (runtimeManifestCompatibleRef.current !== true) {
+                inspection.capabilityManifest.scriptSupported = false;
+                if (!inspection.capabilityManifest.missing.graph?.length &&
+                    !inspection.capabilityManifest.missing.model?.length &&
+                    !inspection.capabilityManifest.missing.view?.length) {
+                  inspection.capabilityManifest.missing.graph = ["host_bundle_or_bridge_handshake_mismatch"];
+                }
+              }
+              recordDiagnostic("drawio.runtime-inspection.completed", "Received a bounded read-only snapshot of the live native Draw.io runtime", {
+                requestId, documentRevision: inspection.documentRevision, pageId: inspection.pageId,
+                cellCount: inspection.counts.cells, vertexCount: inspection.counts.vertices, edgeCount: inspection.counts.edges,
+                returnedCells: inspection.cells.length, returnedRenderedEdges: inspection.renderedEdges.length,
+                truncated: inspection.truncated,
+                graphMethodCount: inspection.capabilities.graph.length, modelMethodCount: inspection.capabilities.model.length,
+                viewMethodCount: inspection.capabilities.view.length
+              });
+              pending.resolve(inspection);
+            }
+          }
+        }
+      }
       if (data.event === "studioBridgeReady") {
         setBridgeReady(true);
+        const advertisedVersion = typeof data.drawioVersion === "string" ? data.drawioVersion : null;
+        const manifest = data.capabilityManifest && typeof data.capabilityManifest === "object"
+          ? data.capabilityManifest as { scriptSupported?: unknown; missing?: Record<string, unknown> }
+          : null;
+        const missing = manifest?.missing && typeof manifest.missing === "object" ? manifest.missing : {};
+        const hasMissing = ["graph", "model", "view"].some((group) =>
+          Array.isArray(missing[group]) && (missing[group] as unknown[]).length > 0
+        );
+        const compatible = advertisedVersion === DRAWIO_VERSION && manifest?.scriptSupported === true && !hasMissing;
+        runtimeManifestCompatibleRef.current = compatible;
+        setRuntimeScriptSupported(compatible);
+        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.mismatch",
+          compatible ? "The pinned Draw.io script capability manifest matches the host contract" : "Native script execution is disabled because the Draw.io runtime manifest does not match the host contract",
+          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "error");
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }
@@ -263,7 +381,8 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
             requestId, success: true,
             cellId: typeof data.cellId === "string" ? data.cellId : null,
             path: typeof data.path === "string" ? data.path : null,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
+            ...(data.scriptResult !== undefined ? { scriptResult: data.scriptResult } : {})
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
@@ -314,7 +433,8 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
           onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage,
             batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> : null,
             failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
-            rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [] });
+            rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
+            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null });
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
@@ -434,6 +554,8 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
     iframeLoadedRef.current = false;
     nativeDocumentLoadedRef.current = false;
     setBridgeReady(false);
+    runtimeManifestCompatibleRef.current = null;
+    setRuntimeScriptSupported(null);
     setStartupError(null);
     setFrameKey((value) => value + 1);
   }
@@ -471,4 +593,6 @@ export default function DrawioFrame({ xml, onDocumentChange, onSelectionChange, 
         allow="clipboard-read; clipboard-write" />
     </div>
   );
-}
+});
+
+export default DrawioFrame;

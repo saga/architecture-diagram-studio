@@ -96,6 +96,72 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   }));
 }
 
+function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, pageId?: string | null): boolean {
+  const beforeDocument = parseDrawioXml(beforeXml);
+  const afterDocument = parseDrawioXml(afterXml);
+  const beforeRoot = beforeDocument.documentElement;
+  const afterRoot = afterDocument.documentElement;
+  if (beforeRoot.nodeName !== afterRoot.nodeName) return false;
+
+  // A standalone mxGraphModel represents one page. For mxfile, require the same ordered
+  // page set and verify every non-target page is semantically unchanged.
+  if (beforeRoot.nodeName === "mxGraphModel") {
+    const beforeCells = cellsForXml(beforeXml);
+    const afterCells = cellsForXml(afterXml);
+    if (!findCell(beforeCells, "0", pageId) || !findCell(beforeCells, "1", pageId) ||
+        !findCell(afterCells, "0", pageId) || !findCell(afterCells, "1", pageId)) return false;
+    return JSON.stringify(elementSignature(beforeRoot)) !== JSON.stringify(elementSignature(afterRoot));
+  }
+  if (beforeRoot.nodeName !== "mxfile" || afterRoot.nodeName !== "mxfile" || !pageId) return false;
+
+  const beforePages = elementChildren(beforeRoot).filter((child) => child.nodeName === "diagram");
+  const afterPages = elementChildren(afterRoot).filter((child) => child.nodeName === "diagram");
+  const getPageIds = (pages: Element[]) => pages.map((page) => page.getAttribute("id") || null);
+  const beforeIds = getPageIds(beforePages);
+  const afterIds = getPageIds(afterPages);
+  if (beforeIds.some((id) => !id) || JSON.stringify(beforeIds) !== JSON.stringify(afterIds) || !beforeIds.includes(pageId)) {
+    return false;
+  }
+
+  const pageMetadataSignature = (page: Element): string => JSON.stringify({
+    attributes: Array.from(page.attributes)
+      .map((attribute) => [attribute.name, attribute.value] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+    nonModelChildren: elementChildren(page)
+      .filter((child) => child.nodeName !== "mxGraphModel")
+      .map(elementSignature)
+  });
+  // The envelope/attributes of every page must remain unchanged, not only its ID/name.
+  // This prevents a script from changing page-level flags while a cell mutation masks it.
+  for (const candidateId of beforeIds) {
+    const beforePage = beforePages.find((page) => page.getAttribute("id") === candidateId);
+    const afterPage = afterPages.find((page) => page.getAttribute("id") === candidateId);
+    if (!beforePage || !afterPage ||
+        pageMetadataSignature(beforePage) !== pageMetadataSignature(afterPage)) return false;
+  }
+
+  const beforeCells = cellsForXml(beforeXml);
+  const afterCells = cellsForXml(afterXml);
+  // The active page must still exist with its root and default layer; otherwise a page/layer
+  // deletion or graph replacement must not masquerade as a successful cell edit.
+  for (const requiredId of ["0", "1"]) {
+    if (!findCell(beforeCells, requiredId, pageId) || !findCell(afterCells, requiredId, pageId)) return false;
+  }
+
+  for (const otherPageId of beforeIds) {
+    if (!otherPageId || otherPageId === pageId) continue;
+    if (semanticDiagramSignature(beforeXml, otherPageId) !== semanticDiagramSignature(afterXml, otherPageId)) {
+      return false;
+    }
+  }
+
+  // This signature includes the page name plus the full native mxGraphModel, including
+  // geometry, styles, page dimensions and grid settings. A style string alone is not enough.
+  const beforeTarget = semanticDiagramSignature(beforeXml, pageId);
+  const afterTarget = semanticDiagramSignature(afterXml, pageId);
+  return beforeTarget !== afterTarget;
+}
+
 function cellsForXml(xml: string): ModelRecords[] {
   return modelRoots(xml).map(({ pageId, model }) => {
     const root = directChild(model, "root");
@@ -294,17 +360,29 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
     const operations: NativeEditOperation[] = input.path === "cell:batch"
       ? JSON.parse(input.value) as NativeEditOperation[]
       : [{ cellId: input.cellId, path: input.path, value: input.value }];
-    if (!Array.isArray(operations) || operations.length === 0) return false;
-    if (operations.length === 1 && operations[0].path === "cell:execute-script") {
-      const script = operations[0];
-      return script.cellId === "__active_page__" &&
-        typeof script.value === "string" && Boolean(script.value.trim()) &&
-        semanticDiagramSignature(input.beforeXml, input.pageId) !== semanticDiagramSignature(input.xml, input.pageId);
+    if (!Array.isArray(operations) || operations.length === 0 ||
+        !operations.every((operation) => Boolean(operation && typeof operation.cellId === "string" &&
+          typeof operation.path === "string" && typeof operation.value === "string"))) return false;
+
+    // Selection is native UI state, not a serialized document mutation. Confirm that the
+    // target still exists, but never require a <mxCell> change for cell:select itself.
+    const selectionOperations = operations.filter((operation) => operation.path === "cell:select");
+    if (selectionOperations.some((operation) =>
+      !findCell(before, operation.cellId, input.pageId) || !findCell(after, operation.cellId, input.pageId)
+    )) return false;
+
+    const documentOperations = operations.filter((operation) => operation.path !== "cell:select");
+    if (documentOperations.length === 0) {
+      return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
     }
-    return operations.every((operation) =>
-      Boolean(operation && typeof operation.cellId === "string" && typeof operation.path === "string" &&
-        typeof operation.value === "string" &&
-        operationIsReflected(before, after, operation, input.pageId))
+    if (documentOperations.length === 1 && documentOperations[0].path === "cell:execute-script") {
+      const script = documentOperations[0];
+      return operations.length === 1 && script.cellId === "__active_page__" &&
+        typeof script.value === "string" && Boolean(script.value.trim()) &&
+        scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
+    }
+    return documentOperations.every((operation) =>
+      operationIsReflected(before, after, operation, input.pageId)
     );
   } catch {
     return false;

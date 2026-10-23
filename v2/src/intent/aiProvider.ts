@@ -1,4 +1,5 @@
 import { recordDiagnostic } from "../diagnostics";
+import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
 import { isCopilotIntentOutcome, type CopilotIntentResponse } from "./copilot-intent-outcome";
 
@@ -20,6 +21,10 @@ export interface AIIntentContext {
   activePageId?: string | null;
   /** Native Draw.io cells from the active page, not a parallel document model. */
   cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
+  /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
+  runtimeInspection?: DrawioRuntimeInspection;
+  /** One bounded repair context after an explicitly confirmed script rollback. */
+  scriptRepair?: { originalRequest: string; failedScript: string; error: string };
 }
 
 export type AIIntentResponse = CopilotIntentResponse;

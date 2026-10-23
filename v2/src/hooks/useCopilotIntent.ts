@@ -9,6 +9,7 @@ import {
   type NativeEditExecution
 } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
+import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type Workspace = { id: string } | null;
@@ -26,6 +27,8 @@ interface CopilotIntentOptions {
   selectedNativeCellId: string | null;
   selectedNativePageId: string | null;
   getCurrentDiagramState?: () => { drawioXml: string; selectedNativeCellId: string | null; selectedNativePageId: string | null };
+  /** Read-only iframe inspection, matched to the XML revision/page about to be sent to the Agent. */
+  getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
@@ -42,7 +45,7 @@ interface CopilotIntentOptions {
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, persistWorkspaceDocument,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument,
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
   } = options;
 
@@ -95,6 +98,18 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const nativePage = getNativeDiagramPageInfo(sourceXml, sourcePageId);
       const activePageId = nativePage.id || sourcePageId;
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
+      let runtimeInspection: DrawioRuntimeInspection | undefined;
+      if (getRuntimeInspection) {
+        runtimeInspection = await getRuntimeInspection({ documentRevision, pageId: activePageId });
+        if (runtimeInspection.documentRevision !== documentRevision || runtimeInspection.pageId !== activePageId) {
+          throw new Error("The live Draw.io inspection did not match the source XML revision and active page. No Agent request was sent.");
+        }
+        const afterInspection = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        if (afterInspection.drawioXml !== sourceXml || afterInspection.selectedNativePageId !== sourcePageId ||
+            afterInspection.selectedNativeCellId !== sourceSelectedCellId) {
+          throw new Error("The diagram, page, or selection changed during runtime inspection. No Agent request was sent; retry against the current state.");
+        }
+      }
       const plan = await requestAIIntentPlan(
         { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
           diagramXml: sourceXml, documentRevision },
@@ -107,7 +122,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             cellId: sourceSelectedCellId, pageId: activePageId,
             label: selectedTarget?.name || sourceSelectedCellId
           } : null,
-          cells: nativeTargets
+          cells: nativeTargets,
+          ...(runtimeInspection ? { runtimeInspection } : {})
         }
       );
 
@@ -135,9 +151,20 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       });
 
       if (plan.outcome === "proposal_required") {
+        const scriptReview = plan.proposal.operations
+          .filter((operation) => operation.op === "run_drawio_script")
+          .map((operation) => {
+            let longestBacktickRun = 0;
+            const runs = operation.script.match(/`+/g) || [];
+            for (const run of runs) longestBacktickRun = Math.max(longestBacktickRun, run.length);
+            const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
+            return "\n\n**Exact native script for review:**\n" + fence + "javascript\n" +
+              operation.script + "\n" + fence;
+          }).join("");
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
-          text: plan.reply + "\n\n**Proposed changes:** " + plan.proposal.summary + "\n\nNo change has been applied yet. Confirm only after reviewing the listed operations.",
+          text: plan.reply + "\n\n**Proposed changes:** " + plan.proposal.summary +
+            scriptReview + "\n\nNo change has been applied yet. Review the exact script and confirm only if its effects are acceptable.",
           proposal: { id: plan.proposal.id, summary: plan.proposal.summary }
         }]);
         return;
@@ -184,6 +211,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
             operationCount: operations.length,
             steps: execution.steps.length,
+            scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
           });
           setMessages((items) => [...items, {
@@ -195,9 +223,120 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           }]);
         } else {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
+          const failedScriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
+          const scriptRuntimeError = failedStep?.path === "cell:execute-script" &&
+            typeof failedStep.error === "string" &&
+            /\b(?:TypeError|ReferenceError)\b/.test(failedStep.error);
+          const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+          const shouldTryScriptRepair = Boolean(
+            failedScriptOperation &&
+            scriptRuntimeError &&
+            execution.rolledBack &&
+            failedScriptOperation.op === "run_drawio_script" &&
+            failedScriptOperation.script.length <= 12_000 &&
+            requestText.length <= 1_500 &&
+            getRuntimeInspection &&
+            runtimeInspection &&
+            repairState.drawioXml === sourceXml &&
+            repairState.selectedNativePageId === sourcePageId &&
+            repairState.selectedNativeCellId === sourceSelectedCellId
+          );
+          if (shouldTryScriptRepair && failedScriptOperation?.op === "run_drawio_script") {
+            const boundedError = (failedStep?.error || reason).slice(0, 1200);
+            recordDiagnostic("copilot.native-script-repair.started", "Starting the one allowed native script repair attempt after a typed runtime error and confirmed rollback", {
+              sessionId: plan.sessionId || copilotSessionId,
+              error: boundedError,
+              scriptLength: failedScriptOperation.script.length,
+              rollbackConfirmed: execution.rolledBack,
+              documentRevision,
+              pageId: activePageId
+            }, "warn");
+            setMessages((items) => [...items, {
+              role: "assistant",
+              id: Date.now() + 1,
+              text: "原生脚本执行失败（" + boundedError + "），编辑器已确认回滚。正在尝试自动修正 1/1；修正版只会作为提案展示，不会自动执行。"
+            }]);
+            try {
+              const repairPlan = await requestAIIntentPlan({
+                model: aiModel,
+                reasoningEffort,
+                sessionId: plan.sessionId || copilotSessionId,
+                standalone: standaloneMode,
+                diagramXml: sourceXml,
+                documentRevision
+              }, "This is the single allowed repair attempt for the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Correct only the reported TypeError/ReferenceError, use the exact runtime API ownership, do not widen the change, and return exactly one corrected run_drawio_script operation. Do not claim the edit has been applied. This repaired script must be shown as a proposal and must await user confirmation.", {
+                kind: "drawio",
+                title: nativePage.title || "Draw.io diagram",
+                activePageId,
+                selectedCell: sourceSelectedCellId ? {
+                  cellId: sourceSelectedCellId, pageId: activePageId,
+                  label: selectedTarget?.name || sourceSelectedCellId
+                } : null,
+                cells: nativeTargets,
+                ...(runtimeInspection ? { runtimeInspection } : {}),
+                scriptRepair: {
+                  originalRequest: requestText,
+                  failedScript: failedScriptOperation.script,
+                  error: boundedError
+                }
+              });
+              const repairedScript = repairPlan.outcome === "proposal_required"
+                ? repairPlan.proposal.operations.find((operation) => operation.op === "run_drawio_script")
+                : undefined;
+              if (repairPlan.outcome === "proposal_required" && repairedScript?.op === "run_drawio_script") {
+                let longestBacktickRun = 0;
+                for (const run of repairedScript.script.match(/\x60+/g) || []) longestBacktickRun = Math.max(longestBacktickRun, run.length);
+                const fence = "\x60".repeat(Math.max(3, longestBacktickRun + 1));
+                recordDiagnostic("copilot.native-script-repair.proposal-ready", "The repaired native script was returned as a confirmation proposal; it has not been executed", {
+                  sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
+                  proposalId: repairPlan.proposal.id,
+                  scriptLength: repairedScript.script.length,
+                  documentRevision,
+                  pageId: activePageId
+                });
+                setMessages((items) => [...items, {
+                  role: "assistant",
+                  id: Date.now() + 1,
+                  text: "自动修正提案（1/1）： " + repairPlan.proposal.summary +
+                    "\n\n**Exact corrected native script for review:**\n" + fence + "javascript\n" +
+                    repairedScript.script + "\n" + fence +
+                    "\n\n尚未执行。请审阅代码并确认；确认后才会应用修改。",
+                  proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary }
+                }]);
+                return;
+              }
+              recordDiagnostic("copilot.native-script-repair.no-proposal", "The repair turn did not return an explicit script proposal; no repaired script was executed", {
+                sessionId: plan.sessionId || copilotSessionId,
+                outcome: repairPlan.outcome,
+                reply: repairPlan.reply.slice(0, 400),
+                documentRevision
+              }, "warn");
+              setMessages((items) => [...items, {
+                role: "assistant",
+                id: Date.now() + 1,
+                text: "未获得可供确认的修正脚本提案；第二次执行没有发生。原编辑失败：" + reason +
+                  (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知）")
+              }]);
+              return;
+            } catch (repairError) {
+              const repairMessage = repairError instanceof Error ? repairError.message : String(repairError);
+              recordDiagnostic("copilot.native-script-repair.failed", "The single bounded repair request failed; no automatic re-execution occurred", {
+                sessionId: plan.sessionId || copilotSessionId,
+                error: repairMessage.slice(0, 1200),
+                documentRevision
+              }, "warn");
+              setMessages((items) => [...items, {
+                role: "assistant",
+                id: Date.now() + 1,
+                text: "自动修正尝试失败，未执行第二次脚本：" + repairMessage +
+                  "\n\n原编辑失败：" + reason + (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知）")
+              }]);
+              return;
+            }
+          }
           recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
             operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
-            rolledBack: execution.rolledBack,
+            rolledBack: execution.rolledBack, scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
           }, "error");
           setMessages((items) => [...items, {

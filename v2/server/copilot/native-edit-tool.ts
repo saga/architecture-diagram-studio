@@ -43,7 +43,7 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
     const target = operation.target.trim();
     if (operation.op === "run_drawio_script") {
       if (target !== "active_page") {
-        return { ok: false, error: 'Operation ' + (index + 1) + ': run_drawio_script target must be "active_page".' };
+        return { ok: false, error: 'Operation ' + (index + 1) + ': ' + operation.op + ' target must be "active_page".' };
       }
       resolved.push({ ...operation, target: "active_page", cellId: "__active_page__", targetLabel: "active Draw.io page" });
       continue;

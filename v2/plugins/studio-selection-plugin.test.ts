@@ -70,6 +70,7 @@ function createHarness() {
     getChildCount: (parent: MockCell) => parent.children.length,
     getChildAt: (parent: MockCell, index: number) => parent.children[index],
     getCell: (id: string) => byId.get(id) ?? null,
+    getStyle: (cell: MockCell) => cell.style,
     beginUpdate: () => undefined,
     endUpdate: () => undefined,
     addListener: () => undefined,
@@ -82,7 +83,6 @@ function createHarness() {
     },
     setVisible: (cell: MockCell, visible: boolean) => { cell.visible = visible; },
     setCollapsed: (cell: MockCell, collapsed: boolean) => { cell.collapsed = collapsed; },
-    setConnectable: (cell: MockCell, connectable: boolean) => { cell.connectable = connectable; },
     add: (parent: MockCell, cell: MockCell, index: number) => {
       if (cell.parent) {
         const oldIndex = cell.parent.children.indexOf(cell);
@@ -142,18 +142,14 @@ function createHarness() {
   runInNewContext(source, { window: windowMock, console });
   if (!messageHandler) throw new Error("Draw.io bridge did not register its message listener");
 
-  function runScript(script: string) {
+  function runOperations(operations: Array<{ cellId: string; path: string; value: string }>) {
     messages.length = 0;
     const request = {
       event: "studioPropertyEditRequest",
       requestId: "test-request",
       cellId: "__batch__",
       path: "cell:batch",
-      value: JSON.stringify([{
-        cellId: "__active_page__",
-        path: "cell:execute-script",
-        value: script
-      }])
+      value: JSON.stringify(operations)
     };
     messageHandler!({
       source: parent,
@@ -163,7 +159,32 @@ function createHarness() {
     return messages.find((message) => message.event === "studioPropertyEditResult");
   }
 
-  return { rootEdge, nestedEdge, service, runScript };
+  function runOperation(cellId: string, path: string, value: string) {
+    return runOperations([{ cellId, path, value }]);
+  }
+
+  function runScript(script: string) {
+    return runOperation("__active_page__", "cell:execute-script", script);
+  }
+
+  function runRuntimeInspect() {
+    messages.length = 0;
+    messageHandler!({
+      source: parent,
+      origin: "http://studio.test",
+      data: JSON.stringify({
+        event: "studioRuntimeInspectRequest",
+        requestId: "inspect-request",
+        documentRevision: "a".repeat(64),
+        drawioVersion: "v32.0.2",
+        maxCells: 60,
+        maxRenderedEdges: 24
+      })
+    });
+    return messages.find((message) => message.event === "studioRuntimeInspectResult");
+  }
+
+  return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect };
 }
 
 const curveAllConnectorsScript = [
@@ -178,8 +199,10 @@ const curveAllConnectorsScript = [
   "}",
   "collectEdges(model.getRoot());",
   "if (edges.length) {",
-  "  graph.setCellStyles('edgeStyle', null, edges);",
+  "  graph.setCellStyles('edgeStyle', 'orthogonalEdgeStyle', edges);",
   "  graph.setCellStyles('curved', '1', edges);",
+  "  graph.refresh();",
+  "  return { affectedEdges: edges.length, checkedApiOwner: typeof graph.getDefaultParent === 'function' && typeof model.getDefaultParent === 'undefined' };",
   "}"
 ].join("\n");
 
@@ -188,19 +211,64 @@ describe("native Draw.io script bridge", () => {
     const harness = createHarness();
     const result = harness.runScript(curveAllConnectorsScript);
 
-    expect(result).toMatchObject({ success: true });
-    expect(harness.rootEdge.style).not.toContain("edgeStyle=");
+    expect(result).toMatchObject({
+      success: true,
+      scriptResult: { available: true, value: { affectedEdges: 2, checkedApiOwner: true } }
+    });
+    expect(harness.rootEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
     expect(harness.rootEdge.style).toContain("curved=1");
     expect(harness.rootEdge.style).toContain("dashed=1");
     expect(harness.rootEdge.style).toContain("endArrow=block");
-    expect(harness.nestedEdge.style).not.toContain("edgeStyle=");
+    expect(harness.nestedEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
     expect(harness.nestedEdge.style).toContain("curved=1");
     expect(harness.nestedEdge.style).toContain("endArrow=block");
     expect(harness.service.style).toContain("fillColor=#ffffff");
     expect(harness.service.style).not.toContain("curved=1");
   });
 
-  it("reports a bad Model API call and rolls back without changing the diagram", () => {
+  it("restores an originally undefined connectability field after a failed batch", () => {
+    const harness = createHarness();
+    harness.service.connectable = undefined as unknown as boolean;
+    const result = harness.runOperations([
+      { cellId: "service", path: "cell:connectable", value: "false" },
+      { cellId: "missing-cell", path: "label", value: "fail after connectability mutation" }
+    ]);
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(harness.service.connectable).toBeUndefined();
+  });
+
+  it("inspects native runtime capabilities and cells recursively, including edges inside groups", () => {
+    const harness = createHarness();
+    const result = harness.runRuntimeInspect();
+    expect(result).toMatchObject({
+      event: "studioRuntimeInspectResult",
+      success: true,
+      inspection: {
+        schemaVersion: 1,
+        bridgeVersion: "studio-native-runtime/1",
+        drawioVersion: "v32.0.2",
+        documentRevision: "a".repeat(64),
+        counts: { cells: 6, vertices: 4, edges: 2 },
+        capabilityManifest: { scriptSupported: false }
+      }
+    });
+    const inspected = result?.inspection as { cells: Array<{ id: string }>; capabilities: { graph: string[]; model: string[] } };
+    expect(inspected.cells.map((cell) => cell.id)).toContain("edge-nested");
+    expect(inspected.capabilities.graph).toContain("getDefaultParent");
+    expect(inspected.capabilities.model).toContain("getRoot");
+    expect(inspected.capabilities.model).not.toContain("getDefaultParent");
+  });
+
+  it("does not claim rollback succeeded after a script detaches the default layer", () => {
+    const harness = createHarness();
+    const result = harness.runScript('model.remove(model.getCell("1")); throw new Error("intentional failure");');
+    expect(result).toMatchObject({ success: false, batchRolledBack: false });
+    expect(result.rollbackErrors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cellId: "__active_page__", error: expect.stringContaining("cell tree/order") })
+    ]));
+  });
+
+  it("restores mutations after a script error even when mxGraphModel lacks setConnectable", () => {
     const harness = createHarness();
     const beforeRootEdge = harness.rootEdge.style;
     const beforeNestedEdge = harness.nestedEdge.style;
@@ -208,10 +276,19 @@ describe("native Draw.io script bridge", () => {
 
     expect(result).toMatchObject({
       success: false,
-      batchRolledBack: true
+      batchRolledBack: true,
+      rollbackErrors: []
     });
     expect(result.error).toContain("model.getDefaultParent is not a function");
     expect(harness.rootEdge.style).toBe(beforeRootEdge);
     expect(harness.nestedEdge.style).toBe(beforeNestedEdge);
+  });
+
+  it("edits connectability without relying on a non-existent mxGraphModel setter", () => {
+    const harness = createHarness();
+    const result = harness.runOperation("service", "cell:connectable", "false");
+
+    expect(result).toMatchObject({ success: true });
+    expect(harness.service.connectable).toBe(false);
   });
 });
