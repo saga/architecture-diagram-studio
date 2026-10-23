@@ -300,7 +300,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
           const addEntries = Object.entries(rawAdd);
           if (addEntries.length > 12) throw new Error("add can include at most 12 style keys");
           for (const [key, rawValue] of addEntries) {
-            if (!(key in NATIVE_BULK_STYLE_VALUES)) throw new Error("Unsupported bulk style key “" + key + "”");
+            if (!Object.prototype.hasOwnProperty.call(NATIVE_BULK_STYLE_VALUES, key)) throw new Error("Unsupported bulk style key “" + key + "”");
             if (typeof rawValue !== "string" || !rawValue.trim()) throw new Error("Style value for “" + key + "” must be a non-empty string");
             const rule = NATIVE_BULK_STYLE_VALUES[key as NativeBulkStyleKey];
             let normalized: string;
@@ -316,7 +316,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
             add[key as NativeBulkStyleKey] = normalized;
           }
           if (!Array.isArray(raw.remove) || raw.remove.length > 12 ||
-              raw.remove.some((key) => typeof key !== "string" || !(key in NATIVE_BULK_STYLE_VALUES))) {
+              raw.remove.some((key) => typeof key !== "string" || !Object.prototype.hasOwnProperty.call(NATIVE_BULK_STYLE_VALUES, key))) {
             throw new Error("remove must be an array of allowlisted style keys");
           }
           const remove = [...new Set(raw.remove as string[])] as NativeBulkStyleKey[];
