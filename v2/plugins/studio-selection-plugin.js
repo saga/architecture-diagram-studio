@@ -64,7 +64,32 @@
       view: ["getState", "validate"]
     };
 
-    function buildCapabilityManifest(capabilities) {
+    function inspectShapeCapabilities(candidate) {
+      var requested = [];
+      if (Array.isArray(candidate)) {
+        candidate.slice(0, 160).forEach(function (name) {
+          if (requested.length >= 40 || typeof name !== "string" || name.length > 160 ||
+              !/^[A-Za-z0-9_$:.-]{1,160}$/.test(name) ||
+              name === "__proto__" || name === "constructor" || name === "prototype" ||
+              requested.indexOf(name) >= 0) return;
+          requested.push(name);
+        });
+      }
+      var registered = {};
+      var shapeRegistry = window.mxCellRenderer && window.mxCellRenderer.defaultShapes;
+      requested.forEach(function (name) {
+        var available = false;
+        try {
+          available = !!shapeRegistry &&
+            Object.prototype.hasOwnProperty.call(shapeRegistry, name) &&
+            typeof shapeRegistry[name] === "function";
+        } catch (_) {}
+        registered[name] = available;
+      });
+      return { requested: requested, registered: registered };
+    }
+
+    function buildCapabilityManifest(capabilities, shapeNames) {
       var required = {
         graph: requiredRuntimeCapabilities.graph.slice(),
         model: requiredRuntimeCapabilities.model.slice(),
@@ -78,7 +103,8 @@
       return {
         scriptSupported: Object.keys(missing).every(function (group) { return missing[group].length === 0; }),
         required: required,
-        missing: missing
+        missing: missing,
+        shapes: inspectShapeCapabilities(shapeNames)
       };
     }
 
@@ -240,12 +266,12 @@
       }
       return {
         schemaVersion: 1,
-        bridgeVersion: "studio-native-runtime/1",
+        bridgeVersion: "studio-native-runtime/2",
         drawioVersion: typeof options.drawioVersion === "string" ? options.drawioVersion : "unknown",
         documentRevision: typeof options.documentRevision === "string" ? options.documentRevision : "",
         pageId: currentPageId(),
         capabilities: capabilities,
-        capabilityManifest: buildCapabilityManifest(capabilities),
+        capabilityManifest: buildCapabilityManifest(capabilities, options.shapeNames),
         counts: { cells: allCells.length, vertices: vertexCount, edges: edgeCount },
         cells: cells,
         renderedEdges: renderedEdges,
@@ -1096,7 +1122,8 @@
             documentRevision: typeof request.documentRevision === "string" ? request.documentRevision : "",
             drawioVersion: typeof request.drawioVersion === "string" ? request.drawioVersion : "unknown",
             maxCells: request.maxCells,
-            maxRenderedEdges: request.maxRenderedEdges
+            maxRenderedEdges: request.maxRenderedEdges,
+            shapeNames: request.shapeNames
           });
           publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: true, inspection: inspection });
         } catch (inspectionError) {
