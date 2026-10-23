@@ -16,6 +16,19 @@ describe("resolveNativeEditTargets", () => {
     expect(resolved.operations[0]).toMatchObject({ op: "add_node_after", cellId: "db", targetLabel: "Database", newLabel: "bbb" });
   });
 
+  it("resolves multiple below-and-connect targets as typed native operations", () => {
+    const resolved = resolveNativeEditTargets(CONTEXT, [
+      { op: "add_node_below", target: "Database", newLabel: "ddd" },
+      { op: "add_node_below", target: "API Service", newLabel: "eee" }
+    ]);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.operations).toMatchObject([
+      { op: "add_node_below", cellId: "db", targetLabel: "Database", newLabel: "ddd" },
+      { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
+    ]);
+  });
+
   it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);
     const byLabel = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "database" }]);
@@ -37,6 +50,14 @@ describe("resolveNativeEditTargets", () => {
   it("rejects add-after targets that are connectors", () => {
     const context = { cells: [{ id: "edge1", name: "calls", cellType: "edge" }] };
     const result = resolveNativeEditTargets(context, [{ op: "add_node_after", target: "calls", newLabel: "Worker" }]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("must resolve to a vertex");
+  });
+
+  it("rejects add-node-below targets that are connectors", () => {
+    const context = { cells: [{ id: "edge1", name: "calls", cellType: "edge" }] };
+    const result = resolveNativeEditTargets(context, [{ op: "add_node_below", target: "calls", newLabel: "Worker" }]);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain("must resolve to a vertex");
