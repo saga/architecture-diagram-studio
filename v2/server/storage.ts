@@ -47,6 +47,41 @@ export function retainRecentVersions<T extends { id: string; workspaceId?: strin
   }
   return versions.filter((version) => retained.has(version.id));
 }
+export interface CompensatingWriteStep {
+  name: string;
+  apply: () => Promise<void>;
+  rollback: () => Promise<void>;
+}
+
+/**
+ * Run ordered file writes with reverse-order compensation if a later write fails.
+ * This is not a filesystem-wide atomic transaction; rollback failures are surfaced
+ * explicitly so the caller can report that recovery was incomplete.
+ */
+export async function runCompensatingTransaction(steps: CompensatingWriteStep[]): Promise<void> {
+  const completed: CompensatingWriteStep[] = [];
+  try {
+    for (const step of steps) {
+      await step.apply();
+      completed.push(step);
+    }
+  } catch (cause) {
+    const rollbackErrors: string[] = [];
+    for (const step of completed.reverse()) {
+      try {
+        await step.rollback();
+      } catch (error) {
+        rollbackErrors.push(step.name + ": " + (error instanceof Error ? error.message : String(error)));
+      }
+    }
+    if (rollbackErrors.length) {
+      const causeMessage = cause instanceof Error ? cause.message : String(cause);
+      throw new Error("Write failed: " + causeMessage + "; compensation was incomplete: " + rollbackErrors.join("; "));
+    }
+    throw cause;
+  }
+}
+
 export function createSerializedWriteQueue() {
   let queue: Promise<void> = Promise.resolve();
   return async function withSerializedWrite<T>(operation: () => Promise<T>): Promise<T> {
