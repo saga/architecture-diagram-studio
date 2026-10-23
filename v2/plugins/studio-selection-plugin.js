@@ -476,6 +476,101 @@
       return true;
     }
 
+    function scriptStyleMap(style) {
+      var values = Object.create(null);
+      String(style || "").split(";").filter(Boolean).forEach(function (entry) {
+        var separator = entry.indexOf("=");
+        values[separator < 0 ? entry : entry.slice(0, separator)] = separator < 0 ? null : entry.slice(separator + 1);
+      });
+      return values;
+    }
+
+    function scriptFactsGeometry(fact) {
+      return fact && fact.geometry ? fact.geometry : { x: 0, y: 0, width: 0, height: 0, relative: false, points: [] };
+    }
+
+    function scriptChangesAreCovered(beforeFacts, afterFacts, postconditions) {
+      var conditionsById = Object.create(null);
+      postconditions.forEach(function (condition) { conditionsById[condition.cellId] = condition; });
+      var ids = new Set(Object.keys(beforeFacts).concat(Object.keys(afterFacts)));
+      var changedCount = 0;
+      ids.forEach(function (id) {
+        if (!changedCount && false) return;
+      });
+      for (var id of ids) {
+        var before = beforeFacts[id];
+        var after = afterFacts[id];
+        if (JSON.stringify(before || null) === JSON.stringify(after || null)) continue;
+        changedCount += 1;
+        if (id === "0" || id === "1") return "The script changed a Draw.io root or default-layer cell, which is outside the editable contract";
+        var condition = conditionsById[id];
+        if (!condition) return "Cell “" + id + "” changed without a matching postcondition";
+        if (scriptPostconditionMatches(condition, beforeFacts)) {
+          return "Postcondition for changed cell “" + id + "” was already true before execution";
+        }
+        if (!scriptPostconditionMatches(condition, afterFacts)) {
+          return "Postcondition for changed cell “" + id + "” does not match its final live state";
+        }
+        if (!before || !after) continue;
+        if (before.kind !== after.kind && condition.kind !== after.kind) {
+          return "Postcondition for changed cell “" + id + "” must assert its final kind";
+        }
+        if (normalizeScriptLabel(before.label) !== normalizeScriptLabel(after.label) &&
+            (condition.label === undefined || normalizeScriptLabel(condition.label) !== normalizeScriptLabel(after.label))) {
+          return "Postcondition for changed cell “" + id + "” must assert its final label";
+        }
+        if (before.parentId !== after.parentId && condition.parentId !== after.parentId) {
+          return "Postcondition for changed cell “" + id + "” must assert its final parentId";
+        }
+        if (before.sourceId !== after.sourceId && condition.sourceId !== after.sourceId) {
+          return "Postcondition for changed edge “" + id + "” must assert its final sourceId";
+        }
+        if (before.targetId !== after.targetId && condition.targetId !== after.targetId) {
+          return "Postcondition for changed edge “" + id + "” must assert its final targetId";
+        }
+        var beforeStyle = scriptStyleMap(before.style);
+        var afterStyle = scriptStyleMap(after.style);
+        var styleKeys = new Set(Object.keys(beforeStyle).concat(Object.keys(afterStyle)));
+        for (var styleKey of styleKeys) {
+          if (beforeStyle[styleKey] === afterStyle[styleKey] &&
+              Object.prototype.hasOwnProperty.call(beforeStyle, styleKey) === Object.prototype.hasOwnProperty.call(afterStyle, styleKey)) continue;
+          if (!condition.style || !Object.prototype.hasOwnProperty.call(condition.style, styleKey) ||
+              (condition.style[styleKey] === "" ? Object.prototype.hasOwnProperty.call(afterStyle, styleKey) :
+                afterStyle[styleKey] !== condition.style[styleKey])) {
+            return "Postcondition for changed cell “" + id + "” must assert final style key “" + styleKey + "”";
+          }
+        }
+        var beforeGeometry = scriptFactsGeometry(before);
+        var afterGeometry = scriptFactsGeometry(after);
+        for (var geometryKey of ["x", "y", "width", "height"]) {
+          if (Math.abs(beforeGeometry[geometryKey] - afterGeometry[geometryKey]) <= 0.02) continue;
+          if (!condition.geometry || condition.geometry[geometryKey] === undefined ||
+              Math.abs(condition.geometry[geometryKey] - afterGeometry[geometryKey]) > 0.02) {
+            return "Postcondition for changed cell “" + id + "” must assert final geometry." + geometryKey;
+          }
+        }
+        if (beforeGeometry.relative !== afterGeometry.relative &&
+            (!condition.geometry || condition.geometry.relative !== afterGeometry.relative)) {
+          return "Postcondition for changed cell “" + id + "” must assert final geometry.relative";
+        }
+        var pointsChanged = beforeGeometry.points.length !== afterGeometry.points.length ||
+          beforeGeometry.points.some(function (point, pointIndex) {
+            var next = afterGeometry.points[pointIndex];
+            return !next || Math.abs(point.x - next.x) > 0.02 || Math.abs(point.y - next.y) > 0.02;
+          });
+        if (pointsChanged && (!condition.geometry || !Array.isArray(condition.geometry.points) ||
+            condition.geometry.points.length !== afterGeometry.points.length ||
+            condition.geometry.points.some(function (point, pointIndex) {
+              var next = afterGeometry.points[pointIndex];
+              return !next || Math.abs(point.x - next.x) > 0.02 || Math.abs(point.y - next.y) > 0.02;
+            }))) {
+          return "Postcondition for changed cell “" + id + "” must assert all final connector geometry points";
+        }
+      }
+      if (changedCount === 0) return "The script did not make a native cell change that can be verified";
+      return null;
+    }
+
     function updateLabelMarkup(source, value) {
       if (typeof source !== "string" || !/<[a-z][^>]*>/i.test(source)) return value;
       var parsed = new DOMParser().parseFromString(source, "text/html");
@@ -1003,15 +1098,11 @@
         var allPostconditionsMatch = payload.postconditions.every(function (condition) {
           return scriptPostconditionMatches(condition, afterFacts);
         });
-        var newlySatisfied = payload.postconditions.some(function (condition) {
-          return !scriptPostconditionMatches(condition, beforeFacts) && scriptPostconditionMatches(condition, afterFacts);
-        });
         if (!allPostconditionsMatch) {
           throw new Error("Native script postcondition verification failed: one or more declared cell IDs, labels, relations, styles or geometry values do not match the live Draw.io model");
         }
-        if (!newlySatisfied) {
-          throw new Error("Native script postconditions did not establish any new requested state; no success acknowledgement will be issued");
-        }
+        var coverageError = scriptChangesAreCovered(beforeFacts, afterFacts, payload.postconditions);
+        if (coverageError) throw new Error("Native script postcondition verification failed: " + coverageError);
         return {
           executed: true,
           postconditionsVerified: payload.postconditions.length,
