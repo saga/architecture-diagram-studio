@@ -187,8 +187,10 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     return runOperations([{ cellId, path, value }]);
   }
 
-  function runScript(script: string) {
-    return runOperation("__active_page__", "cell:execute-script", script);
+  function runScript(script: string, postconditions: Array<Record<string, unknown>> = [
+    { kind: "style_equals", target: "edge-root", key: "curved", value: "1" }
+  ]) {
+    return runOperation("__active_page__", "cell:execute-script", JSON.stringify({ script, postconditions }));
   }
 
   function runRuntimeInspect() {
@@ -277,7 +279,10 @@ describe("native Draw.io script bridge", () => {
 
   it("executes whole-page curved-edge changes including connectors inside groups", () => {
     const harness = createHarness();
-    const result = harness.runScript(curveAllConnectorsScript);
+    const result = harness.runScript(curveAllConnectorsScript, [
+      { kind: "style_equals", target: "edge-root", key: "curved", value: "1" },
+      { kind: "style_equals", target: "edge-nested", key: "curved", value: "1" }
+    ]);
 
     expect(result).toMatchObject({
       success: true,
@@ -292,6 +297,34 @@ describe("native Draw.io script bridge", () => {
     expect(harness.nestedEdge.style).toContain("endArrow=block");
     expect(harness.service.style).toContain("fillColor=#ffffff");
     expect(harness.service.style).not.toContain("curved=1");
+  });
+
+  it("does not accept a postcondition that was already true before an unrelated script change", () => {
+    const harness = createHarness();
+    harness.service.value = "Payment API";
+    const originalStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "graph.setCellStyles('curved', '1', [graph.getModel().getCell('edge-root')]);",
+      [{ kind: "label_equals", target: "service", value: "Payment API" }]
+    );
+
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(result.error).toContain("postcondition 1");
+    expect(harness.rootEdge.style).toBe(originalStyle);
+  });
+
+  it("rolls back a script when its declared postcondition is not met", () => {
+    const harness = createHarness();
+    const originalStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "graph.setCellStyles('curved', '1', [graph.getModel().getCell('edge-root')]);",
+      [{ kind: "style_equals", target: "edge-nested", key: "curved", value: "1" }]
+    );
+
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(result.error).toContain("postcondition 1");
+    expect(harness.rootEdge.style).toBe(originalStyle);
+    expect(harness.rootEdge.style).not.toContain("curved=1");
   });
 
   it("restores an originally undefined connectability field after a failed batch", () => {

@@ -1,5 +1,6 @@
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 import { parseDrawioXml } from "./drawio-xml-dom";
+import type { NativeScriptPostcondition } from "./native-edit-operations";
 
 export interface NativeEditOperation {
   cellId: string;
@@ -226,8 +227,19 @@ function styleKeyMatches(style: string, key: string, expected: string): boolean 
   });
   const matching = entries.filter((entry) => entry.key === key);
   const normalized = expected.toLowerCase();
-  if (expected === "" || normalized === "0" || normalized === "false") return matching.length === 0;
-  if (normalized === "1" || normalized === "true") return matching.some((entry) => entry.value === null);
+  if (expected === "") return matching.length === 0;
+  if (normalized === "0" || normalized === "false") {
+    return matching.length === 0 || matching.some((entry) => {
+      const value = (entry.value || "").toLowerCase();
+      return value === "0" || value === "false";
+    });
+  }
+  if (normalized === "1" || normalized === "true") {
+    return matching.some((entry) => {
+      const value = (entry.value || "").toLowerCase();
+      return entry.value === null || value === "1" || value === "true";
+    });
+  }
   return matching.some((entry) => entry.value === expected);
 }
 
@@ -411,10 +423,160 @@ function operationIsReflected(
   return false;
 }
 
+function recordsForPage(records: ModelRecords[], pageId?: string | null): CellRecord[] {
+  return records
+    .filter((model) => pageId ? model.pageId === pageId : model.pageId === null)
+    .flatMap((model) => model.cells);
+}
+
+function resolveUniqueRecord(records: ModelRecords[], reference: string, pageId?: string | null): CellRecord | null {
+  const scoped = recordsForPage(records, pageId);
+  const byId = scoped.filter((record) => record.id === reference);
+  if (byId.length === 1) return byId[0];
+  if (byId.length > 1) return null;
+  const normalized = normalizeLabel(reference);
+  const byLabel = scoped.filter((record) => normalizeLabel(findText(record)) === normalized);
+  return byLabel.length === 1 ? byLabel[0] : null;
+}
+
+function recordHasType(record: CellRecord, cellType?: "vertex" | "edge"): boolean {
+  if (!cellType) return true;
+  return record.cell.getAttribute(cellType) === "1";
+}
+
+function resolveAfterTransition(
+  before: ModelRecords[],
+  after: ModelRecords[],
+  reference: string,
+  pageId?: string | null
+): CellRecord | null {
+  const previous = resolveUniqueRecord(before, reference, pageId);
+  if (previous) {
+    return recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null;
+  }
+  const candidate = resolveUniqueRecord(after, reference, pageId);
+  if (!candidate) return null;
+  return recordsForPage(before, pageId).some((record) => record.id === candidate.id) ? null : candidate;
+}
+
+function postconditionIsReflected(
+  before: ModelRecords[],
+  after: ModelRecords[],
+  condition: NativeScriptPostcondition,
+  pageId?: string | null
+): boolean {
+  switch (condition.kind) {
+    case "cell_added": {
+      const expected = normalizeLabel(condition.label);
+      const oldIds = new Set(recordsForPage(before, pageId).map((record) => record.id));
+      const added = recordsForPage(after, pageId).filter((record) =>
+        !oldIds.has(record.id) &&
+        normalizeLabel(findText(record)) === expected &&
+        recordHasType(record, condition.cellType)
+      );
+      return added.length === 1;
+    }
+    case "cell_absent": {
+      const oldTarget = resolveUniqueRecord(before, condition.target, pageId);
+      return Boolean(oldTarget && !recordsForPage(after, pageId).some((record) => record.id === oldTarget.id));
+    }
+    case "label_equals": {
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      return Boolean(target && (!previous || normalizeLabel(findText(previous)) !== normalizeLabel(condition.value)) &&
+        labelMatches(target, condition.value));
+    }
+    case "style_equals": {
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      if (!target) return false;
+      const oldStyle = previous?.cell.getAttribute("style") || "";
+      const nextStyle = target.cell.getAttribute("style") || "";
+      return (!previous || !styleKeyMatches(oldStyle, condition.key, condition.value)) &&
+        styleKeyMatches(nextStyle, condition.key, condition.value);
+    }
+    case "geometry_matches": {
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      if (!target?.geometry || (previous && !previous.geometry)) return false;
+      let changed = !previous;
+      for (const key of ["x", "y", "width", "height"] as const) {
+        const expected = condition[key];
+        if (expected !== undefined) {
+          const oldValue = previous ? numericAttribute(previous.geometry, key) : null;
+          const nextValue = numericAttribute(target.geometry, key);
+          if (nextValue === null || Math.abs(nextValue - expected) >= 0.01) return false;
+          if (previous && (oldValue === null || Math.abs(oldValue - expected) >= 0.01)) changed = true;
+        }
+      }
+      return changed && (condition.x !== undefined || condition.y !== undefined ||
+        condition.width !== undefined || condition.height !== undefined);
+    }
+    case "edge_connects": {
+      const previousSource = resolveUniqueRecord(before, condition.source, pageId);
+      const previousTarget = resolveUniqueRecord(before, condition.target, pageId);
+      const source = previousSource
+        ? recordsForPage(after, pageId).find((record) => record.id === previousSource.id) ?? null
+        : resolveUniqueRecord(after, condition.source, pageId);
+      const target = previousTarget
+        ? recordsForPage(after, pageId).find((record) => record.id === previousTarget.id) ?? null
+        : resolveUniqueRecord(after, condition.target, pageId);
+      if (!source || !target) return false;
+      const previousById = new Map(recordsForPage(before, pageId).map((record) => [record.id, record]));
+      return recordsForPage(after, pageId).some((record) => {
+        if (record.cell.getAttribute("edge") !== "1" ||
+            record.cell.getAttribute("source") !== source.id ||
+            record.cell.getAttribute("target") !== target.id) return false;
+        const previous = previousById.get(record.id);
+        return !previous || previous.cell.getAttribute("edge") !== "1" ||
+          previous.cell.getAttribute("source") !== source.id ||
+          previous.cell.getAttribute("target") !== target.id;
+      });
+    }
+    case "parent_is": {
+      const previous = resolveUniqueRecord(before, condition.target, pageId);
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      const previousParent = resolveUniqueRecord(before, condition.parent, pageId);
+      const parent = previousParent
+        ? recordsForPage(after, pageId).find((record) => record.id === previousParent.id) ?? null
+        : resolveUniqueRecord(after, condition.parent, pageId);
+      return Boolean(target && parent &&
+        (!previous || (previous.cell.getAttribute("parent") || "") !== parent.id) &&
+        target.cell.getAttribute("parent") === parent.id);
+    }
+    default:
+      return false;
+  }
+}
+
+interface NativeScriptPayload {
+  script: string;
+  postconditions: NativeScriptPostcondition[];
+}
+
+function parseNativeScriptPayload(value: string): NativeScriptPayload | null {
+  try {
+    const payload = JSON.parse(value) as { script?: unknown; postconditions?: unknown };
+    if (typeof payload.script !== "string" || !payload.script.trim() ||
+        !Array.isArray(payload.postconditions) || payload.postconditions.length < 1 ||
+        payload.postconditions.length > 12) return null;
+    const allowedKinds = new Set(["cell_added", "cell_absent", "label_equals", "style_equals", "geometry_matches", "edge_connects", "parent_is"]);
+    if (!payload.postconditions.every((condition) =>
+      Boolean(condition) && typeof condition === "object" && !Array.isArray(condition) &&
+      typeof (condition as { kind?: unknown }).kind === "string" &&
+      allowedKinds.has((condition as { kind: string }).kind)
+    )) return null;
+    return { script: payload.script, postconditions: payload.postconditions as NativeScriptPostcondition[] };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * An XML snapshot only confirms a native edit when that exact requested outcome is
  * visible in the snapshot. Generic autosaves and unrelated edits are not sufficient.
- * Unknown operations fail closed so callers can report a timeout instead of false success.
+ * Fallback scripts require declarative postconditions; page changes alone never prove success.
+ * Unknown operations fail closed so callers cannot report false success.
  */
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
@@ -439,10 +601,13 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
     }
     if (documentOperations.length === 1 && documentOperations[0].path === "cell:execute-script") {
-      const script = documentOperations[0];
-      return operations.length === 1 && script.cellId === "__active_page__" &&
-        typeof script.value === "string" && Boolean(script.value.trim()) &&
-        scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
+      const scriptOperation = documentOperations[0];
+      if (operations.length !== 1 || scriptOperation.cellId !== "__active_page__") return false;
+      const payload = parseNativeScriptPayload(scriptOperation.value);
+      if (!payload || !scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId)) return false;
+      return payload.postconditions.every((condition) =>
+        postconditionIsReflected(before, after, condition, input.pageId)
+      );
     }
     return documentOperations.every((operation) =>
       operationIsReflected(before, after, operation, input.pageId)

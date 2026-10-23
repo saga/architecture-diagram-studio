@@ -804,9 +804,208 @@
         return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
       }
       if (request.cellId === "__active_page__" && selectionOperation === "cell:execute-script") {
-        var script = String(request.value || "");
-        if (!script.trim()) throw new Error("The native Draw.io script is empty");
+        var payload;
+        try { payload = JSON.parse(String(request.value || "null")); }
+        catch (_) { throw new Error("Native Draw.io script payload is not valid JSON"); }
+        var script = payload && payload.script;
+        var postconditions = payload && payload.postconditions;
+        if (typeof script !== "string" || !script.trim()) throw new Error("The native Draw.io script is empty");
         if (script.length > 50000) throw new Error("The native Draw.io script exceeds 50000 characters");
+        var allowedPostconditions = ["cell_added", "cell_absent", "label_equals", "style_equals", "geometry_matches", "edge_connects", "parent_is"];
+        if (!Array.isArray(postconditions) || postconditions.length < 1 || postconditions.length > 12 ||
+            postconditions.some(function (condition) {
+              return !condition || typeof condition !== "object" || Array.isArray(condition) ||
+                allowedPostconditions.indexOf(condition.kind) < 0;
+            })) {
+          throw new Error("A native Draw.io script requires 1-12 supported, declarative postconditions");
+        }
+
+        function normalizeConditionText(value) {
+          return String(value == null ? "" : value)
+            .replace(/<br\s*\/?>/gi, " ")
+            .replace(/<\/(?:div|p|li|tr)>/gi, " ")
+            .replace(/<[^>]*>/g, "")
+            .replace(/&nbsp;|&#160;/gi, " ")
+            .replace(/&amp;/gi, "&")
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;|&apos;/gi, "'")
+            .replace(/&lt;/gi, "<")
+            .replace(/&gt;/gi, ">")
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+        function readLiveCells() {
+          var root = activeModel.getRoot();
+          var result = [];
+          var seen = new Set();
+          var stack = root ? [root] : [];
+          while (stack.length) {
+            var parent = stack.pop();
+            if (!parent || seen.has(parent)) continue;
+            seen.add(parent);
+            result.push(parent);
+            var childCount = activeModel.getChildCount(parent);
+            for (var index = childCount - 1; index >= 0; index--) {
+              var child = activeModel.getChildAt(parent, index);
+              if (child) stack.push(child);
+            }
+            if (result.length > 20000) throw new Error("Postcondition verification exceeded the 20000-cell safety limit");
+          }
+          return result;
+        }
+        var cellsBeforeScript = readLiveCells();
+        var beforeById = Object.create(null);
+        var beforeLabelsById = Object.create(null);
+        var beforeStateById = Object.create(null);
+        cellsBeforeScript.forEach(function (cell) {
+          var id = runtimeCellId(cell);
+          if (!id) return;
+          var geometry = cell.geometry;
+          beforeById[id] = cell;
+          beforeLabelsById[id] = normalizeConditionText(runtimeCellLabel(cell, activeGraph));
+          beforeStateById[id] = {
+            label: beforeLabelsById[id],
+            style: typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style,
+            geometry: geometry ? {
+              x: Number(geometry.x), y: Number(geometry.y),
+              width: Number(geometry.width), height: Number(geometry.height)
+            } : null,
+            parentId: runtimeCellId(cell.parent),
+            sourceId: runtimeCellId(cell.source),
+            targetId: runtimeCellId(cell.target),
+            vertex: cell.vertex === true,
+            edge: cell.edge === true
+          };
+        });
+        function resolveBeforeCell(reference) {
+          var key = String(reference == null ? "" : reference);
+          if (!key) return null;
+          if (beforeById[key]) return beforeById[key];
+          var normalized = normalizeConditionText(key);
+          var matches = cellsBeforeScript.filter(function (cell) {
+            var id = runtimeCellId(cell);
+            return id && beforeLabelsById[id] === normalized;
+          });
+          return matches.length === 1 ? matches[0] : null;
+        }
+        function resolveLiveCell(reference, liveCells) {
+          var key = String(reference == null ? "" : reference);
+          if (!key) return null;
+          var byId = activeModel.getCell(key);
+          if (byId) return byId;
+          var normalized = normalizeConditionText(key);
+          var matches = liveCells.filter(function (cell) {
+            return normalizeConditionText(runtimeCellLabel(cell, activeGraph)) === normalized;
+          });
+          return matches.length === 1 ? matches[0] : null;
+        }
+        function styleHasKey(style, key, expected) {
+          var entries = String(style || "").split(";").filter(Boolean).map(function (entry) {
+            var separator = entry.indexOf("=");
+            return separator < 0
+              ? { key: entry, value: null }
+              : { key: entry.slice(0, separator), value: entry.slice(separator + 1) };
+          });
+          var matches = entries.filter(function (entry) { return entry.key === key; });
+          var normalized = String(expected).toLowerCase();
+          if (expected === "") return matches.length === 0;
+          if (normalized === "0" || normalized === "false") {
+            return matches.length === 0 || matches.some(function (entry) {
+              var value = String(entry.value == null ? "" : entry.value).toLowerCase();
+              return value === "0" || value === "false";
+            });
+          }
+          if (normalized === "1" || normalized === "true") {
+            return matches.some(function (entry) {
+              var value = String(entry.value == null ? "" : entry.value).toLowerCase();
+              return entry.value === null || value === "1" || value === "true";
+            });
+          }
+          return matches.some(function (entry) { return entry.value === expected; });
+        }
+        function resolveLiveConditionTarget(reference, liveCells) {
+          var oldCell = resolveBeforeCell(reference);
+          if (oldCell) return activeModel.getCell(runtimeCellId(oldCell)) || null;
+          var key = String(reference == null ? "" : reference);
+          var byId = activeModel.getCell(key);
+          if (byId && !beforeById[runtimeCellId(byId)]) return byId;
+          var normalized = normalizeConditionText(key);
+          var addedMatches = liveCells.filter(function (cell) {
+            var id = runtimeCellId(cell);
+            return id && !beforeById[id] &&
+              normalizeConditionText(runtimeCellLabel(cell, activeGraph)) === normalized;
+          });
+          return addedMatches.length === 1 ? addedMatches[0] : null;
+        }
+        function postconditionSatisfied(condition) {
+          var liveCells = readLiveCells();
+          if (condition.kind === "cell_added") {
+            var label = normalizeConditionText(condition.label);
+            var added = liveCells.filter(function (cell) {
+              var id = runtimeCellId(cell);
+              var typeMatches = !condition.cellType ||
+                (condition.cellType === "vertex" && cell.vertex === true) ||
+                (condition.cellType === "edge" && cell.edge === true);
+              return id && !beforeById[id] && typeMatches &&
+                normalizeConditionText(runtimeCellLabel(cell, activeGraph)) === label;
+            });
+            return added.length === 1;
+          }
+          if (condition.kind === "cell_absent") {
+            var oldTarget = resolveBeforeCell(condition.target);
+            return Boolean(oldTarget && !activeModel.getCell(runtimeCellId(oldTarget)));
+          }
+          if (condition.kind === "edge_connects") {
+            var source = resolveLiveConditionTarget(condition.source, liveCells);
+            var target = resolveLiveConditionTarget(condition.target, liveCells);
+            if (!source || !target) return false;
+            var sourceId = runtimeCellId(source);
+            var targetId = runtimeCellId(target);
+            return liveCells.some(function (cell) {
+              if (cell.edge !== true || cell.source !== source || cell.target !== target) return false;
+              var id = runtimeCellId(cell);
+              var previous = beforeStateById[id];
+              return !previous || !previous.edge ||
+                previous.sourceId !== sourceId || previous.targetId !== targetId;
+            });
+          }
+          var targetCell = resolveLiveConditionTarget(condition.target, liveCells);
+          if (!targetCell) return false;
+          var targetId = runtimeCellId(targetCell);
+          var beforeState = beforeStateById[targetId];
+          if (condition.kind === "label_equals") {
+            var expectedLabel = normalizeConditionText(condition.value);
+            return normalizeConditionText(runtimeCellLabel(targetCell, activeGraph)) === expectedLabel &&
+              (!beforeState || beforeState.label !== expectedLabel);
+          }
+          if (condition.kind === "style_equals") {
+            var style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(targetCell) : targetCell.style;
+            return styleHasKey(style, String(condition.key), String(condition.value)) &&
+              (!beforeState || !styleHasKey(beforeState.style, String(condition.key), String(condition.value)));
+          }
+          if (condition.kind === "geometry_matches") {
+            if (!targetCell.geometry) return false;
+            var geometryChanged = !beforeState || !beforeState.geometry;
+            var geometryMatches = ["x", "y", "width", "height"].every(function (key) {
+              if (condition[key] === undefined) return true;
+              var actual = Number(targetCell.geometry[key]);
+              if (!Number.isFinite(actual) || Math.abs(actual - Number(condition[key])) >= 0.01) return false;
+              if (beforeState && beforeState.geometry &&
+                  (!Number.isFinite(beforeState.geometry[key]) ||
+                   Math.abs(beforeState.geometry[key] - Number(condition[key])) >= 0.01)) geometryChanged = true;
+              return true;
+            });
+            return geometryMatches && geometryChanged &&
+              ["x", "y", "width", "height"].some(function (key) { return condition[key] !== undefined; });
+          }
+          if (condition.kind === "parent_is") {
+            var parentCell = resolveLiveConditionTarget(condition.parent, liveCells);
+            return Boolean(parentCell && runtimeCellId(targetCell.parent) === runtimeCellId(parentCell) &&
+              (!beforeState || beforeState.parentId !== runtimeCellId(parentCell)));
+          }
+          return false;
+        }
+
         // This intentionally executes inside the local Draw.io iframe with the full native editor API.
         var executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script);
         var scriptResult = executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
@@ -815,10 +1014,18 @@
         if (scriptResult && typeof scriptResult.then === "function") {
           throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
         }
+        for (var postconditionIndex = 0; postconditionIndex < postconditions.length; postconditionIndex++) {
+          var condition = postconditions[postconditionIndex];
+          if (!postconditionSatisfied(condition)) {
+            throw new Error("Script postcondition " + (postconditionIndex + 1) + " (" + condition.kind +
+              ") was not satisfied. The atomic batch will be rolled back.");
+          }
+        }
         return {
           executed: true,
           resultType: scriptResult === null ? "null" : typeof scriptResult,
-          scriptResult: serializeScriptResult(scriptResult)
+          scriptResult: serializeScriptResult(scriptResult),
+          postconditionsVerified: postconditions.length
         };
       }
       var cell = activeModel.getCell(request.cellId);

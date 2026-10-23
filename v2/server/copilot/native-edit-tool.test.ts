@@ -150,7 +150,8 @@ describe("resolveNativeEditTargets", () => {
   it("resolves a general native script against the active page, including an empty diagram", () => {
     const emptyDiagramScript = parseNativeEditOperations([{
       op: "run_drawio_script", target: "active_page", summary: "Create an initial node",
-      script: 'graph.insertVertex(graph.getDefaultParent(), null, "Start", 100, 100, 120, 60);'
+      script: 'graph.insertVertex(graph.getDefaultParent(), null, "Start", 100, 100, 120, 60);',
+      postconditions: [{ kind: "cell_added", label: "Start", cellType: "vertex" }]
     }]);
     if (!emptyDiagramScript.ok) throw new Error(emptyDiagramScript.error);
     expect(resolveNativeEditTargets({ cells: [] }, emptyDiagramScript.operations)).toMatchObject({
@@ -185,7 +186,8 @@ describe("resolveNativeEditTargets", () => {
         "  graph.refresh();",
         "  if (graph.view && typeof graph.view.validate === 'function') graph.view.validate();",
         "}"
-      ].join("\n")
+      ].join("\n"),
+      postconditions: [{ kind: "style_equals", target: "db", key: "curved", value: "1" }]
     }]);
     if (!script.ok) throw new Error(script.error);
     expect(resolveNativeEditTargets(CONTEXT, script.operations)).toMatchObject({

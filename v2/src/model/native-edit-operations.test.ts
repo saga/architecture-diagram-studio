@@ -159,17 +159,28 @@ describe("parseNativeEditOperations", () => {
 
   it("accepts general Draw.io code and requires it to be the only operation", () => {
     const script = "const cells = graph.getChildCells(graph.getDefaultParent(), true, true); return { inspected: cells.length };";
+    const postconditions = [{ kind: "style_equals", target: "edge", key: "curved", value: "1" }] as const;
     expect(parseNativeEditOperations([{
-      op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script
+      op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script, postconditions
     }])).toEqual({
-      ok: true, operations: [{ op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script }]
+      ok: true, operations: [{ op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script, postconditions }]
     });
+    expect(parseNativeEditOperations([{ op: "run_drawio_script", target: "active_page", summary: "Script", script }]))
+      .toMatchObject({ ok: false, error: expect.stringContaining("postconditions") });
+    expect(parseNativeEditOperations([{
+      op: "run_drawio_script", target: "active_page", summary: "Script", script,
+      postconditions: [{ kind: "label_equals", target: "api", value: "New API", unverified: true }]
+    }])).toMatchObject({ ok: false, error: expect.stringContaining("unexpected field") });
+    expect(parseNativeEditOperations([{
+      op: "run_drawio_script", target: "active_page", summary: "Script", script,
+      postconditions: [{ kind: "geometry_matches", target: "api" }]
+    }])).toMatchObject({ ok: false, error: expect.stringContaining("requires at least one") });
     expect(parseNativeEditOperations([
-      { op: "run_drawio_script", target: "active_page", summary: "Script", script },
+      { op: "run_drawio_script", target: "active_page", summary: "Script", script, postconditions },
       { op: "set_label", target: "db", label: "Renamed" }
     ])).toMatchObject({ ok: false, error: expect.stringContaining("only operation") });
     expect(parseNativeEditOperations([{
-      op: "run_drawio_script", target: "active_page", summary: "Script", script: "x".repeat(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH + 1)
+      op: "run_drawio_script", target: "active_page", summary: "Script", script: "x".repeat(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH + 1), postconditions
     }])).toMatchObject({ ok: false, error: expect.stringContaining("exceeds") });
   });
 
@@ -303,9 +314,19 @@ describe("toNativeCellEdits", () => {
     const script = 'graph.getChildCells(graph.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));';
     const plan = toNativeCellEdits([{
       op: "run_drawio_script", target: "active_page", summary: "Curve all connectors", script,
+      postconditions: [
+        { kind: "style_equals", target: "edge", key: "curved", value: "1" },
+        { kind: "style_equals", target: "edge", key: "edgeStyle", value: "orthogonalEdgeStyle" }
+      ],
       cellId: "__active_page__", targetLabel: "active Draw.io page"
     }], XML);
-    expect(plan).toEqual({ ok: true, edits: [{ cellId: "__active_page__", path: "cell:execute-script", value: script }] });
+    expect(plan).toEqual({ ok: true, edits: [{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: JSON.stringify({ script, postconditions: [
+        { kind: "style_equals", target: "edge", key: "curved", value: "1" },
+        { kind: "style_equals", target: "edge", key: "edgeStyle", value: "orthogonalEdgeStyle" }
+      ] })
+    }] });
   });
 
   it("passes a move delta to the native editor for live-coordinate execution", () => {
@@ -350,7 +371,7 @@ describe("describeNativeEditOperation", () => {
       .toBe("Set fillColor of “db” to #ff0000");
     expect(describeNativeEditOperation({ op: "select", target: "db" })).toBe("Select “db”");
     expect(describeNativeEditOperation({
-      op: "run_drawio_script", target: "active_page", summary: "Rework layout", script: "return true;"
+      op: "run_drawio_script", target: "active_page", summary: "Rework layout", script: "return true;", postconditions: [{ kind: "cell_added", label: "Unused" }]
     })).toBe("Rework layout");
     expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” to the right of “xxx” and connect it");
     expect(describeNativeEditOperation({
