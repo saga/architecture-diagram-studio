@@ -922,6 +922,10 @@ export default function App() {
       const pageId = source.selectedNativePageId;
       const documentRevision = await calculateDrawioXmlRevision(sourceXml);
       const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options);
+      const latestState = latestDiagramStateRef.current;
+      if (latestState.drawioXml !== sourceXml || latestState.selectedNativePageId !== pageId) {
+        throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
+      }
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
         pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
         engine: options.engine, algorithm: options.algorithm, direction: options.direction,
