@@ -254,6 +254,7 @@ test("Copilot script proposals show the requested change but hide JavaScript bod
             target: "active_page",
             summary: "Rearrange the diagram using the native editor",
             script: "throw new Error('" + hiddenScriptSentinel + "');",
+            postconditions: [{ cellId: "script-never-created-cell", exists: true, label: "never" }],
             cellId: "__active_page__",
             targetLabel: "active Draw.io page"
           }],
