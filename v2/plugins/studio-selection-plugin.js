@@ -822,8 +822,8 @@
 
         function normalizeConditionText(value) {
           return String(value == null ? "" : value)
-            .replace(/<br\\s*\\/?>/gi, " ")
-            .replace(/<\\/(?:div|p|li|tr)>/gi, " ")
+            .replace(/<br\s*\/?>/gi, " ")
+            .replace(/<\/(?:div|p|li|tr)>/gi, " ")
             .replace(/<[^>]*>/g, "")
             .replace(/&nbsp;|&#160;/gi, " ")
             .replace(/&amp;/gi, "&")
@@ -831,7 +831,7 @@
             .replace(/&#39;|&apos;/gi, "'")
             .replace(/&lt;/gi, "<")
             .replace(/&gt;/gi, ">")
-            .replace(/\\s+/g, " ")
+            .replace(/\s+/g, " ")
             .trim();
         }
         function readLiveCells() {
@@ -948,7 +948,7 @@
         }
 
         // This intentionally executes inside the local Draw.io iframe with the full native editor API.
-        var executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\\n' + script);
+        var executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script);
         var scriptResult = executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
           return inspectDrawioRuntime(ui, activeGraph, activeModel, options);
         });
