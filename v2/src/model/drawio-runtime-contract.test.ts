@@ -150,7 +150,7 @@ describe("Draw.io runtime inspection contract", () => {
       },
       renderedEdges: [{ id: "edge", stateAvailable: true, absolutePoints: [{ x: 1, y: 2 }, { x: Number.NaN, y: 4 }], collinear: null }]
     }));
-    expect(result?.capabilities.graph).toEqual(["getModel"]);
+    expect(result?.capabilities.graph).toEqual([...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph]);
     expect(result?.renderedEdges[0]?.absolutePoints).toEqual([{ x: 1, y: 2 }]);
   });
 });
