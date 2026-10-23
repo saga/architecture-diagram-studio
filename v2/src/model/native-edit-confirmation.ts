@@ -155,6 +155,7 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
   let payload: { label?: unknown };
   try { payload = JSON.parse(operation.value) as { label?: unknown }; } catch { return false; }
   if (typeof payload.label !== "string" || !payload.label.trim()) return false;
+  const expectedLabel = payload.label.trim();
   const targetBefore = findCell(before, operation.cellId, pageId);
   const targetAfter = findCell(after, operation.cellId, pageId);
   if (!targetBefore || !targetAfter) return false;
