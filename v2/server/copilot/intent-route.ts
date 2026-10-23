@@ -10,6 +10,7 @@ import {
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
 import { resolveNativeEditTargets } from "./native-edit-tool";
+import { isAutoConfirmableCreationScript } from "./native-script-auto-confirm";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 
@@ -138,11 +139,14 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
   });
 }
 
-function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[]): boolean {
-  // Native scripts are a user-requested editing mode. The live Draw.io document has
-  // revision checks, editor acknowledgements, persistence receipts and version history.
-  // Do not insert a separate click solely because the operation uses a script.
-  if (operations.some((operation) => operation.op === "run_drawio_script")) return false;
+function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
+  if (forceScriptReview) return true;
+  const scripts = operations.filter((operation) => operation.op === "run_drawio_script");
+  if (scripts.length > 0) {
+    if (scripts.length !== 1 || operations.length !== 1) return true;
+    const script = scripts[0];
+    return script.op !== "run_drawio_script" || !isAutoConfirmableCreationScript(script.script);
+  }
   const deletes = operations.filter((operation) => operation.op === "delete").length;
   return deletes >= 1 || operations.length >= 10;
 }
@@ -384,8 +388,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       "The request context contains cells from the active Draw.io page, with exact id, visible label, and cellType. selectedCell contains the current native selection and page id when there is a selection. When the user refers to the current or selected element, use selectedCell.cellId directly; use its visible label in user-facing summaries. If the request depends on the current/selected cell and selectedCell is null, return needs_clarification rather than guessing from a label.",
       "Interpret Chinese and English rename requests through the same operation. Examples: `rename X to Y`, `change X's name to Y`, `把 X 改名为 Y`, and `将 X 的名称改成 Y` all mean set_label with target X and label Y. Preserve the requested new label Y verbatim; resolved targetLabel is the old label and must not replace the requested label.",
       "For a numeric move of the selected/current vertex, send a numeric pixel delta: up means dx=0 and negative dy; down means dx=0 and positive dy; left means negative dx and dy=0; right means positive dx and dy=0. Use selectedCell.cellId when the user says selected/current. If no selection exists, ask for clarification. A vertex move is not an edge-routing or endpoint edit.",
-      "For diagram changes, call propose_native_edits. Prefer typed operations for select/rename/color/move/resize/delete and for adding connected nodes with `add_node_after` (to the right) or `add_node_below` (directly below). For requests to add several nodes and connect each to an existing source, submit one typed add_node_below operation per source/label pair in a single batch; the native operation creates each vertex and its source-to-new-vertex edge. Multiple requested changes do not by themselves require a script: use a batch of typed operations whenever it can express the full request. Use one run_drawio_script operation only when a required effect is outside the typed contract and the pinned runtime manifest matches; all native scripts, including a corrected retry, are dispatched without a separate confirmation click once the current revision, page and runtime capability checks pass.",
-      "run_drawio_script must be the only operation in its batch, target \"active_page\", include a concise summary, and contain a synchronous JavaScript body. For this pinned v32.0.2 contract, graph owns getDefaultParent/getChildCells/setCellStyles/insertVertex/insertEdge/removeCells/refresh; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. model has NO getDefaultParent and NO refresh. Use listed methods directly on their declared object. For an unlisted API, probe typeof graph.method/model.method/view.method === 'function' on the exact owner before calling; do not infer support from names used by another mxGraph class. Do not call editor.setGraphXml, manage pages, invoke save/exit actions, use network/storage APIs, or replace XML. Preserve unrelated style keys. Scripts must be synchronous. Native scripts do not require a separate confirmation click. Keep each change scoped to the user's request; never replace the whole XML or invoke save/exit actions.",
+      "For diagram changes, call propose_native_edits. Prefer typed operations for select/rename/color/move/resize/delete and for adding connected nodes with `add_node_after` (to the right) or `add_node_below` (directly below). For requests to add several nodes and connect each to an existing source, submit one typed add_node_below operation per source/label pair in a single batch; the native operation creates each vertex and its source-to-new-vertex edge. Multiple requested changes do not by themselves require a script: use a batch of typed operations whenever it can express the full request. Use one run_drawio_script operation only when a required effect is outside the typed contract and the pinned runtime manifest matches; only scripts that pass the server-side insert-only AST check are dispatched without a separate confirmation click. All other scripts and every repair retry require review.",
+      "run_drawio_script must be the only operation in its batch, target \"active_page\", include a concise summary, and contain a synchronous JavaScript body. For this pinned v32.0.2 contract, graph owns getDefaultParent/getChildCells/setCellStyles/insertVertex/insertEdge/removeCells/refresh; model owns getRoot/getChildCount/getChildAt/getCell/getStyle/setStyle/setValue/setGeometry/setTerminal/beginUpdate/endUpdate. model has NO getDefaultParent and NO refresh. Use listed methods directly on their declared object. For an unlisted API, probe typeof graph.method/model.method/view.method === 'function' on the exact owner before calling; do not infer support from names used by another mxGraph class. Do not call editor.setGraphXml, manage pages, invoke save/exit actions, use network/storage APIs, or replace XML. Preserve unrelated style keys. Scripts must be synchronous. Only a script that passes the server-side insert-only AST check may run without a confirmation click. Such scripts must use direct insertion calls, no helper functions or loops, a protected update transaction, graph.refresh(), and a read-only return result that inspects a newly created cell. All other scripts and every repair retry require explicit confirmation. Keep each change scoped to the user's request; never replace the whole XML or invoke save/exit actions.",
       "API ownership matters: graph.getDefaultParent() is a Graph method, not an mxGraphModel method. Never call model.getDefaultParent(). The model API for tree traversal is model.getRoot(), model.getChildCount(parent), and model.getChildAt(parent, index).",
       "For bulk style requests that are not covered by a typed operation, use a script only when the runtime manifest matches and after explicit user confirmation. Preserve unrelated style keys and validate both stored style and rendered state. For curved connectors on v32.0.2, do not remove edgeStyle and do not set labelOnCurve.",
       "For whole-page edits, recursively traverse from model.getRoot() with model.getChildCount/getChildAt; graph.getChildCells(graph.getDefaultParent(), ...) only covers that parent and can miss edges nested inside groups.",
@@ -883,7 +887,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       };
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
-        if (requiresExplicitConfirmation(nativeEdits.operations)) {
+        if (requiresExplicitConfirmation(nativeEdits.operations, Boolean(context.scriptRepair))) {
           const proposalId = randomUUID();
           pendingNativeProposals.set(proposalId, {
             id: proposalId, sessionId, standalone, documentRevision, pageId: context.activePageId,

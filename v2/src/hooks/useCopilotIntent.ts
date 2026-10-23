@@ -258,7 +258,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 standalone: standaloneMode,
                 diagramXml: sourceXml,
                 documentRevision
-              }, "This is the single allowed repair attempt for the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Correct only the reported TypeError/ReferenceError, use the exact runtime API ownership, do not widen the change, and return exactly one corrected run_drawio_script operation. Do not claim the edit has been applied. This repaired script follows the normal native-script policy and should be returned as command_ready for automatic dispatch. Do not claim success; the client applies it and checks the native editor/persistence acknowledgement.", {
+              }, "This is the single allowed repair attempt for the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Correct only the reported TypeError/ReferenceError, use the exact runtime API ownership, do not widen the change, and return exactly one corrected run_drawio_script operation. Do not claim the edit has been applied. This repaired script must pass the same server-side insert-only safety check as any other native script. If it falls outside that subset, return a confirmation proposal. Do not claim success; only an acknowledged editor and persistence result counts as applied.", {
                 kind: "drawio",
                 title: nativePage.title || "Draw.io diagram",
                 activePageId,

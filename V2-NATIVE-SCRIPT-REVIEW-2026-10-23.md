@@ -266,3 +266,12 @@ DrawioFrame.tsx:363-393 → App.tsx:1039-1092 → /api/copilot/intent/ack
 Decision: **all native scripts auto-dispatch**; the user does not need to confirm a script proposal. The extra static-analysis allowlist was removed to keep the editing workflow simple. Existing safeguards remain in the execution/persistence path: source revision and active page checks, runtime capability-manifest validation, native editor acknowledgement, serialized XML verification and workspace persistence/version receipts.
 
 This is a deliberate local single-user workflow tradeoff. If a script produces an unwanted result, recover through the diagram's saved version/history. An execution or persistence failure must still be reported honestly and must not be presented as a successful edit.
+
+
+---
+
+## Follow-up: Confirmation UX narrowed to verified creation-only scripts
+
+The convenience change does not mean arbitrary JavaScript is trusted automatically. Native script execution skips the confirmation click only when a server-side AST gate proves the script uses the reviewed insert-only subset, protects the mutation in one beginUpdate / try / finally / endUpdate transaction, refreshes the graph, and returns a read-only postcondition for a newly inserted cell. The gate rejects deletion or modification APIs, browser/network/storage globals, async code, loops and unsupported syntax. If static validation cannot prove safety, the script is presented as a proposal instead. Every repair retry requires confirmation.
+
+The editor acknowledgement and persistence/revision checks remain required even for a script accepted by this gate.
