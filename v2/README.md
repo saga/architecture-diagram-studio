@@ -34,7 +34,7 @@ The server passes the selected page's native cell IDs, labels and cell types to 
 - `select_diagram_element` focuses an existing cell without changing the document.
 - `propose_native_edits` submits a typed batch of allowlisted operations.
 
-Supported edits are select, rename, fill/stroke/font color, move, resize, delete and `add_node_after` (add a vertex to the right of a target and connect it). The server resolves exact IDs or unique exact labels and validates each operation. The browser applies the batch through the Draw.io bridge and waits for editor acknowledgement. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
+Supported edits are select, rename, fill/stroke/font color, move, resize, delete, `add_node_after` (add a connected vertex to the right), and `add_node_below` (add a connected vertex directly below its source). A small batch of typed, non-destructive operations can execute without a separate confirmation click after the server validates target uniqueness, page/revision and operation values. Raw `run_drawio_script` proposals still require explicit confirmation; script bodies are not shown in the chat. The browser applies every batch through the Draw.io bridge and waits for editor acknowledgement and persistence. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
 
 ## Copilot session permission and authentication callbacks
 
