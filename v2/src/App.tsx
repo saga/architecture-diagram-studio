@@ -954,7 +954,12 @@ export default function App() {
   }
 
   function runDirectionalLayout(direction: "RIGHT" | "DOWN") {
-    const preset: Partial<NativeAutoLayoutOptions> = { direction };
+    // Direction shortcuts always produce a flow diagram: preserve Dagre if selected,
+    // otherwise switch an ELK radial/organic configuration back to the layered algorithm.
+    const preset: Partial<NativeAutoLayoutOptions> = {
+      direction,
+      ...(nativeLayoutOptions.engine === "elk" ? { algorithm: "layered" as const } : {})
+    };
     setNativeLayoutOptions((current) => ({ ...current, ...preset }));
     void runAutoLayout(preset);
   }
