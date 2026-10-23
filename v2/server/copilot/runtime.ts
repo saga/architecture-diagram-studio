@@ -10,6 +10,7 @@ import type {
   SessionEvent
 } from "@github/copilot-sdk";
 import { chooseRuntimeModel, readCopilotProvider, toProviderConfig, type CopilotProvider, type ModelChoice } from "./model-routing";
+import { isMissingSdkSessionError } from "./session-resume-errors";
 
 export type Logger = (event: string, fields?: Record<string, unknown>) => Promise<void> | void;
 
@@ -673,17 +674,23 @@ export class CopilotRuntime {
     const sdkSessionId = (request.conversationId.replace(/[^a-zA-Z0-9-]/g, "-") + "-cfg-" + revisionKey).slice(0, 100);
 
     let resumed: CopilotSession | null = null;
+    let resumeFallback = false;
     try {
       resumed = await this.withClient("resumeSession", (client) => client.resumeSession(sdkSessionId, base));
       await this.options.log("session.resumed", { conversationId: request.conversationId, sdkSessionId });
     } catch (error) {
       const message = messageOf(error);
-      await this.options.log("session.resume.failed", { conversationId: request.conversationId, sdkSessionId, error: message });
-      // Only recreate a missing session. Auth, quota, transport and SDK errors must remain
-      // visible; silently creating a new session can discard conversation history.
-      if (!/session not found|no such session|unknown session|does not exist|has been deleted/i.test(message)) {
-        throw error;
-      }
+      resumeFallback = isMissingSdkSessionError(message);
+      // A missing SDK-side history is a recoverable cache miss: the normal path below creates
+      // a fresh SDK session for the persisted Studio conversation. Do not print it as ERROR.
+      await this.options.log(resumeFallback ? "session.resume.missing" : "session.resume.failed", {
+        conversationId: request.conversationId,
+        sdkSessionId,
+        error: message,
+        ...(resumeFallback ? { recovery: "createSession" } : {})
+      });
+      // Auth, quota, transport and other SDK errors remain visible and must not silently discard history.
+      if (!resumeFallback) throw error;
     }
 
     let session = resumed;
@@ -698,7 +705,8 @@ export class CopilotRuntime {
       }));
       await this.options.log("session.created", {
         conversationId: request.conversationId, sdkSessionId, model: request.model,
-        reasoningEffort: actualEffort || "model-default"
+        reasoningEffort: actualEffort || "model-default",
+        ...(resumeFallback ? { resumeFallback: true } : {})
       });
     }
 
