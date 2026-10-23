@@ -255,8 +255,8 @@ export async function requestAIIntentPlan(
     durationMs: Date.now() - startedAt,
     agentDurationMs: plan.durationMs,
     model: plan.model || model || "server-default",
-    nativeEditCount: plan.nativeEdits?.operations.length ?? 0,
-    hasSelection: Boolean(plan.selection)
+    nativeEditCount: plan.outcome === "command_ready" ? plan.nativeEdits.operations.length : 0,
+    hasSelection: plan.outcome === "selected" || (plan.outcome === "command_ready" && Boolean(plan.selection))
   });
   return plan;
 }

@@ -214,7 +214,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         return;
       }
 
-      const selection = plan.selection;
       if (plan.outcome === "selected") {
         const selection = plan.selection;
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
@@ -227,14 +226,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         return;
       }
 
-      recordDiagnostic("copilot.native-edit.empty", "The agent returned no supported native edit; the diagram is unchanged", {
-        sessionId: plan.sessionId || copilotSessionId,
-        durationMs: Date.now() - startedAt
-      }, "warn");
-      setMessages((items) => [...items, {
-        role: "assistant", id: Date.now() + 1,
-        text: plan.reply || "No supported native Draw.io change was produced. The diagram is unchanged."
-      }]);
+      const unreachableOutcome: never = plan;
+      throw new Error("Unhandled Copilot intent outcome: " + String(unreachableOutcome));
     } catch (error) {
       recordDiagnostic("copilot.request.failed", "Native Draw.io Copilot request failed; no edit was confirmed", {
         durationMs: Date.now() - startedAt,
