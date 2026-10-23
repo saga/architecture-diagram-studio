@@ -9,13 +9,36 @@ interface Options {
   setLastAction: (message: string) => void; onDiagnostic: Diagnostic;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
+interface SaveOptions {
+  /** Debounced autosaves must not persist an XML snapshot after the editor or workspace has moved on. */
+  onlyIfCurrent?: boolean;
+  expectedWorkspaceId?: string | null;
+}
 export function useWorkspacePersistence(options: Options) {
   const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastPersistedXmlRef = useRef<string | null>(null);
   const lastPersistedVersionIdRef = useRef<string | null>(null);
-  const persistDocumentNow = useCallback((xml: string, label = "Autosave"): Promise<SaveResult> => {
+  const currentXmlRef = useRef(drawioXml);
+  const currentWorkspaceIdRef = useRef<string | null>(projectWorkspace?.id ?? null);
+  // Keep these refs current during render so already-queued work can detect a mode/document switch.
+  currentXmlRef.current = drawioXml;
+  currentWorkspaceIdRef.current = projectWorkspace?.id ?? null;
+  const persistDocumentNow = useCallback((xml: string, label = "Autosave", saveOptions?: SaveOptions): Promise<SaveResult> => {
     const operation = saveQueueRef.current.then(async () => {
+      if (saveOptions?.onlyIfCurrent &&
+          (currentXmlRef.current !== xml ||
+           currentWorkspaceIdRef.current !== saveOptions.expectedWorkspaceId)) {
+        onDiagnostic("workspace.persist.stale-autosave.skipped", "Skipped a queued autosave because its XML or workspace context is no longer current", {
+          xmlLength: xml.length, expectedWorkspaceId: saveOptions.expectedWorkspaceId ?? null,
+          currentWorkspaceId: currentWorkspaceIdRef.current,
+          currentXmlLength: currentXmlRef.current.length
+        }, "info");
+        return {
+          saved: false, workspaceRevision: serverRevisionRef.current,
+          version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null
+        };
+      }
       // The explicit Copilot save and the debounced autosave can observe the same editor event.
       // Avoid creating two version records for the same exact XML snapshot.
       if (lastPersistedXmlRef.current === xml && typeof serverRevisionRef.current === "string") {
@@ -59,8 +82,11 @@ export function useWorkspacePersistence(options: Options) {
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     // The native Draw.io XML is the complete document. Save it directly without comparing a model projection.
+    const expectedWorkspaceId = projectWorkspace.id;
     const timer = window.setTimeout(() => {
-      void persistDocumentNow(drawioXml, saveLabelRef.current).catch((error: unknown) => {
+      void persistDocumentNow(drawioXml, saveLabelRef.current, {
+        onlyIfCurrent: true, expectedWorkspaceId
+      }).catch((error: unknown) => {
         onDiagnostic("workspace.persist.failed", "Saving the workspace to the server failed", {
           errorMessage: error instanceof Error ? error.message : String(error), xmlLength: drawioXml.length
         }, "error");
