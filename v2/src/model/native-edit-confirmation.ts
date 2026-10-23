@@ -61,6 +61,32 @@ function modelRoots(xml: string): Array<{ pageId: string | null; model: Element 
   return result;
 }
 
+function elementSignature(element: Element): unknown {
+  const attributes = Array.from(element.attributes)
+    .map((attribute) => [attribute.name, attribute.value] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  const text = Array.from(element.childNodes)
+    .filter((child) => child.nodeType === 3 || child.nodeType === 4)
+    .map((child) => (child.nodeValue || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return [element.nodeName, attributes, text, elementChildren(element).map(elementSignature)];
+}
+
+function semanticDiagramSignature(xml: string): string {
+  const document = parseDrawioXml(xml);
+  const root = document.documentElement;
+  if (root.nodeName !== "mxfile") return JSON.stringify(elementSignature(root));
+  const models = modelRoots(xml);
+  return JSON.stringify(elementChildren(root)
+    .filter((child) => child.nodeName === "diagram")
+    .map((page) => {
+      const pageId = page.getAttribute("id") || null;
+      const pageName = page.getAttribute("name") || null;
+      const matchingModel = models.find((entry) => entry.pageId === pageId);
+      return { pageId, pageName, model: matchingModel ? elementSignature(matchingModel.model) : null };
+    }));
+}
+
 function cellsForXml(xml: string): ModelRecords[] {
   return modelRoots(xml).map(({ pageId, model }) => {
     const root = directChild(model, "root");
@@ -260,6 +286,12 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       ? JSON.parse(input.value) as NativeEditOperation[]
       : [{ cellId: input.cellId, path: input.path, value: input.value }];
     if (!Array.isArray(operations) || operations.length === 0) return false;
+    if (operations.length === 1 && operations[0].path === "cell:execute-script") {
+      const script = operations[0];
+      return script.cellId === "__active_page__" &&
+        typeof script.value === "string" && Boolean(script.value.trim()) &&
+        semanticDiagramSignature(input.beforeXml) !== semanticDiagramSignature(input.xml);
+    }
     return operations.every((operation) =>
       Boolean(operation && typeof operation.cellId === "string" && typeof operation.path === "string" &&
         typeof operation.value === "string" &&
