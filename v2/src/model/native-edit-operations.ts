@@ -12,6 +12,22 @@ import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type 
 export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
 export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
 
+/**
+ * Declarative end-state assertions for fallback scripts. They are checked against both
+ * the live Draw.io model (for rollback) and the final serialized XML (for acknowledgement).
+ * References are exact cell IDs or unique visible labels; IDs are preferred for renamed cells.
+ */
+export type NativeScriptPostcondition =
+  | { kind: "cell_added"; label: string; cellType?: "vertex" | "edge" }
+  | { kind: "cell_absent"; target: string }
+  | { kind: "label_equals"; target: string; value: string }
+  | { kind: "style_equals"; target: string; key: string; value: string }
+  | { kind: "geometry_matches"; target: string; x?: number; y?: number; width?: number; height?: number }
+  | { kind: "edge_connects"; source: string; target: string }
+  | { kind: "parent_is"; target: string; parent: string };
+
+export const MAX_NATIVE_SCRIPT_POSTCONDITIONS = 12;
+
 /** Maximum length of a model-generated program executed by the local Draw.io editor. */
 export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 
@@ -23,7 +39,7 @@ export type NativeEditOperation =
   | { op: "set_label"; target: string; label: string }
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
   | { op: "set_c4_type"; target: string; kind: "person" | "system" | "external" }
-  | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
+  | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string; postconditions: NativeScriptPostcondition[] }
   | ({ op: "auto_layout"; target: "active_page" } & NativeAutoLayoutOptions)
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
@@ -222,6 +238,59 @@ function numericField(source: Record<string, unknown>, field: string, minimum: n
   return value;
 }
 
+function parseNativeScriptPostconditions(value: unknown): NativeScriptPostcondition[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_NATIVE_SCRIPT_POSTCONDITIONS) {
+    throw new Error(`postconditions must contain between 1 and ${MAX_NATIVE_SCRIPT_POSTCONDITIONS} assertions`);
+  }
+  return value.map((item, index) => {
+    const position = index + 1;
+    if (!isRecord(item)) throw new Error(`Postcondition ${position} must be an object`);
+    const kind = item.kind;
+    switch (kind) {
+      case "cell_added": {
+        const label = textField(item, "label", 500);
+        const cellType = item.cellType;
+        if (cellType !== undefined && cellType !== "vertex" && cellType !== "edge") {
+          throw new Error(`Postcondition ${position}: cellType must be vertex or edge`);
+        }
+        return { kind, label, ...(cellType ? { cellType } : {}) };
+      }
+      case "cell_absent":
+        return { kind, target: textField(item, "target", 500) };
+      case "label_equals":
+        return { kind, target: textField(item, "target", 500), value: textField(item, "value", 500) };
+      case "style_equals": {
+        const key = textField(item, "key", 100);
+        const expected = item.value;
+        if (typeof expected !== "string" || expected.length > 1000) {
+          throw new Error(`Postcondition ${position}: value must be a string of at most 1000 characters`);
+        }
+        return { kind, target: textField(item, "target", 500), key, value: expected };
+      }
+      case "geometry_matches": {
+        const target = textField(item, "target", 500);
+        const geometry: { x?: number; y?: number; width?: number; height?: number } = {};
+        for (const key of ["x", "y", "width", "height"] as const) {
+          if (item[key] !== undefined) {
+            const minimum = key === "width" || key === "height" ? 1 : -1_000_000;
+            geometry[key] = numericField(item, key, minimum, 1_000_000);
+          }
+        }
+        if (Object.keys(geometry).length === 0) {
+          throw new Error(`Postcondition ${position}: geometry_matches requires at least one of x, y, width, height`);
+        }
+        return { kind, target, ...geometry };
+      }
+      case "edge_connects":
+        return { kind, source: textField(item, "source", 500), target: textField(item, "target", 500) };
+      case "parent_is":
+        return { kind, target: textField(item, "target", 500), parent: textField(item, "parent", 500) };
+      default:
+        throw new Error(`Postcondition ${position}: unsupported kind “${String(kind)}”`);
+    }
+  });
+}
+
 /**
  * Validates an untrusted operation list from the model.
  *
@@ -279,7 +348,8 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
           if (script.length > MAX_NATIVE_DRAWIO_SCRIPT_LENGTH) {
             throw new Error(`script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters`);
           }
-          operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script });
+          const postconditions = parseNativeScriptPostconditions(raw.postconditions);
+          operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script, postconditions });
           break;
         }
         case "auto_layout": {
@@ -419,7 +489,11 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         edits.push({ cellId, path: "cell:set-c4-type", value: JSON.stringify({ kind: operation.kind }) });
         break;
       case "run_drawio_script":
-        edits.push({ cellId, path: "cell:execute-script", value: operation.script });
+        edits.push({
+          cellId,
+          path: "cell:execute-script",
+          value: JSON.stringify({ script: operation.script, postconditions: operation.postconditions })
+        });
         break;
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The Dagre/ELK layout plan was not calculated from the current native XML revision." };
