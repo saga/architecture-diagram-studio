@@ -19,6 +19,7 @@ const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
 const SAFE_CREATION_SCRIPT = [
   "var parent = graph.getDefaultParent();",
   "var source = model.getCell('db');",
+  "if (!source) { throw new Error('source cell not found'); }",
   "var target = null;",
   "var edge = null;",
   "model.beginUpdate();",
