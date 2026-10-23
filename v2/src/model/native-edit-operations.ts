@@ -375,6 +375,5 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
     }
   }
-  if (edits.length > MAX_NATIVE_BRIDGE_BATCH_OPERATIONS) return { ok: false, error: `The edit plan expands to more than ${MAX_NATIVE_BRIDGE_BATCH_OPERATIONS} native changes` };
   return { ok: true, edits };
 }
