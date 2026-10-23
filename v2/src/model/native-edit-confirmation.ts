@@ -277,6 +277,43 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
   return false;
 }
 
+function hasAddedNodeBelow(before: ModelRecords[], after: ModelRecords[], operation: NativeEditOperation, pageId?: string | null): boolean {
+  let payload: { label?: unknown };
+  try { payload = JSON.parse(operation.value) as { label?: unknown }; } catch { return false; }
+  if (typeof payload.label !== "string" || !payload.label.trim()) return false;
+  const expectedLabel = payload.label.trim();
+  const targetBefore = findCell(before, operation.cellId, pageId);
+  const targetAfter = findCell(after, operation.cellId, pageId);
+  if (!targetBefore?.geometry || !targetAfter?.geometry) return false;
+  const targetX = numericAttribute(targetAfter.geometry, "x");
+  const targetY = numericAttribute(targetAfter.geometry, "y");
+  const targetWidth = numericAttribute(targetAfter.geometry, "width");
+  const targetHeight = numericAttribute(targetAfter.geometry, "height");
+  if (targetX === null || targetY === null || targetWidth === null || targetHeight === null) return false;
+  for (const model of after) {
+    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    for (const candidate of model.cells) {
+      if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" ||
+          !labelMatches(candidate, expectedLabel) || !candidate.geometry) continue;
+      const candidateX = numericAttribute(candidate.geometry, "x");
+      const candidateY = numericAttribute(candidate.geometry, "y");
+      const candidateWidth = numericAttribute(candidate.geometry, "width");
+      if (candidateX === null || candidateY === null || candidateWidth === null ||
+          candidateY < targetY + targetHeight + 1 ||
+          Math.abs((candidateX + candidateWidth / 2) - (targetX + targetWidth / 2)) > 1) continue;
+      const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
+        oldCell.id === candidate.id && labelMatches(oldCell, expectedLabel)
+      ));
+      if (existedBefore) continue;
+      const connected = model.cells.some((edge) => edge.cell.getAttribute("edge") === "1" &&
+        edge.cell.getAttribute("source") === operation.cellId &&
+        edge.cell.getAttribute("target") === candidate.id);
+      if (connected) return true;
+    }
+  }
+  return false;
+}
+
 function operationIsReflected(
   before: ModelRecords[],
   after: ModelRecords[],
@@ -287,6 +324,7 @@ function operationIsReflected(
   const nextCell = findCell(after, operation.cellId, pageId);
   if (operation.path === "cell:delete") return Boolean(oldCell && !nextCell);
   if (operation.path === "cell:add-node-after") return hasAddedNodeAfter(before, after, operation, pageId);
+  if (operation.path === "cell:add-node-below") return hasAddedNodeBelow(before, after, operation, pageId);
   if (!nextCell) return false;
 
   const value = operation.value;
