@@ -254,6 +254,50 @@ test.describe("原生画布", () => {
     }, { timeout: 30_000, intervals: [500] }).toBe(true);
   });
 
+  test("通用原生脚本抛错时会回滚新建的节点", async ({ page }) => {
+    const before = await readWorkspaceXml(workspace);
+    const result = await page.evaluate(async () => {
+      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
+      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
+      const requestId = 938273;
+      const script = 'graph.insertVertex(model.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
+      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", receive);
+          reject(new Error("Timed out waiting for native script rollback acknowledgement"));
+        }, 8000);
+        const receive = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return;
+          let data: Record<string, unknown>;
+          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
+          catch { return; }
+          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener("message", receive);
+          resolve(data);
+        };
+        window.addEventListener("message", receive);
+      });
+      frame.contentWindow.postMessage(JSON.stringify({
+        event: "studioPropertyEditRequest",
+        requestId,
+        cellId: "__batch__",
+        path: "cell:batch",
+        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+      }), window.location.origin);
+      return response;
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.batchRolledBack).toBe(true);
+    expect(result.rollbackErrors).toEqual([]);
+    await expect.poll(async () => {
+      const xml = await readWorkspaceXml(workspace);
+      return xml.includes("Temporary script node");
+    }, { timeout: 10_000, intervals: [250] }).toBe(false);
+    expect(await readWorkspaceXml(workspace)).toBe(before);
+  });
+
   test("原生批量编辑逐步执行，失败时回滚并报告失败步骤", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
     const databaseCell = Array.from(before.matchAll(/<mxCell\b([^>]*)>/g))
