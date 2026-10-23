@@ -526,7 +526,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "The Draw.io XML snapshot must be available and no larger than 20 MB", requestId, sessionId });
       return;
     }
-    const computedRevision = workspaceRevision(diagramXml);
+    // Workspace XML came from the authoritative snapshot whose revision was checked above.
+    // Its hash must not be recomputed here; standalone XML still requires a client hash check.
+    const computedRevision = standalone ? workspaceRevision(diagramXml) : documentRevision;
     if (computedRevision !== documentRevision) {
       await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "revision_hash_mismatch", documentRevision, computedRevision });
       res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied document revision does not match its XML snapshot.", documentRevision: computedRevision, requestId, sessionId });
@@ -541,6 +543,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       return;
     }
     const pageInfo = parsedSnapshot.snapshot.pageInfo;
+    await deps.writeLog("diagram.snapshot.cache", {
+      requestId, revision: computedRevision, activePageId: pageInfo.id,
+      cacheHit: parsedSnapshot.cacheHit, targetCount: parsedSnapshot.snapshot.targets.length
+    });
     if (requestedPageId && pageInfo.id !== requestedPageId) {
       res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
       return;

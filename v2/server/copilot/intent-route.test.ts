@@ -442,7 +442,7 @@ describe("Copilot intent route result and revision contract", () => {
       copilot: reportingCopilot("answered", "The diagram has two nodes."),
       snapshot: async () => {
         snapshots++;
-        return snapshots === 1
+        return snapshots <= 2
           ? { drawioXml: XML, revision: workspaceRevision(XML) }
           : { drawioXml: changedXml, revision: workspaceRevision(changedXml) };
       }
@@ -450,7 +450,7 @@ describe("Copilot intent route result and revision contract", () => {
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(409);
     expect(body.outcome).toBe("stale_context");
-    expect(snapshots).toBe(2);
+    expect(snapshots).toBe(3);
   });
 
   it("loads authoritative workspace XML when the request contains only a revision", async () => {
