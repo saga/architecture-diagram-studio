@@ -118,6 +118,20 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("does not confirm a script when active-page metadata changes with the cell model", () => {
+    const withMetadata = before.replace('id="p1" name="Overview"', 'id="p1" name="Overview" customPageFlag="before"');
+    const changedMetadataAndCell = withMetadata
+      .replace('customPageFlag="before"', 'customPageFlag="after"')
+      .replace('value="Old API"', 'value="New API"');
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: withMetadata, xml: changedMetadataAndCell, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
   it("does not confirm a script after deleting the active page or its default layer", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
