@@ -246,6 +246,19 @@ function parseNativeScriptPostconditions(value: unknown): NativeScriptPostcondit
     const position = index + 1;
     if (!isRecord(item)) throw new Error(`Postcondition ${position} must be an object`);
     const kind = item.kind;
+    const allowedKeys: Record<string, string[]> = {
+      cell_added: ["kind", "label", "cellType"],
+      cell_absent: ["kind", "target"],
+      label_equals: ["kind", "target", "value"],
+      style_equals: ["kind", "target", "key", "value"],
+      geometry_matches: ["kind", "target", "x", "y", "width", "height"],
+      edge_connects: ["kind", "source", "target"],
+      parent_is: ["kind", "target", "parent"]
+    };
+    const allowed = typeof kind === "string" ? allowedKeys[kind] : undefined;
+    if (!allowed) throw new Error(`Postcondition ${position}: unsupported kind “${String(kind)}”`);
+    const unexpected = Object.keys(item).find((key) => !allowed.includes(key));
+    if (unexpected) throw new Error(`Postcondition ${position}: unexpected field “${unexpected}”`);
     switch (kind) {
       case "cell_added": {
         const label = textField(item, "label", 500);
