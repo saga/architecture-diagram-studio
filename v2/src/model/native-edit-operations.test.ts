@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { calculateNativeAutoLayout, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS } from "../layout/native-layout";
 import {
   describeNativeEditOperation,
   extractNativeEditTargets,
@@ -92,6 +93,44 @@ describe("parseNativeEditOperations", () => {
       ]
     });
     expect(describeNativeEditOperation(resolved[0])).toBe('Add “ddd” below “Database” and connect it');
+  });
+
+  it("accepts a configurable Studio auto-layout operation and keeps it as a single-operation batch", () => {
+    const parsed = parseNativeEditOperations([{
+      op: "auto_layout", target: "active_page", engine: "elk", algorithm: "stress",
+      direction: "LEFT", nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
+      iterations: 600, randomSeed: 42, margin: 24
+    }]);
+    expect(parsed).toMatchObject({
+      ok: true,
+      operations: [{
+        op: "auto_layout", target: "active_page", engine: "elk", algorithm: "stress",
+        direction: "LEFT", nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
+        iterations: 600, randomSeed: 42, margin: 24
+      }]
+    });
+    if (!parsed.ok) return;
+    expect(describeNativeEditOperation(parsed.operations[0])).toContain("ELK stress");
+    expect(parseNativeEditOperations([
+      { op: "auto_layout", target: "active_page", engine: "dagre" },
+      { op: "select", target: "db" }
+    ])).toMatchObject({ ok: false, error: expect.stringContaining("only operation") });
+  });
+
+  it("serializes a calculated Dagre plan as a native bridge layout operation", async () => {
+    const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", direction: "DOWN" }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation, cellId: "__active_page__", targetLabel: "active Draw.io page"
+    })) as ResolvedNativeEditOperation[];
+    const plan = await calculateNativeAutoLayout(XML, "p1", "a".repeat(64), {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", direction: "DOWN"
+    });
+    expect(toNativeCellEdits(resolved, XML, "p1", plan)).toMatchObject({
+      ok: true,
+      edits: [{ cellId: "__active_page__", path: "cell:auto-layout" }]
+    });
   });
 
   it("requires newLabel for add_node_after", () => {

@@ -1,5 +1,6 @@
 import { inflateSync, unzlibSync } from "fflate";
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
+import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 /**
  * Shared contract for native Draw.io cell edits.
@@ -22,6 +23,7 @@ export type NativeEditOperation =
   | { op: "set_label"; target: string; label: string }
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
   | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
+  | ({ op: "auto_layout"; target: "active_page" } & NativeAutoLayoutOptions)
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
   | { op: "delete"; target: string }
@@ -167,7 +169,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   return result;
 }
 
-const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "move", "resize", "delete", "add_node_after", "add_node_below"] as const;
+const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "auto_layout", "move", "resize", "delete", "add_node_after", "add_node_below"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -232,8 +234,12 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
     return { ok: false, error: `operations must contain at most ${MAX_NATIVE_EDIT_OPERATIONS} operations` };
   }
   const containsScript = input.some((raw) => isRecord(raw) && raw.op === "run_drawio_script");
+  const containsLayout = input.some((raw) => isRecord(raw) && raw.op === "auto_layout");
   if (containsScript && input.length !== 1) {
     return { ok: false, error: "run_drawio_script must be the only operation in its batch" };
+  }
+  if (containsLayout && input.length !== 1) {
+    return { ok: false, error: "auto_layout must be the only operation in its batch because it recalculates the active page as one transaction" };
   }
   const operations: NativeEditOperation[] = [];
   for (const [index, raw] of input.entries()) {
@@ -265,6 +271,36 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
             throw new Error(`script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters`);
           }
           operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script });
+          break;
+        }
+        case "auto_layout": {
+          if (target !== "active_page") throw new Error('auto_layout target must be "active_page"');
+          const engineValue = raw.engine ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine;
+          if (engineValue !== "elk" && engineValue !== "dagre") throw new Error('engine must be "elk" or "dagre"');
+          const algorithmValue = raw.algorithm ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm;
+          if (!["layered", "mrtree", "radial", "stress", "force"].includes(String(algorithmValue))) {
+            throw new Error("algorithm must be layered, mrtree, radial, stress, or force");
+          }
+          const directionValue = raw.direction ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction;
+          if (!["RIGHT", "LEFT", "DOWN", "UP"].includes(String(directionValue))) {
+            throw new Error("direction must be RIGHT, LEFT, DOWN, or UP");
+          }
+          const routingValue = raw.edgeRouting ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting;
+          if (!["ORTHOGONAL", "POLYLINE", "SPLINES"].includes(String(routingValue))) {
+            throw new Error("edgeRouting must be ORTHOGONAL, POLYLINE, or SPLINES");
+          }
+          operations.push({
+            op: "auto_layout", target: "active_page",
+            engine: engineValue,
+            algorithm: engineValue === "dagre" ? "layered" : algorithmValue as NativeAutoLayoutOptions["algorithm"],
+            direction: directionValue as NativeAutoLayoutOptions["direction"],
+            nodeSpacing: numericField({ value: raw.nodeSpacing ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing }, "value", 5, 500),
+            layerSpacing: numericField({ value: raw.layerSpacing ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing }, "value", 10, 800),
+            edgeRouting: routingValue as NativeAutoLayoutOptions["edgeRouting"],
+            iterations: Math.round(numericField({ value: raw.iterations ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations }, "value", 20, 3000)),
+            randomSeed: Math.round(numericField({ value: raw.randomSeed ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.randomSeed }, "value", 0, 100000)),
+            margin: numericField({ value: raw.margin ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin }, "value", 0, 300)
+          });
           break;
         }
         case "set_style": {
@@ -309,6 +345,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
     case "run_drawio_script": return operation.summary;
+    case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
+      " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
     case "delete": return `Delete “${target}”`;
@@ -327,7 +365,7 @@ export type NativeCellEditPlan =
  * The source XML is used only to reject a target that is not present on the expected page; move
  * remains a delta so the native editor applies it to live geometry rather than stale coordinates.
  */
-export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml: string, pageId?: string | null): NativeCellEditPlan {
+export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml: string, pageId?: string | null, layoutPlan?: NativeLayoutPlan): NativeCellEditPlan {
   if (operations.length === 0) return { ok: false, error: "No native edit operations were supplied" };
   if (operations.length > MAX_NATIVE_EDIT_OPERATIONS) return { ok: false, error: `At most ${MAX_NATIVE_EDIT_OPERATIONS} operations can be executed at once` };
   let activeTargetIds: Set<string>;
@@ -337,7 +375,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
     return { ok: false, error: "The Draw.io XML could not be indexed: " + (error instanceof Error ? error.message : String(error)) };
   }
   for (const operation of operations) {
-    const activePageOperation = (operation.op === "run_drawio_script") &&
+    const activePageOperation = (operation.op === "run_drawio_script" || operation.op === "auto_layout") &&
       operation.target === "active_page" && operation.cellId === "__active_page__";
     if (activePageOperation) continue;
     if (typeof operation.cellId !== "string" || !activeTargetIds.has(operation.cellId)) {
@@ -370,6 +408,25 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
       case "run_drawio_script":
         edits.push({ cellId, path: "cell:execute-script", value: operation.script });
         break;
+      case "auto_layout": {
+        if (!layoutPlan) return { ok: false, error: "The Dagre/ELK layout plan was not calculated from the current native XML revision." };
+        const expectedPage = getNativeDiagramPageInfo(xml, pageId).id;
+        const revisionMatches = /^[a-f0-9]{64}$/i.test(layoutPlan.documentRevision);
+        const optionsMatch = layoutPlan.engine === operation.engine &&
+          layoutPlan.algorithm === operation.algorithm &&
+          layoutPlan.direction === operation.direction &&
+          layoutPlan.nodeSpacing === operation.nodeSpacing &&
+          layoutPlan.layerSpacing === operation.layerSpacing &&
+          layoutPlan.edgeRouting === operation.edgeRouting &&
+          layoutPlan.iterations === operation.iterations &&
+          layoutPlan.randomSeed === operation.randomSeed &&
+          layoutPlan.margin === operation.margin;
+        if (!revisionMatches || layoutPlan.pageId !== expectedPage || !optionsMatch) {
+          return { ok: false, error: "The calculated layout plan does not match the current revision, active page or selected layout options." };
+        }
+        edits.push({ cellId, path: "cell:auto-layout", value: JSON.stringify(layoutPlan) });
+        break;
+      }
       case "resize":
         edits.push({ cellId, path: "geometry:size", value: operation.width + "," + operation.height });
         break;

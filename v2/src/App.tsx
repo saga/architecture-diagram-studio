@@ -14,6 +14,7 @@ import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
+import { calculateNativeAutoLayout } from "./layout/native-layout";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type VersionSummary = { id: string; createdAt: string; label: string };
@@ -22,11 +23,16 @@ type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "d
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 
 const NATIVE_LAYOUT_STORAGE_KEY = "architecture-diagram-studio:v2:native-layout-options";
+const NATIVE_LAYOUT_ENGINES: Array<{ value: NativeAutoLayoutOptions["engine"]; label: string }> = [
+  { value: "elk", label: "ELK" },
+  { value: "dagre", label: "Dagre" }
+];
 const NATIVE_LAYOUT_ALGORITHMS: Array<{ value: NativeAutoLayoutOptions["algorithm"]; label: string }> = [
-  { value: "elkLayered", label: "Flow (Layered)" },
-  { value: "elkTree", label: "Tree" },
-  { value: "elkRadial", label: "Radial tree" },
-  { value: "elkOrganic", label: "Organic" }
+  { value: "layered", label: "Layered · flow" },
+  { value: "mrtree", label: "Mr. Tree" },
+  { value: "radial", label: "Radial" },
+  { value: "stress", label: "Stress · relationships" },
+  { value: "force", label: "Force · organic" }
 ];
 const NATIVE_LAYOUT_DIRECTIONS: Array<{ value: NativeAutoLayoutOptions["direction"]; label: string }> = [
   { value: "RIGHT", label: "Left to right" },
@@ -39,19 +45,30 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
   try {
     const raw = window.localStorage.getItem(NATIVE_LAYOUT_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
-    const saved = JSON.parse(raw) as Partial<NativeAutoLayoutOptions>;
-    const algorithm = NATIVE_LAYOUT_ALGORITHMS.some((item) => item.value === saved.algorithm)
-      ? saved.algorithm! : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm;
+    const saved = JSON.parse(raw) as Record<string, unknown>;
+    // Migrate preferences from the retired Draw.io-native layout dropdown without losing user settings.
+    const engine = saved.engine === "dagre" || saved.engine === "elk" ? saved.engine : "elk";
+    const oldAliases: Record<string, NativeAutoLayoutOptions["algorithm"]> = {
+      elkLayered: "layered", elkTree: "mrtree", elkRadial: "radial", elkOrganic: "force"
+    };
+    const rawAlgorithm = typeof saved.algorithm === "string" ? saved.algorithm : "";
+    const algorithmCandidate = NATIVE_LAYOUT_ALGORITHMS.some((item) => item.value === rawAlgorithm)
+      ? rawAlgorithm as NativeAutoLayoutOptions["algorithm"] : oldAliases[rawAlgorithm] ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm;
+    const algorithm = engine === "dagre" ? "layered" : algorithmCandidate;
     const direction = NATIVE_LAYOUT_DIRECTIONS.some((item) => item.value === saved.direction)
-      ? saved.direction! : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction;
-    const edgeRouting = ["ORTHOGONAL", "POLYLINE", "SPLINES"].includes(saved.edgeRouting ?? "")
-      ? saved.edgeRouting! : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting;
+      ? saved.direction as NativeAutoLayoutOptions["direction"] : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction;
+    const edgeRouting = ["ORTHOGONAL", "POLYLINE", "SPLINES"].includes(String(saved.edgeRouting ?? ""))
+      ? saved.edgeRouting as NativeAutoLayoutOptions["edgeRouting"] : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting;
+    const boundedNumber = (key: string, fallback: number, min: number, max: number) =>
+      typeof saved[key] === "number" && Number.isFinite(saved[key])
+        ? Math.max(min, Math.min(max, Math.round(saved[key] as number))) : fallback;
     return {
-      algorithm, direction, edgeRouting,
-      nodeSpacing: typeof saved.nodeSpacing === "number" && Number.isFinite(saved.nodeSpacing)
-        ? Math.max(5, Math.min(200, Math.round(saved.nodeSpacing))) : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing,
-      layerSpacing: typeof saved.layerSpacing === "number" && Number.isFinite(saved.layerSpacing)
-        ? Math.max(10, Math.min(500, Math.round(saved.layerSpacing))) : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing
+      engine, algorithm, direction, edgeRouting,
+      nodeSpacing: boundedNumber("nodeSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing, 5, 500),
+      layerSpacing: boundedNumber("layerSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing, 10, 800),
+      iterations: boundedNumber("iterations", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations, 20, 3000),
+      randomSeed: boundedNumber("randomSeed", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.randomSeed, 0, 100000),
+      margin: boundedNumber("margin", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin, 0, 300)
     };
   } catch {
     return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
@@ -890,32 +907,46 @@ export default function App() {
   async function runAutoLayout(overrides: Partial<NativeAutoLayoutOptions> = {}) {
     if (autoLayoutRunning) return;
     const options: NativeAutoLayoutOptions = { ...nativeLayoutOptions, ...overrides };
-    const algorithmLabel = NATIVE_LAYOUT_ALGORITHMS.find((item) => item.value === options.algorithm)?.label ?? options.algorithm;
+    if (options.engine === "dagre") options.algorithm = "layered";
+    const algorithmLabel = options.engine === "dagre" ? "Dagre directed layout" : "ELK " + options.algorithm;
     const frame = drawioFrameRef.current;
     if (!frame) {
       setLastAction("Auto layout failed: the native Draw.io editor is unavailable");
       return;
     }
     setAutoLayoutRunning(true);
-    setLastAction("Applying native Draw.io " + algorithmLabel + " layout…");
-    recordDiagnostic("drawio.layout.ui.requested", "The user requested auto layout from the Studio toolbar", {
-      pageId: selectedNativePageId, documentRevision: calculateDrawioXmlRevision(drawioXml), drawioVersion: DRAWIO_VERSION,
-      layout: options.algorithm, direction: options.direction, nodeSpacing: options.nodeSpacing,
-      layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting
-    });
+    setLastAction("Calculating Studio " + algorithmLabel + "…");
     try {
-      const serializedXml = await frame.applyAutoLayout(options);
+      const source = latestDiagramStateRef.current;
+      const sourceXml = source.drawioXml;
+      const pageId = source.selectedNativePageId;
+      const documentRevision = await calculateDrawioXmlRevision(sourceXml);
+      const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options);
+      const latestState = latestDiagramStateRef.current;
+      if (latestState.drawioXml !== sourceXml || latestState.selectedNativePageId !== pageId) {
+        throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
+      }
+      recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
+        pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
+        engine: options.engine, algorithm: options.algorithm, direction: options.direction,
+        nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
+        iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
+        vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length
+      });
+      const serializedXml = await frame.applyAutoLayout(nativePlan);
       if (!isDrawioXmlDocument(serializedXml)) throw new Error("Draw.io did not return a valid serialized XML document.");
-      setLastAction("Auto layout applied; syncing native Draw.io XML");
-      recordDiagnostic("drawio.layout.ui.completed", "Native auto layout returned valid Draw.io XML", {
-        xmlLength: serializedXml.length, pageId: selectedNativePageId,
-        layout: options.algorithm, direction: options.direction
+      setLastAction("Studio auto layout applied; syncing native Draw.io XML");
+      recordDiagnostic("drawio.layout.ui.completed", "The Studio layout plan was applied and serialized by native Draw.io", {
+        xmlLength: serializedXml.length, pageId: nativePlan.pageId, engine: options.engine,
+        algorithm: options.algorithm, direction: options.direction, vertexCount: nativePlan.positions.length,
+        edgeCount: nativePlan.edgeRoutes.length
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setLastAction("Auto layout failed: " + errorMessage);
-      recordDiagnostic("drawio.layout.ui.failed", "Auto layout failed or could not be confirmed", {
-        pageId: selectedNativePageId, errorMessage, layout: options.algorithm, direction: options.direction
+      recordDiagnostic("drawio.layout.ui.failed", "Studio auto layout failed or could not be confirmed", {
+        pageId: selectedNativePageId, errorMessage, engine: options.engine, algorithm: options.algorithm,
+        direction: options.direction
       }, "error");
     } finally {
       setAutoLayoutRunning(false);
@@ -923,7 +954,12 @@ export default function App() {
   }
 
   function runDirectionalLayout(direction: "RIGHT" | "DOWN") {
-    const preset: Partial<NativeAutoLayoutOptions> = { algorithm: "elkLayered", direction };
+    // Direction shortcuts always produce a flow diagram: preserve Dagre if selected,
+    // otherwise switch an ELK radial/organic configuration back to the layered algorithm.
+    const preset: Partial<NativeAutoLayoutOptions> = {
+      direction,
+      ...(nativeLayoutOptions.engine === "elk" ? { algorithm: "layered" as const } : {})
+    };
     setNativeLayoutOptions((current) => ({ ...current, ...preset }));
     void runAutoLayout(preset);
   }
@@ -1113,14 +1149,26 @@ export default function App() {
           <div className="canvas-title">Draw.io diagram</div>
           <div className="canvas-toolbar-actions" role="group" aria-label="Layout controls">
             <label className="native-layout-field">
-              <span>Engine</span>
-              <Select<NativeAutoLayoutOptions["algorithm"]>
+              <span>Layout engine</span>
+              <Select<NativeAutoLayoutOptions["engine"]>
                 aria-label="Layout engine"
+                className="native-layout-select native-layout-engine"
+                size="small"
+                value={nativeLayoutOptions.engine}
+                options={NATIVE_LAYOUT_ENGINES}
+                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+                onChange={(engine) => setNativeLayoutOptions((current) => ({ ...current, engine, algorithm: engine === "dagre" ? "layered" : current.algorithm }))}
+              />
+            </label>
+            <label className="native-layout-field">
+              <span>Algorithm</span>
+              <Select<NativeAutoLayoutOptions["algorithm"]>
+                aria-label="Layout algorithm"
                 className="native-layout-select native-layout-engine"
                 size="small"
                 value={nativeLayoutOptions.algorithm}
                 options={NATIVE_LAYOUT_ALGORITHMS}
-                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict" || nativeLayoutOptions.engine === "dagre"}
                 onChange={(algorithm) => setNativeLayoutOptions((current) => ({ ...current, algorithm }))}
               />
             </label>
@@ -1133,7 +1181,7 @@ export default function App() {
                 value={nativeLayoutOptions.direction}
                 options={NATIVE_LAYOUT_DIRECTIONS}
                 disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict" ||
-                  nativeLayoutOptions.algorithm === "elkRadial" || nativeLayoutOptions.algorithm === "elkOrganic"}
+                  nativeLayoutOptions.engine === "elk" && (nativeLayoutOptions.algorithm === "radial" || nativeLayoutOptions.algorithm === "force")}
                 onChange={(direction) => setNativeLayoutOptions((current) => ({ ...current, direction }))}
               />
             </label>
@@ -1160,7 +1208,7 @@ export default function App() {
               type="primary"
               loading={autoLayoutRunning}
               disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
-              title="Apply the selected native Draw.io layout"
+              title="Calculate positions with the selected Studio layout engine and apply to native Draw.io cells"
               onClick={() => void runAutoLayout()}
             >
               Auto layout
@@ -1192,7 +1240,7 @@ export default function App() {
               <InputNumber
                 aria-label="Node spacing"
                 min={5}
-                max={200}
+                max={500}
                 step={5}
                 value={nativeLayoutOptions.nodeSpacing}
                 onChange={(value) => {
@@ -1206,15 +1254,38 @@ export default function App() {
               <InputNumber
                 aria-label="Layer spacing"
                 min={10}
-                max={500}
+                max={800}
                 step={10}
-                disabled={nativeLayoutOptions.algorithm !== "elkLayered"}
+                disabled={nativeLayoutOptions.engine !== "dagre" && nativeLayoutOptions.algorithm !== "layered"}
                 value={nativeLayoutOptions.layerSpacing}
                 onChange={(value) => {
                   if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, layerSpacing: value }));
                 }}
                 style={{ width: "100%" }}
               />
+            </label>
+            <label className="native-layout-settings-field">
+              <span>ELK iterations</span>
+              <InputNumber aria-label="ELK iterations" min={20} max={3000} step={20}
+                disabled={nativeLayoutOptions.engine !== "elk" || (nativeLayoutOptions.algorithm !== "stress" && nativeLayoutOptions.algorithm !== "force")}
+                value={nativeLayoutOptions.iterations}
+                onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, iterations: value })); }}
+                style={{ width: "100%" }} />
+            </label>
+            <label className="native-layout-settings-field">
+              <span>Random seed</span>
+              <InputNumber aria-label="Layout random seed" min={0} max={100000} step={1}
+                disabled={nativeLayoutOptions.engine !== "elk" || (nativeLayoutOptions.algorithm !== "stress" && nativeLayoutOptions.algorithm !== "force")}
+                value={nativeLayoutOptions.randomSeed}
+                onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, randomSeed: value })); }}
+                style={{ width: "100%" }} />
+            </label>
+            <label className="native-layout-settings-field">
+              <span>Canvas margin</span>
+              <InputNumber aria-label="Layout canvas margin" min={0} max={300} step={10}
+                value={nativeLayoutOptions.margin}
+                onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, margin: value })); }}
+                style={{ width: "100%" }} />
             </label>
             <label className="native-layout-settings-field native-layout-routing-field">
               <span>Connector routing</span>
@@ -1227,11 +1298,12 @@ export default function App() {
                   { value: "SPLINES", label: "Curved / splines" }
                 ]}
                 onChange={(edgeRouting) => setNativeLayoutOptions((current) => ({ ...current, edgeRouting }))}
+                disabled={nativeLayoutOptions.engine !== "elk"}
                 style={{ width: "100%" }}
               />
             </label>
           </div>
-          <p className="native-layout-settings-help">These options are passed to Draw.io’s native ELK layout engine and saved in this browser.</p>
+          <p className="native-layout-settings-help">Studio runs Dagre/ELK outside the Draw.io editor; only final native cell geometry and connector waypoints are applied. Settings are saved in this browser.</p>
         </Modal>
 
         <div className="canvas-stage">

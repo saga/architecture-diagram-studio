@@ -1,14 +1,14 @@
 # Architecture Diagram Studio V2
 
 - **Status:** Current architecture as of 2026-10-23.
-- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md).
+- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md); [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](docs/adr/0013-studio-owned-layout-engines.md).
 - **Reference implementation:** v2/.
 - **Capability and contract review:** [Native Copilot / Draw.io Capability Audit](docs/NATIVE-COPILOT-CAPABILITY-AUDIT.md).
 - **Legacy:** V1 is read-only reference material.
 
 ## Core design
 
-Draw.io's mxfile XML is the only diagram representation. The application does not parse a second graph and project edits back into XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior.
+Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Automatic layout is a core exception only in the computational sense: Studio derives a temporary native-cell projection for Dagre/ELK, then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
 
 Responsibilities are deliberately small:
 
@@ -19,11 +19,11 @@ Responsibilities are deliberately small:
 
 ## Supported native operations
 
-The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after` (insert a connected vertex to the right), and `add_node_below` (insert a connected vertex directly below its source). A typed batch that does not trigger the server's review gate executes after page/revision/target validation without a separate confirmation click. Broad batches and all `run_drawio_script` operations require explicit confirmation; chat proposals show the intended changes, not the source code. The model cannot submit raw replacement XML or arbitrary workspace writes.
+The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after`, `add_node_below`, and `auto_layout`. Whole-page `auto_layout` is an Agent-native typed operation, must be alone in its batch, and always requires user confirmation. It uses the same configurable Dagre/ELK planner as the toolbar; it never calls Draw.io's built-in layout action or asks the model to write a layout script. A typed batch that does not trigger the server's review gate otherwise executes after page/revision/target validation without a separate confirmation click. Broad batches and review-gated scripts require explicit confirmation; chat proposals show the intended changes, not script source. The model cannot submit raw replacement XML or arbitrary workspace writes.
 
 ## Extension contracts without porting the old implementation
 
-V2 does not currently include the former `DiagramDocument` model, semantic fixtures/templates, custom layout/quality engine, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Their removal is an implementation decision, not a ban on future layout, geometry, style, or quality capabilities.
+V2 does not include the former `DiagramDocument` model, semantic fixtures/templates, DiagramDocument-based layout/quality pipeline, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Its removal does not remove core layout: ADR-0013 defines the active Studio-owned Dagre/ELK path over temporary native-cell facts.
 
 `v2/src/model/native-diagram-capabilities.ts` defines the seam for such work:
 
@@ -32,13 +32,13 @@ V2 does not currently include the former `DiagramDocument` model, semantic fixtu
 | `NativeDiagramCapabilityContext` | Exact XML revision, active page, selection and native cell index | Transient, read-only context; never persisted as a second model |
 | `NativeDiagramOperationProvider` | Layout, routing, style and structural edits | A revision-bound plan using `NativeEditOperation[]`; never raw replacement XML |
 | `NativeDiagramAnalysisProvider` | Geometry, contrast, routing and accessibility checks | Findings linked to native page/cell IDs; no mutation side effects |
-| `NativeDiagramCapabilityRegistry` | Explicit discovery of installed providers | Interface only; no generic registry or optional provider is currently installed |
+| `NativeDiagramCapabilityRegistry` | Explicit discovery of installed optional providers | Interface only; core layout is implemented separately and no optional quality provider is installed |
 
 A future provider should reuse the shared XML parser/schema, target resolver, typed operation validation, plugin bridge, editor acknowledgement, and XML revision/version path. Adding a new native operation requires synchronized updates to the operation union/schema, server validation, bridge execution and tests. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
 
 ## Explicit non-goals
 
-V2 does not restore the old semantic graph model or directly port the old SVG/React Flow renderer, layout engines, or quality pipeline. New capability work requires a concrete use case and must operate against native mxCells through the extension contracts, without introducing a parallel persisted model or replacing the complete XML.
+V2 does not restore the old semantic graph model or directly port the old SVG/React Flow renderer or DiagramDocument-based quality pipeline. V2 explicitly ships Studio-owned Dagre/ELK layout against native mxCells (ADR-0013). Future capabilities must not introduce a parallel persisted model or replace the complete XML.
 
 ## Code map
 

@@ -13,17 +13,25 @@ V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted
 
 ## One diagram model
 
-The original native Draw.io `mxfile` XML is the only diagram model. The embedded Draw.io editor owns the canvas, cell selection, geometry, styles, connectors, pages, undo/redo and native editing. V2 has no parallel `DiagramDocument`, semantic graph, model-to-XML exporter, semantic layout engine or proposal-preview graph.
+The original native Draw.io `mxfile` XML is the only diagram model. The embedded Draw.io editor owns the canvas, selection, geometry, styles, connectors, pages, undo/redo and serialization. V2 has no parallel `DiagramDocument`, semantic graph, model-to-XML exporter or proposal-preview graph.
 
-Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. Editing happens inside the Draw.io graph; its serializer may normalize XML formatting or attribute order after a mutation. V2 never rebuilds a document from a reduced model, and supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
+Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. V2 never rebuilds a document from a reduced model. Supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
+
+## Studio-owned automatic layout — core feature
+
+Automatic layout is calculated in Studio using `@dagrejs/dagre` and `elkjs`; V2 does not call Draw.io's built-in `action: "layout"`. `src/layout/native-layout.ts` derives a temporary, per-operation projection from the selected page's native mxCells, calculates positions and connector waypoints, and returns a revision/page-bound plan. The bridge validates current cell IDs, geometry and connector endpoints before applying only native geometry changes through the Draw.io model. It never converts the full document to another saved model.
+
+The toolbar exposes Dagre and ELK. Dagre supports directed layered placement in four directions; ELK supports Layered, Mr. Tree, Radial, Stress and Force, plus applicable direction, node/layer spacing, connector routing, iterations, seed and margin settings. Settings persist in this browser. The first implementation lays out top-level vertices and connectors in the default layer; other pages, layers and nested group contents remain unchanged.
+
+Copilot uses the same typed `auto_layout` operation and Studio planner as the toolbar. Whole-page layouts always require explicit confirmation and cannot be combined with unrelated edits in one batch. The bridge rejects stale cell sets or geometry and attempts to restore prior geometry if mutation fails. See [ADR-0013](../docs/adr/0013-studio-owned-layout-engines.md).
 
 ## Extension points for future native capabilities
 
-V2 intentionally does not ship the legacy semantic graph or its custom layout/quality pipeline. It does preserve a small extension contract in `src/model/native-diagram-capabilities.ts` so future features can be added without porting the old renderer or introducing a parallel model:
+V2 intentionally does not ship the legacy semantic graph, DiagramDocument-based layout pipeline, or semantic quality pipeline. It preserves a small extension contract in `src/model/native-diagram-capabilities.ts` for additional native editing and analysis features without porting the old renderer or introducing a parallel model:
 
 - `NativeDiagramOperationProvider` receives the authoritative XML, base revision, active page, selection and a lightweight native-cell index, and returns a plan using the shared `NativeEditOperation` vocabulary.
 - `NativeDiagramAnalysisProvider` returns read-only findings (for example geometry, routing, contrast or accessibility diagnostics) keyed by native page/cell IDs.
-- `NativeDiagramCapabilityRegistry` is an interface for explicit capability discovery only. No generic registry, layout provider or quality provider is currently installed.
+- `NativeDiagramCapabilityRegistry` is an interface for explicit capability discovery only. No generic registry or quality provider is currently installed; core Dagre/ELK layout is implemented as a direct shared capability path in `src/layout/native-layout.ts`, not via a generic provider registry.
 
 Every mutation plan must be revalidated against the same page and current XML revision, executed by the native Draw.io bridge, and reported as successful only after editor acknowledgement and the normal save/version path. Analysis findings do not silently block ordinary native editing. See [ADR-0012](../docs/adr/0012-native-diagram-extension-contracts.md) for the contract and rules for reusing prior research.
 
@@ -34,7 +42,7 @@ The server passes the selected page's native cell IDs, labels and cell types to 
 - `select_diagram_element` focuses an existing cell without changing the document.
 - `propose_native_edits` submits a typed batch of allowlisted operations.
 
-Supported edits are select, rename, fill/stroke/font color, move, resize, delete, `add_node_after` (add a connected vertex to the right), and `add_node_below` (add a connected vertex directly below its source). A bounded typed batch that does not trigger the server's review gate executes after target uniqueness, page and revision checks without a separate confirmation click. Broad batches and every `run_drawio_script` proposal still require explicit confirmation; script bodies are not shown in chat. The browser applies every batch through the Draw.io bridge and waits for editor acknowledgement and persistence. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
+Supported edits include select, rename, fill/stroke/font color, move, resize, delete, `add_node_after`, `add_node_below`, and the configurable `auto_layout` operation. A bounded typed batch that does not trigger the server's review gate executes after target uniqueness, page and revision checks without a separate confirmation click. Every whole-page `auto_layout` and all review-gated batches require explicit confirmation. A narrowly allowlisted insert-only script may auto-dispatch only after the server-side AST, runtime-manifest and revision checks; scripts are not a substitute for layout, and script bodies are not shown in chat. The browser applies edits through the Draw.io bridge and waits for editor acknowledgement and persistence. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
 
 ## Copilot session permission and authentication callbacks
 

@@ -11,6 +11,7 @@ import {
 import { recordDiagnostic } from "../diagnostics";
 import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
+import { calculateNativeAutoLayout } from "../layout/native-layout";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type Workspace = { id: string } | null;
@@ -183,7 +184,17 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           throw new Error("The native edit plan is stale or targets another Draw.io page. No change was applied.");
         }
         const operations = plan.nativeEdits.operations;
-        const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId);
+        const layoutOperation = operations.length === 1 && operations[0].op === "auto_layout" ? operations[0] : undefined;
+        const layoutPlan = layoutOperation
+          ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation)
+          : undefined;
+        if (layoutOperation) {
+          const currentState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+          if (currentState.drawioXml !== sourceXml || currentState.selectedNativePageId !== sourcePageId) {
+            throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
+          }
+        }
+        const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId, layoutPlan);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
         const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId, {
           requestId: plan.nativeEdits.requestId,
@@ -489,7 +500,18 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       if (command.documentRevision !== documentRevision || command.pageId !== (pageInfo.id ?? null)) {
         throw new Error("The confirmed command belongs to another revision or Draw.io page.");
       }
-      const cellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId);
+      const layoutOperation = command.operations.length === 1 && command.operations[0].op === "auto_layout"
+        ? command.operations[0] : undefined;
+      const layoutPlan = layoutOperation
+        ? await calculateNativeAutoLayout(sourceXml, command.pageId, documentRevision, layoutOperation)
+        : undefined;
+      if (layoutOperation) {
+        const stateAfterLayout = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        if (stateAfterLayout.drawioXml !== sourceXml || stateAfterLayout.selectedNativePageId !== sourcePageId) {
+          throw new Error("The diagram or active page changed while Studio was calculating the confirmed layout. Nothing was applied; retry.");
+        }
+      }
+      const cellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId, layoutPlan);
       if (!cellPlan.ok) throw new Error("The confirmed proposal is no longer valid: " + cellPlan.error);
       const execution = await applyNativeCellEdits(cellPlan.edits, command.pageId, {
         requestId: command.requestId,

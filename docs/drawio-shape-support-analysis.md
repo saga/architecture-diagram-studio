@@ -1,10 +1,10 @@
 # 以 Draw.io XML 为唯一真源的架构改造报告
 
-> **历史架构评估，不是当前实施清单。** 本文保留了改造前的代码路径、行号和候选方案。当前现行决策见 ADR-0011（原生 Draw.io 是唯一模型）与 ADR-0012（原生能力扩展契约）；ADR-0006/0008 是此前的决策记录。文中有关 `DiagramCanvas`、双渲染器、待新增模块和旧 ADR 冲突的描述不应被理解为当前缺陷或现行要求。
+> **历史架构评估，不是当前实施清单。** 本文保留了改造前的代码路径、行号和候选方案。当前现行决策见 ADR-0011（原生 Draw.io 是唯一模型）、ADR-0012（原生能力扩展契约）和 ADR-0013（Studio-owned Dagre/ELK 自动布局是核心能力）；ADR-0006/0008 是此前的决策记录。文中有关 `DiagramCanvas`、双渲染器、待新增模块和旧 ADR 冲突的描述不应被理解为当前缺陷或现行要求。
 
 > 对象：`architecture-diagram-studio` V2（`v2/`，约 9.4k 行 TS/TSX）
 > 目标：把"支持 Draw.io 全部图形"这件事做实，并把全系统的**唯一真源**统一为 **`.drawio` XML（mxfile）**——不再有 `DiagramDocument` 与原生 XML 两套源，不再有"语义轨 / 原生轨"双轨设计。
-> 状态：实施前评审基线；当前实现以 `docs/adr/0011-native-drawio-only-model.md` 为准。V2 不保留 `DiagramDocument` 语义投影、语义布局器或双轨编辑链路；本报告中的分阶段路线是计划，不表示所有阶段均已完成。
+> 状态：实施前评审基线；当前实现以原生 XML 为唯一真源。V2 不保留 `DiagramDocument` 语义投影、依赖该模型的语义布局器或双轨编辑链路；当前 Studio-owned Dagre/ELK 布局按 ADR-0013 直接针对 native mxCell 计算几何计划。本报告中的分阶段路线不表示所有阶段均已完成。
 
 ---
 
@@ -14,9 +14,9 @@
 本报告的代码路径、分层方案和分阶段估算是历史评估，不直接迁移到当前 V2。仍有用的是对未知 shape、嵌套 cell、多页、XML metadata 和目标操作安全性的分析。后续能力按以下边界重用这些结论：
 
 - 形状、容器与多页兼容继续由原生 Draw.io 和开放 XML schema 负责，不要求 Studio 理解全部 shape 才能打开或编辑。
-- 布局、routing、风格规则如果未来有明确需求，应通过 `NativeDiagramOperationProvider` 将结果表达为有 revision/page 范围的类型化原生操作；不迁移旧的 `DiagramDocument` / SVG / ELK-Dagre 生产链路。
+- 全页自动布局是现行核心能力：ADR-0013 规定使用 Studio 自己运行的 Dagre/ELK，从 native mxCell 派生临时输入并回写坐标/waypoints；禁止调用 Draw.io 内置布局或迁移旧 `DiagramDocument` / SVG 布局链路。超出该核心布局范围的额外 routing/风格能力，可通过 `NativeDiagramOperationProvider` 扩展。
 - 几何、对比度、可访问性等检查应通过 `NativeDiagramAnalysisProvider` 返回诊断，不应默认为所有原生保存增加语义质量门。
-- 当前只有扩展契约，没有内置布局或质量 provider。详见 [ADR-0012](./adr/0012-native-diagram-extension-contracts.md) 与 [当前 V2 架构](../ARCHITECTURE-V2.md)。
+- 当前已有 Studio-owned Dagre/ELK planner；通用 capability registry 和质量 provider 仍未安装。布局细节见 [ADR-0013](./adr/0013-studio-owned-layout-engines.md)，扩展契约见 [ADR-0012](./adr/0012-native-diagram-extension-contracts.md) 和 [当前 V2 架构](../ARCHITECTURE-V2.md)。
 
 ## 0. 决策与结论
 
