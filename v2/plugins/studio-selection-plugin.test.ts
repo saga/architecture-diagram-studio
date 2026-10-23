@@ -56,7 +56,7 @@ function mockElement() {
   };
 }
 
-function createHarness(options: { personShapeAvailable?: boolean } = {}) {
+function createHarness(options: { personShapeAvailable?: boolean; customShapeAvailable?: boolean } = {}) {
   const root = makeCell("0");
   const layer = makeCell("1");
   const service = makeCell("service", { vertex: true, style: "rounded=1;fillColor=#ffffff;" });
@@ -144,6 +144,10 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     refresh: () => { graphRefreshCalls += 1; }
   };
 
+  const shapeRegistry: Record<string, () => undefined> = {};
+  if (options.personShapeAvailable !== false) shapeRegistry["mxgraph.c4.person2"] = () => undefined;
+  if (options.customShapeAvailable !== false) shapeRegistry["mxgraph.test.cloud"] = () => undefined;
+
   const messages: Array<Record<string, any>> = [];
   const parent = {
     postMessage: (message: string) => messages.push(JSON.parse(message) as Record<string, any>)
@@ -157,7 +161,7 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     parent,
     location: { origin: "http://studio.test" },
     mxUtils: { createXmlDocument: () => ({ createElement: () => mockElement() }) },
-    mxCellRenderer: { defaultShapes: options.personShapeAvailable === false ? {} : { "mxgraph.c4.person2": function () { return undefined; } } },
+    mxCellRenderer: { defaultShapes: shapeRegistry },
     addEventListener: (_name: string, callback: (event: Record<string, any>) => void) => { messageHandler = callback; },
     setTimeout: () => undefined
   };
@@ -191,7 +195,7 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
     return runOperation("__active_page__", "cell:execute-script", script);
   }
 
-  function runRuntimeInspect() {
+  function runRuntimeInspect(shapeNames: string[] = []) {
     messages.length = 0;
     messageHandler!({
       source: parent,
@@ -202,7 +206,8 @@ function createHarness(options: { personShapeAvailable?: boolean } = {}) {
         documentRevision: "a".repeat(64),
         drawioVersion: "v32.0.2",
         maxCells: 60,
-        maxRenderedEdges: 24
+        maxRenderedEdges: 24,
+        shapeNames
       })
     });
     return messages.find((message) => message.event === "studioRuntimeInspectResult");
@@ -313,7 +318,7 @@ describe("native Draw.io script bridge", () => {
       success: true,
       inspection: {
         schemaVersion: 1,
-        bridgeVersion: "studio-native-runtime/1",
+        bridgeVersion: "studio-native-runtime/2",
         drawioVersion: "v32.0.2",
         documentRevision: "a".repeat(64),
         counts: { cells: 6, vertices: 4, edges: 2 },
@@ -325,6 +330,26 @@ describe("native Draw.io script bridge", () => {
     expect(inspected.capabilities.graph).toContain("getDefaultParent");
     expect(inspected.capabilities.model).toContain("getRoot");
     expect(inspected.capabilities.model).not.toContain("getDefaultParent");
+  });
+
+  it("queries registered mxGraph shapes without confusing them with stencils", () => {
+    const harness = createHarness();
+    const result = harness.runRuntimeInspect(["mxgraph.c4.person2", "mxgraph.test.cloud", "mxgraph.not.registered"]);
+    expect(result).toMatchObject({
+      success: true,
+      inspection: {
+        capabilityManifest: {
+          shapes: {
+            requested: ["mxgraph.c4.person2", "mxgraph.test.cloud", "mxgraph.not.registered"],
+            registered: {
+              "mxgraph.c4.person2": true,
+              "mxgraph.test.cloud": true,
+              "mxgraph.not.registered": false
+            }
+          }
+        }
+      }
+    });
   });
 
   it("does not claim rollback succeeded after a script detaches the default layer", () => {
