@@ -433,6 +433,21 @@ function recordHasType(record: CellRecord, cellType?: "vertex" | "edge"): boolea
   return record.cell.getAttribute(cellType) === "1";
 }
 
+function resolveAfterTransition(
+  before: ModelRecords[],
+  after: ModelRecords[],
+  reference: string,
+  pageId?: string | null
+): CellRecord | null {
+  const previous = resolveUniqueRecord(before, reference, pageId);
+  if (previous) {
+    return recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null;
+  }
+  const candidate = resolveUniqueRecord(after, reference, pageId);
+  if (!candidate) return null;
+  return recordsForPage(before, pageId).some((record) => record.id === candidate.id) ? null : candidate;
+}
+
 function postconditionIsReflected(
   before: ModelRecords[],
   after: ModelRecords[],
@@ -456,40 +471,35 @@ function postconditionIsReflected(
     }
     case "label_equals": {
       const previous = resolveUniqueRecord(before, condition.target, pageId);
-      const target = previous
-        ? recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null
-        : null;
-      return Boolean(target && normalizeLabel(findText(previous!)) !== normalizeLabel(condition.value) &&
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      return Boolean(target && (!previous || normalizeLabel(findText(previous)) !== normalizeLabel(condition.value)) &&
         labelMatches(target, condition.value));
     }
     case "style_equals": {
       const previous = resolveUniqueRecord(before, condition.target, pageId);
-      const target = previous
-        ? recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null
-        : null;
-      if (!previous || !target) return false;
-      const oldStyle = previous.cell.getAttribute("style") || "";
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      if (!target) return false;
+      const oldStyle = previous?.cell.getAttribute("style") || "";
       const nextStyle = target.cell.getAttribute("style") || "";
-      return !styleKeyMatches(oldStyle, condition.key, condition.value) &&
+      return (!previous || !styleKeyMatches(oldStyle, condition.key, condition.value)) &&
         styleKeyMatches(nextStyle, condition.key, condition.value);
     }
     case "geometry_matches": {
       const previous = resolveUniqueRecord(before, condition.target, pageId);
-      const target = previous
-        ? recordsForPage(after, pageId).find((record) => record.id === previous.id) ?? null
-        : null;
-      if (!previous?.geometry || !target?.geometry) return false;
-      let changed = false;
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      if (!target?.geometry || (previous && !previous.geometry)) return false;
+      let changed = !previous;
       for (const key of ["x", "y", "width", "height"] as const) {
         const expected = condition[key];
         if (expected !== undefined) {
-          const oldValue = numericAttribute(previous.geometry, key);
+          const oldValue = previous ? numericAttribute(previous.geometry, key) : null;
           const nextValue = numericAttribute(target.geometry, key);
-          if (oldValue === null || nextValue === null || Math.abs(nextValue - expected) >= 0.01) return false;
-          if (Math.abs(oldValue - expected) >= 0.01) changed = true;
+          if (nextValue === null || Math.abs(nextValue - expected) >= 0.01) return false;
+          if (previous && (oldValue === null || Math.abs(oldValue - expected) >= 0.01)) changed = true;
         }
       }
-      return changed;
+      return changed && (condition.x !== undefined || condition.y !== undefined ||
+        condition.width !== undefined || condition.height !== undefined);
     }
     case "edge_connects": {
       const previousSource = resolveUniqueRecord(before, condition.source, pageId);
@@ -515,11 +525,13 @@ function postconditionIsReflected(
     }
     case "parent_is": {
       const previous = resolveUniqueRecord(before, condition.target, pageId);
-      if (!previous) return false;
-      const target = recordsForPage(after, pageId).find((record) => record.id === previous.id);
-      const parent = resolveUniqueRecord(after, condition.parent, pageId);
+      const target = resolveAfterTransition(before, after, condition.target, pageId);
+      const previousParent = resolveUniqueRecord(before, condition.parent, pageId);
+      const parent = previousParent
+        ? recordsForPage(after, pageId).find((record) => record.id === previousParent.id) ?? null
+        : resolveUniqueRecord(after, condition.parent, pageId);
       return Boolean(target && parent &&
-        (previous.cell.getAttribute("parent") || "") !== parent.id &&
+        (!previous || (previous.cell.getAttribute("parent") || "") !== parent.id) &&
         target.cell.getAttribute("parent") === parent.id);
     }
     default:
