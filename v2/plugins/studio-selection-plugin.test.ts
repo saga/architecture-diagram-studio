@@ -82,7 +82,6 @@ function createHarness() {
     },
     setVisible: (cell: MockCell, visible: boolean) => { cell.visible = visible; },
     setCollapsed: (cell: MockCell, collapsed: boolean) => { cell.collapsed = collapsed; },
-    setConnectable: (cell: MockCell, connectable: boolean) => { cell.connectable = connectable; },
     add: (parent: MockCell, cell: MockCell, index: number) => {
       if (cell.parent) {
         const oldIndex = cell.parent.children.indexOf(cell);
@@ -142,18 +141,14 @@ function createHarness() {
   runInNewContext(source, { window: windowMock, console });
   if (!messageHandler) throw new Error("Draw.io bridge did not register its message listener");
 
-  function runScript(script: string) {
+  function runOperation(cellId: string, path: string, value: string) {
     messages.length = 0;
     const request = {
       event: "studioPropertyEditRequest",
       requestId: "test-request",
       cellId: "__batch__",
       path: "cell:batch",
-      value: JSON.stringify([{
-        cellId: "__active_page__",
-        path: "cell:execute-script",
-        value: script
-      }])
+      value: JSON.stringify([{ cellId, path, value }])
     };
     messageHandler!({
       source: parent,
@@ -163,7 +158,11 @@ function createHarness() {
     return messages.find((message) => message.event === "studioPropertyEditResult");
   }
 
-  return { rootEdge, nestedEdge, service, runScript };
+  function runScript(script: string) {
+    return runOperation("__active_page__", "cell:execute-script", script);
+  }
+
+  return { rootEdge, nestedEdge, service, runScript, runOperation };
 }
 
 const curveAllConnectorsScript = [
@@ -200,7 +199,7 @@ describe("native Draw.io script bridge", () => {
     expect(harness.service.style).not.toContain("curved=1");
   });
 
-  it("reports a bad Model API call and rolls back without changing the diagram", () => {
+  it("restores mutations after a script error even when mxGraphModel lacks setConnectable", () => {
     const harness = createHarness();
     const beforeRootEdge = harness.rootEdge.style;
     const beforeNestedEdge = harness.nestedEdge.style;
@@ -208,10 +207,19 @@ describe("native Draw.io script bridge", () => {
 
     expect(result).toMatchObject({
       success: false,
-      batchRolledBack: true
+      batchRolledBack: true,
+      rollbackErrors: []
     });
     expect(result.error).toContain("model.getDefaultParent is not a function");
     expect(harness.rootEdge.style).toBe(beforeRootEdge);
     expect(harness.nestedEdge.style).toBe(beforeNestedEdge);
+  });
+
+  it("edits connectability without relying on a non-existent mxGraphModel setter", () => {
+    const harness = createHarness();
+    const result = harness.runOperation("service", "cell:connectable", "false");
+
+    expect(result).toMatchObject({ success: true });
+    expect(harness.service.connectable).toBe(false);
   });
 });
