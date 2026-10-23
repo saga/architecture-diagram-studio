@@ -29,6 +29,19 @@ describe("resolveNativeEditTargets", () => {
     ]);
   });
 
+  it("resolves Studio auto-layout directly to the active page", () => {
+    const parsed = parseNativeEditOperations([{
+      op: "auto_layout", target: "active_page", engine: "elk", algorithm: "layered", direction: "RIGHT"
+    }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const result = resolveNativeEditTargets(CONTEXT, parsed.operations);
+    expect(result).toMatchObject({
+      ok: true,
+      operations: [{ op: "auto_layout", target: "active_page", cellId: "__active_page__", targetLabel: "active Draw.io page", engine: "elk" }]
+    });
+  });
+
   it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);
     const byLabel = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "database" }]);
