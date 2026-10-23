@@ -228,7 +228,13 @@ function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "d
   };
 }
 
-function scriptProposingCopilot(script = "return { checked: true };", summary = "Read-only runtime script for confirmation-gate test") {
+function scriptProposingCopilot(
+  script = "graph.setCellStyles('fillColor', '#ff0000', [model.getCell('db')]);",
+  summary = "Set Database fill color for review",
+  postconditions: Array<Record<string, unknown>> = [
+    { kind: "style_equals", target: "db", key: "fillColor", value: "#ff0000" }
+  ]
+) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -253,7 +259,8 @@ function scriptProposingCopilot(script = "return { checked: true };", summary = 
         await tool.handler({ operations: [{
           op: "run_drawio_script", target: "active_page",
           summary,
-          script
+          script,
+          postconditions
         }] });
         return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
       }
@@ -412,7 +419,14 @@ describe("Copilot intent route result and revision contract", () => {
 
   it("auto-dispatches insertion-only native scripts after static validation", async () => {
     const harness = await createServer({
-      copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
+      copilot: scriptProposingCopilot(
+        SAFE_CREATION_SCRIPT,
+        "Create ddd below Database and connect it with a curved edge",
+        [
+          { kind: "cell_added", label: "ddd", cellType: "vertex" },
+          { kind: "edge_connects", source: "db", target: "ddd" }
+        ]
+      )
     });
     const requestContext = {
       kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
@@ -426,7 +440,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.acknowledgements.pending.size).toBe(1);
   });
 
-  it("requires a confirmation proposal for a script that does not change the diagram", async () => {
+  it("requires a confirmation proposal for non-insert-only script edits", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot() });
     const requestContext = {
       kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
@@ -436,7 +450,11 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("proposal_required");
     expect((body.proposal as { operations: Array<{ op: string }> }).operations)
-      .toMatchObject([{ op: "run_drawio_script", script: "return { checked: true };" }]);
+      .toMatchObject([{
+        op: "run_drawio_script",
+        script: "graph.setCellStyles('fillColor', '#ff0000', [model.getCell('db')]);",
+        postconditions: [{ kind: "style_equals", target: "db", key: "fillColor", value: "#ff0000" }]
+      }]);
     expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
