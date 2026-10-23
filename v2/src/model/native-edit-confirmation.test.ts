@@ -109,6 +109,39 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("confirms removal only when the previously identified cell is absent", () => {
+    const withoutDatabase = before.replace(
+      '<mxCell id="db" value="Database" vertex="1" parent="1"><mxGeometry x="200" y="20" width="100" height="40" as="geometry"/></mxCell>',
+      ""
+    );
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: JSON.stringify({
+        script: 'model.remove(model.getCell("db"));',
+        postconditions: [{ kind: "cell_absent", target: "db" }]
+      })
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: withoutDatabase, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+  });
+
+  it("confirms a changed parent relationship, including a newly created group", () => {
+    const grouped = before
+      .replace('<mxCell id="api"', '<mxCell id="group" value="New Group" vertex="1" parent="1"><mxGeometry x="360" y="20" width="140" height="80" as="geometry"/></mxCell><mxCell id="api"')
+      .replace('<mxCell id="db" value="Database" vertex="1" parent="1">', '<mxCell id="db" value="Database" vertex="1" parent="group">');
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: JSON.stringify({
+        script: 'model.add(model.getCell("group"), model.getCell("db"));',
+        postconditions: [{ kind: "parent_is", target: "db", parent: "group" }]
+      })
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: grouped, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+  });
+
   it("does not accept an assertion that was already true before an unrelated script change", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
