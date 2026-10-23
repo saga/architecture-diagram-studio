@@ -204,7 +204,7 @@ describe("native Draw.io script bridge", () => {
     const harness = createHarness();
     const beforeRootEdge = harness.rootEdge.style;
     const beforeNestedEdge = harness.nestedEdge.style;
-    const result = harness.runScript("graph.getChildCells(model.getDefaultParent(), false, true);");
+    const result = harness.runScript("graph.setCellStyles('curved', '1', [graph.getModel().getCell('edge-root')]); model.getDefaultParent();");
 
     expect(result).toMatchObject({
       success: false,
