@@ -46,6 +46,52 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("confirms a script only when native diagram content changes", () => {
+    const renamed = before.replace('value="Old API"', 'value="New API"');
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: 'graph.insertVertex(model.getDefaultParent(), null, "New", 10, 10, 100, 40);'
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+    const whitespaceOnly = before.replace("</root>", "\n  </root>");
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
+  it("confirms a script only when native diagram content changes", () => {
+    const renamed = before.replace('value="Old API"', 'value="New API"');
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: 'graph.insertVertex(model.getDefaultParent(), null, "New", 10, 10, 100, 40);'
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+    const whitespaceOnly = before.replace("</root>", "\n  </root>");
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
+  it("does not confirm a script from changes to another page", () => {
+    const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="other" value="Before" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram>';
+    const multiPageBefore = before.replace("</mxfile>", secondPage + "</mxfile>");
+    const secondPageChanged = multiPageBefore.replace('value="Before"', 'value="After"');
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(model.getDefaultParent(), false, true));'
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: multiPageBefore, xml: secondPageChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
   it("accepts a bare mxGraphModel when the editor page ID is not present in the source XML", () => {
     const bareBefore = before.replace('<mxfile><diagram id="p1" name="Overview">', '').replace('</diagram></mxfile>', '');
     const bareAfter = bareBefore.replace('value="Old API"', 'value="New API"');

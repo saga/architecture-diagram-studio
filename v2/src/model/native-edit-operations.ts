@@ -11,6 +11,9 @@ import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
 export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
 
+/** Maximum length of a model-generated program executed by the local Draw.io editor. */
+export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
+
 /** The bridge batch caps at 50 steps; typed moves are a single live-geometry delta. */
 export const MAX_NATIVE_EDIT_OPERATIONS = 20;
 
@@ -18,6 +21,7 @@ export type NativeEditOperation =
   | { op: "select"; target: string }
   | { op: "set_label"; target: string; label: string }
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
+  | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
   | { op: "delete"; target: string }
@@ -160,7 +164,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   return result;
 }
 
-const OPERATION_NAMES = ["select", "set_label", "set_style", "move", "resize", "delete", "add_node_after"] as const;
+const OPERATION_NAMES = ["select", "set_label", "set_style", "run_drawio_script", "move", "resize", "delete", "add_node_after"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -224,6 +228,10 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
   if (input.length > MAX_NATIVE_EDIT_OPERATIONS) {
     return { ok: false, error: `operations must contain at most ${MAX_NATIVE_EDIT_OPERATIONS} operations` };
   }
+  const containsScript = input.some((raw) => isRecord(raw) && raw.op === "run_drawio_script");
+  if (containsScript && input.length !== 1) {
+    return { ok: false, error: "run_drawio_script must be the only operation in its batch" };
+  }
   const operations: NativeEditOperation[] = [];
   for (const [index, raw] of input.entries()) {
     const position = index + 1;
@@ -245,6 +253,16 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
         case "set_label":
           operations.push({ op: name, target, label: textField(raw, "label", 500) });
           break;
+        case "run_drawio_script": {
+          if (target !== "active_page") throw new Error('run_drawio_script target must be "active_page"');
+          const script = raw.script;
+          if (typeof script !== "string" || !script.trim()) throw new Error("script must be a non-empty JavaScript program");
+          if (script.length > MAX_NATIVE_DRAWIO_SCRIPT_LENGTH) {
+            throw new Error(`script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters`);
+          }
+          operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script });
+          break;
+        }
         case "set_style": {
           const key = raw.key === undefined || raw.key === null ? "fillColor" : raw.key;
           if (typeof key !== "string" || !NATIVE_EDIT_STYLE_KEYS.includes(key as NativeEditStyleKey)) {
@@ -286,6 +304,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
+    case "run_drawio_script": return operation.summary;
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
     case "delete": return `Delete “${target}”`;
@@ -313,6 +332,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
     return { ok: false, error: "The Draw.io XML could not be indexed: " + (error instanceof Error ? error.message : String(error)) };
   }
   for (const operation of operations) {
+    const activePageScript = operation.op === "run_drawio_script" &&
+      operation.target === "active_page" && operation.cellId === "__active_page__";
+    if (activePageScript) continue;
     if (typeof operation.cellId !== "string" || !activeTargetIds.has(operation.cellId)) {
       return { ok: false, error: `Cell “${operation.targetLabel || operation.target}” is not present on the expected Draw.io page` };
     }
@@ -336,6 +358,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "set_style":
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
+        break;
+      case "run_drawio_script":
+        edits.push({ cellId, path: "cell:execute-script", value: operation.script });
         break;
       case "resize":
         edits.push({ cellId, path: "geometry:size", value: operation.width + "," + operation.height });

@@ -68,6 +68,9 @@
         var operations;
         try { operations = JSON.parse(String(request.value || "[]")); } catch (_) { throw new Error("Batch edit payload is not valid JSON"); }
         if (!Array.isArray(operations) || operations.length < 1 || operations.length > 50) throw new Error("A batch must contain between 1 and 50 operations");
+        if (operations.some(function (operation) { return operation && operation.path === "cell:execute-script"; }) && operations.length !== 1) {
+          throw new Error("A native Draw.io script must be the only operation in its batch");
+        }
         var allCells = [];
         function collect(parent) {
           var count = activeModel.getChildCount(parent);
@@ -78,6 +81,8 @@
           }
         }
         collect(activeModel.getRoot());
+        var originalCellsById = Object.create(null);
+        allCells.forEach(function (item) { if (item && item.id) originalCellsById[item.id] = item; });
         var affectedIds = Object.create(null);
         var deletedIds = Object.create(null);
         var restoreAllIds = Object.create(null);
@@ -94,6 +99,16 @@
         }
         operations.forEach(function (operation) {
           if (!operation || typeof operation.cellId !== "string") return;
+          if (operation.path === "cell:execute-script" && operation.cellId === "__active_page__") {
+            allCells.forEach(function (item) {
+              if (!item || item.id === "0" || item.id === "1") return;
+              affectedIds[item.id] = true;
+              restoreAllIds[item.id] = true;
+              if (!pathsById[item.id]) pathsById[item.id] = [];
+              pathsById[item.id].push("cell:execute-script");
+            });
+            return;
+          }
           if (operation.path === "cell:delete") {
             // A delete can affect the entire cell tree and all incident edges.
             markCellTree(activeModel.getCell(operation.cellId));
@@ -152,6 +167,27 @@
                 error: createdRollbackError && createdRollbackError.message ? String(createdRollbackError.message) : String(createdRollbackError) });
             }
           }
+          var currentCellsAfterFailure = [];
+          function collectCurrent(parent) {
+            var count = activeModel.getChildCount(parent);
+            for (var currentIndex = 0; currentIndex < count; currentIndex++) {
+              var currentCell = activeModel.getChildAt(parent, currentIndex);
+              currentCellsAfterFailure.push(currentCell);
+              collectCurrent(currentCell);
+            }
+          }
+          collectCurrent(activeModel.getRoot());
+          for (var currentIndex = currentCellsAfterFailure.length - 1; currentIndex >= 0; currentIndex--) {
+            var currentCell = currentCellsAfterFailure[currentIndex];
+            if (!currentCell || currentCell.id === "0" || currentCell.id === "1" ||
+                (originalCellsById[currentCell.id] && originalCellsById[currentCell.id] === currentCell)) continue;
+            try {
+              if (activeModel.getCell(currentCell.id) === currentCell) activeModel.remove(currentCell);
+            } catch (scriptRollbackError) {
+              rollbackErrors.push({ cellId: currentCell.id || "script-created-cell",
+                error: scriptRollbackError && scriptRollbackError.message ? String(scriptRollbackError.message) : String(scriptRollbackError) });
+            }
+          }
           snapshots.forEach(function (snapshot) {
             try {
               var item = snapshot.cell;
@@ -161,7 +197,7 @@
               var restoreAll = snapshot.restoreAll;
               var paths = snapshot.paths;
               var restoreValue = restoreAll || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
-              var restoreStyle = restoreAll || paths.indexOf("style") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
+              var restoreStyle = restoreAll || paths.indexOf("style") >= 0 || paths.indexOf("cell:execute-script") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
               var restoreGeometry = restoreAll || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
               var restoreSource = restoreAll || paths.indexOf("cell:source") >= 0;
               var restoreTarget = restoreAll || paths.indexOf("cell:target") >= 0;
@@ -269,6 +305,18 @@
         if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
         if (typeof activeGraph.refresh === "function") activeGraph.refresh();
         return;
+      }
+      if (request.cellId === "__active_page__" && selectionOperation === "cell:execute-script") {
+        var script = String(request.value || "");
+        if (!script.trim()) throw new Error("The native Draw.io script is empty");
+        if (script.length > 50000) throw new Error("The native Draw.io script exceeds 50000 characters");
+        // This intentionally executes inside the local Draw.io iframe with the full native editor API.
+        var executeNativeScript = new Function("ui", "editor", "graph", "model", '"use strict";\n' + script);
+        var scriptResult = executeNativeScript(ui, ui.editor, activeGraph, activeModel);
+        if (scriptResult && typeof scriptResult.then === "function") {
+          throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
+        }
+        return { executed: true, resultType: scriptResult === null ? "null" : typeof scriptResult };
       }
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");

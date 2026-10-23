@@ -56,6 +56,41 @@ function cellX(xml: string, fragment: string): number | null {
   }
 }
 
+/** Returns all native edge styles from inline or compressed Draw.io pages. */
+function edgeStyles(xml: string): string[] {
+  try {
+    const source = parseDrawioXml(xml);
+    const documentRoot = source.documentElement;
+    const models: Element[] = [];
+    if (documentRoot.nodeName === "mxGraphModel") {
+      models.push(documentRoot as unknown as Element);
+    } else if (documentRoot.nodeName === "mxfile") {
+      for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
+        const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
+        if (inlineModel) {
+          models.push(inlineModel);
+          continue;
+        }
+        const payload = (page.textContent || "").trim();
+        if (!payload) continue;
+        try {
+          const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
+          if (decoded.documentElement.nodeName === "mxGraphModel") {
+            models.push(decoded.documentElement as unknown as Element);
+          }
+        } catch { /* Continue with the other pages. */ }
+      }
+    }
+    return models.flatMap((model) =>
+      Array.from(model.getElementsByTagName("mxCell"))
+        .filter((cell) => cell.getAttribute("edge") === "1")
+        .map((cell) => cell.getAttribute("style") || "")
+    );
+  } catch {
+    return [];
+  }
+}
+
 test.describe("原生画布", () => {
   test("加载工作区的 Draw.io 文件并渲染全部节点", async ({ page }) => {
     const frame = nativeFrame(page);
@@ -162,6 +197,107 @@ test.describe("原生画布", () => {
       throw new Error(String(error) + "\\nNative property diagnostics: " + JSON.stringify(diagnostics));
     }
   });
+  test("Copilot 可以通过通用原生脚本修改 Draw.io 连线样式", async ({ page }) => {
+    const before = await readWorkspaceXml(workspace);
+    expect(edgeStyles(before).length, "fixture should contain native connector cells").toBeGreaterThan(0);
+
+    const result = await page.evaluate(async () => {
+      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
+      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
+      const requestId = 938272;
+      const script = `
+        const parent = model.getDefaultParent();
+        const edges = graph.getChildCells(parent, false, true);
+        if (!edges.length) throw new Error("No connector cells found in the active layer");
+        edges.forEach((edge) => {
+          const next = (model.getStyle(edge) || "").split(";").filter(Boolean).filter((part) => {
+            const separator = part.indexOf("=");
+            const key = separator > 0 ? part.slice(0, separator) : part;
+            return !["edgeStyle", "curved", "orthogonalLoop", "jettySize"].includes(key);
+          });
+          next.push("curved=1");
+          model.setStyle(edge, next.join(";") + ";");
+        });
+        return { affectedEdges: edges.length };
+      `;
+      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", receive);
+          reject(new Error("Timed out waiting for native script acknowledgement"));
+        }, 8000);
+        const receive = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return;
+          let data: Record<string, unknown>;
+          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
+          catch { return; }
+          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener("message", receive);
+          resolve(data);
+        };
+        window.addEventListener("message", receive);
+      });
+      frame.contentWindow.postMessage(JSON.stringify({
+        event: "studioPropertyEditRequest",
+        requestId,
+        cellId: "__batch__",
+        path: "cell:batch",
+        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+      }), window.location.origin);
+      return response;
+    });
+
+    expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
+    await expect.poll(async () => {
+      const styles = edgeStyles(await readWorkspaceXml(workspace));
+      return styles.length > 0 && styles.every((style) => /(?:^|;)curved=1(?:;|$)/.test(style));
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+  });
+
+  test("通用原生脚本抛错时会回滚新建的节点", async ({ page }) => {
+    const before = await readWorkspaceXml(workspace);
+    const result = await page.evaluate(async () => {
+      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
+      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
+      const requestId = 938273;
+      const script = 'graph.insertVertex(model.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
+      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", receive);
+          reject(new Error("Timed out waiting for native script rollback acknowledgement"));
+        }, 8000);
+        const receive = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow) return;
+          let data: Record<string, unknown>;
+          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
+          catch { return; }
+          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener("message", receive);
+          resolve(data);
+        };
+        window.addEventListener("message", receive);
+      });
+      frame.contentWindow.postMessage(JSON.stringify({
+        event: "studioPropertyEditRequest",
+        requestId,
+        cellId: "__batch__",
+        path: "cell:batch",
+        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+      }), window.location.origin);
+      return response;
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.batchRolledBack).toBe(true);
+    expect(result.rollbackErrors).toEqual([]);
+    await expect.poll(async () => {
+      const xml = await readWorkspaceXml(workspace);
+      return cellX(xml, "Temporary script node") !== null;
+    }, { timeout: 10_000, intervals: [250] }).toBe(false);
+    expect(await readWorkspaceXml(workspace)).toBe(before);
+  });
+
   test("原生批量编辑逐步执行，失败时回滚并报告失败步骤", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
     const databaseCell = Array.from(before.matchAll(/<mxCell\b([^>]*)>/g))

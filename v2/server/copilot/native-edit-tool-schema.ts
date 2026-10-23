@@ -47,6 +47,17 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
     {
       type: "object",
       properties: {
+        op: { type: "string", enum: ["run_drawio_script"] },
+        target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
+        summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
+        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript body that uses the native Draw.io editor API. Available variables: ui, editor, graph, model. Do not return XML or create a parallel diagram model." }
+      },
+      required: ["op", "target", "summary", "script"],
+      additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
         op: { type: "string", enum: ["move"] },
         target: { ...target, description: "Exact cell ID or unique exact label of a vertex. Moving connector routing is not supported by this operation." },
         dx: { type: "number", minimum: -10000, maximum: 10000, description: "Required horizontal delta." },

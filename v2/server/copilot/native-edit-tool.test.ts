@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseNativeEditOperations } from "../../src/model/native-edit-operations";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 
 const CONTEXT = { cells: [
@@ -96,5 +97,32 @@ describe("resolveNativeEditTargets", () => {
   it("rejects a context without elements", () => {
     expect(resolveNativeEditTargets({}, [{ op: "select", target: "db" }]).ok).toBe(false);
     expect(resolveNativeEditTargets(null, [{ op: "select", target: "db" }]).ok).toBe(false);
+  });
+
+  it("resolves a general native script against the active page, including an empty diagram", () => {
+    const emptyDiagramScript = parseNativeEditOperations([{
+      op: "run_drawio_script", target: "active_page", summary: "Create an initial node",
+      script: 'graph.insertVertex(model.getDefaultParent(), null, "Start", 100, 100, 120, 60);'
+    }]);
+    if (!emptyDiagramScript.ok) throw new Error(emptyDiagramScript.error);
+    expect(resolveNativeEditTargets({ cells: [] }, emptyDiagramScript.operations)).toMatchObject({
+      ok: true, operations: [{ op: "run_drawio_script", cellId: "__active_page__", targetLabel: "active Draw.io page" }]
+    });
+  });
+
+  it("keeps typed target lookup strict while scripts use the live graph API", () => {
+    const typed = parseNativeEditOperations([{ op: "set_label", target: "missing", label: "X" }]);
+    if (!typed.ok) throw new Error(typed.error);
+    expect(resolveNativeEditTargets(CONTEXT, typed.operations)).toMatchObject({
+      ok: false, error: expect.stringContaining("was not found")
+    });
+    const script = parseNativeEditOperations([{
+      op: "run_drawio_script", target: "active_page", summary: "Curve all connectors",
+      script: 'graph.getChildCells(model.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));'
+    }]);
+    if (!script.ok) throw new Error(script.error);
+    expect(resolveNativeEditTargets(CONTEXT, script.operations)).toMatchObject({
+      ok: true, operations: [{ op: "run_drawio_script", cellId: "__active_page__" }]
+    });
   });
 });
