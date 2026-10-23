@@ -299,6 +299,183 @@
       }
     }
 
+    function collectScriptCellFacts(activeGraph, activeModel) {
+      var root = activeModel.getRoot();
+      var facts = Object.create(null);
+      var seen = new Set();
+      var stack = root ? [root] : [];
+      while (stack.length) {
+        var cell = stack.pop();
+        if (!cell || seen.has(cell)) continue;
+        seen.add(cell);
+        var id = runtimeCellId(cell);
+        if (id) {
+          var style = "";
+          try { style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style; } catch (_) {}
+          var geometry = cell.geometry;
+          facts[id] = {
+            id: id,
+            kind: cell.vertex ? "vertex" : cell.edge ? "edge" : "cell",
+            label: runtimeCellLabel(cell, activeGraph),
+            parentId: runtimeCellId(cell.parent) || "",
+            sourceId: runtimeCellId(cell.source) || "",
+            targetId: runtimeCellId(cell.target) || "",
+            style: typeof style === "string" ? style : "",
+            geometry: geometry ? {
+              x: Number(geometry.x) || 0,
+              y: Number(geometry.y) || 0,
+              width: Number(geometry.width) || 0,
+              height: Number(geometry.height) || 0,
+              relative: geometry.relative === true,
+              points: Array.isArray(geometry.points) ? geometry.points.map(function (point) {
+                return { x: Number(point.x), y: Number(point.y) };
+              }) : []
+            } : null
+          };
+        }
+        var count = activeModel.getChildCount(cell);
+        for (var i = count - 1; i >= 0; i -= 1) {
+          var child = activeModel.getChildAt(cell, i);
+          if (child) stack.push(child);
+        }
+        if (seen.size > 20000) throw new Error("The active native page exceeds the postcondition verification limit");
+      }
+      return facts;
+    }
+
+    function validateScriptPostconditions(postconditions) {
+      if (!Array.isArray(postconditions) || postconditions.length < 1 || postconditions.length > 100) {
+        throw new Error("Native Draw.io script requires between 1 and 100 declarative postconditions");
+      }
+      var seenIds = new Set();
+      postconditions.forEach(function (condition, index) {
+        if (!condition || typeof condition !== "object" || Array.isArray(condition) ||
+            typeof condition.cellId !== "string" || !condition.cellId.trim() ||
+            condition.cellId.length > 200 || typeof condition.exists !== "boolean") {
+          throw new Error("Native script postcondition " + (index + 1) + " is malformed");
+        }
+        if (seenIds.has(condition.cellId)) throw new Error("Native script postcondition repeats cell ID " + condition.cellId);
+        seenIds.add(condition.cellId);
+        var allowed = ["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"];
+        if (Object.keys(condition).some(function (key) { return allowed.indexOf(key) < 0; })) {
+          throw new Error("Native script postcondition " + (index + 1) + " contains an unsupported field");
+        }
+        if (condition.exists === false) {
+          if (Object.keys(condition).some(function (key) { return key !== "cellId" && key !== "exists"; })) {
+            throw new Error("An absent-cell postcondition may only contain cellId and exists:false");
+          }
+          return;
+        }
+        if (condition.kind !== undefined && condition.kind !== "vertex" && condition.kind !== "edge") {
+          throw new Error("Native script postcondition kind must be vertex or edge");
+        }
+        if ((condition.sourceId !== undefined || condition.targetId !== undefined) && condition.kind !== "edge") {
+          throw new Error("Source/target assertions require kind: edge");
+        }
+        var substantive = ["label", "parentId", "sourceId", "targetId", "style", "geometry"].some(function (key) {
+          return Object.prototype.hasOwnProperty.call(condition, key);
+        });
+        if (!substantive) throw new Error("Every present-cell postcondition must assert a label, relation, style or geometry");
+        ["label", "parentId", "sourceId", "targetId"].forEach(function (key) {
+          if (condition[key] !== undefined &&
+              (typeof condition[key] !== "string" || condition[key].length > (key === "label" ? 500 : 200))) {
+            throw new Error("Native script postcondition " + (index + 1) + "." + key + " is invalid");
+          }
+        });
+        if (condition.style !== undefined) {
+          if (!condition.style || typeof condition.style !== "object" || Array.isArray(condition.style)) {
+            throw new Error("Native script postcondition style must be an object");
+          }
+          var styleEntries = Object.entries(condition.style);
+          if (styleEntries.length < 1 || styleEntries.length > 20 ||
+              styleEntries.some(function (entry) {
+                return !/^[A-Za-z][A-Za-z0-9_.-]{0,79}$/.test(entry[0]) ||
+                  typeof entry[1] !== "string" || entry[1].length > 300;
+              })) throw new Error("Native script postcondition style is malformed");
+        }
+        if (condition.geometry !== undefined) {
+          var allowedGeometry = ["x", "y", "width", "height", "relative", "points"];
+          if (!condition.geometry || typeof condition.geometry !== "object" || Array.isArray(condition.geometry) ||
+              Object.keys(condition.geometry).length < 1 ||
+              Object.keys(condition.geometry).some(function (key) { return allowedGeometry.indexOf(key) < 0; })) {
+            throw new Error("Native script postcondition geometry is malformed");
+          }
+          ["x", "y", "width", "height"].forEach(function (key) {
+            var value = condition.geometry[key];
+            if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1000000)) {
+              throw new Error("Native script postcondition geometry." + key + " is invalid");
+            }
+          });
+          if (condition.geometry.relative !== undefined && typeof condition.geometry.relative !== "boolean") {
+            throw new Error("Native script postcondition geometry.relative must be boolean");
+          }
+          if (condition.geometry.points !== undefined &&
+              (!Array.isArray(condition.geometry.points) || condition.geometry.points.length > 100 ||
+               condition.geometry.points.some(function (point) {
+                 return !point || typeof point !== "object" || Array.isArray(point) ||
+                   typeof point.x !== "number" || !Number.isFinite(point.x) || Math.abs(point.x) > 1000000 ||
+                   typeof point.y !== "number" || !Number.isFinite(point.y) || Math.abs(point.y) > 1000000 ||
+                   Object.keys(point).some(function (key) { return key !== "x" && key !== "y"; });
+               }))) throw new Error("Native script postcondition geometry.points is malformed");
+        }
+      });
+    }
+
+    function normalizeScriptLabel(value) {
+      return String(value == null ? "" : value)
+        .replace(/<br\s*\/?\s*>/gi, " ")
+        .replace(/<\/p>|<\/div>|<\/li>/gi, " ")
+        .replace(/<[^>]*>/g, "")
+        .replace(/&nbsp;|&#160;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function scriptPostconditionMatches(condition, facts) {
+      var actual = facts[condition.cellId];
+      if (condition.exists === false) return !actual;
+      if (!actual) return false;
+      if (condition.kind !== undefined && actual.kind !== condition.kind) return false;
+      if (condition.label !== undefined && normalizeScriptLabel(actual.label) !== normalizeScriptLabel(condition.label)) return false;
+      if (condition.parentId !== undefined && actual.parentId !== condition.parentId) return false;
+      if (condition.sourceId !== undefined && actual.sourceId !== condition.sourceId) return false;
+      if (condition.targetId !== undefined && actual.targetId !== condition.targetId) return false;
+      if (condition.style) {
+        var styleValues = Object.create(null);
+        String(actual.style || "").split(";").filter(Boolean).forEach(function (entry) {
+          var separator = entry.indexOf("=");
+          styleValues[separator < 0 ? entry : entry.slice(0, separator)] = separator < 0 ? null : entry.slice(separator + 1);
+        });
+        if (Object.keys(condition.style).some(function (key) {
+          return condition.style[key] === "" ? Object.prototype.hasOwnProperty.call(styleValues, key) :
+            styleValues[key] !== condition.style[key];
+        })) return false;
+      }
+      if (condition.geometry) {
+        if (!actual.geometry) return false;
+        var geometry = condition.geometry;
+        for (var key of ["x", "y", "width", "height"]) {
+          if (geometry[key] !== undefined && Math.abs(actual.geometry[key] - geometry[key]) > 0.02) return false;
+        }
+        if (geometry.relative !== undefined && actual.geometry.relative !== geometry.relative) return false;
+        if (geometry.points !== undefined) {
+          if (actual.geometry.points.length !== geometry.points.length) return false;
+          for (var pointIndex = 0; pointIndex < geometry.points.length; pointIndex += 1) {
+            var actualPoint = actual.geometry.points[pointIndex];
+            var expectedPoint = geometry.points[pointIndex];
+            if (Math.abs(actualPoint.x - expectedPoint.x) > 0.02 ||
+                Math.abs(actualPoint.y - expectedPoint.y) > 0.02) return false;
+          }
+        }
+      }
+      return true;
+    }
+
     function updateLabelMarkup(source, value) {
       if (typeof source !== "string" || !/<[a-z][^>]*>/i.test(source)) return value;
       var parsed = new DOMParser().parseFromString(source, "text/html");
@@ -804,9 +981,16 @@
         return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
       }
       if (request.cellId === "__active_page__" && selectionOperation === "cell:execute-script") {
-        var script = String(request.value || "");
-        if (!script.trim()) throw new Error("The native Draw.io script is empty");
-        if (script.length > 50000) throw new Error("The native Draw.io script exceeds 50000 characters");
+        var payload;
+        try { payload = JSON.parse(String(request.value || "null")); }
+        catch (_) { throw new Error("Native Draw.io script payload must be a JSON object with declared postconditions"); }
+        if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+            typeof payload.script !== "string" || !payload.script.trim() || payload.script.length > 50000) {
+          throw new Error("Native Draw.io script is missing or exceeds 50000 characters");
+        }
+        validateScriptPostconditions(payload.postconditions);
+        var script = payload.script;
+        var beforeFacts = collectScriptCellFacts(activeGraph, activeModel);
         // This intentionally executes inside the local Draw.io iframe with the full native editor API.
         var executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script);
         var scriptResult = executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
@@ -815,8 +999,22 @@
         if (scriptResult && typeof scriptResult.then === "function") {
           throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
         }
+        var afterFacts = collectScriptCellFacts(activeGraph, activeModel);
+        var allPostconditionsMatch = payload.postconditions.every(function (condition) {
+          return scriptPostconditionMatches(condition, afterFacts);
+        });
+        var newlySatisfied = payload.postconditions.some(function (condition) {
+          return !scriptPostconditionMatches(condition, beforeFacts) && scriptPostconditionMatches(condition, afterFacts);
+        });
+        if (!allPostconditionsMatch) {
+          throw new Error("Native script postcondition verification failed: one or more declared cell IDs, labels, relations, styles or geometry values do not match the live Draw.io model");
+        }
+        if (!newlySatisfied) {
+          throw new Error("Native script postconditions did not establish any new requested state; no success acknowledgement will be issued");
+        }
         return {
           executed: true,
+          postconditionsVerified: payload.postconditions.length,
           resultType: scriptResult === null ? "null" : typeof scriptResult,
           scriptResult: serializeScriptResult(scriptResult)
         };
