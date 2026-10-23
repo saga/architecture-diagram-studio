@@ -404,7 +404,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("Preserve requested rename text verbatim");
     expect(prompt).toContain("negative dy");
     expect(prompt).toContain("selectedCell.cellId");
-    expect(prompt).toContain("No result is not proof that Draw.io lacks a shape");
+    expect(prompt).toContain("no result is not proof that Draw.io lacks a shape");
     expect(prompt).toContain("run_drawio_script");
     expect(prompt).toContain("runtimeInspection is bound to this XML revision and page");
     expect(prompt.length).toBeLessThan(2800);
