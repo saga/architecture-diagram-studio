@@ -19,7 +19,7 @@ Responsibilities are deliberately small:
 
 ## Supported native operations
 
-The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, and add_node_after (insert a vertex to the right of a target and connect it). The model cannot submit raw replacement XML or arbitrary workspace writes.
+The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after` (insert a connected vertex to the right), and `add_node_below` (insert a connected vertex directly below its source). Bounded, non-destructive typed batches execute after page/revision/target validation without a separate confirmation click. Arbitrary `run_drawio_script` operations continue to require explicit confirmation; chat proposals show the intended changes, not the source code. The model cannot submit raw replacement XML or arbitrary workspace writes.
 
 ## Extension contracts without porting the old implementation
 
