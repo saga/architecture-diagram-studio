@@ -132,6 +132,24 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("does not confirm a script when metadata on a non-target page changes", () => {
+    const secondPage = '<diagram id="p2" name="Other" customPageFlag="before"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="other" value="Before" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram>';
+    const multiPageBefore = before.replace("</mxfile>", secondPage + "</mxfile>");
+    const activeCellAndOtherMetadataChanged = multiPageBefore
+      .replace('value="Old API"', 'value="New API"')
+      .replace('customPageFlag="before"', 'customPageFlag="after"');
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: multiPageBefore, xml: activeCellAndOtherMetadataChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
   it("does not confirm a script after deleting the active page or its default layer", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
