@@ -12,7 +12,7 @@ import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
-import { useWorkspacePersistence } from "./hooks/useWorkspacePersistence";
+import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
@@ -140,6 +140,8 @@ export default function App() {
   const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
   const [versionEntries, setVersionEntries] = useState<VersionSummary[]>([]);
   const [revision, setRevision] = useState(1);
+  const [documentSaveState, setDocumentSaveState] = useState<WorkspaceSaveState | "exported">("saved");
+  const lastExportedXmlRef = useRef<string | null>(null);
   const [lastAction, setLastAction] = useState("Draw.io editor ready");
   const [nativeEditorReady, setNativeEditorReady] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -191,7 +193,7 @@ export default function App() {
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic });
+  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, setSaveState: setDocumentSaveState, onDiagnostic: recordDiagnostic });
 
   // The native Draw.io editor is the only canvas; typed edits preserve unrelated XML cells.
 
@@ -389,15 +391,18 @@ export default function App() {
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
+          setDocumentSaveState("saving");
           const writable = await standaloneFileHandle.createWritable();
           await writable.write(drawioXml);
           await writable.close();
           if (cancelled) return;
           standaloneLastSavedXmlRef.current = drawioXml;
+          setDocumentSaveState("saved");
           setLastAction("Saved " + standaloneFileName);
           recordDiagnostic("drawio.standalone.autosaved", "Standalone Draw.io XML saved directly to the opened local file", { fileName: standaloneFileName, xmlLength: drawioXml.length });
         } catch (error) {
           if (cancelled) return;
+          setDocumentSaveState("failed");
           setLastAction("Autosave failed for " + standaloneFileName + ": " + (error instanceof Error ? error.message : String(error)) + ". Use Export to save a copy.");
           recordDiagnostic("drawio.standalone.autosave.failed", "Could not write the standalone Draw.io file", { fileName: standaloneFileName, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
         }
@@ -553,6 +558,8 @@ export default function App() {
     const filename = sourceName.replace(/\.(drawio|dio|xml)$/i, "").trim().toLowerCase()
       .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-|-$/g, "") || "architecture-diagram";
     downloadText(filename + ".drawio", drawioXml);
+    lastExportedXmlRef.current = drawioXml;
+    if (standaloneFileName && !standaloneFileHandle) setDocumentSaveState("exported");
     setLastAction("Exported the native .drawio file");
     recordDiagnostic("drawio.export.completed", "Exported a .drawio file", { xmlLength: drawioXml.length, fileName: filename + ".drawio" });
   }
@@ -600,6 +607,8 @@ export default function App() {
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle);
       setStandaloneFileName(file.name);
+      lastExportedXmlRef.current = null;
+      setDocumentSaveState("saved");
       standaloneLastSavedXmlRef.current = xml;
       setNativeXmlOverride(xml);
       setServerXmlAvailable(false);
@@ -775,6 +784,7 @@ export default function App() {
       return;
     }
     clearSaveConflict("standalone-history-restore", entry.xml);
+    setDocumentSaveState(standaloneFileHandle ? "saving" : "saved");
     setNativeXmlOverride(entry.xml);
     setLocalHistoryOpen(false);
     setLastAction("Restored local snapshot: " + entry.label + "; native Undo/Redo history was reset.");
@@ -939,7 +949,13 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><strong>{standaloneFileName || projectWorkspace?.primaryDiagram || "Draw.io diagram"}</strong><span className="save-state"><i />Saved · r{revision}</span></div>
+        <div className="document-breadcrumb"><strong>{standaloneFileName || projectWorkspace?.primaryDiagram || "Draw.io diagram"}</strong><span className={"save-state save-state-" + documentSaveState} title={documentSaveState === "conflict" ? "Automatic saving is paused. Export local edits before restoring or reloading the latest server version." : undefined}><i />{standaloneFileName && !standaloneFileHandle
+          ? lastExportedXmlRef.current === drawioXml && documentSaveState === "exported" ? "Exported copy" : "Export to save"
+          : documentSaveState === "saving" ? "Saving…"
+          : documentSaveState === "conflict" ? "Save paused"
+          : documentSaveState === "failed" ? "Save failed"
+          : !standaloneFileName && projectWorkspace?.primaryDiagram && !workspaceContentReady ? "Loading…"
+          : projectWorkspace?.primaryDiagram ? "Saved · r" + revision : "No active file"}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
           {([["diagram", "Diagram"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>

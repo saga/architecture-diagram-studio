@@ -3,6 +3,7 @@ type Workspace = { id: string; primaryDiagram?: string | null } | null;
 function getWorkspaceKey(workspace: Workspace): string | null {
   return workspace ? JSON.stringify([workspace.id, workspace.primaryDiagram ?? null]) : null;
 }
+export type WorkspaceSaveState = "saved" | "saving" | "conflict" | "failed";
 type SaveConflict = { workspaceKey: string | null; currentRevision: string | null };
 type ChatMessage = { role: "assistant" | "user"; id: number; text: string };
 type Diagnostic = (event: string, message: string, details?: Record<string, unknown>, level?: "debug" | "info" | "warn" | "error") => void;
@@ -10,7 +11,7 @@ interface Options {
   drawioXml: string; serverHydrated: boolean; workspaceContentReady: boolean;
   projectWorkspace: Workspace; copilotSessionId: string; messages: ChatMessage[];
   saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>;
-  setLastAction: (message: string) => void; onDiagnostic: Diagnostic;
+  setLastAction: (message: string) => void; setSaveState: (state: WorkspaceSaveState) => void; onDiagnostic: Diagnostic;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
 interface SaveOptions {
@@ -20,7 +21,7 @@ interface SaveOptions {
   expectedWorkspaceKey?: string | null;
 }
 export function useWorkspacePersistence(options: Options) {
-  const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, onDiagnostic } = options;
+  const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, setSaveState, onDiagnostic } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastPersistedXmlRef = useRef<string | null>(null);
   const lastPersistedVersionIdRef = useRef<string | null>(null);
@@ -30,6 +31,7 @@ export function useWorkspacePersistence(options: Options) {
   const saveConflictRef = useRef<SaveConflict | null>(null);
   const saveEpochRef = useRef(0);
   const pausedAutosaveLoggedRef = useRef(false);
+  const lastObservedAutosaveXmlRef = useRef(drawioXml);
   // Keep these refs current during render so queued work detects an XML, workspace or diagram switch.
   currentXmlRef.current = drawioXml;
   currentWorkspaceIdRef.current = projectWorkspace?.id ?? null;
@@ -41,8 +43,14 @@ export function useWorkspacePersistence(options: Options) {
     const previous = saveConflictRef.current;
     // Update these refs synchronously: an old save may already be queued when restore succeeds.
     // It must see that its XML is stale before the conflict latch is released.
-    if (typeof nextXml === "string") currentXmlRef.current = nextXml;
-    if (alreadyPersisted && typeof nextXml === "string") lastPersistedXmlRef.current = nextXml;
+    if (typeof nextXml === "string") {
+      currentXmlRef.current = nextXml;
+      lastObservedAutosaveXmlRef.current = nextXml;
+    }
+    if (alreadyPersisted && typeof nextXml === "string") {
+      lastPersistedXmlRef.current = nextXml;
+      setSaveState("saved");
+    }
     // Invalidate queued operations captured before a server restore/document switch.
     saveEpochRef.current += 1;
     saveConflictRef.current = null;
@@ -117,16 +125,28 @@ export function useWorkspacePersistence(options: Options) {
       // The explicit Copilot save and the debounced autosave can observe the same editor event.
       // Avoid creating two version records for the same exact XML snapshot.
       if (lastPersistedXmlRef.current === xml && typeof serverRevisionRef.current === "string") {
+        if (scheduledSaveEpoch === saveEpochRef.current && scheduledWorkspaceKey === currentWorkspaceKeyRef.current && currentXmlRef.current === xml) {
+          setSaveState("saved");
+        }
         return {
           saved: false, workspaceRevision: serverRevisionRef.current,
           version: lastPersistedVersionIdRef.current ? { id: lastPersistedVersionIdRef.current } : null
         };
       }
       const baseRevision = serverRevisionRef.current;
-      const response = await fetch("/api/workspace/document", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ drawioXml: xml, label, baseRevision })
-      });
+      setSaveState("saving");
+      let response: Response;
+      try {
+        response = await fetch("/api/workspace/document", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ drawioXml: xml, label, baseRevision })
+        });
+      } catch (error) {
+        if (scheduledSaveEpoch === saveEpochRef.current && scheduledWorkspaceKey === currentWorkspaceKeyRef.current && currentXmlRef.current === xml) {
+          setSaveState(saveConflictRef.current ? "conflict" : "failed");
+        }
+        throw error;
+      }
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
         // A request can finish after restore/workspace-switch invalidated its context.
@@ -148,6 +168,7 @@ export function useWorkspacePersistence(options: Options) {
           workspaceKey: currentWorkspaceKeyRef.current,
           currentRevision: typeof conflictingRevision === "string" ? conflictingRevision : null
         };
+        setSaveState("conflict");
         pausedAutosaveLoggedRef.current = false;
         setLastAction("Save conflict: local edits remain in this editor but were not written. Automatic saves are paused; export a copy before restoring or reloading a server version.");
         onDiagnostic("workspace.persist.conflict", "The server rejected a stale diagram save; further automatic saves are paused and the newer revision was preserved", {
@@ -156,7 +177,10 @@ export function useWorkspacePersistence(options: Options) {
         }, "error");
         throw new Error(payload.error || "The diagram changed in another editor. Export the local draft, then restore or reload the latest version before continuing.");
       }
-      if (!response.ok) throw new Error(payload.error || "HTTP " + response.status + " while saving the document");
+      if (!response.ok) {
+        if (scheduledSaveEpoch === saveEpochRef.current && scheduledWorkspaceKey === currentWorkspaceKeyRef.current && currentXmlRef.current === xml) setSaveState("failed");
+        throw new Error(payload.error || "HTTP " + response.status + " while saving the document");
+      }
       if (typeof payload.workspaceRevision === "string" || payload.workspaceRevision === null) serverRevisionRef.current = payload.workspaceRevision ?? null;
       if (typeof payload.version?.id === "string") lastPersistedVersionIdRef.current = payload.version.id;
       if (payload.saved) {
@@ -165,11 +189,12 @@ export function useWorkspacePersistence(options: Options) {
           versionId: payload.version?.id, revision: serverRevisionRef.current, xmlLength: xml.length
         });
       }
+      if (scheduledSaveEpoch === saveEpochRef.current && scheduledWorkspaceKey === currentWorkspaceKeyRef.current && currentXmlRef.current === xml) setSaveState("saved");
       return payload;
     });
     saveQueueRef.current = operation.catch(() => undefined);
     return operation;
-  }, [clearSaveConflict, onDiagnostic, setLastAction]);
+  }, [clearSaveConflict, onDiagnostic, setLastAction, setSaveState]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace || lastPersistedXmlRef.current !== null) return;
     if (typeof serverRevisionRef.current === "string") lastPersistedXmlRef.current = drawioXml;
@@ -179,6 +204,10 @@ export function useWorkspacePersistence(options: Options) {
     // The native Draw.io XML is the complete document. Save it directly without comparing a model projection.
     const expectedWorkspaceId = projectWorkspace.id;
     const expectedWorkspaceKey = getWorkspaceKey(projectWorkspace);
+    if (lastObservedAutosaveXmlRef.current !== drawioXml) {
+      lastObservedAutosaveXmlRef.current = drawioXml;
+      if (!saveConflictRef.current) setSaveState("saving");
+    }
     const timer = window.setTimeout(() => {
       void persistDocumentNow(drawioXml, saveLabelRef.current, {
         onlyIfCurrent: true, expectedWorkspaceId, expectedWorkspaceKey
@@ -189,7 +218,7 @@ export function useWorkspacePersistence(options: Options) {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, onDiagnostic]);
+  }, [drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, onDiagnostic, setSaveState]);
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     fetch("/api/workspace/chat", {
