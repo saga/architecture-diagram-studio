@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
@@ -333,6 +333,23 @@ function logPrefixForEvent(event: string): string {
   return "[studio:server]";
 }
 
+const CLIENT_TERMINAL_REDACTION = /api.?key|token|secret|password|authorization|prompt|raw.?xml|xml|request.?body|access.?key/i;
+
+function safeTerminalValue(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === "boolean" || typeof value === "number") return value;
+  if (typeof value === "string") return value.length > 240 ? value.slice(0, 240) + "…[truncated]" : value;
+  if (depth >= 3) return "[nested value omitted]";
+  if (Array.isArray(value)) return value.slice(0, 10).map((item) => safeTerminalValue(item, depth + 1));
+  if (typeof value === "object") {
+    const output: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>).slice(0, 20)) {
+      output[key] = CLIENT_TERMINAL_REDACTION.test(key) ? "[redacted]" : safeTerminalValue(nested, depth + 1);
+    }
+    return output;
+  }
+  return String(value);
+}
+
 async function writeLog(event: string, fields: Record<string, unknown> = {}): Promise<void> {
   const record = { timestamp: new Date().toISOString(), workspaceId: projectWorkspace?.id ?? null, event, ...fields };
   const line = JSON.stringify(record) + "\n";
@@ -347,9 +364,15 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
   await logWriteQueue;
 
   // Keep the JSONL audit trail complete, but reserve the terminal for actionable warnings
-  // and errors. Set STUDIO_LOG_LEVEL=info to opt into routine lifecycle events.
+  // and errors. Important recovery/routing events are included even if their names predate
+  // the .warning/.failed suffix convention. Set STUDIO_LOG_LEVEL=info for routine lifecycle events.
+  const terminalWarningEvents = new Set([
+    "client.reset", "session.invalidated", "turn.recovering", "turn.abort.idle-timeout",
+    "model.substituted", "models.effort.unresolved"
+  ]);
   const isError = event.endsWith(".failed") || event.endsWith(".error") || event.endsWith(".fatal");
-  const isWarning = event.endsWith(".conflict") || event.endsWith(".rejected") || event.endsWith(".warning");
+  const isWarning = event.endsWith(".conflict") || event.endsWith(".rejected") ||
+    event.endsWith(".warning") || event.endsWith(".unresolved") || terminalWarningEvents.has(event);
   if (isError) {
     const detail = typeof fields.stack === "string" ? fields.stack : JSON.stringify(record, null, 2);
     console.error("\n\u001b[1;31m[studio:ERROR] " + event + "\u001b[0m\n" + detail + "\n");
@@ -469,11 +492,19 @@ app.put("/api/workspace/config", async (req, res) => {
 });
 
 app.get("/api/workspace/configuration", async (_req, res) => {
-  const config = await getStudioConfig();
-  const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
-    (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error)
-  );
-  res.json({ config, revisions: parseConfigHistory(contents).length });
+  try {
+    const config = await getStudioConfig();
+    const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error)
+    );
+    res.json({ config, revisions: parseConfigHistory(contents).length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeLog("workspace.configuration.read.failed", {
+      errorMessage: message, stack: error instanceof Error ? error.stack : undefined
+    });
+    res.status(500).json({ error: "Could not read Copilot configuration history" });
+  }
 });
 
 app.get("/api/workspace/configuration/history", async (_req, res) => {
@@ -742,6 +773,21 @@ app.post("/api/workspace/logs", async (req, res) => {
       details: item.details && typeof item.details === "object" ? item.details : {}
     };
     await withDataWrite(async () => { await mkdir(DATA_DIR, { recursive: true }); await appendFile(APP_LOG_FILE, JSON.stringify(record) + "\n", "utf8"); });
+    // Browser console output is not visible in the Node/Vite terminal. Mirror only error and
+    // warning summaries to the server terminal; retain details in the local trace page/JSONL.
+    if (record.level === "error" || record.level === "warn") {
+      const terminalRecord = {
+        receivedAt: record.receivedAt,
+        workspaceId: record.workspaceId,
+        level: record.level,
+        event: record.event,
+        message: record.message,
+        details: safeTerminalValue(record.details)
+      };
+      const terminalLine = "[studio:v2] " + JSON.stringify(terminalRecord);
+      if (record.level === "error") console.error("\n\u001b[1;31m[studio:ERROR] " + terminalLine + "\u001b[0m\n");
+      else console.warn("\u001b[1;33m[studio:WARN] " + terminalLine + "\u001b[0m");
+    }
     res.status(204).end();
   } catch (error) {
     console.error("[studio:server] failed to persist application log", error);
@@ -852,8 +898,14 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
 });
 
 app.get("/api/copilot/health", async (_req, res) => {
-  const health = await copilot.health();
-  res.json({ ok: true, provider: "github-copilot-sdk", defaultModel: DEFAULT_MODEL, modelRouting: modelRoutingView(), ...health });
+  try {
+    const health = await copilot.health();
+    res.json({ ok: true, provider: "github-copilot-sdk", defaultModel: DEFAULT_MODEL, modelRouting: modelRoutingView(), ...health });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeLog("copilot.health.read.failed", { errorMessage: message, stack: error instanceof Error ? error.stack : undefined });
+    res.status(502).json({ ok: false, error: "The Copilot runtime health check failed" });
+  }
 });
 
 /** Routing state the settings UI needs to explain which model a turn will really use. */
@@ -936,8 +988,14 @@ registerCopilotIntentRoute(app, {
 });
 
 app.get("/api/copilot/sessions", async (_req, res) => {
-  const workspace = await getProjectWorkspace();
-  res.json({ sessions: copilot.listSessions(workspace?.id) });
+  try {
+    const workspace = await getProjectWorkspace();
+    res.json({ sessions: copilot.listSessions(workspace?.id) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeLog("copilot.sessions.read.failed", { errorMessage: message, stack: error instanceof Error ? error.stack : undefined });
+    res.status(500).json({ error: "Could not read Copilot sessions for the active workspace" });
+  }
 });
 
 app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
@@ -955,6 +1013,37 @@ app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
   }
 });
 
+// Must be registered after every route so body-parser errors and unexpected route rejections
+// have a JSON contract and a structured terminal-visible record instead of Express' HTML page.
+app.use(async (error: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  const candidate = error && typeof error === "object"
+    ? error as { status?: unknown; statusCode?: unknown; type?: unknown; code?: unknown }
+    : {};
+  const requestedStatus = typeof candidate.status === "number" ? candidate.status : candidate.statusCode;
+  const status = typeof requestedStatus === "number" && requestedStatus >= 400 && requestedStatus <= 599
+    ? requestedStatus : 500;
+  const message = error instanceof Error ? error.message : String(error);
+  await writeLog("http.request.failed", {
+    method: req.method, path: req.path, status,
+    errorType: typeof candidate.type === "string" ? candidate.type : null,
+    errorCode: typeof candidate.code === "string" ? candidate.code : null,
+    errorMessage: message.slice(0, 500),
+    stack: error instanceof Error ? error.stack?.slice(0, 2000) : undefined
+  });
+  const publicMessage = status === 413
+    ? "Request body exceeds the 25 MB limit"
+    : status === 400
+      ? "Malformed request body"
+      : status >= 500
+        ? "An unexpected server error occurred"
+        : message.slice(0, 250);
+  res.status(status).json({ error: publicMessage });
+});
+
 const server = app.listen(PORT, "127.0.0.1", () => {
   const provider = readCopilotProvider();
   console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; routing=${describeModelRouting(provider)}; logs=${LOG_FILE}`);
@@ -967,10 +1056,34 @@ const server = app.listen(PORT, "127.0.0.1", () => {
   }
 });
 
-async function shutdown(): Promise<void> {
+async function shutdown(signal: "SIGINT" | "SIGTERM"): Promise<number> {
   server.close();
-  await copilot.stop();
-  await writeLog("server.stopped");
+  let failed = false;
+  try {
+    await copilot.stop();
+  } catch (error) {
+    failed = true;
+    const message = error instanceof Error ? error.message : String(error);
+    await writeLog("server.shutdown.failed", {
+      signal, stage: "copilot.stop", errorMessage: message,
+      stack: error instanceof Error ? error.stack : undefined
+    });
+  }
+  try {
+    await writeLog(failed ? "server.stopped.with-errors" : "server.stopped", { signal, failed });
+  } catch (error) {
+    failed = true;
+    console.error("[studio:ERROR] failed to finish shutdown logging", error);
+  }
+  return failed ? 1 : 0;
 }
-process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
-process.once("SIGTERM", () => { void shutdown().finally(() => process.exit(0)); });
+const handleShutdown = (signal: "SIGINT" | "SIGTERM") => {
+  void shutdown(signal)
+    .then((exitCode) => process.exit(exitCode))
+    .catch((error) => {
+      console.error("[studio:ERROR] shutdown failed", error);
+      process.exit(1);
+    });
+};
+process.once("SIGINT", () => handleShutdown("SIGINT"));
+process.once("SIGTERM", () => handleShutdown("SIGTERM"));

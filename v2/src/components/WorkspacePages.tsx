@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
 import { Button, Select } from "antd";
+import { recordDiagnostic } from "../diagnostics";
 import type { DiagnosticEntry } from "../diagnostics";
 
 
@@ -246,7 +247,14 @@ export default function WorkspacePages(props: Props) {
         }
       })
       .catch((error: unknown) => {
-        if (!cancelled) setModelsMessage("Could not read the SDK model list, showing built-in candidates: " + (error instanceof Error ? error.message : String(error)));
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : String(error);
+          setModelsMessage("Could not read the SDK model list, showing built-in candidates: " + message);
+          recordDiagnostic("copilot.models.load.failed", "Could not load the Copilot SDK model list", {
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: message
+          }, "warn");
+        }
       })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
@@ -430,9 +438,9 @@ export default function WorkspacePages(props: Props) {
           </section>
 
           <section className="settings-card settings-logs-card">
-            <div className="settings-card-heading"><div className="settings-card-icon">⌘</div><div><h2>Terminal output and diagnostics</h2><p>Browser events → Vite dev terminal → local trace page</p></div></div>
+            <div className="settings-card-heading"><div className="settings-card-icon">⌘</div><div><h2>Terminal output and diagnostics</h2><p>Browser events → local server terminal → local trace page</p></div></div>
             <p className="settings-description"><code>npm run dev</code> starts Vite and the Copilot SDK agent service together. Browser diagnostics never store full prompts, credentials, or raw XML; the server-side Copilot audit log keeps user requests, diagram context summaries, and tool events. Treat the local audit log as data that may contain sensitive project details.</p>
-            <div className="terminal-example"><span>TERMINAL</span><code>[studio:v2] receivedAt=… level=info event=drawio.document.saved xmlLength=…</code></div>
+            <div className="terminal-example"><span>TERMINAL</span><code>[studio:ERROR] [studio:v2] receivedAt=… level=error event=drawio.document.load.failed</code></div>
             <div className="settings-card-actions"><span className="settings-trace-count">{traceEntries.length} local events · {errorCount} errors</span></div>
           </section>
         </div>

@@ -144,3 +144,31 @@ else if (record.level === "warn") console.warn(line);
 `App.tsx:379`（standalone 自动保存在内层 try 内）、`App.tsx:473-483/:486-497`（save/clear AI 设置均有 catch）、`App.tsx:823-837`（scan 按钮 inline async 有 catch）、`App.tsx:847/:874/:888/:918/:927/:931/:935-937/:1007/:1032/:1013`（`void fnName()` 调用的全部 async 都有各自 catch）、`useWorkspacePersistence.ts:38`（保存队列吞错为尾随链设计）、`DrawioFrame.tsx` 全部、`useWorkspaceBootstrap.ts` 全部、`aiProvider.ts` catch → throw 模式、`intent-route.ts:113-132` 的 writeLog 调用（永不 reject）、`copilot-server.ts` 剩余 27 个路由（除 A1 四个）都有 try/catch 或纯静默降级（409/404/403 类明确 JSON），`runtime.ts` 其余 catch 点（见 A6 备注）、`storage.ts`/`workspace-files.ts`/`diagram-file.ts`/`native-edit-tool*.ts`/`model-routing.ts`/`drawio-xml-schema.ts`/`drawio-theme.ts`（后两者本次亦核对过：schema `:297/:316/:376-410` 的 try 全在解析边界、theme `:24` 的 localStorage try，均有回退）。
 
 > 终端打印规则速查：`.failed`/`.error`/`.fatal` → error（含 `fields.stack` 时打堆栈，`:339`）；`.conflict`/`.rejected`/`.warning` → warn；其余 JSONL-only，`STUDIO_LOG_LEVEL=info` 可打开。
+
+
+---
+
+## 2026-10-23 复核：与当前 main 对照后的处置
+
+原报告的基线是 commit \`8f4a672\`，不能直接视为当前 main 的状态。已对照当前实现重新核对，并把需要改的项直接补入代码；本节是执行后的状态记录。
+
+| 原条目 | 当前处置 |
+|---|---|
+| A1 async 路由错误未捕获 | \`GET /api/workspace/configuration\`、\`GET /api/copilot/health\`、\`GET /api/copilot/sessions\` 已添加显式 JSON 错误响应和 \`writeLog(...failed)\`。主 intent 路由的配置读取、模型解析、会话持久化此前已另有 try/catch。 |
+| A2 \`contextBySession\` 无界增长 | 当前 main 已在 intent turn 成功路径和 catch 路径删除 context/pending tool state；原条目对当前代码已过时，不再重复改。 |
+| A3 Express 默认 HTML 错误页 | 新增全局错误中间件，涵盖 body-parser 的非法 JSON/25 MB 超限和其他遗漏的路由错误，返回 JSON 并生成 \`http.request.failed\` 终端日志。 |
+| A4 shutdown 总是退出码 0 | 停止 SDK 或完成 shutdown 日志失败时现在记录错误并退出码 1；正常停止退出码 0。 |
+| A6 恢复/路由事件只写 JSONL | \`client.reset\`、\`session.invalidated\`、\`turn.recovering\`、\`model.substituted\`、模型 reasoning 档位无法匹配及 tool unresolved 等事件现在会进入终端 warning。 |
+| D1 客户端 error 不进本地服务终端 | \`POST /api/workspace/logs\` 在本地 JSONL 写入成功后会把浏览器 error/warn 摘要输出到服务终端。终端摘要会限制深度/长度并过滤敏感字段；详细内容仍留在本地诊断页和日志文件。 |
+| C1 traces 拉取失败静默 | 增加 \`workspace.logs.load.failed\` 诊断，并加入 in-flight guard 防止 \`recordDiagnostic\` 触发同一事件造成递归重试。 |
+| C2 打开文件选择器异常无诊断 | 已增加 \`drawio.open-picker.failed\`；用户取消选择仍按正常取消处理，不记为错误。 |
+| C3 Vite dev 日志通路与文案不一致 | 不依赖未接通的 \`/__studio/log\` 中间件；终端输出由本地 server 的日志接收接口实现，设置页文案和示例已改为真实行为。 |
+| C4 工作区文件列表/模型列表失败静默 | 两处现在写入 warn 级诊断，并保留 UI 降级。 |
+| A5、C5–C7、D2–D3 | 目前仍按原报告中列出的容错/可选存储策略处理；本轮不为每个可恢复的 localStorage、坏 JSONL 行或日志落盘失败再增加重试，以免让诊断通路反过来影响编辑。 |
+
+### 额外边界
+
+- 全局 HTTP 错误处理只在响应头尚未发送时生成统一 JSON 错误；若响应已经开始，则交给 Express 默认连接错误处理，避免二次写响应。
+- 浏览器 error/warn 进终端时只输出受限摘要，不输出原始 prompt 或 XML。
+- 本轮解决的是错误可见性和错误响应契约，不代表所有失败都应自动重试。编辑操作、持久化、模型调用和日志写入的重试语义仍然不同，不能一概自动重试。
+- 必须以本次提交的 CI 结果为准；若类型检查、单测或原生画布 E2E 未通过，不将本节记为已验证完成。

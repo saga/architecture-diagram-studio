@@ -197,7 +197,17 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("Could not read the project workspace configuration"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null; suggestedRootPath?: string }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!workspace || !workspace.primaryDiagram); if (!workspace && result.suggestedRootPath) { setWorkspaceRootPath(result.suggestedRootPath); setWorkspaceName(result.suggestedRootPath.split(/[\\/]/).filter(Boolean).pop() || "Project Workspace"); } if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); void fetch("/api/workspace/files").then((response) => response.ok ? response.json() as Promise<{ files?: WorkspaceFile[] }> : Promise.resolve({ files: [] })).then((result) => { if (active) setWorkspaceFiles(result.files || []); }).catch(() => undefined); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
+    fetch("/api/workspace/config").then(async (response) => { if (!response.ok) throw new Error("Could not read the project workspace configuration"); return response.json() as Promise<{ configured?: boolean; workspace?: ProjectWorkspace | null; suggestedRootPath?: string }>; }).then((result) => { if (!active) return; const workspace = result.workspace || null; setProjectWorkspace(workspace); setWorkspaceSetupOpen(!workspace || !workspace.primaryDiagram); if (!workspace && result.suggestedRootPath) { setWorkspaceRootPath(result.suggestedRootPath); setWorkspaceName(result.suggestedRootPath.split(/[\\/]/).filter(Boolean).pop() || "Project Workspace"); } if (workspace) { setWorkspaceName(workspace.name); setWorkspaceRootPath(workspace.rootPath); setWorkspacePrimaryDiagram(workspace.primaryDiagram || ""); void fetch("/api/workspace/files").then(async (response) => {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json() as Promise<{ files?: WorkspaceFile[] }>;
+      }).then((result) => { if (active) setWorkspaceFiles(result.files || []); }).catch((error: unknown) => {
+        if (!active) return;
+        recordDiagnostic("workspace.files.load.failed", "Could not load the project workspace file list", {
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        }, "warn");
+        setWorkspaceFiles([]);
+      }); } }).catch((error) => { if (!active) return; setWorkspaceError(error instanceof Error ? error.message : String(error)); setWorkspaceSetupOpen(true); }).finally(() => { if (active) setWorkspaceChecking(false); });
     return () => { active = false; };
   }, []);
 
@@ -306,7 +316,10 @@ export default function App() {
   }
 
   useEffect(() => {
+    let traceRefreshInFlight = false;
     const refreshTraces = () => {
+      if (traceRefreshInFlight) return;
+      traceRefreshInFlight = true;
       void fetch("/api/workspace/logs?limit=1200")
         .then(async (response) => {
           if (!response.ok) throw new Error("HTTP " + response.status);
@@ -333,7 +346,14 @@ export default function App() {
           });
           setTraceEntries(chronological.slice(-1200));
         })
-        .catch(() => setTraceEntries(readDiagnosticEntries()));
+        .catch((error: unknown) => {
+          recordDiagnostic("workspace.logs.load.failed", "Could not load server diagnostic logs; showing browser-local entries", {
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: error instanceof Error ? error.message : String(error)
+          }, "warn");
+          setTraceEntries(readDiagnosticEntries());
+        })
+        .finally(() => { traceRefreshInFlight = false; });
     };
     const handleWindowError = (event: ErrorEvent) => {
       recordDiagnostic("runtime.window.error", "Uncaught browser runtime error", {
@@ -545,7 +565,12 @@ export default function App() {
       if (handle) await openStandaloneDiagram(await handle.getFile(), handle);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setLastAction("Could not open the selected Draw.io file: " + (error instanceof Error ? error.message : String(error)));
+      const message = error instanceof Error ? error.message : String(error);
+      setLastAction("Could not open the selected Draw.io file: " + message);
+      recordDiagnostic("drawio.open-picker.failed", "Could not open the selected Draw.io file", {
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: message
+      }, "error");
     }
   }
 
