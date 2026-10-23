@@ -83,7 +83,7 @@ test("Copilot uses the same server intent contract while standalone edits stay o
     Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
   });
   await page.getByRole("button", { name: "Open Draw.io" }).click();
-  await page.locator('input[type="file"]').last().setInputFiles({
+  await page.locator('input[type="file"][accept*=".dio"]').setInputFiles({
     name: "standalone.drawio",
     mimeType: "application/xml",
     buffer: Buffer.from(originalWorkspaceXml, "utf8")
