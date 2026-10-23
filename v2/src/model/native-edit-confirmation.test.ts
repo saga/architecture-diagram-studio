@@ -187,4 +187,19 @@ describe("native edit XML confirmation", () => {
       beforeXml: oldXml, xml, cellId: "api", pageId: "compressed-page", path: "label", value: "After"
     })).toBe(true);
   });
+  it("confirms a new node directly below its vertex only when connected in the requested direction", () => {
+    const belowNode = '<mxCell id="ddd" value="ddd" vertex="1" parent="1"><mxGeometry x="190" y="124" width="120" height="60" as="geometry"/></mxCell>';
+    const edge = '<mxCell id="db-ddd" edge="1" parent="1" source="db" target="ddd"><mxGeometry relative="1" as="geometry"/></mxCell>';
+    const belowAndConnected = before.replace("</root>", belowNode + edge + "</root>");
+    const request = { beforeXml: before, xml: belowAndConnected, cellId: "db", pageId: "p1", path: "cell:add-node-below", value: JSON.stringify({ label: "ddd" }) };
+    expect(nativeEditIsReflectedInXml(request)).toBe(true);
+
+    const placedBeside = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace('x="190" y="124"', 'x="364" y="20"') });
+    expect(placedBeside).toBe(false);
+    const disconnected = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace(edge, "") });
+    expect(disconnected).toBe(false);
+    const wrongDirection = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace('source="db" target="ddd"', 'source="ddd" target="db"') });
+    expect(wrongDirection).toBe(false);
+  });
+
 });

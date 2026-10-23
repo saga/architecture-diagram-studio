@@ -57,8 +57,8 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       return { ok: false, error: `Operation ${index + 1}: label “${target}” is ambiguous (${matches.length} elements match). Use the exact cell id instead.` };
     }
     const cell = matches[0];
-    if (operation.op === "add_node_after" && cell.cellType !== "vertex") {
-      return { ok: false, error: `Operation ${index + 1}: “${target}” must resolve to a vertex; add_node_after cannot target a connector or an unknown cell type.` };
+    if ((operation.op === "add_node_after" || operation.op === "add_node_below") && cell.cellType !== "vertex") {
+      return { ok: false, error: `Operation ${index + 1}: “${target}” must resolve to a vertex; ${operation.op} cannot target a connector or an unknown cell type.` };
     }
     if ((operation.op === "move" || operation.op === "resize") && cell.cellType !== "vertex") {
       return { ok: false, error: `Operation ${index + 1}: “${target}” is not a vertex. Move/resize applies to node geometry; use a dedicated connector-routing operation for edges.` };

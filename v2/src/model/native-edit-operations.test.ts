@@ -67,6 +67,33 @@ describe("parseNativeEditOperations", () => {
     expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
   });
 
+  it("plans bounded below-and-connect operations without native script code", () => {
+    const parsed = parseNativeEditOperations([
+      { op: "add_node_below", target: "Database", newLabel: "ddd" },
+      { op: "add_node_below", target: "API Service", newLabel: "eee" }
+    ]);
+    expect(parsed).toMatchObject({ ok: true, operations: [
+      { op: "add_node_below", target: "Database", newLabel: "ddd" },
+      { op: "add_node_below", target: "API Service", newLabel: "eee" }
+    ] });
+    if (!parsed.ok) return;
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation,
+      cellId: operation.target === "Database" ? "db" : "api",
+      targetLabel: operation.target
+    })) as ResolvedNativeEditOperation[];
+    const xmlWithApi = XML.replace("</root>",
+      '<mxCell id="api" value="API Service" vertex="1" parent="1"><mxGeometry x="320" y="80" width="160" height="60" as="geometry"/></mxCell></root>');
+    expect(toNativeCellEdits(resolved, xmlWithApi, "p1")).toMatchObject({
+      ok: true,
+      edits: [
+        { cellId: "db", path: "cell:add-node-below", value: JSON.stringify({ label: "ddd" }) },
+        { cellId: "api", path: "cell:add-node-below", value: JSON.stringify({ label: "eee" }) }
+      ]
+    });
+    expect(describeNativeEditOperation(resolved[0])).toBe('Add “ddd” below “Database” and connect it');
+  });
+
   it("requires newLabel for add_node_after", () => {
     const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx" }]);
     expect(parsed.ok).toBe(false);
@@ -269,9 +296,9 @@ describe("describeNativeEditOperation", () => {
     expect(describeNativeEditOperation({
       op: "run_drawio_script", target: "active_page", summary: "Rework layout", script: "return true;"
     })).toBe("Rework layout");
-    expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” after “xxx” and connect it");
+    expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” to the right of “xxx” and connect it");
     expect(describeNativeEditOperation({
       op: "add_node_after", target: "MRDE1TfU6mpqhOhdJKLE-1", targetLabel: "xxx", newLabel: "bbb"
-    })).toBe("Add “bbb” after “xxx” and connect it");
+    })).toBe("Add “bbb” to the right of “xxx” and connect it");
   });
 });

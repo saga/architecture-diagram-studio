@@ -151,20 +151,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       });
 
       if (plan.outcome === "proposal_required") {
-        const scriptReview = plan.proposal.operations
-          .filter((operation) => operation.op === "run_drawio_script")
-          .map((operation) => {
-            let longestBacktickRun = 0;
-            const runs = operation.script.match(/`+/g) || [];
-            for (const run of runs) longestBacktickRun = Math.max(longestBacktickRun, run.length);
-            const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
-            return "\n\n**Exact native script for review:**\n" + fence + "javascript\n" +
-              operation.script + "\n" + fence;
-          }).join("");
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: plan.reply + "\n\n**Proposed changes:** " + plan.proposal.summary +
-            scriptReview + "\n\nNo change has been applied yet. Review the exact script and confirm only if its effects are acceptable.",
+            "\n\nNothing has been changed yet. Confirm to apply this proposal to the current diagram.",
           proposal: { id: plan.proposal.id, summary: plan.proposal.summary }
         }]);
         return;
@@ -212,7 +202,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             operationCount: operations.length,
             steps: execution.steps.length,
             scriptResult: execution.scriptResult ?? null,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
+            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           });
           setMessages((items) => [...items, {
             role: "assistant",
@@ -284,9 +274,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 ? repairPlan.proposal.operations.find((operation) => operation.op === "run_drawio_script")
                 : undefined;
               if (repairPlan.outcome === "proposal_required" && repairedScript?.op === "run_drawio_script") {
-                let longestBacktickRun = 0;
-                for (const run of repairedScript.script.match(/\x60+/g) || []) longestBacktickRun = Math.max(longestBacktickRun, run.length);
-                const fence = "\x60".repeat(Math.max(3, longestBacktickRun + 1));
                 recordDiagnostic("copilot.native-script-repair.proposal-ready", "The repaired native script was returned as a confirmation proposal; it has not been executed", {
                   sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
                   proposalId: repairPlan.proposal.id,
@@ -298,9 +285,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   role: "assistant",
                   id: Date.now() + 1,
                   text: "自动修正提案（1/1）： " + repairPlan.proposal.summary +
-                    "\n\n**Exact corrected native script for review:**\n" + fence + "javascript\n" +
-                    repairedScript.script + "\n" + fence +
-                    "\n\n尚未执行。请审阅代码并确认；确认后才会应用修改。",
+                    "\n\n尚未执行。确认后才会应用修改。",
                   proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary }
                 }]);
                 return;
@@ -337,7 +322,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
             operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
             rolledBack: execution.rolledBack, scriptResult: execution.scriptResult ?? null,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) }))
+            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           }, "error");
           setMessages((items) => [...items, {
             role: "assistant",

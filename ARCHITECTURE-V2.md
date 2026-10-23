@@ -12,14 +12,14 @@ Draw.io's mxfile XML is the only diagram representation. The application does no
 
 Responsibilities are deliberately small:
 
-1. The browser loads native XML in the iframe, reflects selected-cell properties, sends typed Copilot requests with a source hash, displays review-required proposals, forwards only confirmed/revision-valid operations through the first-party plugin bridge, waits for serialized XML, persists workspace edits, and posts the final result to the server's acknowledgement endpoint.
+1. The browser loads native XML in the iframe, reflects selected-cell properties, and sends typed Copilot requests with a source hash. It directly dispatches validated typed operations when the risk gate allows them, displays summary-only proposals for review-gated changes, and only dispatches those after explicit confirmation and revision checks. It then waits for serialized XML, persists workspace edits, and posts the final result to the server's acknowledgement endpoint.
 2. The Copilot service returns discriminated outcomes for commands, proposals, selection, ordinary answers, clarification, unsupported requests, stale context and failures. It validates the XML snapshot/revision, resolves targets against the full active-page cell index, validates operation arguments, and exposes only typed native-edit/selection/outcome tools. The model-facing cell summary is bounded for prompt size; server-side uniqueness checks use the full index.
 3. The workspace service validates XML, applies optimistic revision checks, saves exact XML, stores immutable full-XML versions, and verifies final applied receipts against the version ID and XML hash.
 4. Agent Traces shows browser events and server-side Copilot/model-call records. Token and cost values are shown only when reported by the SDK/provider; missing metrics are not estimated.
 
 ## Supported native operations
 
-The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, and add_node_after (insert a vertex to the right of a target and connect it). The model cannot submit raw replacement XML or arbitrary workspace writes.
+The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after` (insert a connected vertex to the right), and `add_node_below` (insert a connected vertex directly below its source). A typed batch that does not trigger the server's review gate executes after page/revision/target validation without a separate confirmation click. Broad batches and all `run_drawio_script` operations require explicit confirmation; chat proposals show the intended changes, not the source code. The model cannot submit raw replacement XML or arbitrary workspace writes.
 
 ## Extension contracts without porting the old implementation
 

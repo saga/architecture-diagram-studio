@@ -277,7 +277,7 @@ export default function WorkspacePages(props: Props) {
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
                   <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
-                    {message.proposal && <div className="proposal-actions"><UiButton type="button" className="button button-primary" disabled={chatBusy} onClick={() => confirmProposal(message.proposal!.id)}>Review and confirm changes</UiButton><span>Nothing is applied until you confirm. This proposal expires after 10 minutes.</span></div>}
+                    {message.proposal && <div className="proposal-actions"><UiButton type="button" className="button button-primary" disabled={chatBusy} onClick={() => confirmProposal(message.proposal!.id)}>Confirm changes</UiButton><span>Nothing is applied until you confirm. This proposal expires after 10 minutes.</span></div>}
                   </div>
                 </article>)}
                 <div ref={chatEndRef} />

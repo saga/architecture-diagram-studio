@@ -100,6 +100,21 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       },
       required: ["op", "target", "newLabel"],
       additionalProperties: false
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["add_node_below"] },
+        target: { ...target, description: "Required exact cell ID or unique exact visible label of a vertex; the new node is placed directly beneath this vertex." },
+        newLabel: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description: "REQUIRED: visible label for the newly created node. Example: newLabel: \"ddd\"."
+        }
+      },
+      required: ["op", "target", "newLabel"],
+      additionalProperties: false
     }
   ]
 } as const;

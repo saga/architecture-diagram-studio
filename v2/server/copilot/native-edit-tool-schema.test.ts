@@ -23,6 +23,10 @@ describe("native edit tool parameter schema", () => {
     expect(addNode?.required).toEqual(["op", "target", "newLabel"]);
     expect(addNode?.properties.newLabel).toMatchObject({ type: "string", minLength: 1, maxLength: 500 });
     expect(addNode?.additionalProperties).toBe(false);
+    const addBelow = branches.find((branch) => branch.properties.op.enum.includes("add_node_below"));
+    expect(addBelow?.required).toEqual(["op", "target", "newLabel"]);
+    expect(addBelow?.properties.target).toMatchObject({ description: expect.stringContaining("beneath") });
+    expect(addBelow?.additionalProperties).toBe(false);
   });
 
   it("documents vertex-only semantics for move and resize", () => {
@@ -41,7 +45,8 @@ describe("native edit tool parameter schema", () => {
       move: ["op", "target", "dx", "dy"],
       resize: ["op", "target", "width", "height"],
       delete: ["op", "target"],
-      add_node_after: ["op", "target", "newLabel"]
+      add_node_after: ["op", "target", "newLabel"],
+      add_node_below: ["op", "target", "newLabel"]
     };
 
     for (const [op, required] of Object.entries(requiredByOperation)) {
