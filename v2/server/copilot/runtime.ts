@@ -1036,6 +1036,12 @@ export function describeCopilotFailure(message: string, context: FailureContext 
   }
   if (/not logged in|authentication|401|unauthorized/i.test(message)) return "The local Copilot identity is signed out or expired, so this request was not executed. Run copilot login in a terminal first.";
   if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "The selected model is unavailable, so this request was not executed. Pick another model under Settings.";
-  if (/timeout|timed out/i.test(message)) return "Copilot did not answer in time, so this request was not executed. Shorten the instruction and try again.";
+  if (/no SDK progress.*idle timeout/i.test(message)) {
+    return "Copilot stopped making observable progress before the idle deadline, so no edit was dispatched. Check provider/runtime health and retry; the server trace records the last event, phase, and progress counters.";
+  }
+  if (/Copilot turn watchdog timed out.*overall deadline|Copilot turn watchdog timed out after/i.test(message)) {
+    return "Copilot reached the configured overall turn deadline, so no edit was dispatched. Increase STUDIO_COPILOT_TURN_TIMEOUT_MS or reduce the task/context size and retry.";
+  }
+  if (/timeout|timed out/i.test(message)) return "The Copilot provider or runtime timed out before returning a validated edit, so no changes were dispatched. Check provider health and retry.";
   return "The Copilot runtime failed, so this request was not executed: " + (message.length > 300 ? message.slice(0, 300) + "…" : message);
 }
