@@ -17,13 +17,37 @@ export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 
 /** The bridge batch caps at 50 steps; typed moves are a single live-geometry delta. */
 export const MAX_NATIVE_EDIT_OPERATIONS = 20;
+export const MAX_NATIVE_SCRIPT_POSTCONDITIONS = 40;
+
+export interface NativeScriptPostcondition {
+  /** Exact native mxCell ID. New cells must be created with this ID so the host can verify them. */
+  cellId: string;
+  /** Explicitly assert presence or absence; omission is not allowed. */
+  exists: boolean;
+  kind?: "vertex" | "edge";
+  label?: string;
+  parentId?: string;
+  sourceId?: string;
+  targetId?: string;
+  /** Exact native style values keyed by Draw.io style property name. Empty value asserts absence. */
+  style?: Record<string, string>;
+  geometry?: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    relative?: boolean;
+    /** Exact control-point sequence; [] asserts that there are no explicit points. */
+    points?: Array<{ x: number; y: number }>;
+  };
+}
 
 export type NativeEditOperation =
   | { op: "select"; target: string }
   | { op: "set_label"; target: string; label: string }
   | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
   | { op: "set_c4_type"; target: string; kind: "person" | "system" | "external" }
-  | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
+  | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string; postconditions: NativeScriptPostcondition[] }
   | ({ op: "auto_layout"; target: "active_page" } & NativeAutoLayoutOptions)
   | { op: "move"; target: string; dx: number; dy: number }
   | { op: "resize"; target: string; width: number; height: number }
@@ -222,6 +246,103 @@ function numericField(source: Record<string, unknown>, field: string, minimum: n
   return value;
 }
 
+function parseScriptPostconditions(value: unknown): NativeScriptPostcondition[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_NATIVE_SCRIPT_POSTCONDITIONS) {
+    throw new Error(`postconditions must contain between 1 and ${MAX_NATIVE_SCRIPT_POSTCONDITIONS} assertions`);
+  }
+  const allowedKeys = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
+  const seenIds = new Set<string>();
+  return value.map((item, index) => {
+    const position = index + 1;
+    if (!isRecord(item)) throw new Error(`postcondition ${position} must be an object`);
+    const unknownKeys = Object.keys(item).filter((key) => !allowedKeys.has(key));
+    if (unknownKeys.length) throw new Error(`postcondition ${position} has unsupported field “${unknownKeys[0]}”`);
+    const cellId = textField(item, "cellId", 200);
+    if (seenIds.has(cellId)) throw new Error(`postcondition cell ID “${cellId}” may only appear once`);
+    seenIds.add(cellId);
+    if (typeof item.exists !== "boolean") throw new Error(`postcondition ${position}.exists must be true or false`);
+    if (item.exists === false) {
+      if (Object.keys(item).some((key) => key !== "cellId" && key !== "exists")) {
+        throw new Error(`postcondition ${position} for an absent cell may only contain cellId and exists:false`);
+      }
+      return { cellId, exists: false };
+    }
+
+    const parsed: NativeScriptPostcondition = { cellId, exists: true };
+    if (item.kind !== undefined) {
+      if (item.kind !== "vertex" && item.kind !== "edge") throw new Error(`postcondition ${position}.kind must be vertex or edge`);
+      parsed.kind = item.kind;
+    }
+    for (const key of ["label", "parentId", "sourceId", "targetId"] as const) {
+      const raw = item[key];
+      if (raw !== undefined) {
+        if (typeof raw !== "string" || raw.length > (key === "label" ? 500 : 200)) {
+          throw new Error(`postcondition ${position}.${key} must be a string within its length limit`);
+        }
+        parsed[key] = raw;
+      }
+    }
+    let substantive = ["label", "parentId", "sourceId", "targetId"].some((key) => Object.prototype.hasOwnProperty.call(item, key));
+    if (item.style !== undefined) {
+      if (!isRecord(item.style)) throw new Error(`postcondition ${position}.style must be an object of expected style values`);
+      const entries = Object.entries(item.style);
+      if (entries.length < 1 || entries.length > 20) throw new Error(`postcondition ${position}.style must assert between 1 and 20 style keys`);
+      const style: Record<string, string> = {};
+      for (const [key, raw] of entries) {
+        if (!/^[A-Za-z][A-Za-z0-9_.-]{0,79}$/.test(key) || typeof raw !== "string" || raw.length > 300) {
+          throw new Error(`postcondition ${position}.style contains an invalid key or value`);
+        }
+        style[key] = raw;
+      }
+      parsed.style = style;
+      substantive = true;
+    }
+    if (item.geometry !== undefined) {
+      if (!isRecord(item.geometry)) throw new Error(`postcondition ${position}.geometry must be an object`);
+      const geometryAllowed = new Set(["x", "y", "width", "height", "relative", "points"]);
+      const geometryKeys = Object.keys(item.geometry);
+      if (geometryKeys.length < 1 || geometryKeys.some((key) => !geometryAllowed.has(key))) {
+        throw new Error(`postcondition ${position}.geometry must specify x, y, width, height, relative, or points`);
+      }
+      const geometry: NonNullable<NativeScriptPostcondition["geometry"]> = {};
+      for (const key of ["x", "y", "width", "height"] as const) {
+        const raw = item.geometry[key];
+        if (raw !== undefined) {
+          if (typeof raw !== "number" || !Number.isFinite(raw) || Math.abs(raw) > 1_000_000) {
+            throw new Error(`postcondition ${position}.geometry.${key} must be a finite number between -1000000 and 1000000`);
+          }
+          geometry[key] = raw;
+        }
+      }
+      if (item.geometry.relative !== undefined) {
+        if (typeof item.geometry.relative !== "boolean") throw new Error(`postcondition ${position}.geometry.relative must be a boolean`);
+        geometry.relative = item.geometry.relative;
+      }
+      if (item.geometry.points !== undefined) {
+        if (!Array.isArray(item.geometry.points) || item.geometry.points.length > 100) {
+          throw new Error(`postcondition ${position}.geometry.points must be an array containing at most 100 points`);
+        }
+        geometry.points = item.geometry.points.map((point, pointIndex) => {
+          if (!isRecord(point) || typeof point.x !== "number" || !Number.isFinite(point.x) ||
+              typeof point.y !== "number" || !Number.isFinite(point.y) ||
+              Math.abs(point.x) > 1_000_000 || Math.abs(point.y) > 1_000_000 ||
+              Object.keys(point).some((key) => key !== "x" && key !== "y")) {
+            throw new Error(`postcondition ${position}.geometry.points[${pointIndex}] must contain bounded numeric x and y`);
+          }
+          return { x: point.x, y: point.y };
+        });
+      }
+      parsed.geometry = geometry;
+      substantive = true;
+    }
+    if (!substantive) throw new Error(`postcondition ${position} must assert a label, parent, terminal, style, or geometry in addition to cell existence`);
+    if (parsed.sourceId !== undefined || parsed.targetId !== undefined) {
+      if (parsed.kind !== "edge") throw new Error(`postcondition ${position} sourceId/targetId assertions require kind:"edge"`);
+    }
+    return parsed;
+  });
+}
+
 /**
  * Validates an untrusted operation list from the model.
  *
@@ -279,7 +400,10 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
           if (script.length > MAX_NATIVE_DRAWIO_SCRIPT_LENGTH) {
             throw new Error(`script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters`);
           }
-          operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script });
+          operations.push({
+            op: name, target: "active_page", summary: textField(raw, "summary", 1000), script,
+            postconditions: parseScriptPostconditions(raw.postconditions)
+          });
           break;
         }
         case "auto_layout": {
@@ -354,7 +478,23 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
     case "set_c4_type": return `Convert “${target}” to the native C4 ${operation.kind === "person" ? "Person" : operation.kind === "system" ? "Software System" : "External Software System"} style`;
-    case "run_drawio_script": return operation.summary;
+    case "run_drawio_script": {
+      const describeCondition = (condition: NativeScriptPostcondition): string => {
+        if (!condition.exists) return `cell “${condition.cellId}” is absent`;
+        const details: string[] = [];
+        if (condition.kind) details.push(`kind=${condition.kind}`);
+        if (condition.label !== undefined) details.push(`label=“${condition.label}”`);
+        if (condition.parentId !== undefined) details.push(`parent=${condition.parentId || "(none)"}`);
+        if (condition.sourceId !== undefined) details.push(`source=${condition.sourceId || "(none)"}`);
+        if (condition.targetId !== undefined) details.push(`target=${condition.targetId || "(none)"}`);
+        if (condition.style) details.push("style " + Object.entries(condition.style).map(([key, value]) => key + "=" + (value === "" ? "(absent)" : value)).join(", "));
+        if (condition.geometry) details.push("geometry " + Object.entries(condition.geometry).map(([key, value]) =>
+          key === "points" ? "points=" + JSON.stringify(value) : key + "=" + String(value)
+        ).join(", "));
+        return `cell “${condition.cellId}”: ${details.join(", ")}`;
+      };
+      return operation.summary + " (verified outcome: " + operation.postconditions.map(describeCondition).join("; ") + ")";
+    }
     case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
       " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
@@ -419,7 +559,10 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         edits.push({ cellId, path: "cell:set-c4-type", value: JSON.stringify({ kind: operation.kind }) });
         break;
       case "run_drawio_script":
-        edits.push({ cellId, path: "cell:execute-script", value: operation.script });
+        edits.push({
+          cellId, path: "cell:execute-script",
+          value: JSON.stringify({ script: operation.script, postconditions: operation.postconditions })
+        });
         break;
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The Dagre/ELK layout plan was not calculated from the current native XML revision." };
