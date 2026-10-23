@@ -13,7 +13,7 @@ import { resolveNativeEditTargets } from "./native-edit-tool";
 import { isAutoConfirmableCreationScript } from "./native-script-auto-confirm";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
-import { resolveCopilotTurnTimeoutMs } from "./turn-timeout";
+import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -777,8 +777,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         let contextUsage: ContextUsage | undefined;
         const turnDeadlineAt = Date.now() + turnTimeoutMs;
         await deps.writeLog("turn.started", {
-          sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
-          timeoutMs: turnTimeoutMs, prompt
+          requestId, sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
+          timeoutMs: turnTimeoutMs, idleTimeoutMs: resolveCopilotTurnIdleTimeoutMs(), prompt
         });
         const collectedContext = standalone
           ? { mode: "standalone", workspace: null, snippets: [], diagram: context, cacheHits: 0, cacheMisses: 0, characterBudget: 0 }
@@ -809,11 +809,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             throw new Error("Copilot turn deadline expired before the model call could start.");
           }
           await deps.writeLog("turn.model-call.started", {
-            requestId, sessionId, attempt, timeoutMs, turnTimeoutMs, model: turn.session.model,
-            promptLength: prompt.length, requestPrompt, standalone, toolCount: turn.session.prepared.tools.length,
+            requestId, sessionId, attempt, timeoutMs, turnTimeoutMs,
+            idleTimeoutMs: resolveCopilotTurnIdleTimeoutMs(), model: turn.session.model,
+            promptLength: prompt.length, requestPromptLength: requestPrompt.length,
+            requestPrompt, standalone, toolCount: turn.session.prepared.tools.length,
             ...(reason ? { reason } : {})
           });
-          const result = await turn.send({ prompt: requestPrompt }, timeoutMs);
+          const result = await turn.send({ prompt: requestPrompt }, timeoutMs, { requestId, attempt });
           if (result.usage) usageSamples.push(result.usage);
           modelCallUsages.push(...result.modelCallUsages);
           contextUsage = result.contextUsage ?? contextUsage;
@@ -934,7 +936,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           ...shared
         };
         await deps.writeLog("turn.completed.with-native-edits", {
-          sessionId, operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
+          requestId, sessionId, durationMs: Date.now() - startedAt,
+          operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
           selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) })), usage: plan.usage
         });
         res.json(response);
