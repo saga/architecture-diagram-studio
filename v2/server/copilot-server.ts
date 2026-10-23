@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
+import { resolveCopilotTurnTimeoutMs } from "./copilot/turn-timeout";
 import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 
 /**
@@ -1112,7 +1113,7 @@ app.use(async (error: unknown, req: Request, res: Response, next: NextFunction) 
 
 const server = app.listen(PORT, "127.0.0.1", () => {
   const provider = readCopilotProvider();
-  console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; routing=${describeModelRouting(provider)}; logs=${LOG_FILE}`);
+  console.log(`[studio:server] listening on http://127.0.0.1:${PORT}; model=${DEFAULT_MODEL}; routing=${describeModelRouting(provider)}; turnTimeoutMs=${resolveCopilotTurnTimeoutMs()}; logs=${LOG_FILE}`);
   if (isModelConfiguredWithoutProvider(provider)) {
     console.warn(
       `[studio:server] ${provider.model} is configured as a model but no custom provider serves it: COPILOT_PROVIDER_BASE_URL is not set, `

@@ -13,6 +13,7 @@ import { resolveNativeEditTargets } from "./native-edit-tool";
 import { isAutoConfirmableCreationScript } from "./native-script-auto-confirm";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
+import { resolveCopilotTurnTimeoutMs } from "./turn-timeout";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -708,6 +709,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const model = modelChoice.model || requestedModel;
 
     const startedAt = Date.now();
+    const turnTimeoutMs = resolveCopilotTurnTimeoutMs();
     const expiredBefore = Date.now() - ACK_TTL_MS;
     for (const id of acknowledgements.expire(Date.now(), ACK_TTL_MS)) {
       await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
@@ -773,7 +775,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
-        await deps.writeLog("turn.started", { sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", prompt });
+        const turnDeadlineAt = Date.now() + turnTimeoutMs;
+        await deps.writeLog("turn.started", {
+          sessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default",
+          timeoutMs: turnTimeoutMs, prompt
+        });
         const collectedContext = standalone
           ? { mode: "standalone", workspace: null, snippets: [], diagram: context, cacheHits: 0, cacheMisses: 0, characterBudget: 0 }
           : await deps.collectAgentWorkspaceContext(prompt);
@@ -796,10 +802,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           contextCharacters
         });
         let modelText = "";
-        const sendAttempt = async (attempt: number, requestPrompt: string, timeoutMs: number, reason?: string): Promise<void> => {
+        const sendAttempt = async (attempt: number, requestPrompt: string, reason?: string): Promise<void> => {
           const callStartedAt = Date.now();
+          const timeoutMs = Math.max(0, turnDeadlineAt - callStartedAt);
+          if (timeoutMs === 0) {
+            throw new Error("Copilot turn deadline expired before the model call could start.");
+          }
           await deps.writeLog("turn.model-call.started", {
-            requestId, sessionId, attempt, timeoutMs, model: turn.session.model,
+            requestId, sessionId, attempt, timeoutMs, turnTimeoutMs, model: turn.session.model,
             promptLength: prompt.length, requestPrompt, standalone, toolCount: turn.session.prepared.tools.length,
             ...(reason ? { reason } : {})
           });
@@ -818,7 +828,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
         // Keep stable context before the changing user request for providers supporting prefix caching.
         const firstRequestPrompt = JSON.stringify({ projectWorkspace: projectContext, diagram: context, request: prompt });
-        await sendAttempt(1, firstRequestPrompt, 50000);
+        await sendAttempt(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
         let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
@@ -828,7 +838,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             request: "Finish with exactly one terminal tool call. Use propose_native_edits for diagram changes; prefer multiple typed operations for compound changes whenever the allowlist can express them, and use run_drawio_script only for actions that typed operations cannot express. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the target is genuinely ambiguous. Do not author/replace XML or claim success until execution and persistence are acknowledged.",
             diagram: context
           });
-          await sendAttempt(2, retryPrompt, 25000, "the first response did not invoke a native editor tool");
+          await sendAttempt(2, retryPrompt, "the first response did not invoke a native editor tool");
           capturedSelection = pendingAgentSelections.get(sessionId) || null;
           capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
           capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;

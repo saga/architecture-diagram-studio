@@ -58,7 +58,7 @@ Standalone files can be opened without configuring a workspace. When browser fil
 
 ## Settings and Agent Traces
 
-Settings contains the SDK model and reasoning effort. Provider credentials stay in the local runtime environment; they are not sent from the browser. Sign in with the GitHub Copilot CLI or configure a supported local provider before using Copilot.
+Settings contains the SDK model and reasoning effort. Copilot turn timeout is configurable in `v2/.env` with `STUDIO_COPILOT_TURN_TIMEOUT_MS`; it defaults to `300000` (five minutes) and accepts `10000`–`900000` milliseconds. The same overall deadline covers the first model call and the fallback retry, rather than giving the retry another unrelated short timeout. Restart the local Copilot server after changing the environment file. Provider credentials stay in the local runtime environment; they are not sent from the browser. Sign in with the GitHub Copilot CLI or configure a supported local provider before using Copilot.
 
 Agent Traces shows application events, SDK lifecycle, model calls and any token/cost/context usage reported by the SDK or provider. Missing counters are not estimated. Context-window occupancy is a snapshot, not tokens consumed. Local logs and history may include project labels, prompts and diagram data, so treat them as project data.
 
