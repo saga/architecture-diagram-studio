@@ -126,7 +126,7 @@ describe("native edit XML confirmation", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
       value: JSON.stringify({
-        script: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);',
+        script: 'model.setValue(model.getCell("api"), "New API");',
         postconditions: [{ cellId: "api", exists: true, label: "New API" }]
       })
     }]);
@@ -174,7 +174,7 @@ describe("native edit XML confirmation", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
       value: JSON.stringify({
-        script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+        script: 'model.setValue(model.getCell("api"), "New API");',
         postconditions: [{ cellId: "api", exists: true, label: "New API" }]
       })
     }]);
@@ -191,7 +191,7 @@ describe("native edit XML confirmation", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
       value: JSON.stringify({
-        script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+        script: 'model.setValue(model.getCell("api"), "New API");',
         postconditions: [{ cellId: "api", exists: true, label: "New API" }]
       })
     }]);
@@ -212,7 +212,7 @@ describe("native edit XML confirmation", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
       value: JSON.stringify({
-        script: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));',
+        script: 'model.setValue(model.getCell("api"), "New API");',
         postconditions: [{ cellId: "api", exists: true, label: "New API" }]
       })
     }]);
