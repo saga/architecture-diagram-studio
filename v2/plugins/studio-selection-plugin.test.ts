@@ -299,6 +299,20 @@ describe("native Draw.io script bridge", () => {
     expect(harness.service.style).not.toContain("curved=1");
   });
 
+  it("does not accept a postcondition that was already true before an unrelated script change", () => {
+    const harness = createHarness();
+    harness.service.value = "Payment API";
+    const originalStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "graph.setCellStyles('curved', '1', [graph.getModel().getCell('edge-root')]);",
+      [{ kind: "label_equals", target: "service", value: "Payment API" }]
+    );
+
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(result.error).toContain("postcondition 1");
+    expect(harness.rootEdge.style).toBe(originalStyle);
+  });
+
   it("rolls back a script when its declared postcondition is not met", () => {
     const harness = createHarness();
     const originalStyle = harness.rootEdge.style;
