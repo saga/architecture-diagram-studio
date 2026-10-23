@@ -11,6 +11,8 @@ import type {
 } from "@github/copilot-sdk";
 import { chooseRuntimeModel, readCopilotProvider, toProviderConfig, type CopilotProvider, type ModelChoice } from "./model-routing";
 import { isMissingSdkSessionError } from "./session-resume-errors";
+import { resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
+import { CopilotTurnProgress } from "./turn-progress";
 
 export type Logger = (event: string, fields?: Record<string, unknown>) => Promise<void> | void;
 
@@ -105,7 +107,7 @@ export interface SessionSendResult {
 /** Handed to one conversation turn; `session` follows the live session if the runtime is rebuilt mid-turn. */
 export interface SessionTurn {
   readonly session: RuntimeSession;
-  send(body: unknown, timeoutMs: number): Promise<SessionSendResult>;
+  send(body: unknown, timeoutMs: number, trace?: { requestId?: string; attempt?: number }): Promise<SessionSendResult>;
 }
 
 export interface CopilotRuntimeOptions {
@@ -481,8 +483,8 @@ export class CopilotRuntime {
       if (pending) await pending.catch(() => undefined);
       const turn: SessionTurn = {
         get session() { return active; },
-        send: async (body, timeoutMs) => {
-          const outcome = await this.sendWithRecovery(active, body, timeoutMs);
+        send: async (body, timeoutMs, trace) => {
+          const outcome = await this.sendWithRecovery(active, body, timeoutMs, false, trace);
           active = outcome.session;
           return {
             message: outcome.message,
@@ -500,11 +502,38 @@ export class CopilotRuntime {
     }
   }
 
-  /** Sends one prompt; captures real SDK usage events and retries once if the CLI process died. */
-  private async sendWithRecovery(session: RuntimeSession, body: unknown, timeoutMs: number, recovered = false): Promise<{ session: RuntimeSession; message: SessionEvent | undefined; usage?: TurnUsageMetrics; modelCallUsages: ModelCallUsage[]; contextUsage?: ContextUsage }> {
+  /** Sends one prompt; captures usage and content-free progress metrics, and retries once if the CLI process died. */
+  private async sendWithRecovery(
+    session: RuntimeSession,
+    body: unknown,
+    timeoutMs: number,
+    recovered = false,
+    trace: { requestId?: string; attempt?: number } = {}
+  ): Promise<{ session: RuntimeSession; message: SessionEvent | undefined; usage?: TurnUsageMetrics; modelCallUsages: ModelCallUsage[]; contextUsage?: ContextUsage }> {
     const modelCallUsages: ModelCallUsage[] = [];
     let contextUsage: ContextUsage | undefined;
+    const idleTimeoutMs = resolveCopilotTurnIdleTimeoutMs();
+    const progress = new CopilotTurnProgress();
+    let idleWatchdog: NodeJS.Timeout | undefined;
+    let turnWatchdog: NodeJS.Timeout | undefined;
+    let progressTimer: NodeJS.Timeout | undefined;
+    let rejectWatchdog: ((error: Error) => void) | undefined;
+    const watchdogFailure = new Promise<never>((_, reject) => { rejectWatchdog = reject; });
+
+    const armIdleWatchdog = () => {
+      if (idleWatchdog) clearTimeout(idleWatchdog);
+      idleWatchdog = setTimeout(() => {
+        rejectWatchdog?.(new Error(
+          `Copilot turn watchdog timed out: no SDK progress for ${idleTimeoutMs}ms (idle timeout; model-call budget ${timeoutMs}ms)`
+        ));
+      }, idleTimeoutMs);
+    };
+
     const offUsage = session.session.on((event: SessionEvent) => {
+      const isProgress = progress.observe(event.type, event.data);
+      // Passive metadata events do not reset the idle deadline. Reasoning/text/tool-input deltas
+      // and meaningful turn/tool transitions do, so a progressing model is not killed by a wall clock.
+      if (isProgress) armIdleWatchdog();
       const data = event.data as unknown as Record<string, unknown> | undefined;
       if (!data) return;
       if (event.type === "assistant.usage") {
@@ -517,26 +546,28 @@ export class CopilotRuntime {
 
     try {
       const usageBefore = await readSessionUsageMetrics(session.session);
-      const pending = session.session.sendAndWait(body as SendBody, timeoutMs > 0 ? timeoutMs + 1_000 : timeoutMs);
-      let watchdog: NodeJS.Timeout | undefined;
-      let message: SessionEvent | undefined;
-      try {
-        // Keep an application-level watchdog because SDK sendAndWait timeouts are not
-        // sufficient protection against a stuck external-tool dispatch / tool loop.
-        message = timeoutMs > 0
-          ? await Promise.race([
-              pending,
-              new Promise<never>((_, reject) => {
-                watchdog = setTimeout(
-                  () => reject(new Error(`Copilot turn watchdog timed out after ${timeoutMs}ms`)),
-                  timeoutMs
-                );
-              })
-            ])
-          : await pending;
-      } finally {
-        if (watchdog) clearTimeout(watchdog);
+      armIdleWatchdog();
+      if (timeoutMs > 0) {
+        turnWatchdog = setTimeout(() => {
+          rejectWatchdog?.(new Error(`Copilot turn watchdog timed out after ${timeoutMs}ms (overall deadline)`));
+        }, timeoutMs);
       }
+      progressTimer = setInterval(() => {
+        this.logDetached("turn.streaming.progress", {
+          requestId: trace.requestId ?? null,
+          conversationId: session.conversationId,
+          attempt: trace.attempt ?? null,
+          model: session.observedModel || session.model,
+          timeoutMs,
+          idleTimeoutMs,
+          ...progress.snapshot(Date.now(), true)
+        });
+      }, 5_000);
+
+      // The total deadline is an absolute cap; the idle deadline is refreshed only by meaningful stream/tool progress.
+      const pending = session.session.sendAndWait(body as SendBody, timeoutMs > 0 ? timeoutMs + 1_000 : timeoutMs);
+      const message = await Promise.race([pending, watchdogFailure]);
+
       const usageAfter = await readSessionUsageMetrics(session.session);
       const eventUsage = aggregateModelCallUsage(modelCallUsages);
       const metricUsage = diffSessionUsageMetrics(usageAfter, usageBefore);
@@ -549,18 +580,30 @@ export class CopilotRuntime {
     } catch (error) {
       const message = messageOf(error);
       if (/Copilot turn watchdog timed out/i.test(message)) {
-        // Stop the SDK session explicitly and bound both abort and idle waits; the HTTP
-        // request must not hang forever while trying to clean up a stuck background turn.
+        const timeoutKind = /no SDK progress/i.test(message) ? "idle" : "overall";
+        await this.options.log("turn.streaming.timeout", {
+          requestId: trace.requestId ?? null,
+          conversationId: session.conversationId,
+          attempt: trace.attempt ?? null,
+          model: session.observedModel || session.model,
+          timeoutKind,
+          timeoutMs,
+          idleTimeoutMs,
+          errorMessage: message,
+          ...progress.snapshot(Date.now())
+        });
+        // Stop the SDK session explicitly and bound both abort and idle waits; HTTP must not hang during cleanup.
         await this.abortAfterWatchdog(session.session);
         throw error;
       }
       if (!isRecoverable(message) || recovered) throw error;
       await this.options.log("turn.recovering", { conversationId: session.conversationId, error: message });
       const fresh = await this.reopenSession(session);
-      // Reuse the same watchdog/abort path on the single permitted retry. A second
-      // transport failure is surfaced rather than recursively recreating sessions.
-      return this.sendWithRecovery(fresh, body, timeoutMs, true);
+      return this.sendWithRecovery(fresh, body, timeoutMs, true, trace);
     } finally {
+      if (idleWatchdog) clearTimeout(idleWatchdog);
+      if (turnWatchdog) clearTimeout(turnWatchdog);
+      if (progressTimer) clearInterval(progressTimer);
       offUsage();
     }
   }
