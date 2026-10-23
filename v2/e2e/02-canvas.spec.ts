@@ -295,10 +295,13 @@ test.describe("原生画布", () => {
   test("Copilot 可以通过通用原生脚本修改 Draw.io 连线样式", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
     const connectorIds = edgeCellIds(before);
+    const stylesBefore = edgeStyles(before);
     expect(connectorIds.length, "fixture should contain native connector cells").toBeGreaterThan(0);
-    const postconditions = connectorIds.slice(0, 12).map((id) => ({
-      kind: "style_equals", target: id, key: "curved", value: "1"
-    }));
+    const postconditions = connectorIds
+      .filter((_id, index) => !/(?:^|;)curved=1(?:;|$)/.test(stylesBefore[index] || ""))
+      .slice(0, 12)
+      .map((id) => ({ kind: "style_equals", target: id, key: "curved", value: "1" }));
+    expect(postconditions.length, "fixture should contain connectors that require a style change").toBeGreaterThan(0);
 
     const result = await page.evaluate(async (scriptPostconditions) => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
