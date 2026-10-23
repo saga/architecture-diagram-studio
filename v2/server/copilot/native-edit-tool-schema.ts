@@ -101,7 +101,8 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
       required: ["op", "target", "newLabel"],
       additionalProperties: false
     }
-,    {
+    },
+    {
       type: "object",
       properties: {
         op: { type: "string", enum: ["add_node_below"] },
