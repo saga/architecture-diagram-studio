@@ -188,6 +188,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const layoutPlan = layoutOperation
           ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation)
           : undefined;
+        if (layoutOperation) {
+          const currentState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+          if (currentState.drawioXml !== sourceXml || currentState.selectedNativePageId !== sourcePageId) {
+            throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
+          }
+        }
         const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId, layoutPlan);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
         const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId, {
@@ -499,6 +505,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const layoutPlan = layoutOperation
         ? await calculateNativeAutoLayout(sourceXml, command.pageId, documentRevision, layoutOperation)
         : undefined;
+      if (layoutOperation) {
+        const stateAfterLayout = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        if (stateAfterLayout.drawioXml !== sourceXml || stateAfterLayout.selectedNativePageId !== sourcePageId) {
+          throw new Error("The diagram or active page changed while Studio was calculating the confirmed layout. Nothing was applied; retry.");
+        }
+      }
       const cellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId, layoutPlan);
       if (!cellPlan.ok) throw new Error("The confirmed proposal is no longer valid: " + cellPlan.error);
       const execution = await applyNativeCellEdits(cellPlan.edits, command.pageId, {
