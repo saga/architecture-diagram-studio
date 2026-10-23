@@ -28,7 +28,8 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
-    channel: "chrome",
+    // Use Playwright's pinned Chromium in CI for reproducible browser coverage; local runs may use installed Chrome.
+    channel: process.env.CI ? undefined : "chrome",
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
