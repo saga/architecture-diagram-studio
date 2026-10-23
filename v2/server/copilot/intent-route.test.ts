@@ -24,8 +24,8 @@ const SAFE_CREATION_SCRIPT = [
   "var edge = null;",
   "model.beginUpdate();",
   "try {",
-  "  target = graph.insertVertex(parent, null, 'ddd', 100, 160, 120, 60, 'rounded=0;whiteSpace=wrap;html=1;');",
-  "  edge = graph.insertEdge(parent, null, '', source, target, 'endArrow=block;endFill=1;curved=1;');",
+  "  target = graph.insertVertex(parent, 'agent-node-ddd', 'ddd', 100, 160, 120, 60, 'rounded=0;whiteSpace=wrap;html=1;');",
+  "  edge = graph.insertEdge(parent, 'agent-edge-db-ddd', '', source, target, 'endArrow=block;endFill=1;curved=1;');",
   "} finally { model.endUpdate(); }",
   "graph.refresh();",
   "return { nodeId: target.id, edgeId: edge.id, sourceId: model.getTerminal(edge, true).id, targetId: model.getTerminal(edge, false).id };"
@@ -250,10 +250,19 @@ function scriptProposingCopilot(script = "return { checked: true };", summary = 
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
           .find((candidate) => candidate.name === "propose_native_edits");
         if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
+        const postconditions = script === SAFE_CREATION_SCRIPT
+          ? [
+              { cellId: "agent-node-ddd", exists: true, kind: "vertex", label: "ddd", parentId: "1",
+                geometry: { x: 100, y: 160, width: 120, height: 60 } },
+              { cellId: "agent-edge-db-ddd", exists: true, kind: "edge", parentId: "1",
+                sourceId: "db", targetId: "agent-node-ddd", style: { curved: "1" } }
+            ]
+          : [{ cellId: "db", exists: true, label: "Database" }];
         await tool.handler({ operations: [{
           op: "run_drawio_script", target: "active_page",
           summary,
-          script
+          script,
+          postconditions
         }] });
         return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
       }
