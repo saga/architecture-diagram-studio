@@ -49,6 +49,7 @@ Do not remove the typed C4 operation, canonical C4 palette definitions, shape-re
 - [ ] Target resolution rejects edges and unknown targets.
 - [ ] The native bridge writes the real Person shape and canonical Software System / External Software System rounded-card styles.
 - [ ] The Person conversion uses `mxCellRenderer.defaultShapes`, never `mxStencilRegistry.getStencil`.
+- [ ] Runtime inspection exposes a bounded, regression-tested shape-registration query against `mxCellRenderer.defaultShapes` for C4 and future native shape capabilities.
 - [ ] Missing Person shape registration fails closed and does not use UML/swimlane fallback.
 - [ ] Serialized-result tests reject wrong styles/shapes even when XML otherwise changed.
 - [ ] Typecheck, unit tests, production build and native-canvas tests pass.
