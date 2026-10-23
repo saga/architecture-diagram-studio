@@ -156,7 +156,7 @@
         ui: runtimeMethods(ui, ["actions", "addListener", "getCurrentFile", "getCurrentPage"]),
         editor: runtimeMethods(ui && ui.editor, ["graph", "undoManager", "setModified", "execute"]),
         graph: runtimeMethods(activeGraph, ["getModel", "getDefaultParent", "getSelectionCells", "getChildCells", "insertVertex", "insertEdge", "setCellStyles", "removeCells", "groupCells", "ungroupCells", "alignCells", "refresh", "convertValueToString"]),
-        model: runtimeMethods(activeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setGeometry", "setTerminal", "setVisible", "setCollapsed", "beginUpdate", "endUpdate", "add", "remove"]),
+        model: runtimeMethods(activeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "setVisible", "setCollapsed", "beginUpdate", "endUpdate", "add", "remove"]),
         view: runtimeMethods(activeGraph && activeGraph.view, ["getState", "validate", "validateBackground"]),
         vertexCell: [],
         edgeCell: []
@@ -825,7 +825,14 @@
     graph.getSelectionModel().addListener("change", publishSelection);
     if (typeof ui.addListener === "function") ui.addListener("pageSelected", publishSelection);
     if (typeof model.addListener === "function") model.addListener("change", publishSelection);
-    publish({ event: "studioBridgeReady" });
+    var bridgeGraph = currentGraph();
+    var bridgeModel = typeof bridgeGraph.getModel === "function" ? bridgeGraph.getModel() : model;
+    var bridgeCapabilities = {
+      graph: runtimeMethods(bridgeGraph, ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"]),
+      model: runtimeMethods(bridgeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate"]),
+      view: runtimeMethods(bridgeGraph && bridgeGraph.view, ["getState", "validate"])
+    };
+    publish({ event: "studioBridgeReady", drawioVersion: "v32.0.2", capabilityManifest: buildCapabilityManifest(bridgeCapabilities) });
     publishSelection();
     });
   }
