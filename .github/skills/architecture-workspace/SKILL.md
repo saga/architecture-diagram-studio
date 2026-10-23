@@ -27,6 +27,9 @@ Supported allowlisted operations are:
 - `set_style`: set `fillColor`, `strokeColor` or `fontColor`.
 - `move`, `resize`, `delete`.
 - `add_node_after`: create a native vertex to the right of a vertex and connect it with a native edge.
+- `add_node_below`: create a native vertex directly below a vertex, centered under it, and connect the source vertex to the new vertex.
+
+For a request involving multiple new nodes each connected to an existing source, submit one typed `add_node_below` operation per source/label pair in one batch. Use scripts only when the requested effect cannot be expressed by the typed allowlist; script proposals must never be automatically confirmed.
 
 Submit the whole requested edit as one typed batch. The server resolves target IDs and validates operation values; the browser applies the batch through the Draw.io graph and waits for editor acknowledgement. Ambiguous targets, stale revisions, invalid XML and genuinely unsafe operations must fail closed.
 
