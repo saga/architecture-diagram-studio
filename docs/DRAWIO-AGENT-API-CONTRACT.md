@@ -15,7 +15,7 @@ Versioned contract for the bundled Draw.io **v32.0.2** runtime. This is a compac
 
 | Value | Responsibility | Contracted examples |
 | --- | --- | --- |
-| `graph` (mxGraph) | Graph-level helpers, defaults, rendering and common structural operations | `getDefaultParent()`, `getChildCells(parent, vertices, edges)`, `setCellStyles(key, value, cells)`, `insertVertex(...)`, `insertEdge(...)`, `removeCells(cells)`, `refresh()`, `convertValueToString(cell)` |
+| `graph` (mxGraph) | Graph-level helpers, defaults, rendering and common structural operations | `getModel()`, `getDefaultParent()`, `getChildCells(parent, vertices, edges)`, `setCellStyles(key, value, cells)`, `insertVertex(...)`, `insertEdge(...)`, `removeCells(cells)`, `refresh()`, `convertValueToString(cell)` |
 | `model` (mxGraphModel) | Native cell data, geometry, terminals and update transactions | `getRoot()`, `getChildCount(parent)`, `getChildAt(parent, index)`, `getCell(id)`, `getStyle(cell)`, `setStyle(cell, style)`, `setValue(cell, value)`, `setGeometry(cell, geometry)`, `setTerminal(edge, cell, source)`, `beginUpdate()`, `endUpdate()` |
 | `graph.view` (mxGraphView) | Read-only rendered state and layout validation | `getState(cell)`, `validate()` |
 | `ui` / `editor` | Editor orchestration and UI actions | Read-only inspection only. Do not change pages, replace the graph XML, or invoke save/exit actions. |
