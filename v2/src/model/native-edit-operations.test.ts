@@ -67,6 +67,31 @@ describe("parseNativeEditOperations", () => {
     expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
   });
 
+  it("plans bounded below-and-connect operations without native script code", () => {
+    const parsed = parseNativeEditOperations([
+      { op: "add_node_below", target: "Database", newLabel: "ddd" },
+      { op: "add_node_below", target: "API Service", newLabel: "eee" }
+    ]);
+    expect(parsed).toMatchObject({ ok: true, operations: [
+      { op: "add_node_below", target: "Database", newLabel: "ddd" },
+      { op: "add_node_below", target: "API Service", newLabel: "eee" }
+    ] });
+    if (!parsed.ok) return;
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation,
+      cellId: operation.target === "Database" ? "db" : "api",
+      targetLabel: operation.target
+    })) as ResolvedNativeEditOperation[];
+    expect(toNativeCellEdits(resolved, XML, "p1")).toMatchObject({
+      ok: true,
+      edits: [
+        { cellId: "db", path: "cell:add-node-below", value: JSON.stringify({ label: "ddd" }) },
+        { cellId: "api", path: "cell:add-node-below", value: JSON.stringify({ label: "eee" }) }
+      ]
+    });
+    expect(describeNativeEditOperation(resolved[0])).toBe('Add “ddd” below “Database” and connect it');
+  });
+
   it("requires newLabel for add_node_after", () => {
     const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx" }]);
     expect(parsed.ok).toBe(false);
