@@ -163,7 +163,24 @@ function createHarness() {
     return runOperation("__active_page__", "cell:execute-script", script);
   }
 
-  return { rootEdge, nestedEdge, service, runScript, runOperation };
+  function runRuntimeInspect() {
+    messages.length = 0;
+    messageHandler!({
+      source: parent,
+      origin: "http://studio.test",
+      data: JSON.stringify({
+        event: "studioRuntimeInspectRequest",
+        requestId: "inspect-request",
+        documentRevision: "a".repeat(64),
+        drawioVersion: "v32.0.2",
+        maxCells: 120,
+        maxRenderedEdges: 60
+      })
+    });
+    return messages.find((message) => message.event === "studioRuntimeInspectResult");
+  }
+
+  return { rootEdge, nestedEdge, service, runScript, runOperation, runRuntimeInspect };
 }
 
 const curveAllConnectorsScript = [
@@ -203,6 +220,28 @@ describe("native Draw.io script bridge", () => {
     expect(harness.nestedEdge.style).toContain("endArrow=block");
     expect(harness.service.style).toContain("fillColor=#ffffff");
     expect(harness.service.style).not.toContain("curved=1");
+  });
+
+  it("inspects native runtime capabilities and cells recursively, including edges inside groups", () => {
+    const harness = createHarness();
+    const result = harness.runRuntimeInspect();
+    expect(result).toMatchObject({
+      event: "studioRuntimeInspectResult",
+      success: true,
+      inspection: {
+        schemaVersion: 1,
+        bridgeVersion: "studio-native-runtime/1",
+        drawioVersion: "v32.0.2",
+        documentRevision: "a".repeat(64),
+        counts: { cells: 6, vertices: 4, edges: 2 },
+        capabilityManifest: { scriptSupported: false }
+      }
+    });
+    const inspected = result?.inspection as { cells: Array<{ id: string }>; capabilities: { graph: string[]; model: string[] } };
+    expect(inspected.cells.map((cell) => cell.id)).toContain("edge-nested");
+    expect(inspected.capabilities.graph).toContain("getDefaultParent");
+    expect(inspected.capabilities.model).toContain("getRoot");
+    expect(inspected.capabilities.model).not.toContain("getDefaultParent");
   });
 
   it("restores mutations after a script error even when mxGraphModel lacks setConnectable", () => {
