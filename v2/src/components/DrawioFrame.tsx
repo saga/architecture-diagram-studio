@@ -52,6 +52,7 @@ interface Props {
   theme: string;
   /** Reports the embed handshake state so the app's single status bar can show it. */
   onEditorStatusChange?: (ready: boolean) => void;
+  onScriptCapabilityStatusChange?: (compatible: boolean) => void;
 }
 
 /**
@@ -66,7 +67,7 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props, ref) {
+const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange, onScriptCapabilityStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
@@ -76,6 +77,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const pendingSaveConfirmationsRef = useRef(new Map<number, PendingSaveConfirmation>());
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
   const runtimeInspectionSequenceRef = useRef(0);
+  const runtimeManifestCompatibleRef = useRef<boolean | null>(null);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   const themeRef = useRef(theme);
@@ -92,6 +94,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
+  const [runtimeScriptSupported, setRuntimeScriptSupported] = useState<boolean | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
@@ -150,6 +153,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   useEffect(() => {
     onEditorStatusChange?.(editorReady);
   }, [editorReady, onEditorStatusChange]);
+
+  useEffect(() => {
+    onScriptCapabilityStatusChange?.(runtimeScriptSupported === true);
+  }, [runtimeScriptSupported, onScriptCapabilityStatusChange]);
 
   useEffect(() => {
     let active = true;
@@ -322,6 +329,14 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (!inspection) {
               pending.reject(new Error("The runtime inspection did not match the pinned Draw.io version, active page, and source document revision."));
             } else {
+              if (runtimeManifestCompatibleRef.current !== true) {
+                inspection.capabilityManifest.scriptSupported = false;
+                if (!inspection.capabilityManifest.missing.graph?.length &&
+                    !inspection.capabilityManifest.missing.model?.length &&
+                    !inspection.capabilityManifest.missing.view?.length) {
+                  inspection.capabilityManifest.missing.graph = ["host_bundle_or_bridge_handshake_mismatch"];
+                }
+              }
               recordDiagnostic("drawio.runtime-inspection.completed", "Received a bounded read-only snapshot of the live native Draw.io runtime", {
                 requestId, documentRevision: inspection.documentRevision, pageId: inspection.pageId,
                 cellCount: inspection.counts.cells, vertexCount: inspection.counts.vertices, edgeCount: inspection.counts.edges,
@@ -337,6 +352,20 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       if (data.event === "studioBridgeReady") {
         setBridgeReady(true);
+        const advertisedVersion = typeof data.drawioVersion === "string" ? data.drawioVersion : null;
+        const manifest = data.capabilityManifest && typeof data.capabilityManifest === "object"
+          ? data.capabilityManifest as { scriptSupported?: unknown; missing?: Record<string, unknown> }
+          : null;
+        const missing = manifest?.missing && typeof manifest.missing === "object" ? manifest.missing : {};
+        const hasMissing = ["graph", "model", "view"].some((group) =>
+          Array.isArray(missing[group]) && (missing[group] as unknown[]).length > 0
+        );
+        const compatible = advertisedVersion === DRAWIO_VERSION && manifest?.scriptSupported === true && !hasMissing;
+        runtimeManifestCompatibleRef.current = compatible;
+        setRuntimeScriptSupported(compatible);
+        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.mismatch",
+          compatible ? "The pinned Draw.io script capability manifest matches the host contract" : "Native script execution is disabled because the Draw.io runtime manifest does not match the host contract",
+          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "error");
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }
@@ -525,6 +554,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     iframeLoadedRef.current = false;
     nativeDocumentLoadedRef.current = false;
     setBridgeReady(false);
+    runtimeManifestCompatibleRef.current = null;
+    setRuntimeScriptSupported(null);
     setStartupError(null);
     setFrameKey((value) => value + 1);
   }
