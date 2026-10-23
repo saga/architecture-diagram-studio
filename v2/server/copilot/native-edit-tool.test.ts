@@ -150,7 +150,9 @@ describe("resolveNativeEditTargets", () => {
   it("resolves a general native script against the active page, including an empty diagram", () => {
     const emptyDiagramScript = parseNativeEditOperations([{
       op: "run_drawio_script", target: "active_page", summary: "Create an initial node",
-      script: 'graph.insertVertex(graph.getDefaultParent(), null, "Start", 100, 100, 120, 60);'
+      script: 'graph.insertVertex(graph.getDefaultParent(), "agent-start", "Start", 100, 100, 120, 60);',
+      postconditions: [{ cellId: "agent-start", exists: true, kind: "vertex", label: "Start", parentId: "1",
+        geometry: { x: 100, y: 100, width: 120, height: 60 } }]
     }]);
     if (!emptyDiagramScript.ok) throw new Error(emptyDiagramScript.error);
     expect(resolveNativeEditTargets({ cells: [] }, emptyDiagramScript.operations)).toMatchObject({
@@ -166,6 +168,7 @@ describe("resolveNativeEditTargets", () => {
     });
     const script = parseNativeEditOperations([{
       op: "run_drawio_script", target: "active_page", summary: "Curve all connectors",
+      postconditions: [{ cellId: "edge-1", exists: true, kind: "edge", style: { curved: "1" } }],
       script: [
         "var edges = [];",
         "function collectEdges(parent) {",
