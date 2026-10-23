@@ -11,6 +11,11 @@ describe("isMissingSdkSessionError", () => {
     expect(isMissingSdkSessionError("The session has been deleted")).toBe(true);
   });
 
+  it("does not misclassify missing models or unrelated resources as missing sessions", () => {
+    expect(isMissingSdkSessionError("model does not exist")).toBe(false);
+    expect(isMissingSdkSessionError("The configured provider has been deleted")).toBe(false);
+  });
+
   it("does not treat authentication, quota, or transport failures as recoverable misses", () => {
     expect(isMissingSdkSessionError("401 Unauthorized")).toBe(false);
     expect(isMissingSdkSessionError("Quota exceeded")).toBe(false);
