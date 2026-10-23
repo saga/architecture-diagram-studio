@@ -417,7 +417,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit one batch of native Draw.io changes. Use focused typed operations for simple edits, or one run_drawio_script operation for any complex/unlisted native editor task. The script executes inside the live Draw.io iframe with ui, editor, graph and model variables and can call native Graph/Model APIs instead of a growing feature-specific allowlist. Script mode must be the only operation in the batch, target active_page and provide a concise summary. The server validates the revision/page; the browser runs the script in the native editor, rolls back active-page cell changes if it throws, and requires serialized XML plus persistence acknowledgement before reporting success. Do not produce replacement XML or guess target IDs; inspect live cells when needed.
+      description: "Submit one batch of native Draw.io changes. Use focused typed operations for simple edits, or one run_drawio_script operation for any complex/unlisted native editor task. The script executes inside the live Draw.io iframe with ui, editor, graph and model variables and can call native Graph/Model APIs instead of a growing feature-specific allowlist. Script mode must be the only operation in the batch, target active_page and provide a concise summary. The server validates the revision/page; the browser runs the script in the native editor, rolls back active-page cell changes if it throws, and requires serialized XML plus persistence acknowledgement before reporting success. Do not produce replacement XML or guess target IDs; inspect live cells when needed.",
       parameters: {
         type: "object",
         properties: {
@@ -452,7 +452,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return {
           // This is tool feedback for the model, not the browser protocol response. Do not expose requiresClientExecution here; it is easy to misread as a user-confirmation requirement.
           accepted: true, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}) })),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}) })),
           summary
         };
       }
