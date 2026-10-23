@@ -167,6 +167,14 @@ describe("parseNativeEditOperations", () => {
     });
     expect(parseNativeEditOperations([{ op: "run_drawio_script", target: "active_page", summary: "Script", script }]))
       .toMatchObject({ ok: false, error: expect.stringContaining("postconditions") });
+    expect(parseNativeEditOperations([{
+      op: "run_drawio_script", target: "active_page", summary: "Script", script,
+      postconditions: [{ kind: "label_equals", target: "api", value: "New API", unverified: true }]
+    }])).toMatchObject({ ok: false, error: expect.stringContaining("unexpected field") });
+    expect(parseNativeEditOperations([{
+      op: "run_drawio_script", target: "active_page", summary: "Script", script,
+      postconditions: [{ kind: "geometry_matches", target: "api" }]
+    }])).toMatchObject({ ok: false, error: expect.stringContaining("requires at least one") });
     expect(parseNativeEditOperations([
       { op: "run_drawio_script", target: "active_page", summary: "Script", script, postconditions },
       { op: "set_label", target: "db", label: "Renamed" }
