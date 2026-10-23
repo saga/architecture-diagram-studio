@@ -56,6 +56,7 @@ type PendingAutoLayout = {
   timeoutId: number;
   startedAt: number;
   awaitingExport: boolean;
+  requestId: string;
   plan: NativeLayoutPlan;
 };
 interface Props {
@@ -157,25 +158,24 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         reject(new Error("Wait for the current native edit to finish saving before applying auto layout."));
         return;
       }
-      const currentPageId = getPageIdFromXml(xml);
-      if (plan.pageId !== currentPageId) {
-        reject(new Error("The active page changed after layout calculation. Nothing was applied; retry auto layout."));
-        return;
-      }
+      // The iframe validates the live page ID, full native cell set, geometry and connector terminals
+      // against this plan before mutating anything. Do not compare against the first XML page here:
+      // Draw.io documents may contain multiple pages, and the selected page need not be the first.
       if (!plan.positions.length || plan.positions.length > 5000 ||
           plan.expectedPageCellIds.length > 20000 || plan.expectedCells.length > 10000) {
         reject(new Error("The layout plan is empty or exceeds the native editor safety limit."));
         return;
       }
 
+      const requestId = "layout-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9);
       const timeoutId = window.setTimeout(() => {
-        rejectPendingAutoLayout(new Error("Draw.io did not confirm native layout and XML serialization within 30 seconds."));
+        rejectPendingAutoLayout(new Error("Draw.io did not confirm Studio auto layout and XML serialization within 30 seconds."));
       }, AUTO_LAYOUT_TIMEOUT_MS);
-      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false, plan };
+      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false, requestId, plan };
       try {
         target.postMessage(JSON.stringify({
           event: "studioNativeLayoutRequest",
-          requestId: "layout-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9),
+          requestId,
           plan
         }), window.location.origin);
         recordDiagnostic("drawio.layout.requested", "Sent a revision-bound Dagre/ELK plan to the native Draw.io editor", {
@@ -557,6 +557,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         if (!pending) {
           recordDiagnostic("drawio.layout.acknowledgement.unmatched", "Ignored a native layout result without a pending request", {
             requestId: typeof data.requestId === "string" ? data.requestId : null
+          }, "warn");
+        } else if (data.requestId !== pending.requestId) {
+          recordDiagnostic("drawio.layout.acknowledgement.stale", "Ignored a layout response for a different request", {
+            receivedRequestId: typeof data.requestId === "string" ? data.requestId : null,
+            expectedRequestId: pending.requestId
           }, "warn");
         } else if (data.success !== true) {
           const errorMessage = typeof data.error === "string" ? data.error.slice(0, 500) : "The native editor rejected the layout plan.";
