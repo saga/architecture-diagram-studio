@@ -229,20 +229,31 @@ const curveAllConnectorsScript = [
 ].join("\n");
 
 describe("native Draw.io script bridge", () => {
-  it("applies the pinned Draw.io C4 Person shape and metadata as a typed native operation", () => {
-    const harness = createHarness();
-    harness.service.value = "Payment API";
-    harness.service.geometry = mockGeometry(10, 20, 120, 60);
-    const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: "person" }));
+  it("applies the canonical Draw.io C4 palette styles, metadata and dimensions for all supported C4 types", () => {
+    const cases = [
+      { kind: "person", fill: "#083F75", stroke: "#06315C", width: 200, height: 180, type: "Person", shape: "shape=mxgraph.c4.person2" },
+      { kind: "system", fill: "#1061B0", stroke: "#0D5091", width: 240, height: 120, type: "Software System", shape: "rounded=1" },
+      { kind: "external", fill: "#8C8496", stroke: "#736782", width: 240, height: 120, type: "Software System", shape: "rounded=1" }
+    ] as const;
 
-    expect(result).toMatchObject({ event: "studioPropertyEditResult", success: true });
-    expect(harness.service.style).toContain("shape=mxgraph.c4.person2");
-    expect(harness.service.style).toContain("fillColor=#083F75");
-    expect(harness.service.value.getAttribute("c4Name")).toBe("Payment API");
-    expect(harness.service.value.getAttribute("c4Type")).toBe("Person");
-    expect(harness.service.value.getAttribute("placeholders")).toBe("1");
-    expect(harness.service.value.getAttribute("label")).toContain("%c4Name%");
-    expect(harness.service.geometry).toMatchObject({ width: 200, height: 180 });
+    for (const c4 of cases) {
+      const harness = createHarness();
+      harness.service.value = "Payment API";
+      harness.service.geometry = mockGeometry(10, 20, 120, 60);
+      const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: c4.kind }));
+
+      expect(result).toMatchObject({ event: "studioPropertyEditResult", success: true });
+      expect(harness.service.style).toContain(c4.shape);
+      expect(harness.service.style).toContain("fillColor=" + c4.fill);
+      expect(harness.service.style).toContain("strokeColor=" + c4.stroke);
+      expect(harness.service.style).toContain("fontColor=#ffffff");
+      expect(harness.service.value.getAttribute("c4Name")).toBe("Payment API");
+      expect(harness.service.value.getAttribute("c4Type")).toBe(c4.type);
+      expect(harness.service.value.getAttribute("placeholders")).toBe("1");
+      expect(harness.service.value.getAttribute("label")).toContain("%c4Name%");
+      expect(harness.service.value.getAttribute("label")).toContain("%c4Type%");
+      expect(harness.service.geometry).toMatchObject({ width: c4.width, height: c4.height });
+    }
   });
 
   it("rejects C4 Person when the real shape registry is missing and never uses a fallback", () => {
