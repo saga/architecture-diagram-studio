@@ -4,6 +4,7 @@ import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
+import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
 const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32ecf1a1a7";
@@ -12,27 +13,13 @@ const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
 const RUNTIME_INSPECTION_TIMEOUT_MS = 5_000;
 const AUTO_LAYOUT_TIMEOUT_MS = 30_000;
 
-export type NativeAutoLayoutAlgorithm = "elkLayered" | "elkTree" | "elkRadial" | "elkOrganic";
-export type NativeAutoLayoutDirection = "RIGHT" | "LEFT" | "DOWN" | "UP";
-export type NativeAutoLayoutOptions = {
-  algorithm: NativeAutoLayoutAlgorithm;
-  direction: NativeAutoLayoutDirection;
-  nodeSpacing: number;
-  layerSpacing: number;
-  edgeRouting: "ORTHOGONAL" | "POLYLINE" | "SPLINES";
-};
-export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
-  algorithm: "elkLayered",
-  direction: "RIGHT",
-  nodeSpacing: 30,
-  layerSpacing: 30,
-  edgeRouting: "ORTHOGONAL"
-};
+export { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
+export type { NativeAutoLayoutOptions, NativeLayoutPlan };
 
 export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null }): Promise<DrawioRuntimeInspection>;
-  /** Applies the selected native Draw.io ELK layout and resolves with verified native XML. */
-  applyAutoLayout(options: NativeAutoLayoutOptions): Promise<string>;
+  /** Applies a revision/page-bound Dagre or ELK geometry plan to native Draw.io cells. */
+  applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -69,7 +56,7 @@ type PendingAutoLayout = {
   timeoutId: number;
   startedAt: number;
   awaitingExport: boolean;
-  options: NativeAutoLayoutOptions;
+  plan: NativeLayoutPlan;
 };
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
@@ -135,9 +122,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pendingAutoLayoutRef.current = null;
     recordDiagnostic("drawio.layout.completed", "Native Draw.io auto layout was applied and serialized", {
       durationMs: Date.now() - pending.startedAt, xmlLength: xml.length,
-      layout: pending.options.algorithm, direction: pending.options.direction,
-      nodeSpacing: pending.options.nodeSpacing, layerSpacing: pending.options.layerSpacing,
-      edgeRouting: pending.options.edgeRouting
+      engine: pending.plan.engine, algorithm: pending.plan.algorithm, direction: pending.plan.direction,
+      positionCount: pending.plan.positions.length, edgeRouteCount: pending.plan.edgeRoutes.length,
+      documentRevision: pending.plan.documentRevision, pageId: pending.plan.pageId
     });
     pending.resolve(xml);
   }
@@ -149,15 +136,16 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pendingAutoLayoutRef.current = null;
     recordDiagnostic("drawio.layout.failed", "Native Draw.io auto layout could not be confirmed", {
       durationMs: Date.now() - pending.startedAt, errorMessage: error.message,
-      layout: pending.options.algorithm, direction: pending.options.direction
+      engine: pending.plan.engine, algorithm: pending.plan.algorithm, direction: pending.plan.direction,
+      documentRevision: pending.plan.documentRevision, pageId: pending.plan.pageId
     }, "error");
     pending.reject(error);
   }
 
   useImperativeHandle(ref, () => ({
-    applyAutoLayout: (options) => new Promise<string>((resolve, reject) => {
+    applyAutoLayout: (plan) => new Promise<string>((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
-      if (!editorReady || !target) {
+      if (!editorReady || !bridgeReady || !target) {
         reject(new Error("The native Draw.io editor is not ready for auto layout."));
         return;
       }
@@ -169,32 +157,35 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         reject(new Error("Wait for the current native edit to finish saving before applying auto layout."));
         return;
       }
+      const currentPageId = getPageIdFromXml(xml);
+      if (plan.pageId !== currentPageId) {
+        reject(new Error("The active page changed after layout calculation. Nothing was applied; retry auto layout."));
+        return;
+      }
+      if (!plan.positions.length || plan.positions.length > 5000 ||
+          plan.expectedPageCellIds.length > 20000 || plan.expectedCells.length > 10000) {
+        reject(new Error("The layout plan is empty or exceeds the native editor safety limit."));
+        return;
+      }
 
       const timeoutId = window.setTimeout(() => {
-        rejectPendingAutoLayout(new Error("Draw.io did not confirm auto layout and XML serialization within 30 seconds."));
+        rejectPendingAutoLayout(new Error("Draw.io did not confirm native layout and XML serialization within 30 seconds."));
       }, AUTO_LAYOUT_TIMEOUT_MS);
-      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false, options };
+      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false, plan };
       try {
-        const config: Record<string, string> = {
-          "elk.spacing.nodeNode": String(options.nodeSpacing),
-          "elk.edgeRouting": options.edgeRouting
-        };
-        if (options.algorithm === "elkLayered") {
-          config["elk.direction"] = options.direction;
-          config["elk.layered.spacing.nodeNodeBetweenLayers"] = String(options.layerSpacing);
-        } else if (options.algorithm === "elkTree") {
-          config["elk.direction"] = options.direction;
-        }
         target.postMessage(JSON.stringify({
-          action: "layout",
-          layouts: [{ layout: options.algorithm, config }]
+          event: "studioNativeLayoutRequest",
+          requestId: "layout-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9),
+          plan
         }), window.location.origin);
-        recordDiagnostic("drawio.layout.requested", "Requested a native Draw.io ELK layout", {
-          drawioVersion: DRAWIO_VERSION, layout: options.algorithm, direction: options.direction,
-          nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting
+        recordDiagnostic("drawio.layout.requested", "Sent a revision-bound Dagre/ELK plan to the native Draw.io editor", {
+          drawioVersion: DRAWIO_VERSION, engine: plan.engine, algorithm: plan.algorithm,
+          direction: plan.direction, positionCount: plan.positions.length,
+          edgeRouteCount: plan.edgeRoutes.length, expectedCellCount: plan.expectedCells.length,
+          documentRevision: plan.documentRevision, pageId: plan.pageId
         });
       } catch (error) {
-        rejectPendingAutoLayout(new Error("Could not send the native Draw.io auto-layout request: " +
+        rejectPendingAutoLayout(new Error("Could not send the native layout plan to Draw.io: " +
           (error instanceof Error ? error.message : String(error))));
       }
     }),
@@ -561,17 +552,28 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         setStartupError(null);
         setEditorReady(true);
       }
-      if (data.event === "layout") {
+      if (data.event === "studioNativeLayoutResult") {
         const pending = pendingAutoLayoutRef.current;
-        if (pending && typeof data.error === "string" && data.error) {
-          rejectPendingAutoLayout(new Error("Draw.io could not apply auto layout: " + data.error.slice(0, 300)));
-        } else if (pending && !pending.awaitingExport) {
+        if (!pending) {
+          recordDiagnostic("drawio.layout.acknowledgement.unmatched", "Ignored a native layout result without a pending request", {
+            requestId: typeof data.requestId === "string" ? data.requestId : null
+          }, "warn");
+        } else if (data.success !== true) {
+          const errorMessage = typeof data.error === "string" ? data.error.slice(0, 500) : "The native editor rejected the layout plan.";
+          rejectPendingAutoLayout(new Error(errorMessage + (data.rollbackConfirmed === true ? " Previous geometry was restored." : "")));
+        } else if (!pending.awaitingExport) {
           pending.awaitingExport = true;
-          recordDiagnostic("drawio.layout.acknowledged", "Draw.io acknowledged the layout action; requesting the resulting native XML");
+          recordDiagnostic("drawio.layout.acknowledged", "Native Draw.io applied the geometry plan; requesting the serialized native XML", {
+            requestId: typeof data.requestId === "string" ? data.requestId : null,
+            engine: pending.plan.engine, algorithm: pending.plan.algorithm,
+            changedVertices: typeof data.changedVertices === "number" ? data.changedVertices : null,
+            changedEdges: typeof data.changedEdges === "number" ? data.changedEdges : null,
+            documentRevision: pending.plan.documentRevision, pageId: pending.plan.pageId
+          });
           try {
             iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
           } catch (error) {
-            rejectPendingAutoLayout(new Error("Draw.io finished the layout but the updated XML could not be requested: " +
+            rejectPendingAutoLayout(new Error("Draw.io applied the layout but the updated XML could not be requested: " +
               (error instanceof Error ? error.message : String(error))));
           }
         }
