@@ -151,6 +151,39 @@ function renamingCopilot() {
   };
 }
 
+function belowNodesCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    getPreparedSystemMessage: () => prepared.systemMessage,
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "propose_native_edits");
+        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
+        await tool.handler({ operations: [
+          { op: "add_node_below", target: "Database", newLabel: "ddd" },
+          { op: "add_node_below", target: "API Service", newLabel: "eee" }
+        ] });
+        return { message: { data: { content: "Added ddd below Database and eee below API Service." } }, modelCallUsages: [] };
+      }
+    })
+  };
+}
+
 function proposingCopilot() {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -326,6 +359,24 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(true);
   });
 
+  it("auto-dispatches a small typed below-and-connect batch without a script proposal", async () => {
+    const copilot = belowNodesCopilot();
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "在 Database 和 API Service 下方分别添加 ddd 和 eee，并各自连接到来源节点"
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect(body.outcome).not.toBe("proposal_required");
+    const nativeEdits = body.nativeEdits as { operations: Array<Record<string, unknown>> };
+    expect(nativeEdits.operations).toMatchObject([
+      { op: "add_node_below", cellId: "db", targetLabel: "Database", newLabel: "ddd" },
+      { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
+    ]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(copilot.getPreparedSystemMessage()).toContain("must not be scripted");
+  });
+
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
     const copilot = reportingCopilot("answered", "No document change is needed.");
     const harness = await createServer({ copilot });
@@ -339,7 +390,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("negative dy");
     expect(prompt).toContain("selectedCell.cellId");
     expect(prompt).toContain("return needs_clarification");
-    expect(prompt).toContain("Alignment, distribution, grouping");
+    expect(prompt).toContain("alignment, distribution, grouping");
     expect(prompt).toContain("run_drawio_script");
     expect(prompt).toContain("actual Draw.io iframe");
   });
