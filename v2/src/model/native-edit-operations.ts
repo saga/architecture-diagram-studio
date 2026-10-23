@@ -411,9 +411,18 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The Dagre/ELK layout plan was not calculated from the current native XML revision." };
         const expectedPage = getNativeDiagramPageInfo(xml, pageId).id;
-        if (layoutPlan.pageId !== expectedPage || layoutPlan.engine !== operation.engine ||
-            layoutPlan.algorithm !== operation.algorithm || layoutPlan.direction !== operation.direction) {
-          return { ok: false, error: "The calculated layout plan does not match the active page or selected layout options." };
+        const revisionMatches = /^[a-f0-9]{64}$/i.test(layoutPlan.documentRevision);
+        const optionsMatch = layoutPlan.engine === operation.engine &&
+          layoutPlan.algorithm === operation.algorithm &&
+          layoutPlan.direction === operation.direction &&
+          layoutPlan.nodeSpacing === operation.nodeSpacing &&
+          layoutPlan.layerSpacing === operation.layerSpacing &&
+          layoutPlan.edgeRouting === operation.edgeRouting &&
+          layoutPlan.iterations === operation.iterations &&
+          layoutPlan.randomSeed === operation.randomSeed &&
+          layoutPlan.margin === operation.margin;
+        if (!revisionMatches || layoutPlan.pageId !== expectedPage || !optionsMatch) {
+          return { ok: false, error: "The calculated layout plan does not match the current revision, active page or selected layout options." };
         }
         edits.push({ cellId, path: "cell:auto-layout", value: JSON.stringify(layoutPlan) });
         break;
