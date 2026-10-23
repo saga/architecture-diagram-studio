@@ -160,7 +160,7 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
   const targetAfter = findCell(after, operation.cellId, pageId);
   if (!targetBefore || !targetAfter) return false;
   for (const model of after) {
-    if (pageId && model.pageId !== pageId) continue;
+    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" || !labelMatches(candidate, payload.label.trim())) continue;
       const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
