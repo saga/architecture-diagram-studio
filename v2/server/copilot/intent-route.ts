@@ -497,6 +497,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "A document revision is required", requestId, sessionId });
       return;
     }
+    const requestedPageId = typeof (requestedContext as { activePageId?: unknown }).activePageId === "string"
+      ? ((requestedContext as { activePageId: string }).activePageId || null) : null;
     if (standalone) {
       if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000) {
         await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "missing_or_oversized_xml_snapshot", xmlLength: diagramXml.length, standalone });
@@ -504,8 +506,31 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return;
       }
     } else {
-      // In workspace mode the server's persisted snapshot is authoritative. Do not upload the
-      // same large XML again; revision mismatch fails closed before parsing or model dispatch.
+      // Older clients may still send XML. Validate that redundant snapshot before touching
+      // workspace state, so malformed/stale requests fail fast. Current clients send only revision.
+      if (diagramXml) {
+        if (Buffer.byteLength(diagramXml, "utf8") > 20_000_000) {
+          res.status(400).json({ outcome: "failed", reply: "The Copilot request could not be validated.", error: "The optional XML snapshot exceeds 20 MB", requestId, sessionId });
+          return;
+        }
+        const suppliedRevision = workspaceRevision(diagramXml);
+        if (suppliedRevision !== documentRevision) {
+          await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "revision_hash_mismatch", documentRevision, computedRevision: suppliedRevision });
+          res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied document revision does not match its XML snapshot.", documentRevision: suppliedRevision, requestId, sessionId });
+          return;
+        }
+        const suppliedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, suppliedRevision, requestedPageId);
+        if (!suppliedSnapshot.ok) {
+          await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
+          res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+          return;
+        }
+        if (requestedPageId && suppliedSnapshot.snapshot.pageInfo.id !== requestedPageId) {
+          res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
+          return;
+        }
+      }
+      // The server's persisted snapshot remains authoritative.
       try {
         const authoritative = await deps.getWorkspaceDiagramSnapshot();
         if (!authoritative || authoritative.revision !== documentRevision) {
@@ -534,8 +559,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied document revision does not match its XML snapshot.", documentRevision: computedRevision, requestId, sessionId });
       return;
     }
-    const requestedPageId = typeof (requestedContext as { activePageId?: unknown }).activePageId === "string"
-      ? ((requestedContext as { activePageId: string }).activePageId || null) : null;
     const parsedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, computedRevision, requestedPageId);
     if (!parsedSnapshot.ok) {
       await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });

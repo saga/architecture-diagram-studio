@@ -371,7 +371,7 @@ describe("Copilot intent route result and revision contract", () => {
     const standaloneEdit = (standalone.body.nativeEdits as { operations: unknown[] }).operations[0];
     expect(workspaceEdit).toMatchObject({ op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store" });
     expect(standaloneEdit).toEqual(workspaceEdit);
-    expect(workspaceHarness.snapshot).toHaveBeenCalledTimes(2);
+    expect(workspaceHarness.snapshot).toHaveBeenCalledTimes(3);
     expect(standaloneHarness.snapshot).not.toHaveBeenCalled();
     expect(standaloneHarness.persistSessionId).not.toHaveBeenCalled();
   });
