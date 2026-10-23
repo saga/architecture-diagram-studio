@@ -34,8 +34,12 @@ export function useWorkspacePersistence(options: Options) {
   currentWorkspaceIdRef.current = projectWorkspace?.id ?? null;
   currentWorkspaceKeyRef.current = getWorkspaceKey(projectWorkspace);
 
-  const clearSaveConflict = useCallback((reason: string) => {
+  const clearSaveConflict = useCallback((reason: string, nextXml?: string, alreadyPersisted = false) => {
     const previous = saveConflictRef.current;
+    // Update these refs synchronously: an old save may already be queued when restore succeeds.
+    // It must see that its XML is stale before the conflict latch is released.
+    if (typeof nextXml === "string") currentXmlRef.current = nextXml;
+    if (alreadyPersisted && typeof nextXml === "string") lastPersistedXmlRef.current = nextXml;
     saveConflictRef.current = null;
     pausedAutosaveLoggedRef.current = false;
     if (previous) onDiagnostic("workspace.persist.conflict.cleared",

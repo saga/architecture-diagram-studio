@@ -596,7 +596,7 @@ export default function App() {
       }
       // Prevent the workspace bootstrap fallback from replacing this standalone XML with the workspace primary diagram.
       if (projectWorkspace?.id) workspaceInitialLoadRef.current = projectWorkspace.id;
-      clearSaveConflict("standalone-document-opened");
+      clearSaveConflict("standalone-document-opened", xml);
       setWorkspaceContentReady(false);
       setStandaloneFileHandle(handle);
       setStandaloneFileName(file.name);
@@ -774,7 +774,7 @@ export default function App() {
       }, "error");
       return;
     }
-    clearSaveConflict("standalone-history-restore");
+    clearSaveConflict("standalone-history-restore", entry.xml);
     setNativeXmlOverride(entry.xml);
     setLocalHistoryOpen(false);
     setLastAction("Restored local snapshot: " + entry.label + "; native Undo/Redo history was reset.");
@@ -792,7 +792,7 @@ export default function App() {
         throw new Error(result.error || "Server-side native Draw.io version restore failed");
       }
       serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
-      clearSaveConflict("server-version-restore");
+      clearSaveConflict("server-version-restore", restoredXml, true);
       setNativeXmlOverride(restoredXml);
       setServerXmlAvailable(true);
       setWorkspaceContentReady(true);
