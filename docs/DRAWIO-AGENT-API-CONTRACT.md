@@ -20,7 +20,7 @@ Versioned contract for the bundled Draw.io **v32.0.2** runtime. This is a compac
 | `graph.view` (mxGraphView) | Read-only rendered state and layout validation | `getState(cell)`, `validate()` |
 | `ui` / `editor` | Editor orchestration and UI actions | Read-only inspection only. Do not change pages, replace the graph XML, or invoke save/exit actions. |
 
-**Never call `model.getDefaultParent()` or `model.refresh()`.** These are Graph-level methods, not Model methods. Use `graph.getDefaultParent()` and `graph.refresh()`. Only use API names present in the current request's `runtimeInspection.capabilities` for the corresponding object. The capability manifest reports method presence, not signature or semantic correctness.
+**Never call `model.getDefaultParent()` or `model.refresh()`.** These are Graph-level methods, not Model methods. Use `graph.getDefaultParent()` and `graph.refresh()`. Use the compact `runtimeInspection.capabilities` list as the reviewed common subset. It is not a full mxGraph API inventory. For an unlisted native API needed by a task, first probe `typeof owner.method === "function"` on the exact Graph/Model/View object inside the script; call it only if present, and still verify its postcondition. The capability manifest reports method presence, not signature or semantic correctness.
 
 ## Recipes
 
