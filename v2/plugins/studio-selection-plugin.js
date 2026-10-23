@@ -707,7 +707,7 @@
           points[index][axis] = numeric;
           geometry.points = points;
           activeModel.setGeometry(cell, geometry);
-        } else if (path === "cell:add-node-after") {
+        } else if (path === "cell:add-node-after" || path === "cell:add-node-below") {
           if (!cell.vertex || !cell.geometry || cell.id === "0" || cell.id === "1") {
             throw new Error("The target must be a diagram vertex with geometry");
           }
@@ -719,10 +719,14 @@
           var nodeParent = cell.parent || activeModel.getCell("1");
           if (!nodeParent) throw new Error("The target has no valid Draw.io layer");
           var nodeGeometry = cell.geometry;
-          var newX = Number(nodeGeometry.x) + Number(nodeGeometry.width) + 64;
-          var newY = Number(nodeGeometry.y);
           var newWidth = Math.max(120, Math.min(220, addRequest.label.trim().length * 10 + 36));
           var newHeight = 60;
+          var newX = path === "cell:add-node-after"
+            ? Number(nodeGeometry.x) + Number(nodeGeometry.width) + 64
+            : Number(nodeGeometry.x) + (Number(nodeGeometry.width) - newWidth) / 2;
+          var newY = path === "cell:add-node-after"
+            ? Number(nodeGeometry.y)
+            : Number(nodeGeometry.y) + Number(nodeGeometry.height) + 64;
           var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight,
             "rounded=0;whiteSpace=wrap;html=1;");
           if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
