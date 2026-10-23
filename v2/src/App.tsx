@@ -949,13 +949,17 @@ export default function App() {
           <div><div className="brand-name">FORM <span>STUDIO</span></div><div className="brand-caption">ARCHITECTURE DIAGRAMS</div></div>
         </div>
         <div className="topbar-divider" />
-        <div className="document-breadcrumb"><strong>{standaloneFileName || projectWorkspace?.primaryDiagram || "Draw.io diagram"}</strong><span className={"save-state save-state-" + documentSaveState} title={documentSaveState === "conflict" ? "Automatic saving is paused. Export local edits before restoring or reloading the latest server version." : undefined}><i />{standaloneFileName && !standaloneFileHandle
-          ? lastExportedXmlRef.current === drawioXml && documentSaveState === "exported" ? "Exported copy" : "Export to save"
+        <div className="document-breadcrumb"><strong>{standaloneFileName || projectWorkspace?.primaryDiagram || "Draw.io diagram"}</strong><span className={"save-state save-state-" + documentSaveState} title={documentSaveState === "conflict" ? "Automatic saving is paused. Export local edits before restoring or reloading the latest server version." : undefined}><i />{standaloneFileName
+          ? standaloneFileHandle
+            ? documentSaveState === "saving" ? "Saving locally…"
+              : documentSaveState === "failed" ? "Local save failed" : "Saved locally"
+            : lastExportedXmlRef.current === drawioXml && documentSaveState === "exported" ? "Exported copy" : "Export to save"
+          : !projectWorkspace?.primaryDiagram ? "No active file"
+          : !workspaceContentReady ? "Loading…"
           : documentSaveState === "saving" ? "Saving…"
           : documentSaveState === "conflict" ? "Save paused"
           : documentSaveState === "failed" ? "Save failed"
-          : !standaloneFileName && projectWorkspace?.primaryDiagram && !workspaceContentReady ? "Loading…"
-          : projectWorkspace?.primaryDiagram ? "Saved · r" + revision : "No active file"}</span></div>
+          : "Saved · r" + revision}</span></div>
         <nav className="workspace-nav" aria-label="Workspace pages">
           {([["diagram", "Diagram"], ["traces", "Agent traces"], ["settings", "Settings"]] as Array<[WorkspacePage, string]>).map(([page, label]) =>
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>

@@ -59,7 +59,7 @@ export function useWorkspacePersistence(options: Options) {
       "Workspace saving was re-enabled after an authoritative context change",
       { reason, previousWorkspaceKey: previous.workspaceKey,
         currentWorkspaceKey: currentWorkspaceKeyRef.current, conflictingRevision: previous.currentRevision }, "info");
-  }, [onDiagnostic]);
+  }, [onDiagnostic, setSaveState]);
 
   useEffect(() => {
     const conflict = saveConflictRef.current;
