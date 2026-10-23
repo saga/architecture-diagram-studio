@@ -259,6 +259,15 @@ describe("native Draw.io script bridge", () => {
     expect(inspected.capabilities.model).not.toContain("getDefaultParent");
   });
 
+  it("does not claim rollback succeeded after a script detaches the default layer", () => {
+    const harness = createHarness();
+    const result = harness.runScript('model.remove(model.getCell("1")); throw new Error("intentional failure");');
+    expect(result).toMatchObject({ success: false, batchRolledBack: false });
+    expect(result.rollbackErrors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cellId: "__active_page__", error: expect.stringContaining("cell tree/order") })
+    ]));
+  });
+
   it("restores mutations after a script error even when mxGraphModel lacks setConnectable", () => {
     const harness = createHarness();
     const beforeRootEdge = harness.rootEdge.style;
