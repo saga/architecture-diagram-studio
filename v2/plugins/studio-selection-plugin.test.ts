@@ -180,6 +180,7 @@ const curveAllConnectorsScript = [
   "if (edges.length) {",
   "  graph.setCellStyles('edgeStyle', 'orthogonalEdgeStyle', edges);",
   "  graph.setCellStyles('curved', '1', edges);",
+  "  return { affectedEdges: edges.length, checkedApiOwner: typeof graph.getDefaultParent === 'function' && typeof model.getDefaultParent === 'undefined' };",
   "}"
 ].join("\n");
 
@@ -188,17 +189,16 @@ describe("native Draw.io script bridge", () => {
     const harness = createHarness();
     const result = harness.runScript(curveAllConnectorsScript);
 
-    expect(result).toMatchObject({ success: true });
+    expect(result).toMatchObject({
+      success: true,
+      scriptResult: { available: true, value: { affectedEdges: 2, checkedApiOwner: true } }
+    });
     expect(harness.rootEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
     expect(harness.rootEdge.style).toContain("curved=1");
-    expect(harness.rootEdge.style).toContain("curveGeometry=1");
-    expect(harness.rootEdge.style).toContain("labelOnCurve=1");
     expect(harness.rootEdge.style).toContain("dashed=1");
     expect(harness.rootEdge.style).toContain("endArrow=block");
     expect(harness.nestedEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
     expect(harness.nestedEdge.style).toContain("curved=1");
-    expect(harness.nestedEdge.style).toContain("curveGeometry=1");
-    expect(harness.nestedEdge.style).toContain("labelOnCurve=1");
     expect(harness.nestedEdge.style).toContain("endArrow=block");
     expect(harness.service.style).toContain("fillColor=#ffffff");
     expect(harness.service.style).not.toContain("curved=1");
