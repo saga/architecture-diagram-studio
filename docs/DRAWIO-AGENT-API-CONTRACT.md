@@ -64,6 +64,8 @@ Use only methods observed on the current Graph/Model runtime and keep each reque
 - Clone geometry before changing it. Waypoints on nested/grouped cells may use parent-relative coordinates.
 - Do not assume a style setter or a model mutation guarantees the rendered canvas matches the user's request.
 - The bridge's outer batch transaction already exists. If using an additional `beginUpdate()`, pair it with `endUpdate()` in `finally`.
+- `run_drawio_script` executes synchronously in the same-origin Draw.io iframe on the browser main thread. The host's 30-second save timeout cannot interrupt a `while (true)` or infinite recursion. Avoid unbounded loops/recursion; the current bridge does not provide a hard execution timeout. If the editor is frozen, a browser-level reload is the available recovery, and unsaved edits may be lost. True interruptibility requires a structural move to a separately isolated/cross-origin editor runtime.
+- This is a local single-user workbench contract, not a security sandbox. Same-origin script execution can reach browser globals and same-origin endpoints even when the prompt says not to. The explicit code-review proposal and capability checks reduce accidental misuse but do not provide confinement; never treat this as suitable for untrusted code.
 - `runtimeInspection` and `scriptResult` are bounded diagnostic aids, not authorization controls and not persistence receipts.
 
 ## Runtime manifest
