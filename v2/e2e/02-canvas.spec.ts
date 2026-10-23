@@ -298,7 +298,7 @@ test.describe("原生画布", () => {
     const stylesBefore = edgeStyles(before);
     expect(connectorIds.length, "fixture should contain native connector cells").toBeGreaterThan(0);
     const postconditions = connectorIds
-      .filter((_id, index) => !/(?:^|;)curved=1(?:;|$)/.test(stylesBefore[index] || ""))
+      .filter((_id, index) => !/(?:^|;)curved(?:=(?:1|true))?(?:;|$)/i.test(stylesBefore[index] || ""))
       .slice(0, 12)
       .map((id) => ({ kind: "style_equals", target: id, key: "curved", value: "1" }));
     expect(postconditions.length, "fixture should contain connectors that require a style change").toBeGreaterThan(0);
