@@ -121,8 +121,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           documentRevision,
           drawioVersion: DRAWIO_VERSION,
           expectedPageId: pageId,
-          maxCells: 120,
-          maxRenderedEdges: 60
+          maxCells: 60,
+          maxRenderedEdges: 24
         }), window.location.origin);
         recordDiagnostic("drawio.runtime-inspection.requested", "Requested a read-only snapshot of the live native Draw.io runtime", {
           requestId, documentRevision, pageId, drawioVersion: DRAWIO_VERSION
