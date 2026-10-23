@@ -511,17 +511,16 @@ function postconditionIsReflected(
         ? recordsForPage(after, pageId).find((record) => record.id === previousTarget.id) ?? null
         : resolveUniqueRecord(after, condition.target, pageId);
       if (!source || !target) return false;
-      const relationExisted = Boolean(previousSource && previousTarget &&
-        recordsForPage(before, pageId).some((record) =>
-          record.cell.getAttribute("edge") === "1" &&
-          record.cell.getAttribute("source") === previousSource.id &&
-          record.cell.getAttribute("target") === previousTarget.id
-        ));
-      return !relationExisted && recordsForPage(after, pageId).some((record) =>
-        record.cell.getAttribute("edge") === "1" &&
-        record.cell.getAttribute("source") === source.id &&
-        record.cell.getAttribute("target") === target.id
-      );
+      const previousById = new Map(recordsForPage(before, pageId).map((record) => [record.id, record]));
+      return recordsForPage(after, pageId).some((record) => {
+        if (record.cell.getAttribute("edge") !== "1" ||
+            record.cell.getAttribute("source") !== source.id ||
+            record.cell.getAttribute("target") !== target.id) return false;
+        const previous = previousById.get(record.id);
+        return !previous || previous.cell.getAttribute("edge") !== "1" ||
+          previous.cell.getAttribute("source") !== source.id ||
+          previous.cell.getAttribute("target") !== target.id;
+      });
     }
     case "parent_is": {
       const previous = resolveUniqueRecord(before, condition.target, pageId);
