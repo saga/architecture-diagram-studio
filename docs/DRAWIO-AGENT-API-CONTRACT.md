@@ -22,6 +22,8 @@ Versioned contract for the bundled Draw.io **v32.0.2** runtime. This is a compac
 
 **Never call `model.getDefaultParent()` or `model.refresh()`.** These are Graph-level methods, not Model methods. Use `graph.getDefaultParent()` and `graph.refresh()`. Use the compact `runtimeInspection.capabilities` list as the reviewed common subset. It is not a full mxGraph API inventory. For an unlisted native API needed by a task, first probe `typeof owner.method === "function"` on the exact Graph/Model/View object inside the script; call it only if present, and still verify its postcondition. The capability manifest reports method presence, not signature or semantic correctness.
 
+Shape registration is reported separately under `runtimeInspection.capabilityManifest.shapes`. Request exact shape IDs to inspect, then consult `shapes.registered[id]`. This result reflects `mxCellRenderer.defaultShapes`, not `mxStencilRegistry`: the stencil registry stores a different kind of definition. A missing or false registration result must not be replaced with a guess. Use a typed, canonical operation for a supported concept; otherwise report that the requested shape is unavailable.
+
 ## Recipes
 
 ### Enumerate all cells, including group descendants
@@ -70,4 +72,4 @@ Use only methods observed on the current Graph/Model runtime and keep each reque
 
 ## Runtime manifest
 
-The required subset is declared in `v2/src/model/drawio-runtime-contract.ts` and checked against live methods by `v2/plugins/studio-selection-plugin.js`. This deliberately avoids injecting a 1,000-method API inventory into every model request. The host and server fail closed when the pinned version or required method subset does not match. Adding a recipe requires updating the contract, manifest expectations, focused runtime tests and—when it mutates rendered output—Playwright coverage against the bundled Draw.io runtime.
+The required subset is declared in `v2/src/model/drawio-runtime-contract.ts` and checked against live methods by `v2/plugins/studio-selection-plugin.js`. The same bridge can query a bounded list of native shape IDs against `mxCellRenderer.defaultShapes`, separately from the method capability manifest. This deliberately avoids injecting a 1,000-method API inventory into every model request. The host and server fail closed when the pinned version or required method subset does not match. Adding a recipe requires updating the contract, manifest expectations, focused runtime tests and—when it mutates rendered output—Playwright coverage against the bundled Draw.io runtime.
