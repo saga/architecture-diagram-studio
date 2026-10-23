@@ -180,6 +180,7 @@ const curveAllConnectorsScript = [
   "if (edges.length) {",
   "  graph.setCellStyles('edgeStyle', 'orthogonalEdgeStyle', edges);",
   "  graph.setCellStyles('curved', '1', edges);",
+  "  graph.refresh();",
   "  return { affectedEdges: edges.length, checkedApiOwner: typeof graph.getDefaultParent === 'function' && typeof model.getDefaultParent === 'undefined' };",
   "}"
 ].join("\n");
