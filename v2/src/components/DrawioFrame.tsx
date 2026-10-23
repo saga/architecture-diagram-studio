@@ -12,10 +12,27 @@ const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
 const RUNTIME_INSPECTION_TIMEOUT_MS = 5_000;
 const AUTO_LAYOUT_TIMEOUT_MS = 30_000;
 
+export type NativeAutoLayoutAlgorithm = "elkLayered" | "elkTree" | "elkRadial" | "elkOrganic";
+export type NativeAutoLayoutDirection = "RIGHT" | "LEFT" | "DOWN" | "UP";
+export type NativeAutoLayoutOptions = {
+  algorithm: NativeAutoLayoutAlgorithm;
+  direction: NativeAutoLayoutDirection;
+  nodeSpacing: number;
+  layerSpacing: number;
+  edgeRouting: "ORTHOGONAL" | "POLYLINE" | "SPLINES";
+};
+export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
+  algorithm: "elkLayered",
+  direction: "RIGHT",
+  nodeSpacing: 30,
+  layerSpacing: 30,
+  edgeRouting: "ORTHOGONAL"
+};
+
 export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null }): Promise<DrawioRuntimeInspection>;
-  /** Applies the embedded Draw.io ELK horizontal-flow layout and resolves with verified native XML. */
-  applyAutoLayout(): Promise<string>;
+  /** Applies the selected native Draw.io ELK layout and resolves with verified native XML. */
+  applyAutoLayout(options: NativeAutoLayoutOptions): Promise<string>;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -52,6 +69,7 @@ type PendingAutoLayout = {
   timeoutId: number;
   startedAt: number;
   awaitingExport: boolean;
+  options: NativeAutoLayoutOptions;
 };
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
@@ -116,7 +134,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     window.clearTimeout(pending.timeoutId);
     pendingAutoLayoutRef.current = null;
     recordDiagnostic("drawio.layout.completed", "Native Draw.io auto layout was applied and serialized", {
-      durationMs: Date.now() - pending.startedAt, xmlLength: xml.length, layout: "elkLayered", direction: "RIGHT"
+      durationMs: Date.now() - pending.startedAt, xmlLength: xml.length,
+      layout: pending.options.algorithm, direction: pending.options.direction,
+      nodeSpacing: pending.options.nodeSpacing, layerSpacing: pending.options.layerSpacing,
+      edgeRouting: pending.options.edgeRouting
     });
     pending.resolve(xml);
   }
@@ -127,13 +148,14 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     window.clearTimeout(pending.timeoutId);
     pendingAutoLayoutRef.current = null;
     recordDiagnostic("drawio.layout.failed", "Native Draw.io auto layout could not be confirmed", {
-      durationMs: Date.now() - pending.startedAt, errorMessage: error.message
+      durationMs: Date.now() - pending.startedAt, errorMessage: error.message,
+      layout: pending.options.algorithm, direction: pending.options.direction
     }, "error");
     pending.reject(error);
   }
 
   useImperativeHandle(ref, () => ({
-    applyAutoLayout: () => new Promise<string>((resolve, reject) => {
+    applyAutoLayout: (options) => new Promise<string>((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !target) {
         reject(new Error("The native Draw.io editor is not ready for auto layout."));
@@ -151,14 +173,25 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       const timeoutId = window.setTimeout(() => {
         rejectPendingAutoLayout(new Error("Draw.io did not confirm auto layout and XML serialization within 30 seconds."));
       }, AUTO_LAYOUT_TIMEOUT_MS);
-      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false };
+      pendingAutoLayoutRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false, options };
       try {
+        const config: Record<string, string> = {
+          "elk.spacing.nodeNode": String(options.nodeSpacing),
+          "elk.edgeRouting": options.edgeRouting
+        };
+        if (options.algorithm === "elkLayered") {
+          config["elk.direction"] = options.direction;
+          config["elk.layered.spacing.nodeNodeBetweenLayers"] = String(options.layerSpacing);
+        } else if (options.algorithm === "elkTree") {
+          config["elk.direction"] = options.direction;
+        }
         target.postMessage(JSON.stringify({
           action: "layout",
-          layouts: [{ layout: "elkLayered", config: { "elk.direction": "RIGHT" } }]
+          layouts: [{ layout: options.algorithm, config }]
         }), window.location.origin);
-        recordDiagnostic("drawio.layout.requested", "Requested Draw.io's built-in ELK horizontal-flow layout", {
-          drawioVersion: DRAWIO_VERSION, layout: "elkLayered", direction: "RIGHT"
+        recordDiagnostic("drawio.layout.requested", "Requested a native Draw.io ELK layout", {
+          drawioVersion: DRAWIO_VERSION, layout: options.algorithm, direction: options.direction,
+          nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting
         });
       } catch (error) {
         rejectPendingAutoLayout(new Error("Could not send the native Draw.io auto-layout request: " +

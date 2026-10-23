@@ -1,5 +1,5 @@
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, Checkbox, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, Checkbox, ConfigProvider, Input, InputNumber, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, Ref, SelectHTMLAttributes } from "react";
@@ -7,7 +7,7 @@ import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
 import { downloadText } from "./model/download-text";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
-import DrawioFrame, { DRAWIO_VERSION, type DrawioFrameHandle } from "./components/DrawioFrame";
+import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
@@ -20,6 +20,43 @@ type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
+
+const NATIVE_LAYOUT_STORAGE_KEY = "architecture-diagram-studio:v2:native-layout-options";
+const NATIVE_LAYOUT_ALGORITHMS: Array<{ value: NativeAutoLayoutOptions["algorithm"]; label: string }> = [
+  { value: "elkLayered", label: "Flow (Layered)" },
+  { value: "elkTree", label: "Tree" },
+  { value: "elkRadial", label: "Radial tree" },
+  { value: "elkOrganic", label: "Organic" }
+];
+const NATIVE_LAYOUT_DIRECTIONS: Array<{ value: NativeAutoLayoutOptions["direction"]; label: string }> = [
+  { value: "RIGHT", label: "Left to right" },
+  { value: "LEFT", label: "Right to left" },
+  { value: "DOWN", label: "Top to bottom" },
+  { value: "UP", label: "Bottom to top" }
+];
+
+function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
+  try {
+    const raw = window.localStorage.getItem(NATIVE_LAYOUT_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
+    const saved = JSON.parse(raw) as Partial<NativeAutoLayoutOptions>;
+    const algorithm = NATIVE_LAYOUT_ALGORITHMS.some((item) => item.value === saved.algorithm)
+      ? saved.algorithm! : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm;
+    const direction = NATIVE_LAYOUT_DIRECTIONS.some((item) => item.value === saved.direction)
+      ? saved.direction! : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction;
+    const edgeRouting = ["ORTHOGONAL", "POLYLINE", "SPLINES"].includes(saved.edgeRouting ?? "")
+      ? saved.edgeRouting! : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting;
+    return {
+      algorithm, direction, edgeRouting,
+      nodeSpacing: typeof saved.nodeSpacing === "number" && Number.isFinite(saved.nodeSpacing)
+        ? Math.max(5, Math.min(200, Math.round(saved.nodeSpacing))) : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing,
+      layerSpacing: typeof saved.layerSpacing === "number" && Number.isFinite(saved.layerSpacing)
+        ? Math.max(10, Math.min(500, Math.round(saved.layerSpacing))) : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing
+    };
+  } catch {
+    return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
+  }
+}
 /** Ant Design primary colour per theme, so library-rendered controls match the studio palette. */
 const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
 function loadSavedTheme(): UiTheme {
@@ -98,6 +135,12 @@ export default function App() {
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
   const [nativeScriptSupported, setNativeScriptSupported] = useState(false);
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
+  const [nativeLayoutOptions, setNativeLayoutOptions] = useState<NativeAutoLayoutOptions>(() => loadNativeLayoutOptions());
+  const [layoutSettingsOpen, setLayoutSettingsOpen] = useState(false);
+  useEffect(() => {
+    try { window.localStorage.setItem(NATIVE_LAYOUT_STORAGE_KEY, JSON.stringify(nativeLayoutOptions)); }
+    catch { /* Layout preferences remain usable when browser storage is unavailable. */ }
+  }, [nativeLayoutOptions]);
   const [chatInput, setChatInput] = useState("");
   const [copilotSessionId, setCopilotSessionId] = useState(() => {
     try {
@@ -844,34 +887,45 @@ export default function App() {
     recordDiagnostic("navigation.opened", "Opened a workspace page", { page });
   }
 
-  async function runAutoLayout() {
+  async function runAutoLayout(overrides: Partial<NativeAutoLayoutOptions> = {}) {
     if (autoLayoutRunning) return;
+    const options: NativeAutoLayoutOptions = { ...nativeLayoutOptions, ...overrides };
+    const algorithmLabel = NATIVE_LAYOUT_ALGORITHMS.find((item) => item.value === options.algorithm)?.label ?? options.algorithm;
     const frame = drawioFrameRef.current;
     if (!frame) {
       setLastAction("Auto layout failed: the native Draw.io editor is unavailable");
       return;
     }
     setAutoLayoutRunning(true);
-    setLastAction("Applying native Draw.io auto layout…");
+    setLastAction("Applying native Draw.io " + algorithmLabel + " layout…");
     recordDiagnostic("drawio.layout.ui.requested", "The user requested auto layout from the Studio toolbar", {
-      pageId: selectedNativePageId, documentRevision: calculateDrawioXmlRevision(drawioXml), drawioVersion: DRAWIO_VERSION
+      pageId: selectedNativePageId, documentRevision: calculateDrawioXmlRevision(drawioXml), drawioVersion: DRAWIO_VERSION,
+      layout: options.algorithm, direction: options.direction, nodeSpacing: options.nodeSpacing,
+      layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting
     });
     try {
-      const serializedXml = await frame.applyAutoLayout();
+      const serializedXml = await frame.applyAutoLayout(options);
       if (!isDrawioXmlDocument(serializedXml)) throw new Error("Draw.io did not return a valid serialized XML document.");
       setLastAction("Auto layout applied; syncing native Draw.io XML");
       recordDiagnostic("drawio.layout.ui.completed", "Native auto layout returned valid Draw.io XML", {
-        xmlLength: serializedXml.length, pageId: selectedNativePageId
+        xmlLength: serializedXml.length, pageId: selectedNativePageId,
+        layout: options.algorithm, direction: options.direction
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setLastAction("Auto layout failed: " + errorMessage);
       recordDiagnostic("drawio.layout.ui.failed", "Auto layout failed or could not be confirmed", {
-        pageId: selectedNativePageId, errorMessage
+        pageId: selectedNativePageId, errorMessage, layout: options.algorithm, direction: options.direction
       }, "error");
     } finally {
       setAutoLayoutRunning(false);
     }
+  }
+
+  function runDirectionalLayout(direction: "RIGHT" | "DOWN") {
+    const preset: Partial<NativeAutoLayoutOptions> = { algorithm: "elkLayered", direction };
+    setNativeLayoutOptions((current) => ({ ...current, ...preset }));
+    void runAutoLayout(preset);
   }
 
   return (
@@ -1057,19 +1111,128 @@ export default function App() {
       <main className="main-panel">
         <div className="canvas-toolbar">
           <div className="canvas-title">Draw.io diagram</div>
-          <div className="canvas-toolbar-actions">
+          <div className="canvas-toolbar-actions" role="group" aria-label="Layout controls">
+            <label className="native-layout-field">
+              <span>Engine</span>
+              <Select<NativeAutoLayoutOptions["algorithm"]>
+                aria-label="Layout engine"
+                className="native-layout-select native-layout-engine"
+                size="small"
+                value={nativeLayoutOptions.algorithm}
+                options={NATIVE_LAYOUT_ALGORITHMS}
+                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+                onChange={(algorithm) => setNativeLayoutOptions((current) => ({ ...current, algorithm }))}
+              />
+            </label>
+            <label className="native-layout-field">
+              <span>Direction</span>
+              <Select<NativeAutoLayoutOptions["direction"]>
+                aria-label="Layout direction"
+                className="native-layout-select native-layout-direction"
+                size="small"
+                value={nativeLayoutOptions.direction}
+                options={NATIVE_LAYOUT_DIRECTIONS}
+                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict" ||
+                  nativeLayoutOptions.algorithm === "elkRadial" || nativeLayoutOptions.algorithm === "elkOrganic"}
+                onChange={(direction) => setNativeLayoutOptions((current) => ({ ...current, direction }))}
+              />
+            </label>
+            <Button
+              className="layout-direction-button"
+              disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+              title="Apply a left-to-right flow layout"
+              aria-label="Horizontal layout"
+              onClick={() => runDirectionalLayout("RIGHT")}
+            >
+              Horizontal
+            </Button>
+            <Button
+              className="layout-direction-button"
+              disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+              title="Apply a top-to-bottom flow layout"
+              aria-label="Vertical layout"
+              onClick={() => runDirectionalLayout("DOWN")}
+            >
+              Vertical
+            </Button>
             <Button
               className="auto-layout-button"
               type="primary"
               loading={autoLayoutRunning}
               disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
-              title="Automatically rearrange the current page with Draw.io's native ELK horizontal-flow layout"
+              title="Apply the selected native Draw.io layout"
               onClick={() => void runAutoLayout()}
             >
               Auto layout
             </Button>
+            <Button
+              className="layout-settings-button"
+              disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+              title="Configure spacing and connector routing"
+              aria-label="Advanced layout settings"
+              onClick={() => setLayoutSettingsOpen(true)}
+            >
+              Advanced
+            </Button>
           </div>
         </div>
+
+        <Modal
+          title="Layout settings"
+          open={layoutSettingsOpen}
+          onCancel={() => setLayoutSettingsOpen(false)}
+          footer={[
+            <Button key="reset" onClick={() => setNativeLayoutOptions({ ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS })}>Reset</Button>,
+            <Button key="done" type="primary" onClick={() => setLayoutSettingsOpen(false)}>Done</Button>
+          ]}
+        >
+          <div className="native-layout-settings-grid">
+            <label className="native-layout-settings-field">
+              <span>Node spacing</span>
+              <InputNumber
+                aria-label="Node spacing"
+                min={5}
+                max={200}
+                step={5}
+                value={nativeLayoutOptions.nodeSpacing}
+                onChange={(value) => {
+                  if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, nodeSpacing: value }));
+                }}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <label className="native-layout-settings-field">
+              <span>Layer spacing</span>
+              <InputNumber
+                aria-label="Layer spacing"
+                min={10}
+                max={500}
+                step={10}
+                disabled={nativeLayoutOptions.algorithm !== "elkLayered"}
+                value={nativeLayoutOptions.layerSpacing}
+                onChange={(value) => {
+                  if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, layerSpacing: value }));
+                }}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <label className="native-layout-settings-field native-layout-routing-field">
+              <span>Connector routing</span>
+              <Select<NativeAutoLayoutOptions["edgeRouting"]>
+                aria-label="Connector routing"
+                value={nativeLayoutOptions.edgeRouting}
+                options={[
+                  { value: "ORTHOGONAL", label: "Orthogonal" },
+                  { value: "POLYLINE", label: "Polyline" },
+                  { value: "SPLINES", label: "Curved / splines" }
+                ]}
+                onChange={(edgeRouting) => setNativeLayoutOptions((current) => ({ ...current, edgeRouting }))}
+                style={{ width: "100%" }}
+              />
+            </label>
+          </div>
+          <p className="native-layout-settings-help">These options are passed to Draw.io’s native ELK layout engine and saved in this browser.</p>
+        </Modal>
 
         <div className="canvas-stage">
                       <DrawioFrame ref={drawioFrameRef} xml={drawioXml} theme={uiTheme}

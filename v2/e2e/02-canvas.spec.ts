@@ -134,6 +134,33 @@ test.describe("原生画布", () => {
     }
   });
 
+  test("布局工具栏恢复引擎和方向下拉设置，以及横向纵向快捷布局", async ({ page }) => {
+    await expect(page.getByRole("combobox", { name: "Layout engine" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Layout direction" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Horizontal layout" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Vertical layout" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Advanced layout settings" })).toBeEnabled();
+
+    const ids = ["client", "api", "worker", "queue", "database"];
+    const beforeXml = await readWorkspaceXml(workspace);
+    const beforePositions = ids.map((id) => cellPosition(beforeXml, id));
+    expect(beforePositions.every((position) => position !== null)).toBe(true);
+
+    await page.getByRole("button", { name: "Vertical layout" }).click();
+    await expect.poll(async () => {
+      const afterXml = await readWorkspaceXml(workspace);
+      const afterPositions = ids.map((id) => cellPosition(afterXml, id));
+      return afterPositions.every((position) => position !== null) &&
+        afterPositions.some((position, index) =>
+          position !== null && beforePositions[index] !== null && position.y !== beforePositions[index]!.y);
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+
+    await page.getByRole("button", { name: "Advanced layout settings" }).click();
+    await expect(page.getByRole("dialog", { name: "Layout settings" })).toBeVisible();
+    await expect(page.getByRole("spinbutton", { name: "Node spacing" })).toBeVisible();
+    await expect(page.getByRole("spinbutton", { name: "Layer spacing" })).toBeVisible();
+  });
+
   test("拖动节点会把新的几何信息写回工作区文件", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
     const beforeX = cellX(before, "client");
