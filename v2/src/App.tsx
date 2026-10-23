@@ -7,7 +7,7 @@ import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
 import { downloadText } from "./model/download-text";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
-import DrawioFrame, { DRAWIO_VERSION } from "./components/DrawioFrame";
+import DrawioFrame, { DRAWIO_VERSION, type DrawioFrameHandle } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
@@ -84,9 +84,10 @@ export default function App() {
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
+  const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
-  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null }) => void>());
+  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
@@ -95,6 +96,7 @@ export default function App() {
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
+  const [nativeScriptSupported, setNativeScriptSupported] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [copilotSessionId, setCopilotSessionId] = useState(() => {
     try {
@@ -460,6 +462,11 @@ export default function App() {
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
     getCurrentDiagramState: () => latestDiagramStateRef.current,
+    getRuntimeInspection: ({ documentRevision, pageId }) => {
+      const frame = drawioFrameRef.current;
+      if (!frame) throw new Error("The native Draw.io frame is unavailable; no Agent request was sent.");
+      return frame.inspectRuntime({ documentRevision, pageId });
+    },
     persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
     applyNativeCellEdit: (cellId, path, value) => {
@@ -483,7 +490,9 @@ export default function App() {
             error: result.error,
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
-            rolledBack: result.success ? false : result.batchRolledBack !== false,
+            scriptResult: result.scriptResult,
+            // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
+            rolledBack: result.success ? false : result.batchRolledBack === true,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error }))
           });
         });
@@ -1021,7 +1030,7 @@ export default function App() {
         </div>
 
         <div className="canvas-stage">
-                      <DrawioFrame xml={drawioXml} theme={uiTheme}
+                      <DrawioFrame ref={drawioFrameRef} xml={drawioXml} theme={uiTheme}
             onNativeEditResult={async (result) => {
               const requestId = result.requestId;
               const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
@@ -1118,16 +1127,20 @@ export default function App() {
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
-            onEditorStatusChange={setNativeEditorReady}
+            onEditorStatusChange={setNativeEditorReady} onScriptCapabilityStatusChange={setNativeScriptSupported}
             onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
-          <span className="status-native" title={nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake"}>{nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"}</span>
+          <span className={nativeScriptSupported ? "status-native" : "status-native status-warn"}
+            title={(nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake") +
+              (nativeScriptSupported ? " · Pinned Draw.io script API manifest verified" : " · Script operations disabled until the pinned Draw.io API manifest matches")}>
+            {nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"} · {nativeScriptSupported ? "Native script ready" : "Native script disabled"}
+          </span>
         </div></div>
       </main>
       <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
