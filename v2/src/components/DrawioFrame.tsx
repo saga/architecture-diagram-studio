@@ -530,7 +530,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       if (data.event === "layout") {
         const pending = pendingAutoLayoutRef.current;
-        if (pending && !pending.awaitingExport) {
+        if (pending && typeof data.error === "string" && data.error) {
+          rejectPendingAutoLayout(new Error("Draw.io could not apply auto layout: " + data.error.slice(0, 300)));
+        } else if (pending && !pending.awaitingExport) {
           pending.awaitingExport = true;
           recordDiagnostic("drawio.layout.acknowledged", "Draw.io acknowledged the layout action; requesting the resulting native XML");
           try {
