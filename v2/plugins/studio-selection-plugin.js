@@ -641,9 +641,10 @@
               }
               var restoreAll = snapshot.restoreAll;
               var paths = snapshot.paths;
-              var restoreValue = restoreAll || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
-              var restoreStyle = restoreAll || paths.indexOf("style") >= 0 || paths.indexOf("cell:execute-script") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
-              var restoreGeometry = restoreAll || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
+              var restoreC4 = paths.indexOf("cell:set-c4-type") >= 0;
+              var restoreValue = restoreAll || restoreC4 || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
+              var restoreStyle = restoreAll || restoreC4 || paths.indexOf("style") >= 0 || paths.indexOf("cell:execute-script") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
+              var restoreGeometry = restoreAll || restoreC4 || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
               var restoreSource = restoreAll || paths.indexOf("cell:source") >= 0;
               var restoreTarget = restoreAll || paths.indexOf("cell:target") >= 0;
               if (restoreValue) activeModel.setValue(item, snapshot.value);
@@ -838,7 +839,80 @@
       }
       activeModel.beginUpdate();
       try {
-        if (path === "label") {
+        if (path === "cell:set-c4-type") {
+          if (!cell.vertex || !cell.geometry || cell.id === "0" || cell.id === "1") {
+            throw new Error("C4 conversion requires a diagram vertex with geometry");
+          }
+          var c4Request;
+          try { c4Request = JSON.parse(value); } catch (_) { throw new Error("C4 conversion payload is not valid JSON"); }
+          if (!c4Request || ["person", "system", "external"].indexOf(c4Request.kind) < 0) {
+            throw new Error("C4 kind must be person, system, or external");
+          }
+          var c4Presets = {
+            person: {
+              type: "Person", width: 200, height: 180, fill: "#083F75", stroke: "#06315C",
+              style: "html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#083F75;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;"
+            },
+            system: {
+              type: "Software System", width: 240, height: 120, fill: "#1061B0", stroke: "#0D5091",
+              style: "rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];"
+            },
+            external: {
+              type: "Software System", width: 240, height: 120, fill: "#8C8496", stroke: "#736782",
+              style: "rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];"
+            }
+          };
+          var c4Preset = c4Presets[c4Request.kind];
+          if (c4Request.kind === "person") {
+            var c4Shapes = window.mxCellRenderer && window.mxCellRenderer.defaultShapes;
+            if (!c4Shapes || typeof c4Shapes["mxgraph.c4.person2"] !== "function") {
+              throw new Error("The pinned Draw.io bundle does not register mxgraph.c4.person2. No UML actor or other approximate fallback was applied.");
+            }
+          }
+          var oldValue = cell.value;
+          var c4Name = "";
+          var c4Description = "";
+          if (oldValue && oldValue.nodeType === 1) {
+            c4Name = oldValue.getAttribute("c4Name") || "";
+            c4Description = oldValue.getAttribute("c4Description") || "";
+            if (!c4Name) {
+              var oldLabel = oldValue.getAttribute("label") || oldValue.getAttribute("value") || "";
+              if (oldLabel && oldLabel.indexOf("%c4Name%") < 0) c4Name = oldLabel;
+            }
+          } else if (typeof oldValue === "string") c4Name = oldValue;
+          if (!c4Name && activeGraph && typeof activeGraph.convertValueToString === "function") {
+            try { c4Name = activeGraph.convertValueToString(cell) || ""; } catch (_) {}
+          }
+          c4Name = String(c4Name || cell.id).replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ")
+            .replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+            .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/\s+/g, " ").trim().slice(0, 250);
+          if (!c4Name) c4Name = String(cell.id);
+          if (!window.mxUtils || typeof window.mxUtils.createXmlDocument !== "function") {
+            throw new Error("Draw.io XML value factory is unavailable; C4 conversion was not applied");
+          }
+          var c4Value = window.mxUtils.createXmlDocument().createElement("object");
+          c4Value.setAttribute("placeholders", "1");
+          c4Value.setAttribute("c4Name", c4Name);
+          c4Value.setAttribute("c4Type", c4Preset.type);
+          c4Value.setAttribute("c4Description", c4Description);
+          c4Value.setAttribute("label", '<font style="font-size: 16px"><b>%c4Name%</b></font><div>[%c4Type%]</div><br><div><font style="font-size: 11px"><font color="#cccccc">%c4Description%</font></div>');
+          var c4Geometry = cell.geometry.clone();
+          c4Geometry.width = c4Preset.width;
+          c4Geometry.height = c4Preset.height;
+          activeModel.setStyle(cell, c4Preset.style);
+          activeModel.setValue(cell, c4Value);
+          activeModel.setGeometry(cell, c4Geometry);
+          var verifiedC4Style = String(activeModel.getStyle(cell) || "");
+          if ((c4Request.kind === "person" && verifiedC4Style.indexOf("shape=mxgraph.c4.person2") < 0) ||
+              verifiedC4Style.indexOf("fillColor=" + c4Preset.fill) < 0 ||
+              verifiedC4Style.indexOf("strokeColor=" + c4Preset.stroke) < 0 ||
+              !cell.value || cell.value.getAttribute("c4Name") !== c4Name ||
+              cell.value.getAttribute("c4Type") !== c4Preset.type ||
+              !cell.geometry || cell.geometry.width !== c4Preset.width || cell.geometry.height !== c4Preset.height) {
+            throw new Error("C4 conversion postcondition failed; the native shape, label metadata, or dimensions did not match the requested C4 preset");
+          }
+          return { c4Type: c4Request.kind, c4Name: c4Name, styleVerified: true, placeholders: true, width: c4Preset.width, height: c4Preset.height };
+        } else if (path === "label") {
           var current = cell.value;
           if (current && typeof current === "object" && current.nodeType === 1) {
             var next = current.cloneNode(true);
