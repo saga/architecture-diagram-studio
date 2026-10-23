@@ -7,7 +7,7 @@
 
 ## Executive finding
 
-The original typed-operation allowlist was deliberately narrower than Draw.io's native API, forcing every new capability to require changes across several layers. Keep typed operations for focused edits, but use the generic `run_drawio_script` entry point for complex operations directly against the native Draw.io Graph/Model API. The important protections remain source-revision/page binding, native editor execution, script-error rollback of active-page cells, serialized XML confirmation and workspace persistence.
+The original typed-operation allowlist was deliberately narrower than Draw.io's native API, forcing every new capability to require changes across several layers. Keep typed operations for focused edits and use the typed `auto_layout` operation for whole-page Dagre/ELK layout (ADR-0013); use the generic `run_drawio_script` entry point only for other complex native effects that are not covered by a typed operation. The important protections remain source-revision/page binding, native editor execution, script-error rollback of active-page cells, serialized XML confirmation and workspace persistence.
 
 Those paths remain in place. The API uses a discriminated outcome union for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context` and `failed`; the separate final acknowledgement returns `applied` or `failed`. The acknowledgement is bound to the request, active page, serialized XML revision and immutable version ID. General scripts use the same revision-bound bridge and save/acknowledgement chain instead of requiring a feature-specific implementation.
 
