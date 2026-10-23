@@ -20,6 +20,6 @@ describe("embedded Draw.io shape-library defaults", () => {
   });
 
   it("bumps the editor preference version when palette defaults change", () => {
-    expect(DRAWIO_EDITOR_CONFIG.version).toBe("2026-10-c4-default-library-v1");
+    expect(DRAWIO_EDITOR_CONFIG.version).toBe("2026-10-c4-default-library-v2");
   });
 });
