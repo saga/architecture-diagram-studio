@@ -1163,10 +1163,59 @@ app.put("/api/workspace/document", async (req, res) => {
         // source file so a change made by an external editor cannot be overwritten by stale state.
         if (primaryDiagramExisted && activeStateMatches && typeof state.drawioXml === "string" &&
             previousPrimaryDiagramXml !== state.drawioXml) {
+          const externalXml = previousPrimaryDiagramXml!;
+          const externalRevision = workspaceRevision(externalXml);
+          if (validateDrawioXmlDocument(externalXml).success) {
+            // Reconcile the in-memory state to the external file before returning 409. Otherwise
+            // a browser refresh would load the same stale XML and be stuck in a conflict loop.
+            const externalVersion: DiagramVersion = {
+              id: "v-" + Date.now() + "-" + randomUUID().slice(0, 8),
+              workspaceId: workspace?.id,
+              diagramPath: workspace?.primaryDiagram ?? null,
+              createdAt: new Date().toISOString(),
+              label: "External change detected",
+              drawioXml: externalXml
+            };
+            const reconciledState: WorkspaceState = {
+              ...state,
+              workspaceId: workspace?.id,
+              diagramPath: workspace?.primaryDiagram ?? null,
+              drawioXml: externalXml,
+              updatedAt: externalVersion.createdAt
+            };
+            const reconciledVersions = retainRecentVersions([...allVersions, externalVersion]);
+            await runCompensatingTransaction([
+              {
+                name: "record-external-diagram-version",
+                apply: async () => {
+                  await persistDiagramVersions(reconciledVersions);
+                  diagramVersions = reconciledVersions;
+                },
+                rollback: async () => {
+                  diagramVersions = allVersions;
+                  await persistDiagramVersions(allVersions);
+                }
+              },
+              {
+                name: "reconcile-workspace-state-to-external-xml",
+                apply: async () => {
+                  await persistWorkspaceState(reconciledState);
+                  workspaceState = reconciledState;
+                },
+                rollback: async () => {
+                  workspaceState = state;
+                  await persistWorkspaceState(state);
+                }
+              }
+            ]);
+            invalidateWorkspaceScanCache(workspace?.id);
+          }
           return {
             status: 409 as const,
-            error: "The workspace primary Draw.io file changed outside Studio. Reload it before saving to avoid overwriting external edits.",
-            workspaceRevision: currentRevision
+            error: validateDrawioXmlDocument(externalXml).success
+              ? "The workspace primary Draw.io file changed outside Studio. Its current contents have been reloaded and saved as a recovery version; review the external changes before retrying."
+              : "The workspace primary Draw.io file changed outside Studio and is not valid Draw.io XML. Studio did not overwrite the external file; repair or reopen it before saving.",
+            workspaceRevision: externalRevision
           };
         }
 
