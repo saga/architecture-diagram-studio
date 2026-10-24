@@ -148,7 +148,6 @@ export default function App() {
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
-  const [nativeScriptSupported, setNativeScriptSupported] = useState(false);
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
   const [nativeLayoutOptions, setNativeLayoutOptions] = useState<NativeAutoLayoutOptions>(() => loadNativeLayoutOptions());
   const [layoutSettingsOpen, setLayoutSettingsOpen] = useState(false);
@@ -1622,7 +1621,7 @@ export default function App() {
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
-            onEditorStatusChange={setNativeEditorReady} onScriptCapabilityStatusChange={setNativeScriptSupported}
+            onEditorStatusChange={setNativeEditorReady}
             onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
