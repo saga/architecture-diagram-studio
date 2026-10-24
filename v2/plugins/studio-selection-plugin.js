@@ -25,7 +25,9 @@
     // Cells created during an atomic batch are tracked for rollback.
     var activeBatchCreatedCells = null;
     var publish = function (message) {
-      window.parent.postMessage(JSON.stringify(message), window.location.origin);
+      // The host verifies both event.source and the dedicated Draw.io origin. Wildcard is used
+      // only for this child-to-parent message; it does not expose the host API to the iframe.
+      window.parent.postMessage(JSON.stringify(message), "*");
     };
     var currentPageId = function () {
       var page = ui.currentPage;
