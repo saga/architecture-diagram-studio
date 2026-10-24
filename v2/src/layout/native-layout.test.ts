@@ -24,6 +24,12 @@ const xml = `<mxfile host="app.diagrams.net">
 const revision = "a".repeat(64);
 
 describe("Studio-owned native-cell layout", () => {
+  it("rejects non-layered algorithms for Dagre rather than silently ignoring the selection", async () => {
+    await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", algorithm: "radial"
+    })).rejects.toThrow("Dagre supports only the layered algorithm");
+  });
+
   it("uses Dagre for directed layout and returns revision-bound native cell positions", async () => {
     const beforeXml = xml;
     const options: NativeAutoLayoutOptions = { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", direction: "RIGHT" };
