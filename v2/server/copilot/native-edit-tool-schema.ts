@@ -61,17 +61,6 @@ export const NATIVE_EDIT_OPERATION_ITEM_SCHEMA = {
     {
       type: "object",
       properties: {
-        op: { type: "string", enum: ["run_drawio_script"] },
-        target: { type: "string", enum: ["active_page"], description: "Execute inside the current native Draw.io editor and page." },
-        summary: { type: "string", minLength: 1, maxLength: 1000, description: "Concise user-facing description of the intended diagram change." },
-        script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript for the pinned local Draw.io runtime. Use only when no typed operation can express the effect; verify stored and rendered postconditions. Do not author XML, manage pages, access network/storage or invoke save/exit actions. Shape lookup belongs to search_drawio_shapes, not mxStencilRegistry.getStencil; C4 belongs to set_c4_type. Only the insert-only allowlisted subset may auto-dispatch; all other scripts and repairs require confirmation." }
-      },
-      required: ["op", "target", "summary", "script"],
-      additionalProperties: false
-    },
-    {
-      type: "object",
-      properties: {
         op: { type: "string", enum: ["auto_layout"] },
         target: { type: "string", enum: ["active_page"], description: "Always target the active native Draw.io page. Auto layout is a whole-page operation and must be the only item in the batch." },
         engine: { type: "string", enum: ["elk", "dagre"], default: "elk", description: "Studio-owned layout engine. Never call Draw.io's built-in layout action." },
