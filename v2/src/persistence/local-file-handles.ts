@@ -126,7 +126,7 @@ export async function writeDrawioFile(handle: StudioLocalFileHandle, xml: string
     await writable.write(xml);
     await writable.close();
   } catch (error) {
-    await writable.abort?.().catch(() => undefined);
+    if (writable.abort) await writable.abort().catch(() => undefined);
     throw error;
   }
 }
