@@ -184,13 +184,13 @@ const nativeEditOperationOptions = {
     key: z.enum(NATIVE_EDIT_STYLE_KEYS, { message: "Style key must be one of fillColor, strokeColor, fontColor" })
       .default("fillColor").describe("Optional; defaults to fillColor when omitted."),
     color: z.string().trim().min(1, { message: "color must not be empty" }).max(40, { message: "color exceeds 40 characters" })
-      .describe("Color value, such as #ff0000 or 红色.")
+      .describe("Required color value, such as #ff0000 or 红色.")
   }).strict(),
   setC4Type: z.object({
     op: z.literal("set_c4_type"),
     target: nativeTargetSchema.describe("Exact ID or unique label of an existing vertex. Edges, groups, and layer/root cells are not valid C4 targets."),
     kind: z.enum(["person", "system", "external"], { message: 'kind must be "person", "system", or "external"' })
-      .describe("Apply the canonical native Draw.io C4 type: Person, Software System, or External Software System.")
+      .describe("Apply the pinned Draw.io C4 palette style and placeholder-backed C4 label. person uses mxgraph.c4.person2; system/external use the official C4 rounded-card styles, not a custom shape. Never substitute umlActor or swimlane.")
   }).strict(),
   runScript: z.object({
     op: z.literal("run_drawio_script"),
@@ -199,7 +199,7 @@ const nativeEditOperationOptions = {
       .describe("Concise user-facing description of the intended diagram change."),
     script: z.string().min(1, { message: "script must be a non-empty JavaScript program" })
       .max(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH, { message: `script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters` })
-      .describe("Synchronous JavaScript for the pinned local Draw.io runtime. Use only when no typed operation can express the effect; do not author XML, manage pages, access network/storage or invoke save/exit actions. Only the reviewed insert-only subset may auto-dispatch.")
+      .describe("Synchronous JavaScript for the pinned local Draw.io runtime. Use only when no typed operation can express the effect; verify stored and rendered postconditions. Do not author XML, manage pages, access network/storage or invoke save/exit actions. Shape lookup belongs to search_drawio_shapes, not mxStencilRegistry.getStencil; C4 belongs to set_c4_type. Only the insert-only allowlisted subset may auto-dispatch; all other scripts and repairs require confirmation.")
   }).strict(),
   autoLayout: z.object({
     op: z.literal("auto_layout"),
