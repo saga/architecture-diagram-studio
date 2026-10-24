@@ -52,7 +52,7 @@ export const DRAWIO_CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "media-src 'self' data: blob:",
-  "connect-src 'none'",
+  "connect-src 'self'",
   "frame-src 'self' data: blob:",
   "worker-src 'self' blob:",
   "object-src 'none'",
