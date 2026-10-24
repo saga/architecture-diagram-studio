@@ -737,6 +737,8 @@ export default function App() {
   async function openStandaloneDiagram(handle: StudioLocalFileHandle) {
     const startedAt = Date.now();
     try {
+      // Ask for write access immediately after selection, while the picker interaction still has user activation.
+      await ensureDrawioWritePermission(handle);
       const file = await handle.getFile();
       if (file.size > 20 * 1024 * 1024) throw new Error("Draw.io XML exceeds the 20 MiB limit");
       const xml = await file.text();
@@ -744,7 +746,6 @@ export default function App() {
       if (diagnostics.issues.length || !isDrawioXmlDocument(xml)) {
         throw new Error(diagnostics.issues[0] || "The selected file is not a valid Draw.io XML document.");
       }
-      await ensureDrawioWritePermission(handle);
 
       const previousBinding = standaloneFileBindingRef.current;
       if (previousBinding && drawioXml !== standaloneLastSavedXmlRef.current) {
@@ -852,7 +853,11 @@ export default function App() {
     const baseName = activeName.split(/[\\/]/).pop()?.replace(/\.(drawio|dio|xml)$/i, "") || "architecture";
     const suggestedName = baseName + "-export.drawio";
     try {
+      if (!isDrawioXmlDocument(drawioXml)) throw new Error("The current editor content is not valid Draw.io XML; export was cancelled.");
       const handle = await chooseDrawioSaveFile(suggestedName);
+      if (!handle.name.toLowerCase().endsWith(".drawio") && !handle.name.toLowerCase().endsWith(".dio") && !handle.name.toLowerCase().endsWith(".xml")) {
+        throw new Error("Choose a .drawio, .dio, or .xml filename for export.");
+      }
       await writeDrawioFile(handle, drawioXml);
       lastExportedXmlRef.current = drawioXml;
       setDocumentSaveState("exported");
