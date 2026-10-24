@@ -16,7 +16,6 @@ import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
 import { searchDrawioShapeCatalog, DRAWIO_SHAPE_CATALOG_VERSION } from "../../src/model/drawio-shape-catalog";
-import { getNativeScriptPolicyViolation } from "./native-script-policy";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -143,15 +142,10 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
   });
 }
 
-function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
-  if (forceScriptReview) return true;
-  // Whole-page geometry changes are intentionally reviewable, while still being an agent-native typed operation.
-  if (operations.some((operation) => operation.op === "auto_layout")) return true;
-  const scripts = operations.filter((operation) => operation.op === "run_drawio_script");
-  // Arbitrary native scripts can mutate XML without fulfilling user intent; always show a review proposal.
-  if (scripts.length > 0) return true;
-  const deletes = operations.filter((operation) => operation.op === "delete").length;
-  return deletes >= 1 || operations.length >= 10;
+function requiresExplicitConfirmation(_operations: ResolvedNativeEditOperation[], _forceScriptReview = false): boolean {
+  // Local single-user mode: no edit-size, script, or delete-based approval gate.
+  // Native XML snapshots and version history are the recovery mechanism.
+  return false;
 }
 
 function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): string {
@@ -548,9 +542,57 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     });
   }
 
+  function createRunDrawioScriptTool(sessionId: string) {
+    return defineTool("run_drawio_script", {
+      description: "Execute JavaScript directly against the live local Draw.io editor runtime. This is the primary full-capability path for graph operations not covered cleanly by typed edits. Use the actual runtime objects and APIs; inspect the runtime or get_drawio_reference when useful, execute without a confirmation step, and let Studio persist the resulting native XML/version. You may create/reconnect edges, alter geometry and routing, choose shapes/styles, group/reparent cells, and use other native editor capabilities without requesting new typed operations. Return a useful result or throw a descriptive error. The script executes in the editor frame, not in Node.js.",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the requested change." },
+          script: { type: "string", minLength: 1, maxLength: 50000, description: "JavaScript source executed against the live native Draw.io runtime. Available arguments: ui, editor, graph, model, inspectRuntime. Use native APIs rather than replacing the saved mxfile XML." }
+        },
+        required: ["summary", "script"],
+        additionalProperties: false
+      },
+      handler: async (args: { summary?: unknown; script?: unknown }) => {
+        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000) {
+          throw new Error("run_drawio_script requires a summary from 1 to 1000 characters");
+        }
+        if (typeof args.script !== "string" || !args.script.trim() || args.script.length > 50000) {
+          throw new Error("run_drawio_script requires a non-empty JavaScript program no longer than 50000 characters");
+        }
+        const parsed = parseNativeEditOperations([{
+          op: "run_drawio_script", target: "active_page", summary: args.summary, script: args.script
+        }]);
+        if (!parsed.ok) throw new Error(parsed.error);
+        const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
+        if (!resolved.ok) throw new Error(resolved.error);
+        const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
+        registerTerminalIntent(sessionId, "native_edit");
+        pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
+        const activeContext = contextBySession.get(sessionId);
+        const context = activeContext && typeof activeContext === "object"
+          ? activeContext as { documentRevision?: string; activePageId?: string | null; runtimeInspection?: { drawioVersion?: string } }
+          : {};
+        await deps.writeLog("tool.run_drawio_script.accepted", {
+          sessionId, summary, script: args.script, scriptLength: args.script.length,
+          documentRevision: context.documentRevision ?? null, pageId: context.activePageId ?? null,
+          drawioVersion: context.runtimeInspection?.drawioVersion ?? PINNED_DRAWIO_VERSION
+        });
+        return {
+          accepted: true,
+          execution: "after_model_turn",
+          summary,
+          scriptLength: args.script.length,
+          instructions: "The script will execute automatically after this model turn. Inspect the returned execution receipt and serialized XML before claiming success; if it fails, use the exact error and runtime state to produce a corrected script."
+        };
+      }
+    });
+  }
+
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit one batch of native Draw.io changes. Use auto_layout for whole-page Dagre/ELK layout: it is configurable, operates on temporary facts derived from native cells, must be the only operation in the batch, and always requires user confirmation. Never use Draw.io's built-in layout action or a layout script. Use set_c4_type for C4 Person, Software System, and External Software System; it applies native Draw.io C4 palette styles and placeholder-backed labels, and must never fall back to UML actors or swimlanes. Prefer typed operations for other supported edits. run_drawio_script is a fallback only when no typed operation can express the request, requires a matching pinned-version capability manifest and explicit user confirmation, runs as the only synchronous operation in a batch, and must verify postconditions. Never produce replacement XML or guess target IDs.",
+      description: "Submit a batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, C4 conversion and Studio-owned Dagre/ELK layout. This is a convenience fast path, not a limit on Draw.io capability. For native graph operations not conveniently expressed by these typed edits, call the separate run_drawio_script tool directly. No confirmation is required in local single-user mode. Never fabricate cell IDs; use exact IDs or uniquely resolved labels.",
       parameters: {
         type: "object",
         properties: {
@@ -569,29 +611,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (!parsed.ok) {
           await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, error: parsed.error });
           throw new Error(parsed.error);
-        }
-        const scriptOperation = parsed.operations.find((operation) => operation.op === "run_drawio_script");
-        if (scriptOperation?.op === "run_drawio_script") {
-          const policyViolation = getNativeScriptPolicyViolation(scriptOperation.script);
-          if (policyViolation) {
-            await deps.writeLog("tool.propose_native_edits.rejected", {
-              sessionId, reason: "native_script_shape_policy", message: policyViolation
-            });
-            throw new Error(policyViolation);
-          }
-        }
-        if (parsed.operations.some((operation) => operation.op === "run_drawio_script")) {
-          const activeContext = contextBySession.get(sessionId);
-          const runtime = activeContext && typeof activeContext === "object"
-            ? (activeContext as { runtimeInspection?: { capabilityManifest?: { scriptSupported?: boolean; missing?: Record<string, string[]> } } }).runtimeInspection
-            : undefined;
-          if (!runtime?.capabilityManifest?.scriptSupported) {
-            await deps.writeLog("tool.propose_native_edits.rejected", {
-              sessionId, reason: "runtime_capability_manifest_missing_or_mismatched",
-              missing: runtime?.capabilityManifest?.missing ?? null
-            });
-            throw new Error("run_drawio_script is disabled because the pinned Draw.io runtime capability manifest is missing or mismatched. Use a supported typed operation instead.");
-          }
         }
         const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
         if (!resolved.ok) {
@@ -888,6 +907,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               createDrawioShapeSearchTool(),
               createDrawioElementSearchTool(sessionId),
               createDrawioReferenceTool(),
+              createRunDrawioScriptTool(sessionId),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
             ],
@@ -1028,7 +1048,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
       const toolsUsed = plan.capturedNativeEdits
-        ? ["propose_native_edits"]
+        ? (plan.capturedNativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
+            ? ["run_drawio_script"] : ["propose_native_edits"])
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
