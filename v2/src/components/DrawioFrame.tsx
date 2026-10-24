@@ -90,7 +90,6 @@ interface Props {
   theme: string;
   /** Reports the embed handshake state so the app's single status bar can show it. */
   onEditorStatusChange?: (ready: boolean) => void;
-  onScriptCapabilityStatusChange?: (compatible: boolean) => void;
 }
 
 /**
@@ -105,7 +104,7 @@ const SAVE_AND_EXIT_SELECTOR = [
   "[title*='保存并退出']", "[aria-label*='保存并退出']"
 ].join(", ");
 
-const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange, onScriptCapabilityStatusChange }: Props, ref) {
+const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const xmlRef = useRef(xml);
   xmlRef.current = xml;
@@ -118,7 +117,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
   const pendingAutoLayoutRef = useRef<PendingAutoLayout | null>(null);
   const runtimeInspectionSequenceRef = useRef(0);
-  const runtimeManifestCompatibleRef = useRef<boolean | null>(null);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   const themeRef = useRef(theme);
@@ -135,7 +133,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [runtimeScriptSupported, setRuntimeScriptSupported] = useState<boolean | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
   const embedUiObserverRef = useRef<MutationObserver | null>(null);
@@ -275,10 +272,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   useEffect(() => {
     onEditorStatusChange?.(editorReady);
   }, [editorReady, onEditorStatusChange]);
-
-  useEffect(() => {
-    onScriptCapabilityStatusChange?.(runtimeScriptSupported === true);
-  }, [runtimeScriptSupported, onScriptCapabilityStatusChange]);
 
   useEffect(() => {
     let active = true;
@@ -475,10 +468,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           Array.isArray(missing[group]) && (missing[group] as unknown[]).length > 0
         );
         const compatible = advertisedVersion === DRAWIO_VERSION && manifest?.scriptSupported === true && !hasMissing;
-        runtimeManifestCompatibleRef.current = compatible;
         // In local AI-first mode the manifest is diagnostic evidence, never a permission gate.
-        // A completed native bridge handshake is enough to expose direct script execution.
-        setRuntimeScriptSupported(true);
         recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.diagnostic-mismatch",
           compatible ? "The observed Draw.io runtime manifest matches the curated contract" : "The observed Draw.io runtime manifest differs from the curated contract; direct script execution remains enabled",
           { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "warn");
@@ -776,8 +766,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     iframeLoadedRef.current = false;
     nativeDocumentLoadedRef.current = false;
     setBridgeReady(false);
-    runtimeManifestCompatibleRef.current = null;
-    setRuntimeScriptSupported(null);
     setStartupError(recovery ? "A Draw.io script timed out. The editor was reloaded from Studio's latest saved XML snapshot." : null);
     setFrameKey((value) => value + 1);
   }
@@ -796,7 +784,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   return (
     <div className="drawio-frame-wrap">
       {startupError && <div className="drawio-error-banner" role="alert">
-        <span>{startupError}</span><button type="button" onClick={retryEditor}>Re-initialise</button>
+        <span>{startupError}</span><button type="button" onClick={() => retryEditor()}>Re-initialise</button>
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"
         src={DRAWIO_EMBED_URL}
