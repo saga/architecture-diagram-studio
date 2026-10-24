@@ -1079,6 +1079,33 @@ export default function App() {
     }
   }
 
+  async function restoreVersion(versionId: string) {
+    try {
+      const response = await fetch("/api/workspace/versions/" + encodeURIComponent(versionId) + "/restore", { method: "POST" });
+      const result = await response.json() as { error?: string; workspaceRevision?: string; state?: { drawioXml?: unknown }; version?: { id?: string } };
+      const restoredXml = result.state?.drawioXml;
+      if (!response.ok || typeof restoredXml !== "string" || !isDrawioXmlDocument(restoredXml)) {
+        throw new Error(result.error || "Server-side native Draw.io version restore failed");
+      }
+      serverRevisionRef.current = typeof result.workspaceRevision === "string" ? result.workspaceRevision : null;
+      clearSaveConflict("server-version-restore", restoredXml, true);
+      setNativeXmlOverride(restoredXml);
+      setServerXmlAvailable(true);
+      setWorkspaceContentReady(true);
+      setRevision((value) => value + 1);
+      setLastAction("Restored native Draw.io XML from server version history; native Undo/Redo history was reset. Use version history to return to an earlier snapshot.");
+      setVersionHistoryOpen(false);
+      recordDiagnostic("workspace.version.restored", "Restored the full native Draw.io XML snapshot", {
+        sourceVersionId: versionId, newVersionId: result.version?.id, xmlLength: restoredXml.length
+      });
+    } catch (error) {
+      recordDiagnostic("workspace.version.restore.failed", "Restoring the native Draw.io version failed", {
+        sourceVersionId: versionId, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+      setLastAction("Version restore failed: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
   function refreshTraceHistory() {
     recordDiagnostic("trace.refreshed", "Refreshed server-side app traces");
   }
