@@ -132,6 +132,12 @@ export default function App() {
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
+  const nativeScriptWatchdogTimeoutMs = (() => {
+    const configured = Number(import.meta.env.VITE_NATIVE_SCRIPT_WATCHDOG_TIMEOUT_MS);
+    return Number.isFinite(configured) && configured >= 30_000 && configured <= 180_000
+      ? Math.floor(configured)
+      : 75_000;
+  })();
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
@@ -536,6 +542,7 @@ export default function App() {
       const requestId = ++cellEditRequestSequenceRef.current;
       await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
       const containsScript = edits.some((edit) => edit.path === "cell:execute-script");
+      const watchdogTimeoutMs = containsScript ? nativeScriptWatchdogTimeoutMs : 30_000;
       return new Promise((resolve) => {
         nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
@@ -546,7 +553,6 @@ export default function App() {
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
             scriptResult: result.scriptResult,
-            errorStack: result.errorStack,
             // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
             rolledBack: result.success ? false : result.batchRolledBack === true,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error, stack: step.stack }))
@@ -563,9 +569,9 @@ export default function App() {
           nativeEditResolversRef.current.delete(requestId);
           nativeEditAckContextsRef.current.delete(requestId);
           setCellEditRequest((current) => current?.requestId === requestId ? null : current);
-          const timeoutError = "The native Draw.io editor did not acknowledge the batch within 75 seconds.";
+          const timeoutError = "The native Draw.io editor did not acknowledge the batch within " + Math.round(watchdogTimeoutMs / 1000) + " seconds.";
           recordDiagnostic("copilot.native-edits.timeout", "The native Draw.io editor did not acknowledge a Copilot batch", {
-            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs: 75_000
+            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs
           }, "error");
           resolve({ ok: false, error: timeoutError, rolledBack: false, steps: [] });
           if (ackContext) {
@@ -590,7 +596,7 @@ export default function App() {
             });
           }
           if (containsScript) drawioFrameRef.current?.recoverFromLastSavedXml();
-        }, 75_000);
+        }, watchdogTimeoutMs);
       });
     }
   });
