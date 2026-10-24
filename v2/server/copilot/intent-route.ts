@@ -351,12 +351,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     }
     const resolvedTargets = pending.operations.map((operation) => ({
       cellId: operation.cellId,
-      label: operation.targetLabel || operation.target
+      label: operation.targetLabel || "unnamed element"
     }));
     const recordedOperations = pending.operations.map((operation) => ({
       op: operation.op,
       cellId: operation.cellId,
-      targetLabel: operation.targetLabel || operation.target,
+      targetLabel: operation.targetLabel,
       ...(operation.op === "set_label" ? { newLabel: operation.label } : {}),
       ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
       ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
