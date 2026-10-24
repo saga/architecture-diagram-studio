@@ -1,5 +1,7 @@
 # 为什么 C4 改写没生效（2026-10-23 20:49–20:51）
 
+> **后续状态（2026-10-24）：** 本文下方的 `set_c4_type` 修复是历史记录，不再代表当前方案。它虽然避免了 UML/Swimlane 降级，却引入了原位替换标签、尺寸及元数据的硬编码路径。当前方案已在 ADR-0019 中改为使用通用 native Draw.io 执行路径新增 C4 元素，并保留原节点。
+
 分析对象：本机 `~/.architecture-diagram-studio/data/application-events.jsonl`、`diagram-versions.json`、`workspace.json`，以及仓库当前代码（`4db538d`）。
 复现环境：`http://127.0.0.1:5174/drawio/index.html?...&sidebar=0&ui=min`（与 Studio 内嵌 iframe 完全相同的 URL）。
 
