@@ -177,6 +177,16 @@ describe("parseNativeEditOperations", () => {
     });
   });
 
+  it("preserves intentional leading and trailing whitespace in labels", () => {
+    const rename = parseNativeEditOperations([{ op: "set_label", target: "Database", label: "  Primary Database  " }]);
+    expect(rename).toMatchObject({ ok: true, operations: [{ op: "set_label", label: "  Primary Database  " }] });
+
+    const addAfter = parseNativeEditOperations([{ op: "add_node_after", target: "Database", newLabel: "  Cache  " }]);
+    expect(addAfter).toMatchObject({ ok: true, operations: [{ op: "add_node_after", newLabel: "  Cache  " }] });
+    expect(parseNativeEditOperations([{ op: "set_label", target: "Database", label: "   " }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{ op: "add_node_after", target: "Database", newLabel: "   " }]).ok).toBe(false);
+  });
+
   it("requires newLabel for add_node_after", () => {
     const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx" }]);
     expect(parsed.ok).toBe(false);
