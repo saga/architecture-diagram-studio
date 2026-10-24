@@ -426,7 +426,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createDrawioShapeSearchTool() {
     return defineTool("search_drawio_shapes", {
-      description: "Search a curated local Draw.io shape catalogue for exact vetted styles and dimensions. Read-only and non-exhaustive: a miss does not prove a shape is unavailable. Use typed set_c4_type for C4.",
+      description: "Search a curated local Draw.io shape catalogue for exact vetted styles and dimensions. Read-only and non-exhaustive: a miss does not prove a shape is unavailable. For C4, use the bundled Draw.io palette or inspect an existing native C4 element; do not guess a substitute.",
       parameters: {
         type: "object",
         properties: {
@@ -593,7 +593,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit a batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, C4 conversion and Studio-owned Dagre/ELK layout. This is a convenience fast path, not a limit on Draw.io capability. For native graph operations not conveniently expressed by these typed edits, call the separate run_drawio_script tool directly. No confirmation is required in local single-user mode. Never fabricate cell IDs; use exact IDs or uniquely resolved labels.",
+      description: "Submit a batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned Dagre/ELK layout. This is a convenience fast path, not a limit on Draw.io capability. For notation changes or other graph operations, use run_drawio_script against the live editor and preserve existing cells unless the user explicitly requests their removal. No confirmation is required in local single-user mode. Never fabricate cell IDs; use exact IDs or uniquely resolved labels.",
       parameters: {
         type: "object",
         properties: {
@@ -623,7 +623,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "set_c4_type" ? { c4Kind: operation.kind } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) }))
@@ -631,7 +631,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return {
           // This is tool feedback for the model, not the browser protocol response. Do not expose requiresClientExecution here; it is easy to misread as a user-confirmation requirement.
           accepted: true, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "set_c4_type" ? { c4Kind: operation.kind } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) })),
