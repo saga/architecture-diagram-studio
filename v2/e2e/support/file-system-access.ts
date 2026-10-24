@@ -22,7 +22,7 @@ export async function installFileSystemAccessMock(
   rootDirectory: string,
   files: E2EBrowserFile[]
 ): Promise<void> {
-  const entries = new Map(files.map((item) => [item.name, { ...item }]));
+  const entries = new Map<string, E2EBrowserFile>(files.map((item) => [item.name, { ...item }] as [string, E2EBrowserFile]));
   await page.unroute("**/__studio-file-write").catch(() => undefined);
   await page.route("**/__studio-file-write", async (route) => {
     try {
@@ -51,7 +51,7 @@ export async function installFileSystemAccessMock(
   await page.evaluate(({ sourceFiles }) => {
     type FileState = { name: string; content: string; lastModified: number };
     const state = new Map<string, FileState>(
-      sourceFiles.map((item) => [item.name, { ...item, lastModified: Date.now() }])
+      sourceFiles.map((item) => [item.name, { ...item, lastModified: Date.now() }] as [string, FileState])
     );
     let selectedName: string | null = sourceFiles[0]?.name ?? null;
 
