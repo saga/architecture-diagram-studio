@@ -796,6 +796,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"
         sandbox="allow-scripts allow-same-origin allow-modals"
+        referrerPolicy="strict-origin"
         src={DRAWIO_EMBED_URL}
         onLoad={() => {
           setIframeLoaded(true);
