@@ -294,7 +294,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 scriptRepair: {
                   originalRequest: requestText,
                   failedScript: failedScriptOperation.script,
-                  error: boundedError
+                  error: boundedError,
+                  ...(failedStep?.stack ? { stack: failedStep.stack.slice(0, 8000) } : {})
                 }
               });
               if (repairPlan.outcome === "command_ready") {
