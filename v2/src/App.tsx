@@ -1,5 +1,5 @@
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, Checkbox, ConfigProvider, Input, InputNumber, Layout, Modal, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, ConfigProvider, Input, InputNumber, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
