@@ -149,32 +149,6 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
  * inside a value such as “红色背景色”.
  */
-const NAMED_COLORS: Record<string, string> = {
-  red: "#ff0000", blue: "#0000ff", green: "#008000", black: "#000000", white: "#ffffff",
-  orange: "#ffa500", purple: "#800080", gray: "#808080", grey: "#808080", yellow: "#ffff00",
-  pink: "#ffc0cb", brown: "#a52a2a", cyan: "#00ffff", teal: "#008080", navy: "#000080",
-  红色: "#ff0000", 红: "#ff0000", 蓝色: "#0000ff", 蓝: "#0000ff", 绿色: "#008000", 绿: "#008000",
-  黑色: "#000000", 黑: "#000000", 白色: "#ffffff", 白: "#ffffff", 橙色: "#ffa500", 橙: "#ffa500",
-  紫色: "#800080", 紫: "#800080", 灰色: "#808080", 灰: "#808080", 黄色: "#ffff00", 黄: "#ffff00",
-  粉色: "#ffc0cb", 粉: "#ffc0cb", 棕色: "#a52a2a", 棕: "#a52a2a", 青色: "#00ffff", 青: "#00ffff"
-};
-const NAMED_COLOR_KEYS = Object.keys(NAMED_COLORS).sort((left, right) => right.length - left.length);
-
-/** Normalizes `#f00`, `#FF0000`, `red` and `红色背景色` to a lowercase six-digit hex color. */
-export function normalizeNativeColor(value: string): string | null {
-  const raw = value.trim().toLowerCase();
-  if (!raw || raw.length > 40) return null;
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(raw);
-  if (hex) {
-    const digits = hex[1];
-    return "#" + (digits.length === 3 ? digits.split("").map((digit) => digit + digit).join("") : digits);
-  }
-  if (NAMED_COLORS[raw]) return NAMED_COLORS[raw];
-  // Accept a named color embedded in a phrase such as “红色背景色” or “字色改成蓝色”.
-  const embedded = NAMED_COLOR_KEYS.find((key) => raw.includes(key));
-  return embedded ? NAMED_COLORS[embedded] : null;
-}
-
 const nativeTargetSchema = z.string().trim().min(1, { message: "target must not be empty" }).max(200, { message: "target exceeds 200 characters" })
   .describe("Exact native cell ID or unique exact visible label.");
 
@@ -188,9 +162,9 @@ const nativeEditOperationOptions = {
   setStyle: z.object({
     op: z.literal("set_style"), target: nativeTargetSchema,
     key: z.enum(NATIVE_EDIT_STYLE_KEYS, { message: "Style key must be one of fillColor, strokeColor, fontColor" })
-      .default("fillColor").describe("Optional; defaults to fillColor when omitted."),
-    color: z.string().trim().min(1, { message: "color must not be empty" }).max(40, { message: "color exceeds 40 characters" })
-      .describe("Required color value, such as #ff0000 or 红色.")
+      .describe("Required native Draw.io color style key. Do not infer a key when the user did not specify which aspect to change."),
+    color: z.string().trim().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, { message: "color must be an explicit 3- or 6-digit hex value such as #f00 or #ff0000" })
+      .describe("Explicit 3- or 6-digit hex color. Do not translate color names here; supply the concrete color requested or use run_drawio_script for native style values.")
   }).strict(),
   runScript: z.object({
     op: z.literal("run_drawio_script"),
@@ -279,9 +253,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
   const operations: NativeEditOperation[] = [];
   for (const [index, operation] of parsed.data.entries()) {
     if (operation.op === "set_style") {
-      const color = normalizeNativeColor(operation.color);
-      if (!color) return { ok: false, error: `Operation ${index + 1}: Unsupported color “${operation.color}”` };
-      operations.push({ ...operation, color });
+      operations.push(operation);
     } else if (operation.op === "run_drawio_script") {
       if (!operation.script.trim()) return { ok: false, error: `Operation ${index + 1}: script must be a non-empty JavaScript program` };
       operations.push(operation);
