@@ -1,4 +1,4 @@
-import { mkdtemp, symlink, writeFile, rm, realpath } from "node:fs/promises";
+import { mkdtemp, symlink, writeFile, rm, realpath, stat, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,7 +36,8 @@ describe("workspace file service", () => {
     try {
       await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(root, "src"), { recursive: true }));
       await writeFile(path.join(root, "README.md"), "Workspace instructions and architecture context.", "utf8");
-      await writeFile(path.join(root, "src", "account-mapping.ts"), "export const accountMapping = 'before';", "utf8");
+      const accountMappingPath = path.join(root, "src", "account-mapping.ts");
+      await writeFile(accountMappingPath, "export const accountMapping = 'before';", "utf8");
       await writeFile(path.join(root, "src", "billing.ts"), "export const billing = true;", "utf8");
       const service = createWorkspaceFileService(async () => workspace);
       const first = await service.collectAgentWorkspaceContext("update account mapping") as { cacheHits?: number; cacheMisses?: number; snippets?: Array<{ path: string; content: string }> };
@@ -44,11 +45,14 @@ describe("workspace file service", () => {
       expect(first.cacheMisses).toBeGreaterThan(0);
       expect(second.cacheHits).toBeGreaterThan(0);
 
-      await writeFile(path.join(root, "src", "account-mapping.ts"), "export const accountMapping = 'updated-content';", "utf8");
+      const originalTimes = await stat(accountMappingPath);
+      await writeFile(accountMappingPath, "export const accountMapping = 'change';", "utf8");
+      // Simulate a same-size external edit whose file metadata does not change.
+      await utimes(accountMappingPath, originalTimes.atime, originalTimes.mtime);
       service.invalidateWorkspaceScanCache("context-cache");
       const third = await service.collectAgentWorkspaceContext("update account mapping") as { cacheHits?: number; cacheMisses?: number; snippets?: Array<{ path: string; content: string }> };
       expect(third.cacheMisses).toBeGreaterThan(0);
-      expect(third.snippets?.find((item) => item.path === "src/account-mapping.ts")?.content).toContain("updated-content");
+      expect(third.snippets?.find((item) => item.path === "src/account-mapping.ts")?.content).toContain("change");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

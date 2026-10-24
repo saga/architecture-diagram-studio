@@ -85,8 +85,19 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
   const fileScanCache = new Map<string, { expiresAt: number; files?: WorkspaceFileEntry[]; pending?: Promise<WorkspaceFileEntry[]> }>();
 
   function invalidateWorkspaceScanCache(workspaceId?: string): void {
-    if (!workspaceId) { fileScanCache.clear(); return; }
-    for (const key of fileScanCache.keys()) if (key.startsWith(workspaceId + "\0")) fileScanCache.delete(key);
+    if (!workspaceId) {
+      fileScanCache.clear();
+      snippetCache.clear();
+      snippetCacheCharacters = 0;
+      return;
+    }
+    const prefix = workspaceId + "\0";
+    for (const key of fileScanCache.keys()) if (key.startsWith(prefix)) fileScanCache.delete(key);
+    for (const [key, snippet] of snippetCache) {
+      if (!key.startsWith(prefix)) continue;
+      snippetCache.delete(key);
+      snippetCacheCharacters -= snippet.excerpt.length;
+    }
   }
 
   async function scanWorkspaceFiles(workspace: ProjectWorkspace): Promise<WorkspaceFileEntry[]> {
