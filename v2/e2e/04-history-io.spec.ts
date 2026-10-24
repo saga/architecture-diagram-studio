@@ -93,7 +93,7 @@ test.describe("版本历史与文件交换", () => {
     await expect.poll(async () => (await readFile(primaryPath, "utf8")).includes("Browser Handle Save"), {
       timeout: 30_000, intervals: [500]
     }).toBe(true);
-    await expect(page.locator(".status-left")).toContainText("Saved architecture.drawio through the browser file handle");
+    await expect(page.locator(".document-breadcrumb .save-state")).toHaveText("Saved to file");
   });
 
   test("服务端拒绝格式错误的原生 XML，且不改动文件和 revision", async ({ request }) => {
