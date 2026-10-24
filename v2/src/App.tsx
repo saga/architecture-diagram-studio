@@ -1625,7 +1625,7 @@ export default function App() {
             onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
-          <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
+          <span className="status-drawio" title="Local Draw.io bundle on a dedicated sandboxed origin; CSP blocks network connections">Sandboxed Draw.io {DRAWIO_VERSION}</span>
           <span className={nativeEditorReady ? "status-native" : "status-native status-warn"}
             title={nativeEditorReady
               ? "Native Draw.io editor ready · AI scripts use the live editor API and save through Studio"
