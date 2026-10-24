@@ -84,7 +84,7 @@ describe("standalone Draw.io history for browser-owned files", () => {
     await expect(service.openBrowserDocument("/tmp/main.drawio", "main.drawio", valid)).rejects.toThrow(/document ID/);
     await expect(service.openBrowserDocument("document-5", "main.drawio", "<mxfile><broken"))
       .rejects.toThrow();
-    const session = await service.openBrowserDocument("document-6", "main.drawio", valid);
+    await service.openBrowserDocument("document-6", "main.drawio", valid);
     await expect(service.listHistory("not-a-session-token")).rejects.toMatchObject({ statusCode: 410 });
   });
 });
