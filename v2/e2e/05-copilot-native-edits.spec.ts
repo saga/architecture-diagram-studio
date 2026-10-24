@@ -561,16 +561,6 @@ test("Copilot bulk destructive edits execute without a confirmation proposal", a
         outcome: "command_ready",
         reply: "Delete API Service and Message Queue.",
         sessionId: "e2e-proposal-session",
-        proposal: {
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          summary: "Delete “API Service”; Delete “Message Queue”",
-          operations: [
-            { op: "delete", target: "API Service", cellId: "api", targetLabel: "API Service" },
-            { op: "delete", target: "Message Queue", cellId: "queue", targetLabel: "Message Queue" }
-          ],
-          pageId,
-          documentRevision
-        },
         nativeEdits: {
           operations: [
             { op: "delete", target: "API Service", cellId: "api", targetLabel: "API Service" },
@@ -583,31 +573,6 @@ test("Copilot bulk destructive edits execute without a confirmation proposal", a
       })
     });
   });
-  await page.route("**/api/copilot/intent/confirm", async (route) => {
-    const body = JSON.parse(route.request().postData() || "{}") as {
-      documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
-    const pageId = body.context?.activePageId ?? null;
-    const documentRevision = String(body.documentRevision ?? "");
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        outcome: "command_ready",
-        reply: "The reviewed proposal was confirmed.",
-        sessionId: "e2e-proposal-session",
-        nativeEdits: {
-          operations: [
-            { op: "delete", target: "API Service", cellId: "api", targetLabel: "API Service" },
-            { op: "delete", target: "Message Queue", cellId: "queue", targetLabel: "Message Queue" }
-          ],
-          summary: "Delete “API Service”; Delete “Message Queue”",
-          pageId, documentRevision, requestId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-        },
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["confirm_native_edit_proposal"]
-      })
-    });
-  });
-
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
   await input.fill("Delete API Service and Message Queue");
