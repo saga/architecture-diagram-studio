@@ -64,7 +64,7 @@ If a feature has no known recipe, the agent can inspect the live objects and pro
 
 ## 2. Keep typed operations as shortcuts, not as permission boundaries
 
-Retain `NativeEditOperation` for common, deterministic edits such as select, rename, color change, move, resize, simple insertion, C4 conversion, and the Studio-owned Dagre/ELK layout path. These operations are useful because their intent and result are easy to validate.
+Retain `NativeEditOperation` for common, deterministic edits such as select, rename, color change, move, resize, simple insertion and the Studio-owned Dagre/ELK layout path. These operations are useful because their intent and result are easy to validate.
 
 They must not define the ceiling of agent capability. The agent can choose direct script execution whenever the typed vocabulary is too narrow, cumbersome, or unable to preserve the user's intent. Do not create a new operation type, Zod schema branch, tool schema branch and bridge implementation for every new graph capability.
 
