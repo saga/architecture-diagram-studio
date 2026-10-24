@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "./support/test";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
+import { installFileSystemAccessMock } from "./support/file-system-access";
 
 test("Copilot uses the same server intent contract while standalone edits stay out of workspace persistence", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
@@ -82,10 +83,10 @@ test("Copilot uses the same server intent contract while standalone edits stay o
 
   const standalonePath = path.join(workspace.rootPath, "standalone.drawio");
   await writeFile(standalonePath, originalWorkspaceXml, "utf8");
+  await installFileSystemAccessMock(page, workspace.rootPath, [
+    { name: "standalone.drawio", path: standalonePath, content: originalWorkspaceXml }
+  ]);
   await page.getByRole("button", { name: "Open Draw.io" }).click();
-  const openDialog = page.getByRole("dialog", { name: "Open Draw.io file" });
-  await expect(openDialog).toBeVisible();
-  await openDialog.getByRole("button").filter({ hasText: "standalone.drawio" }).click();
   await expect.poll(async () =>
     (await page.locator(".document-breadcrumb strong").textContent())?.trim() || ""
   ).toBe("standalone.drawio");
@@ -117,6 +118,7 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   expect(acknowledgementCalls[1]?.standalone).toBe(true);
   expect(acknowledgementCalls[0]?.versionId).toEqual(expect.any(String));
   expect(acknowledgementCalls[1]?.persistenceStatus).toBe("not_managed_by_server");
+  expect(acknowledgementCalls[1]?.persistedRevision).toBe(acknowledgementCalls[1]?.serializedXmlRevision);
   expect(acknowledgementCalls[1]?.versionId).toBeNull();
   expect(workspaceDocumentWrites).toBe(0);
   expect(await readWorkspaceXml(workspace)).toBe(savedWorkspaceXml);

@@ -1,5 +1,4 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -183,12 +182,6 @@ async function getProjectWorkspace(): Promise<ProjectWorkspace | null> {
 const workspaceFileService = createWorkspaceFileService(getProjectWorkspace);
 const { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext, invalidateWorkspaceScanCache } = workspaceFileService;
 const localDiagramFileService = createLocalDiagramFileService({
-  allowedRoots: async () => {
-    const workspace = await getProjectWorkspace();
-    // Start the local file picker in the active workspace so import/export actions work
-    // on the current diagram without making users navigate from their home directory.
-    return [...(workspace ? [workspace.rootPath] : []), os.homedir()];
-  },
   historyDirectory: path.join(GLOBAL_DATA_DIR, "standalone-history")
 });
 
@@ -986,68 +979,25 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
 });
 app.get("/api/workspace/files", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "Configure a project workspace first" }); return; } const files = await scanWorkspaceFiles(workspace); res.json({ workspaceId: workspace.id, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
 
-app.get("/api/local/files", async (req, res) => {
+app.post("/api/local/diagram/session", async (req, res) => {
   try {
-    const directory = typeof req.query.directory === "string" ? req.query.directory : undefined;
-    res.json(await localDiagramFileService.listDirectory(directory));
+    const documentId = typeof req.body?.documentId === "string" ? req.body.documentId : "";
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    const xml = typeof req.body?.drawioXml === "string" ? req.body.drawioXml : "";
+    res.status(201).json(await localDiagramFileService.openBrowserDocument(documentId, name, xml));
   } catch (error) {
     const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
     res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
-app.post("/api/local/diagram/open", async (req, res) => {
-  try {
-    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
-    res.json(await localDiagramFileService.openDiagram(filePath));
-  } catch (error) {
-    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
-    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.post("/api/local/diagram/import", async (req, res) => {
-  try {
-    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
-    res.json(await localDiagramFileService.importDiagram(filePath));
-  } catch (error) {
-    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
-    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.put("/api/local/diagram/save", async (req, res) => {
+app.post("/api/local/diagram/snapshot", async (req, res) => {
   try {
     const token = typeof req.body?.fileToken === "string" ? req.body.fileToken : "";
-    const revision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
+    const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
     const xml = typeof req.body?.drawioXml === "string" ? req.body.drawioXml : "";
-    const saved = await localDiagramFileService.saveDiagram(token, revision, xml);
-    res.json(saved);
-  } catch (error) {
-    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
-    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.post("/api/local/diagram/export", async (req, res) => {
-  try {
-    const directory = typeof req.body?.directory === "string" ? req.body.directory : "";
-    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName : "";
-    const xml = typeof req.body?.drawioXml === "string" ? req.body.drawioXml : "";
-    res.status(201).json(await localDiagramFileService.exportDiagram(directory, fileName, xml));
-  } catch (error) {
-    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
-    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-
-app.post("/api/local/diagram/history/snapshot", async (req, res) => {
-  try {
-    const token = typeof req.body?.fileToken === "string" ? req.body.fileToken : "";
-    const revision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
-    const label = typeof req.body?.label === "string" ? req.body.label : "Before edit";
-    res.json(await localDiagramFileService.snapshotCurrent(token, revision, label));
+    const label = typeof req.body?.label === "string" ? req.body.label : "Autosave";
+    res.json(await localDiagramFileService.saveSnapshot(token, baseRevision, xml, label));
   } catch (error) {
     const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
     res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
@@ -1077,8 +1027,9 @@ app.get("/api/local/diagram/history", async (req, res) => {
 app.post("/api/local/diagram/history/:id/restore", async (req, res) => {
   try {
     const token = typeof req.body?.fileToken === "string" ? req.body.fileToken : "";
-    const revision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
-    res.json(await localDiagramFileService.restoreHistory(token, revision, req.params.id));
+    const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
+    const currentXml = typeof req.body?.currentXml === "string" ? req.body.currentXml : "";
+    res.json(await localDiagramFileService.prepareHistoryRestore(token, baseRevision, currentXml, req.params.id));
   } catch (error) {
     const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
     res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });

@@ -14,6 +14,7 @@ import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 import { calculateNativeAutoLayout } from "./layout/native-layout";
+import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type VersionSummary = { id: string; createdAt: string; label: string };
@@ -205,19 +206,11 @@ export default function App() {
   const [lastAction, setLastAction] = useState("Draw.io editor ready");
   const [nativeEditorReady, setNativeEditorReady] = useState(false);
   const [standaloneFileName, setStandaloneFileName] = useState<string | null>(null);
-  const [standaloneFileBinding, setStandaloneFileBinding] = useState<{ fileToken: string; path: string; name: string; revision: string } | null>(null);
-  const standaloneFileBindingRef = useRef<{ fileToken: string; path: string; name: string; revision: string } | null>(null);
+  const [standaloneFileBinding, setStandaloneFileBinding] = useState<{ fileToken: string; documentId: string; name: string; revision: string; historyRevision: string } | null>(null);
+  const standaloneFileBindingRef = useRef<{ fileToken: string; documentId: string; name: string; revision: string; historyRevision: string } | null>(null);
+  const standaloneFileHandleRef = useRef<StudioLocalFileHandle | null>(null);
   const standaloneSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const standaloneLastSavedXmlRef = useRef<string | null>(null);
-  const [localFileDialogOpen, setLocalFileDialogOpen] = useState(false);
-  const [localFileDialogMode, setLocalFileDialogMode] = useState<"open" | "import" | "export">("open");
-  const [localFileDialogLoading, setLocalFileDialogLoading] = useState(false);
-  const [localFileDirectory, setLocalFileDirectory] = useState("");
-  const [localFileDirectoryInput, setLocalFileDirectoryInput] = useState("");
-  const [localFileParentDirectory, setLocalFileParentDirectory] = useState<string | null>(null);
-  const [localFileRoots, setLocalFileRoots] = useState<Array<{ path: string; name: string }>>([]);
-  const [localFileEntries, setLocalFileEntries] = useState<Array<{ name: string; path: string; kind: "directory" | "diagram"; size: number; modifiedAt: string }>>([]);
-  const [localExportFileName, setLocalExportFileName] = useState("architecture-export.drawio");
 
   // The complete native Draw.io XML is the only active diagram source.
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
@@ -320,7 +313,8 @@ export default function App() {
         }
         const nextWorkspace = result.workspace;
         setNativeXmlOverride(result.drawioXml);
-        setProjectWorkspace(nextWorkspace); setStandaloneFileBinding(null); standaloneFileBindingRef.current = null; setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || []);
+        setProjectWorkspace(nextWorkspace); setStandaloneFileBinding(null); standaloneFileBindingRef.current = null;
+        standaloneFileHandleRef.current = null; setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || []);
         setWorkspaceName(nextWorkspace.name); setWorkspaceRootPath(nextWorkspace.rootPath);
         setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
         const newSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
@@ -385,7 +379,8 @@ export default function App() {
       // Opening a file is an explicit refresh, so don't let a prior Copilot receipt suppress
       // persistence if the native XML changed while the app was open.
       workspaceInitialLoadRef.current = nextWorkspace.id;
-      setServerXmlAvailable(true); setProjectWorkspace(nextWorkspace); setStandaloneFileBinding(null); standaloneFileBindingRef.current = null; setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || workspaceFiles);
+      setServerXmlAvailable(true); setProjectWorkspace(nextWorkspace); setStandaloneFileBinding(null); standaloneFileBindingRef.current = null;
+        standaloneFileHandleRef.current = null; setStandaloneFileName(null); standaloneLastSavedXmlRef.current = null; setWorkspaceFiles(result.files || workspaceFiles);
       setWorkspacePrimaryDiagram(nextWorkspace.primaryDiagram || "");
       setWorkspaceSetupOpen(false); setWorkspaceContentReady(true); setWorkspaceLaunchMode("open");
       recordDiagnostic("workspace.diagram.opened", "Opened an existing Draw.io file in the project workspace", {
@@ -483,7 +478,7 @@ export default function App() {
         else setDocumentSaveState("failed");
         setLastAction("Autosave failed for " + binding.name + ": " + message);
         recordDiagnostic("drawio.standalone.autosave.failed", "Could not save the opened Draw.io file through Node.js fs", {
-          fileName: binding.name, filePath: binding.path, errorMessage: message
+          fileName: binding.name, documentId: binding.documentId, errorMessage: message
         }, "error");
       });
     }, 250);
@@ -651,42 +646,24 @@ export default function App() {
     window.addEventListener("pointerup", onUp);
   }
 
-  async function loadLocalFileDirectory(directory?: string) {
-    setLocalFileDialogLoading(true);
-    try {
-      const query = directory ? "?directory=" + encodeURIComponent(directory) : "";
-      const response = await fetch("/api/local/files" + query);
-      const result = await response.json() as {
-        error?: string; directory?: string; parentDirectory?: string | null;
-        roots?: Array<{ path: string; name: string }>;
-        entries?: Array<{ name: string; path: string; kind: "directory" | "diagram"; size: number; modifiedAt: string }>;
-      };
-      if (!response.ok || !result.directory) throw new Error(result.error || "Could not browse local files");
-      setLocalFileDirectory(result.directory);
-      setLocalFileDirectoryInput(result.directory);
-      setLocalFileParentDirectory(result.parentDirectory ?? null);
-      setLocalFileRoots(result.roots || []);
-      setLocalFileEntries(result.entries || []);
-    } catch (error) {
-      setLastAction("Could not browse local files: " + (error instanceof Error ? error.message : String(error)));
-      recordDiagnostic("drawio.local-files.browse.failed", "Could not browse local files through the Node.js service", {
-        directory: directory || null, errorMessage: error instanceof Error ? error.message : String(error)
-      }, "error");
-    } finally { setLocalFileDialogLoading(false); }
-  }
-
   async function openLocalFileDialog(mode: "open" | "import" | "export") {
-    setLocalFileDialogMode(mode);
-    setLocalFileDialogOpen(true);
-    if (mode === "export") {
-      const source = standaloneFileBinding?.path || projectWorkspace?.primaryDiagram || "architecture.drawio";
-      const base = source.split(/[\\/]/).pop()?.replace(/\.(drawio|dio|xml)$/i, "") || "architecture";
-      setLocalExportFileName(base + "-export.drawio");
+    try {
+      if (mode === "export") {
+        await saveLocalExport();
+        return;
+      }
+      const handle = await chooseDrawioFile();
+      if (!handle) return;
+      if (mode === "open") await openStandaloneDiagram(handle);
+      else await importDiagramHandle(handle);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      const message = error instanceof Error ? error.message : String(error);
+      setLastAction((mode === "import" ? "Import" : "Open") + " failed: " + message);
+      recordDiagnostic("drawio.local-file-picker.failed", "The browser-native file picker operation failed", {
+        mode, errorMessage: message
+      }, "error");
     }
-    const currentDirectory = standaloneFileBinding?.path
-      ? standaloneFileBinding.path.slice(0, standaloneFileBinding.path.lastIndexOf("/")) || undefined
-      : projectWorkspace?.rootPath || undefined;
-    await loadLocalFileDirectory(currentDirectory);
   }
 
   function enqueueStandaloneSave(xml: string, expectedToken: string): Promise<void> {
@@ -695,72 +672,125 @@ export default function App() {
     return pending;
   }
 
-  async function persistStandaloneXml(xml: string, expectedToken: string): Promise<void> {
+  async function synchronizeStandaloneSnapshot(xml: string, expectedToken: string, label: string): Promise<void> {
     const current = standaloneFileBindingRef.current;
-    if (!current || current.fileToken !== expectedToken || xml === standaloneLastSavedXmlRef.current) return;
-    const response = await fetch("/api/local/diagram/save", {
-      method: "PUT", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fileToken: current.fileToken, baseRevision: current.revision, drawioXml: xml })
+    if (!current || current.fileToken !== expectedToken) return;
+    const response = await fetch("/api/local/diagram/snapshot", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        fileToken: current.fileToken, baseRevision: current.historyRevision, drawioXml: xml, label
+      })
     });
-    const result = await response.json() as { error?: string; path?: string; name?: string; revision?: string; size?: number };
-    if (!response.ok || !result.revision) {
-      if (response.status === 409) setDocumentSaveState("conflict");
-      throw new Error(result.error || "The local file could not be saved");
-    }
-    if (standaloneFileBindingRef.current?.fileToken !== expectedToken) return;
-    const updated = { ...current, revision: result.revision };
+    const result = await response.json() as { error?: string; revision?: string; snapshotCount?: number };
+    if (!response.ok || !result.revision) throw new Error(result.error || "The Node.js service could not save the history snapshot");
+    const latest = standaloneFileBindingRef.current;
+    if (!latest || latest.fileToken !== expectedToken) return;
+    const updated = { ...latest, historyRevision: result.revision };
     standaloneFileBindingRef.current = updated;
     setStandaloneFileBinding(updated);
-    standaloneLastSavedXmlRef.current = xml;
-    setDocumentSaveState("saved");
-    setLastAction("Saved " + current.name + " through Node.js fs");
-    recordDiagnostic("drawio.standalone.autosaved", "Standalone Draw.io XML was saved by the local Node.js service", {
-      fileName: current.name, filePath: current.path, xmlLength: xml.length
-    });
   }
 
-  async function openStandaloneDiagram(filePath: string) {
+  async function persistStandaloneXml(xml: string, expectedToken: string): Promise<void> {
+    let current = standaloneFileBindingRef.current;
+    const handle = standaloneFileHandleRef.current;
+    if (!current || current.fileToken !== expectedToken || !handle) return;
+    if (!isDrawioXmlDocument(xml)) {
+      throw new Error("The editor returned invalid Draw.io XML. The selected file was not overwritten.");
+    }
+
+    const diskFile = await handle.getFile();
+    const diskXml = await diskFile.text();
+    const diskRevision = await calculateDrawioXmlRevision(diskXml);
+    if (diskRevision !== current.revision) {
+      setDocumentSaveState("conflict");
+      throw new Error("The file changed outside Draw.io Studio. Reopen it before overwriting those changes.");
+    }
+
+    const nextRevision = await calculateDrawioXmlRevision(xml);
+    if (nextRevision !== current.revision) {
+      await writeDrawioFile(handle, xml);
+      current = standaloneFileBindingRef.current;
+      if (!current || current.fileToken !== expectedToken) return;
+      const updated = { ...current, revision: nextRevision };
+      standaloneFileBindingRef.current = updated;
+      setStandaloneFileBinding(updated);
+      standaloneLastSavedXmlRef.current = xml;
+      setDocumentSaveState("saved");
+      setLastAction("Saved " + updated.name + " through the browser file handle");
+      recordDiagnostic("drawio.standalone.autosaved", "The selected native Draw.io file was saved through FileSystemFileHandle", {
+        fileName: updated.name, documentId: updated.documentId, xmlLength: xml.length
+      });
+    } else {
+      standaloneLastSavedXmlRef.current = xml;
+    }
+
+    // The original file is already committed before this secondary history sync. A history
+    // failure is reported as such, but never misreported as a failed source-file save.
+    try {
+      await synchronizeStandaloneSnapshot(xml, expectedToken, "Autosave");
+    } catch (error) {
+      setLastAction("Saved " + current.name + "; history snapshot sync is pending: " + (error instanceof Error ? error.message : String(error)));
+      recordDiagnostic("drawio.standalone.history-sync.failed", "The original file was saved, but Node.js history sync failed", {
+        fileName: current.name, documentId: current.documentId,
+        errorMessage: error instanceof Error ? error.message : String(error), sourceFileSaved: true
+      }, "warn");
+    }
+  }
+
+  async function openStandaloneDiagram(handle: StudioLocalFileHandle) {
     const startedAt = Date.now();
     try {
+      if (![".drawio", ".dio", ".xml"].some((extension) => handle.name.toLowerCase().endsWith(extension))) throw new Error("Choose a .drawio, .dio, or .xml file");
+      // Ask for write access immediately after selection, while the picker interaction still has user activation.
+      await ensureDrawioWritePermission(handle);
+      const file = await handle.getFile();
+      if (file.size > 20 * 1024 * 1024) throw new Error("Draw.io XML exceeds the 20 MiB limit");
+      const xml = await file.text();
+      const diagnostics = getDrawioXmlDiagnostics(xml);
+      if (diagnostics.issues.length || !isDrawioXmlDocument(xml)) {
+        throw new Error(diagnostics.issues[0] || "The selected file is not a valid Draw.io XML document.");
+      }
+
       const previousBinding = standaloneFileBindingRef.current;
       if (previousBinding && drawioXml !== standaloneLastSavedXmlRef.current) {
         await enqueueStandaloneSave(drawioXml, previousBinding.fileToken);
       }
       await standaloneSaveQueueRef.current;
-      const response = await fetch("/api/local/diagram/open", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: filePath })
-      });
-      const result = await response.json() as {
-        error?: string; fileToken?: string; path?: string; name?: string;
-        drawioXml?: string; revision?: string; size?: number;
-      };
-      if (!response.ok || !result.fileToken || !result.path || !result.name ||
-          typeof result.drawioXml !== "string" || !result.revision) {
-        throw new Error(result.error || "The Node.js service could not open the Draw.io file");
-      }
-      const xml = result.drawioXml;
-      const diagnostics = getDrawioXmlDiagnostics(xml);
-      if (diagnostics.issues.length || !isDrawioXmlDocument(xml)) {
-        throw new Error(diagnostics.issues[0] || "The selected file is not a valid Draw.io XML document.");
-      }
+
       if (workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         try {
           await persistDocumentNow(drawioXml, "Autosave before opening standalone Draw.io");
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          setLastAction("Could not open " + result.name + " because the current workspace could not be saved: " + message);
+          setLastAction("Could not open " + handle.name + " because the current workspace could not be saved: " + message);
           recordDiagnostic("drawio.open.standalone.pre-save-failed", "Opening the local Draw.io file was stopped because the current workspace could not be saved", {
-            fileName: result.name, errorMessage: message, currentPrimaryDiagram: projectWorkspace.primaryDiagram,
+            fileName: handle.name, errorMessage: message, currentPrimaryDiagram: projectWorkspace.primaryDiagram,
             workspaceId: projectWorkspace.id, stage: "save-current-workspace-before-open"
           }, "error");
           return;
         }
       }
+
+      const documentId = await getLocalDocumentId(handle);
+      const response = await fetch("/api/local/diagram/session", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ documentId, name: handle.name, drawioXml: xml })
+      });
+      const result = await response.json() as {
+        error?: string; fileToken?: string; documentId?: string; name?: string;
+        revision?: string; snapshotCount?: number;
+      };
+      if (!response.ok || !result.fileToken || !result.documentId || !result.name || !result.revision) {
+        throw new Error(result.error || "The Node.js service could not register this browser-owned file");
+      }
       if (projectWorkspace?.id) workspaceInitialLoadRef.current = projectWorkspace.id;
       clearSaveConflict("standalone-document-opened", xml);
       setWorkspaceContentReady(false);
-      const binding = { fileToken: result.fileToken, path: result.path, name: result.name, revision: result.revision };
+      const binding = {
+        fileToken: result.fileToken, documentId: result.documentId, name: result.name,
+        revision: result.revision, historyRevision: result.revision
+      };
+      standaloneFileHandleRef.current = handle;
       standaloneFileBindingRef.current = binding;
       setStandaloneFileBinding(binding);
       setStandaloneFileName(result.name);
@@ -773,62 +803,50 @@ export default function App() {
       const standaloneSessionId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId("session");
       setCopilotSessionId(standaloneSessionId);
       try { window.localStorage.setItem("architecture-diagram-studio:v2:copilot-session-id", standaloneSessionId); } catch { /* The standalone session stays isolated in memory. */ }
-      setMessages([{ role: "assistant", id: Date.now(), text: "Opened a standalone Draw.io file. Reads, autosaves and history are handled by the local Node.js service." }]);
+      setMessages([{ role: "assistant", id: Date.now(), text: "Opened a standalone Draw.io file. The browser file handle owns reads and writes; Node.js stores history snapshots." }]);
       setWorkspaceSetupOpen(false);
       setWorkspaceError("");
-      setLastAction("Opened " + result.name + "; direct Node.js autosave enabled");
-      setLocalFileDialogOpen(false);
-      recordDiagnostic("drawio.open.standalone", "Opened a standalone native Draw.io file through Node.js fs", {
-        fileName: result.name, filePath: result.path, xmlLength: xml.length, fileBytes: result.size || 0,
+      setLastAction("Opened " + result.name + "; browser file-handle autosave enabled");
+      recordDiagnostic("drawio.open.standalone", "Opened a native Draw.io file using the browser File System Access API", {
+        fileName: result.name, documentId, xmlLength: xml.length, fileBytes: file.size,
         pageCount: diagnostics.pageCount, durationMs: Date.now() - startedAt
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setLastAction("Opening Draw.io failed: " + message);
-      recordDiagnostic("drawio.open.standalone.failed", "Could not open the selected Draw.io file through Node.js fs", {
-        filePath, errorMessage: message
+      recordDiagnostic("drawio.open.standalone.failed", "Could not open the selected Draw.io file through the browser file handle", {
+        fileName: handle.name, errorMessage: message
       }, "error");
     }
   }
 
-  async function importDiagramPath(filePath: string) {
+  async function importDiagramHandle(handle: StudioLocalFileHandle) {
     const startedAt = Date.now();
-    recordDiagnostic("drawio.import.started", "Native Draw.io import started through Node.js fs", { filePath });
+    recordDiagnostic("drawio.import.started", "Native Draw.io import started through FileSystemFileHandle", { fileName: handle.name });
     try {
-      const response = await fetch("/api/local/diagram/import", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: filePath })
-      });
-      const result = await response.json() as { error?: string; drawioXml?: string; name?: string; size?: number };
-      if (!response.ok || typeof result.drawioXml !== "string") throw new Error(result.error || "Could not read the selected diagram");
-      const xml = result.drawioXml;
-      const xmlDiagnostics = getDrawioXmlDiagnostics(xml);
-      if (xmlDiagnostics.issues.length || !isDrawioXmlDocument(xml)) {
-        throw new Error(xmlDiagnostics.issues[0] || "The selected file is not a supported Draw.io diagram; the active document was not changed.");
+      if (![".drawio", ".dio", ".xml"].some((extension) => handle.name.toLowerCase().endsWith(extension))) throw new Error("Choose a .drawio, .dio, or .xml file");
+      const file = await handle.getFile();
+      if (file.size > 20 * 1024 * 1024) throw new Error("Draw.io XML exceeds the 20 MiB limit");
+      const xml = await file.text();
+      const diagnostics = getDrawioXmlDiagnostics(xml);
+      if (diagnostics.issues.length || !isDrawioXmlDocument(xml)) {
+        throw new Error(diagnostics.issues[0] || "The selected file is not a supported Draw.io diagram; the active document was not changed.");
       }
       setNativeXmlOverride(xml);
       setRevision((value) => value + 1);
       if (standaloneFileBindingRef.current) standaloneLastSavedXmlRef.current = null;
-      setLocalFileDialogOpen(false);
-      setLastAction("Imported native Draw.io XML from " + result.name);
-      recordDiagnostic("drawio.import.completed", "Native Draw.io XML imported from a server-read file without projection conversion", {
-        filePath, durationMs: Date.now() - startedAt, xmlLength: xml.length, pageCount: xmlDiagnostics.pageCount,
-        warningCount: xmlDiagnostics.warnings.length
+      setLastAction("Imported native Draw.io XML from " + handle.name);
+      recordDiagnostic("drawio.import.completed", "Imported native Draw.io XML through a browser-owned file handle", {
+        fileName: handle.name, durationMs: Date.now() - startedAt, xmlLength: xml.length,
+        pageCount: diagnostics.pageCount, warningCount: diagnostics.warnings.length
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      recordDiagnostic("drawio.import.failed", "Draw.io import failed", { filePath, durationMs: Date.now() - startedAt, errorMessage: message }, "error");
+      recordDiagnostic("drawio.import.failed", "Draw.io import failed", {
+        fileName: handle.name, durationMs: Date.now() - startedAt, errorMessage: message
+      }, "error");
       setLastAction("Import failed: " + message);
     }
-  }
-
-  async function selectLocalFileEntry(entry: { name: string; path: string; kind: "directory" | "diagram" }) {
-    if (entry.kind === "directory") {
-      await loadLocalFileDirectory(entry.path);
-      return;
-    }
-    if (localFileDialogMode === "open") await openStandaloneDiagram(entry.path);
-    else if (localFileDialogMode === "import") await importDiagramPath(entry.path);
   }
 
   async function exportDiagram() {
@@ -836,24 +854,27 @@ export default function App() {
   }
 
   async function saveLocalExport() {
-    const fileName = localExportFileName.trim();
-    if (!fileName) { setLastAction("Enter a file name for the export"); return; }
+    const activeName = standaloneFileBindingRef.current?.name || projectWorkspace?.primaryDiagram || "architecture.drawio";
+    const baseName = activeName.split(/[\\/]/).pop()?.replace(/\.(drawio|dio|xml)$/i, "") || "architecture";
+    const suggestedName = baseName + "-export.drawio";
     try {
-      const response = await fetch("/api/local/diagram/export", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ directory: localFileDirectory, fileName, drawioXml })
-      });
-      const result = await response.json() as { error?: string; path?: string; name?: string };
-      if (!response.ok || !result.path) throw new Error(result.error || "Could not export the diagram");
+      if (!isDrawioXmlDocument(drawioXml)) throw new Error("The current editor content is not valid Draw.io XML; export was cancelled.");
+      const handle = await chooseDrawioSaveFile(suggestedName);
+      if (!handle.name.toLowerCase().endsWith(".drawio") && !handle.name.toLowerCase().endsWith(".dio") && !handle.name.toLowerCase().endsWith(".xml")) {
+        throw new Error("Choose a .drawio, .dio, or .xml filename for export.");
+      }
+      await writeDrawioFile(handle, drawioXml);
       lastExportedXmlRef.current = drawioXml;
       setDocumentSaveState("exported");
-      setLocalFileDialogOpen(false);
-      setLastAction("Exported native Draw.io XML to " + result.path);
-      recordDiagnostic("drawio.export.completed", "Exported native Draw.io XML through Node.js fs", { filePath: result.path, fileName: result.name, xmlLength: drawioXml.length });
+      setLastAction("Exported native Draw.io XML to " + handle.name);
+      recordDiagnostic("drawio.export.completed", "Exported native Draw.io XML through the browser file handle", {
+        fileName: handle.name, xmlLength: drawioXml.length
+      });
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setLastAction("Export failed: " + (error instanceof Error ? error.message : String(error)));
-      recordDiagnostic("drawio.export.failed", "Native Draw.io export through Node.js fs failed", {
-        directory: localFileDirectory, fileName, errorMessage: error instanceof Error ? error.message : String(error)
+      recordDiagnostic("drawio.export.failed", "Native Draw.io export through the browser file handle failed", {
+        fileName: suggestedName, errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
     }
   }
@@ -925,9 +946,33 @@ export default function App() {
   }
 
   async function openStandaloneHistory() {
-    const binding = standaloneFileBindingRef.current;
-    if (!binding) return;
+    let binding = standaloneFileBindingRef.current;
+    const handle = standaloneFileHandleRef.current;
+    if (!binding || !handle) return;
+    const expectedToken = binding.fileToken;
     try {
+      await standaloneSaveQueueRef.current;
+      if (drawioXml !== standaloneLastSavedXmlRef.current) {
+        await enqueueStandaloneSave(drawioXml, binding.fileToken);
+      }
+      await standaloneSaveQueueRef.current;
+      binding = standaloneFileBindingRef.current;
+      if (!binding || binding.fileToken !== expectedToken || handle !== standaloneFileHandleRef.current) return;
+
+      // Retry any deferred snapshot synchronization before showing the history list, so history
+      // does not silently omit a source-file save that previously succeeded.
+      const file = await handle.getFile();
+      const currentXml = await file.text();
+      const currentRevision = await calculateDrawioXmlRevision(currentXml);
+      if (currentRevision !== binding.revision) {
+        setDocumentSaveState("conflict");
+        throw new Error("The file changed outside Draw.io Studio. Reopen it before reading or restoring history.");
+      }
+      await synchronizeStandaloneSnapshot(currentXml, binding.fileToken, "Current file before opening history");
+      binding = standaloneFileBindingRef.current;
+      if (!binding || binding.historyRevision !== currentRevision) {
+        throw new Error("The source file is unchanged, but its history snapshot could not be synchronized. Retry opening history.");
+      }
       const response = await fetch("/api/local/diagram/history?fileToken=" + encodeURIComponent(binding.fileToken));
       const result = await response.json() as { error?: string; history?: Array<{ id: string; createdAt: string; label: string; xmlLength: number }> };
       if (!response.ok) throw new Error(result.error || "Could not read local file history");
@@ -939,7 +984,7 @@ export default function App() {
       setLocalHistoryOpen(true);
     } catch (error) {
       recordDiagnostic("copilot.standalone.history.read.failed", "Could not read standalone file history from Node.js storage", {
-        fileName: binding.name, errorMessage: error instanceof Error ? error.message : String(error)
+        fileName: binding?.name ?? null, errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
       setLastAction("Could not read local history: " + (error instanceof Error ? error.message : String(error)));
     }
@@ -968,48 +1013,69 @@ export default function App() {
     if (drawioXml !== standaloneLastSavedXmlRef.current) await enqueueStandaloneSave(drawioXml, binding.fileToken);
     const current = standaloneFileBindingRef.current;
     if (!current) return;
-    const response = await fetch("/api/local/diagram/history/snapshot", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fileToken: current.fileToken, baseRevision: current.revision, label })
-    });
-    const result = await response.json() as { error?: string; snapshotCount?: number };
-    if (!response.ok) throw new Error(result.error || "The server could not save a standalone history snapshot");
-    recordDiagnostic("copilot.standalone.history.snapshot", "Saved the pre-edit Draw.io snapshot through Node.js fs", {
-      fileName: current.name, filePath: current.path, snapshotCount: result.snapshotCount, xmlLength: drawioXml.length, requestId: _requestId
+    await synchronizeStandaloneSnapshot(drawioXml, current.fileToken, label);
+    recordDiagnostic("copilot.standalone.history.snapshot", "Saved the pre-edit native Draw.io XML snapshot through Node.js history storage", {
+      fileName: current.name, documentId: current.documentId, xmlLength: drawioXml.length, requestId: _requestId
     });
   }
 
   async function restoreStandaloneHistory(entry: { id: string; createdAt: string; label: string; xml: string }) {
     const binding = standaloneFileBindingRef.current;
-    if (!binding) return;
+    const handle = standaloneFileHandleRef.current;
+    if (!binding || !handle) return;
     try {
+      const sourceFile = await handle.getFile();
+      const currentXml = await sourceFile.text();
+      const currentRevision = await calculateDrawioXmlRevision(currentXml);
+      if (currentRevision !== binding.revision) {
+        setDocumentSaveState("conflict");
+        throw new Error("The file changed outside Draw.io Studio. Reopen it before restoring history.");
+      }
+      await synchronizeStandaloneSnapshot(currentXml, binding.fileToken, "Before restore");
+      const synchronized = standaloneFileBindingRef.current;
+      if (!synchronized || synchronized.fileToken !== binding.fileToken) return;
       const response = await fetch("/api/local/diagram/history/" + encodeURIComponent(entry.id) + "/restore", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fileToken: binding.fileToken, baseRevision: binding.revision })
+        body: JSON.stringify({ fileToken: synchronized.fileToken, baseRevision: synchronized.historyRevision, currentXml })
       });
-      const result = await response.json() as { error?: string; path?: string; name?: string; revision?: string; drawioXml?: string };
-      if (!response.ok || typeof result.drawioXml !== "string" || !result.revision || !isDrawioXmlDocument(result.drawioXml)) {
+      const result = await response.json() as { error?: string; drawioXml?: string; revision?: string; label?: string };
+      if (!response.ok || typeof result.drawioXml !== "string" || !isDrawioXmlDocument(result.drawioXml)) {
         throw new Error(result.error || "History restore failed");
       }
-      const updated = { ...binding, revision: result.revision };
+
+      // Restore is a browser-owned file write. The server only prepares the historical XML and
+      // archives the pre-restore state; it never writes to the selected source file.
+      await writeDrawioFile(handle, result.drawioXml);
+      const restoredRevision = await calculateDrawioXmlRevision(result.drawioXml);
+      const latest = standaloneFileBindingRef.current;
+      if (!latest || latest.fileToken !== synchronized.fileToken) return;
+      const updated = { ...latest, revision: restoredRevision };
       standaloneFileBindingRef.current = updated;
       setStandaloneFileBinding(updated);
       standaloneLastSavedXmlRef.current = result.drawioXml;
       clearSaveConflict("standalone-history-restore", result.drawioXml);
-      setDocumentSaveState("saved");
       setNativeXmlOverride(result.drawioXml);
       setRevision((value) => value + 1);
+      setDocumentSaveState("saved");
+      try {
+        await synchronizeStandaloneSnapshot(result.drawioXml, updated.fileToken, "Restored version: " + entry.label);
+        setLastAction("Restored " + entry.label + " to " + updated.name);
+      } catch (error) {
+        setLastAction("Restored " + updated.name + "; history sync is pending: " + (error instanceof Error ? error.message : String(error)));
+        recordDiagnostic("drawio.standalone.history-restore-sync.failed", "The browser file was restored but Node.js history sync failed", {
+          documentId: updated.documentId, errorMessage: error instanceof Error ? error.message : String(error), sourceFileSaved: true
+        }, "warn");
+      }
       setLocalHistoryOpen(false);
-      setLastAction("Restored local snapshot: " + entry.label + "; saved directly to the original file.");
-      recordDiagnostic("copilot.standalone.history.restored", "Restored a validated local Draw.io XML snapshot via Node.js fs", {
-        fileName: binding.name, filePath: binding.path, snapshotId: entry.id, xmlLength: result.drawioXml.length
+      recordDiagnostic("drawio.standalone.history.restored", "Restored a native Draw.io snapshot through the browser file handle", {
+        documentId: updated.documentId, sourceVersionId: entry.id, xmlLength: result.drawioXml.length
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      recordDiagnostic("copilot.standalone.history.restore.failed", "Restoring the local file snapshot failed", {
-        fileName: binding.name, errorMessage: message
+      recordDiagnostic("drawio.standalone.history.restore.failed", "Restoring a standalone native Draw.io snapshot failed", {
+        documentId: binding.documentId, sourceVersionId: entry.id,
+        errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
-      setLastAction("History restore failed: " + message);
+      setLastAction("History restore failed: " + (error instanceof Error ? error.message : String(error)));
     }
   }
 
@@ -1178,54 +1244,6 @@ export default function App() {
             <Button type="primary" loading={workspaceSaving} disabled={!workspaceName.trim() || !workspaceRootPath.trim() || (workspaceLaunchMode === "open" ? !workspacePrimaryDiagram : !workspaceNewDiagramName.trim())} onClick={() => void saveProjectWorkspace()}>{workspaceLaunchMode === "open" ? "Open diagram" : "Create diagram"}</Button>
           </div>
         </div>
-      </Modal>
-      <Modal
-        title={localFileDialogMode === "open" ? "Open Draw.io file" : localFileDialogMode === "import" ? "Import Draw.io file" : "Export Draw.io copy"}
-        open={localFileDialogOpen}
-        onCancel={() => setLocalFileDialogOpen(false)}
-        width={760}
-        footer={localFileDialogMode === "export" ? [
-          <Button key="cancel" onClick={() => setLocalFileDialogOpen(false)}>Cancel</Button>,
-          <Button key="export" type="primary" onClick={() => void saveLocalExport()}>Export file</Button>
-        ] : [<Button key="cancel" onClick={() => setLocalFileDialogOpen(false)}>Cancel</Button>]}
-      >
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-          <Input
-            aria-label="Local file directory"
-            value={localFileDirectoryInput}
-            onChange={(event) => setLocalFileDirectoryInput(event.target.value)}
-            onPressEnter={() => void loadLocalFileDirectory(localFileDirectoryInput)}
-          />
-          <Button loading={localFileDialogLoading} onClick={() => void loadLocalFileDirectory(localFileDirectoryInput)}>Go</Button>
-          <Button disabled={!localFileParentDirectory || localFileDialogLoading} onClick={() => localFileParentDirectory && void loadLocalFileDirectory(localFileParentDirectory)}>Up</Button>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-          {localFileRoots.map((root) => <Button key={root.path} size="small" onClick={() => void loadLocalFileDirectory(root.path)}>{root.name}</Button>)}
-        </div>
-        {localFileDialogMode === "export" && (
-          <label style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-            <span style={{ whiteSpace: "nowrap" }}>File name</span>
-            <Input aria-label="Export file name" value={localExportFileName} onChange={(event) => setLocalExportFileName(event.target.value)} />
-          </label>
-        )}
-        <div aria-label="Local Draw.io files" style={{ minHeight: 180, maxHeight: "45vh", overflowY: "auto", border: "1px solid var(--border, #e5e7eb)", borderRadius: 8 }}>
-          {localFileDialogLoading ? <p style={{ padding: 16 }}>Loading local files…</p> : localFileEntries.length === 0 ? <p style={{ padding: 16 }}>No folders or Draw.io files in this directory.</p> : localFileEntries.map((entry) => (
-            <button
-              type="button"
-              key={entry.path}
-              disabled={localFileDialogMode === "export" && entry.kind === "diagram"}
-              onClick={() => void selectLocalFileEntry(entry)}
-              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "10px 14px", border: 0, borderBottom: "1px solid var(--border, #e5e7eb)", background: "transparent", color: "inherit", cursor: "pointer", opacity: localFileDialogMode === "export" && entry.kind === "diagram" ? 0.5 : 1 }}
-            >
-              <span style={{ width: 20 }}>{entry.kind === "directory" ? "▸" : "◇"}</span>
-              <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{entry.name}</span>
-              <span style={{ opacity: 0.65, fontSize: 12 }}>{entry.kind === "diagram" ? Math.round(entry.size / 1024) + " KB" : "Folder"}</span>
-            </button>
-          ))}
-        </div>
-        <p style={{ fontSize: 12, opacity: 0.7, marginTop: 10 }}>
-          Files are read and written by the local Node.js service. Browsing is limited to your home directory and the configured workspace; symbolic links are skipped.
-        </p>
       </Modal>
       
       <Modal title={"Local Draw.io history · " + (standaloneFileName || "")} open={localHistoryOpen} onCancel={() => setLocalHistoryOpen(false)} footer={null} width={900}>
@@ -1550,6 +1568,42 @@ export default function App() {
                             failureStage: "persistence"
                           };
                     }
+                  } else if (standaloneFileName && standaloneFileBindingRef.current) {
+                    // Standalone persistence is browser-owned, but the native edit receipt must still
+                    // wait for the actual FileSystemFileHandle write to close successfully.
+                    const activeBinding = standaloneFileBindingRef.current;
+                    try {
+                      await enqueueStandaloneSave(result.serializedXml, activeBinding.fileToken);
+                      const savedBinding = standaloneFileBindingRef.current;
+                      if (!savedBinding || savedBinding.fileToken !== activeBinding.fileToken ||
+                          savedBinding.revision !== serializedXmlRevision) {
+                        throw new Error("The browser did not confirm the exact serialized XML revision on the selected local file.");
+                      }
+                      persistedRevision = savedBinding.revision;
+                      // The server records the result but does not claim it wrote the source file.
+                      persistenceStatus = "not_managed_by_server";
+                      if (savedBinding.historyRevision !== savedBinding.revision) {
+                        finalResult = {
+                          ...result,
+                          auditWarning: "The selected file was saved, but the Node.js history snapshot is still pending."
+                        };
+                      }
+                    } catch (error) {
+                      const persistenceError = error instanceof Error ? error.message : String(error);
+                      persistenceStatus = "failed";
+                      finalResult = result.success
+                        ? {
+                            ...result, success: false,
+                            error: "Draw.io applied and serialized the edit, but saving the standalone file failed: " + persistenceError,
+                            batchRolledBack: false, failureStage: "persistence"
+                          }
+                        : {
+                            ...result,
+                            error: (result.error || "The native Draw.io script failed.") +
+                              " The resulting XML could not be saved to the standalone file: " + persistenceError,
+                            failureStage: "persistence"
+                          };
+                    }
                   } else {
                     persistenceStatus = "not_managed_by_server";
                   }
@@ -1601,7 +1655,10 @@ export default function App() {
                 return;
               }
               const status = (finalResult.success
-                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") + (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch" ? "; workspace save confirmed." : ".")
+                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
+                  (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
+                    ? "; workspace save confirmed."
+                    : standaloneFileName && finalResult.path === "cell:batch" ? "; standalone file save confirmed." : ".")
                 : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error")) + (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
               if (finalResult.batchResults?.length) {
