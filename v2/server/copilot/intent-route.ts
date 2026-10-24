@@ -787,7 +787,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       visibleCells = [...visibleCells.slice(0, 199), allNativeCells.find((cell) => cell.id === selectedCell!.cellId)!];
     }
     const suppliedRepair = (requestedContext as { scriptRepair?: unknown }).scriptRepair;
-    let scriptRepair: { originalRequest: string; failedScript: string; error: string } | undefined;
+    let scriptRepair: { originalRequest: string; failedScript: string; error: string; stack?: string } | undefined;
     if (suppliedRepair !== undefined) {
       if (!suppliedRepair || typeof suppliedRepair !== "object" || Array.isArray(suppliedRepair)) {
         res.status(400).json({ outcome: "failed", reply: "The native script repair context could not be validated.", error: "scriptRepair must be an object", documentRevision, requestId, sessionId });
@@ -796,18 +796,21 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const repair = suppliedRepair as Record<string, unknown>;
       if (typeof repair.originalRequest !== "string" || !repair.originalRequest.trim() || repair.originalRequest.length > 1500 ||
           typeof repair.failedScript !== "string" || !repair.failedScript.trim() || repair.failedScript.length > 12_000 ||
-          typeof repair.error !== "string" || !repair.error.trim() || repair.error.length > 1200) {
+          typeof repair.error !== "string" || !repair.error.trim() || repair.error.length > 1200 ||
+          (repair.stack !== undefined && (typeof repair.stack !== "string" || repair.stack.length > 8000))) {
         res.status(400).json({ outcome: "failed", reply: "The native script repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, script <=12000 chars, and error <=1200 chars", documentRevision, requestId, sessionId });
         return;
       }
       scriptRepair = {
         originalRequest: repair.originalRequest,
         failedScript: repair.failedScript,
-        error: repair.error
+        error: repair.error,
+        ...(typeof repair.stack === "string" ? { stack: repair.stack } : {})
       };
       await deps.writeLog("request.script-repair.received", {
         requestId, sessionId, scriptLength: scriptRepair.failedScript.length, errorLength: scriptRepair.error.length,
-        originalRequestLength: scriptRepair.originalRequest.length, revision: computedRevision, activePageId: pageInfo.id
+        originalRequestLength: scriptRepair.originalRequest.length, errorStackLength: scriptRepair.stack?.length ?? 0,
+        revision: computedRevision, activePageId: pageInfo.id
       });
     }
     const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
@@ -1093,7 +1096,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const response = {
           // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
           outcome: "command_ready" as const,
-          commands: [], reply: nativeEdits.summary, selection,
+          commands: [],
+          reply: nativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
+            ? "执行原生 Draw.io 脚本：" + nativeEdits.summary + "。等待编辑器序列化和保存确认。"
+            : nativeEdits.summary,
+          selection,
           nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
           ...shared
         };
