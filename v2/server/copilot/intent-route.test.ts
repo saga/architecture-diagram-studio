@@ -604,16 +604,15 @@ describe("Copilot intent route result and revision contract", () => {
     expect((body.nativeEdits as { operations: unknown[] }).operations).toHaveLength(2);
     expect(harness.acknowledgements.pending.size).toBe(1);
   });
-  it("rejects a stale XML revision before dispatch, without prompting for confirmation", async () => {
+  it("rejects a workspace XML snapshot that is stale against the authoritative revision", async () => {
     const harness = await createServer({ copilot: proposingCopilot() });
     const editedXml = XML.replace('value="Database"', 'value="Warehouse"');
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
       diagramXml: editedXml, documentRevision: workspaceRevision(editedXml)
     }));
-    expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    expect(harness.acknowledgements.pending.size).toBe(1);
-    expect((body.nativeEdits as { documentRevision: string }).documentRevision).toBe(workspaceRevision(editedXml));
+    expect(response.status).toBe(409);
+    expect(body.outcome).toBe("stale_context");
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
   it("does not consult or persist workspace state for standalone requests", async () => {
     const harness = await createServer({ copilot: reportingCopilot("answered", "This is a standalone diagram.") });
