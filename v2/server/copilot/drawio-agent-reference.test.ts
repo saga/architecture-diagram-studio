@@ -20,7 +20,7 @@ describe("on-demand Draw.io reference", () => {
       "## Shape discovery", hugeSection,
       "## Validation and postconditions", hugeSection,
       "## Recipes", hugeSection,
-    ].join("\\n");
+    ].join("\n");
     for (const topic of ["api_ownership", "shape_discovery", "script_safety", "postconditions", "recipes", "overview", "all"]) {
       expect(selectDrawioReferenceSections(markdown, topic).length, topic).toBeLessThanOrEqual(18_100);
     }
