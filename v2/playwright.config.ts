@@ -58,6 +58,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         STUDIO_DRAWIO_PORT: String(DRAWIO_PORT),
+        STUDIO_WEB_PORT: String(WEB_PORT),
         VITE_STUDIO_DRAWIO_PORT: String(DRAWIO_PORT)
       }
     },
