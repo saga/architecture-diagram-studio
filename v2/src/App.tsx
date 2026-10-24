@@ -694,6 +694,9 @@ export default function App() {
     let current = standaloneFileBindingRef.current;
     const handle = standaloneFileHandleRef.current;
     if (!current || current.fileToken !== expectedToken || !handle) return;
+    if (!isDrawioXmlDocument(xml)) {
+      throw new Error("The editor returned invalid Draw.io XML. The selected file was not overwritten.");
+    }
 
     const diskFile = await handle.getFile();
     const diskXml = await diskFile.text();
