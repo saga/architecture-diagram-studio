@@ -42,8 +42,9 @@ if (!existsSync(path.join(DRAWIO_ROOT, "index.html")) ||
   process.exit(1);
 }
 
-// Keep arbitrary agent-authored JavaScript inside a separate local origin with no network
-// connection capability. The parent UI talks to it only through the exact-origin embed protocol.
+// Keep arbitrary agent-authored JavaScript on a separate local origin. CSP blocks common
+// request channels (connect-src) and remote images; it is not a process-level network sandbox.
+// The parent UI communicates only through the exact-origin embed protocol.
 export const DRAWIO_CONTENT_SECURITY_POLICY = [
   "default-src 'self' data: blob:",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
@@ -57,7 +58,6 @@ export const DRAWIO_CONTENT_SECURITY_POLICY = [
   "object-src 'none'",
   "form-action 'none'",
   "base-uri 'self'",
-  "navigate-to 'self'",
   "frame-ancestors " + allowedStudioAncestors
 ].join("; ");
 
