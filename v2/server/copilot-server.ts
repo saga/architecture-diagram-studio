@@ -180,7 +180,7 @@ async function getProjectWorkspace(): Promise<ProjectWorkspace | null> {
 }
 
 const workspaceFileService = createWorkspaceFileService(getProjectWorkspace);
-const { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext } = workspaceFileService;
+const { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext, invalidateWorkspaceScanCache } = workspaceFileService;
 const localDiagramFileService = createLocalDiagramFileService({
   allowedRoots: async () => {
     const workspace = await getProjectWorkspace();
@@ -640,6 +640,47 @@ async function setRuntimeStorageScope(workspace: ProjectWorkspace | null): Promi
   else await migrateLegacySingleFileData(layout);
 }
 
+type RuntimeScopeWaiter = { key: string; resolve: (release: () => void) => void };
+let activeRequestScopeKey: string | null = null;
+let activeRequestScopeCount = 0;
+const runtimeScopeWaiters: RuntimeScopeWaiter[] = [];
+
+function createRuntimeScopeRelease(key: string): () => void {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (activeRequestScopeKey !== key) return;
+    activeRequestScopeCount = Math.max(0, activeRequestScopeCount - 1);
+    if (activeRequestScopeCount > 0) return;
+    activeRequestScopeKey = null;
+    const next = runtimeScopeWaiters.shift();
+    if (!next) return;
+    activeRequestScopeKey = next.key;
+    activeRequestScopeCount = 1;
+    next.resolve(createRuntimeScopeRelease(next.key));
+    while (runtimeScopeWaiters[0]?.key === activeRequestScopeKey) {
+      const sameScope = runtimeScopeWaiters.shift()!;
+      activeRequestScopeCount += 1;
+      sameScope.resolve(createRuntimeScopeRelease(sameScope.key));
+    }
+  };
+}
+
+function acquireRuntimeScope(key: string): Promise<() => void> {
+  const hasDifferentScopeQueued = runtimeScopeWaiters.some((waiter) => waiter.key !== key);
+  if (activeRequestScopeKey === null) {
+    activeRequestScopeKey = key;
+    activeRequestScopeCount = 1;
+    return Promise.resolve(createRuntimeScopeRelease(key));
+  }
+  if (activeRequestScopeKey === key && !hasDifferentScopeQueued) {
+    activeRequestScopeCount += 1;
+    return Promise.resolve(createRuntimeScopeRelease(key));
+  }
+  return new Promise((resolve) => runtimeScopeWaiters.push({ key, resolve }));
+}
+
 app.use("/api", async (req, res, next) => {
   const localFileOperation = req.path.startsWith("/local/");
   const traceRead = req.method === "GET" && (
@@ -654,6 +695,20 @@ app.use("/api", async (req, res, next) => {
   // Global settings, local file I/O and trace reads resolve their own destinations; they must not
   // switch the live diagram scope or reset the Copilot SDK client.
   if (localFileOperation || traceRead || clientLogWrite || globalConfiguration) { next(); return; }
+  let releaseScope: (() => void) | null = null;
+  let released = false;
+  let responseClosedWhileWaiting = false;
+  const markClosed = () => { if (!res.writableEnded) responseClosedWhileWaiting = true; };
+  res.once("close", markClosed);
+  const releaseOnce = () => {
+    if (released) return;
+    released = true;
+    res.off("finish", releaseOnce);
+    res.off("close", releaseOnce);
+    res.off("close", markClosed);
+    releaseScope?.();
+    releaseScope = null;
+  };
   try {
     const configuredWorkspace = await getProjectWorkspace();
     const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
@@ -668,9 +723,24 @@ app.use("/api", async (req, res, next) => {
       requestedWorkspace = configuredWorkspace;
     }
     const standalone = body.standalone === true || storageScope === "single-file" || req.query.scope === "single-file";
+    const scopeTransition = (req.method === "PUT" && req.path === "/workspace/config") ||
+      (req.method === "POST" && req.path === "/workspace/diagram/create");
+    const derivedScope = resolveStudioStorageLayout({
+      appHome: STUDIO_HOME, workspace: standalone ? null : requestedWorkspace,
+      dataDirOverride: DATA_DIR_OVERRIDE, logDirOverride: LOG_DIR_OVERRIDE,
+      copilotHomeOverride: COPILOT_HOME_OVERRIDE
+    }).scopeKey;
+    // Configuration/create requests can change the active scope inside their handler; make them exclusive.
+    const requestedScope = scopeTransition ? "scope-transition:" + randomUUID() : derivedScope;
+    releaseScope = await acquireRuntimeScope(requestedScope);
+    if (responseClosedWhileWaiting || res.destroyed) { releaseOnce(); return; }
+    res.off("close", markClosed);
+    res.once("finish", releaseOnce);
+    res.once("close", releaseOnce);
     await setRuntimeStorageScope(standalone ? null : requestedWorkspace);
     next();
   } catch (error) {
+    releaseOnce();
     next(error);
   }
 });
@@ -1130,6 +1200,7 @@ app.put("/api/workspace/document", async (req, res) => {
           }
         ];
         await runCompensatingTransaction(steps);
+        invalidateWorkspaceScanCache(workspace?.id);
 
         // Diagnostics are useful but not part of the document commit. A log-write failure
         // must never turn an already committed document into a false HTTP save failure.
@@ -1185,13 +1256,27 @@ app.put("/api/workspace/document", async (req, res) => {
 app.put("/api/workspace/chat", async (req, res) => {
   const copilotSessionId = typeof req.body?.copilotSessionId === "string" && /^[a-zA-Z0-9._:-]{8,128}$/.test(req.body.copilotSessionId)
     ? req.body.copilotSessionId : null;
-  const chatMessages = Array.isArray(req.body?.chatMessages) ? req.body.chatMessages.slice(-2000) : [];
-  if (chatMessages.some((item: unknown) => !item || typeof item !== "object" ||
+  const MAX_CHAT_MESSAGES = 2000;
+  const MAX_CHAT_MESSAGE_CHARACTERS = 16_000;
+  const MAX_CHAT_TOTAL_CHARACTERS = 250_000;
+  const incomingMessages = Array.isArray(req.body?.chatMessages) ? req.body.chatMessages.slice(-MAX_CHAT_MESSAGES) : [];
+  if (incomingMessages.some((item: unknown) => !item || typeof item !== "object" ||
     !["assistant", "user"].includes(String((item as { role?: unknown }).role)) ||
     typeof (item as { text?: unknown }).text !== "string" ||
+    (item as { text: string }).text.length > MAX_CHAT_MESSAGE_CHARACTERS ||
     typeof (item as { id?: unknown }).id !== "number")) {
-    res.status(400).json({ error: "Invalid chatMessages format" });
+    res.status(400).json({
+      error: "Invalid chatMessages format. Each message must have a valid role/id and contain at most 16,000 characters."
+    });
     return;
+  }
+  const chatMessages: unknown[] = [];
+  let totalCharacters = 0;
+  for (let index = incomingMessages.length - 1; index >= 0; index--) {
+    const message = incomingMessages[index] as { text: string };
+    if (totalCharacters + message.text.length > MAX_CHAT_TOTAL_CHARACTERS) continue;
+    chatMessages.unshift(message);
+    totalCharacters += message.text.length;
   }
   try {
     await withDataWrite(async () => {

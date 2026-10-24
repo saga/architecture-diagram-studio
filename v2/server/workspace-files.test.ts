@@ -45,6 +45,7 @@ describe("workspace file service", () => {
       expect(second.cacheHits).toBeGreaterThan(0);
 
       await writeFile(path.join(root, "src", "account-mapping.ts"), "export const accountMapping = 'updated-content';", "utf8");
+      service.invalidateWorkspaceScanCache("context-cache");
       const third = await service.collectAgentWorkspaceContext("update account mapping") as { cacheHits?: number; cacheMisses?: number; snippets?: Array<{ path: string; content: string }> };
       expect(third.cacheMisses).toBeGreaterThan(0);
       expect(third.snippets?.find((item) => item.path === "src/account-mapping.ts")?.content).toContain("updated-content");

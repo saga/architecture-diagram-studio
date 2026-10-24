@@ -81,7 +81,42 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
     }
   }
 
+  const FILE_SCAN_CACHE_TTL_MS = 1_000;
+  const fileScanCache = new Map<string, { expiresAt: number; files?: WorkspaceFileEntry[]; pending?: Promise<WorkspaceFileEntry[]> }>();
+
+  function invalidateWorkspaceScanCache(workspaceId?: string): void {
+    if (!workspaceId) { fileScanCache.clear(); return; }
+    for (const key of fileScanCache.keys()) if (key.startsWith(workspaceId + "\0")) fileScanCache.delete(key);
+  }
+
   async function scanWorkspaceFiles(workspace: ProjectWorkspace): Promise<WorkspaceFileEntry[]> {
+    const root = await realpath(workspace.rootPath);
+    const key = [workspace.id, root, workspace.includePatterns.join("\0"), workspace.excludePatterns.join("\0")].join("\0");
+    const cached = fileScanCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      if (cached.files) return cached.files.map((item) => ({ ...item }));
+      if (cached.pending) return (await cached.pending).map((item) => ({ ...item }));
+    }
+    const pending = scanWorkspaceFilesUncached({ ...workspace, rootPath: root });
+    const entry: { expiresAt: number; files?: WorkspaceFileEntry[]; pending?: Promise<WorkspaceFileEntry[]> } = {
+      expiresAt: Date.now() + FILE_SCAN_CACHE_TTL_MS, pending
+    };
+    fileScanCache.set(key, entry);
+    try {
+      const files = await pending;
+      if (fileScanCache.get(key) === entry) {
+        entry.files = files;
+        delete entry.pending;
+        entry.expiresAt = Date.now() + FILE_SCAN_CACHE_TTL_MS;
+      }
+      return files.map((item) => ({ ...item }));
+    } catch (error) {
+      if (fileScanCache.get(key) === entry) fileScanCache.delete(key);
+      throw error;
+    }
+  }
+
+  async function scanWorkspaceFilesUncached(workspace: ProjectWorkspace): Promise<WorkspaceFileEntry[]> {
     const root = await realpath(workspace.rootPath);
     const result: WorkspaceFileEntry[] = [];
     const visit = async (dir: string, depth: number): Promise<void> => {
@@ -216,5 +251,5 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
       characterBudget: 26000 - budget
     };
   }
-  return { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext };
+  return { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext, invalidateWorkspaceScanCache };
 }
