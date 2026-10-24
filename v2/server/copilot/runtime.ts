@@ -24,6 +24,13 @@ export interface SessionPreparation {
   workspaceId?: string;
 }
 
+export class CopilotSessionBusyError extends Error {
+  constructor() {
+    super("A Copilot turn is already active for this session.");
+    this.name = "CopilotSessionBusyError";
+  }
+}
+
 export interface RuntimeSession {
   session: CopilotSession;
   /** SDK-side session id; stable for a conversation + configuration revision. */
@@ -107,7 +114,7 @@ export interface SessionSendResult {
 /** Handed to one conversation turn; `session` follows the live session if the runtime is rebuilt mid-turn. */
 export interface SessionTurn {
   readonly session: RuntimeSession;
-  send(body: unknown, timeoutMs: number, trace?: { requestId?: string; attempt?: number }): Promise<SessionSendResult>;
+  send(body: unknown, timeoutMs: number, trace?: { requestId?: string; attempt?: number }, isCancelled?: () => boolean): Promise<SessionSendResult>;
 }
 
 export interface CopilotRuntimeOptions {
@@ -488,16 +495,16 @@ export class CopilotRuntime {
     if (!queued) throw new Error(`No Copilot session is available for ${conversationId}`);
 
     const pending = this.turnLocks.get(conversationId);
+    if (pending) throw new CopilotSessionBusyError();
     let release!: () => void;
     const lock = new Promise<void>((resolve) => { release = resolve; });
     this.turnLocks.set(conversationId, lock);
     let active = queued;
     try {
-      if (pending) await pending.catch(() => undefined);
       const turn: SessionTurn = {
         get session() { return active; },
-        send: async (body, timeoutMs, trace) => {
-          const outcome = await this.sendWithRecovery(active, body, timeoutMs, false, trace);
+        send: async (body, timeoutMs, trace, isCancelled) => {
+          const outcome = await this.sendWithRecovery(active, body, timeoutMs, false, trace, isCancelled);
           active = outcome.session;
           return {
             message: outcome.message,
@@ -521,7 +528,8 @@ export class CopilotRuntime {
     body: unknown,
     timeoutMs: number,
     recovered = false,
-    trace: { requestId?: string; attempt?: number } = {}
+    trace: { requestId?: string; attempt?: number } = {},
+    isCancelled?: () => boolean
   ): Promise<{ session: RuntimeSession; message: SessionEvent | undefined; usage?: TurnUsageMetrics; modelCallUsages: ModelCallUsage[]; contextUsage?: ContextUsage }> {
     const modelCallUsages: ModelCallUsage[] = [];
     let contextUsage: ContextUsage | undefined;
@@ -609,10 +617,10 @@ export class CopilotRuntime {
         await this.abortAfterWatchdog(session.session);
         throw error;
       }
-      if (!isRecoverable(message) || recovered) throw error;
+      if (isCancelled?.() || !isRecoverable(message) || recovered) throw error;
       await this.options.log("turn.recovering", { conversationId: session.conversationId, error: message });
       const fresh = await this.reopenSession(session);
-      return this.sendWithRecovery(fresh, body, timeoutMs, true, trace);
+      return this.sendWithRecovery(fresh, body, timeoutMs, true, trace, isCancelled);
     } finally {
       if (idleWatchdog) clearTimeout(idleWatchdog);
       if (turnWatchdog) clearTimeout(turnWatchdog);
