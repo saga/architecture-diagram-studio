@@ -417,7 +417,52 @@ function operationIsReflected(
  * visible in the snapshot. Generic autosaves and unrelated edits are not sufficient.
  * Unknown operations fail closed so callers can report a timeout instead of false success.
  */
-function hasVerifiedScriptPostcondition(value: unknown): boolean {
+function scriptExpectedValueMatches(actual: string | null, expected: unknown): boolean {
+  if (typeof expected === "string") return actual === expected;
+  if (typeof expected === "number") return actual !== null && Number.isFinite(Number(actual)) && Number(actual) === expected;
+  if (typeof expected === "boolean") {
+    if (actual === "1" || actual === "true") return expected;
+    if (actual === "0" || actual === "false") return !expected;
+  }
+  return false;
+}
+
+function scriptPostconditionMatches(models: ModelRecords[], pageId: string | null | undefined, check: Record<string, unknown>): boolean {
+  if (typeof check.cellId !== "string" || !check.cellId || typeof check.property !== "string" || !check.property ||
+      !Object.prototype.hasOwnProperty.call(check, "expected")) return false;
+  const property = check.property;
+  const expected = check.expected;
+  const cell = findCell(models, check.cellId, pageId);
+  if (property === "exists") return Boolean(cell) && expected === true;
+  if (!cell) return false;
+  if (property === "label") return typeof expected === "string" && labelMatches(cell, expected);
+  if (property === "style") return typeof expected === "string" && (cell.cell.getAttribute("style") || "") === expected;
+  if (property.startsWith("style:")) {
+    return typeof expected === "string" && styleKeyMatches(cell.cell.getAttribute("style") || "", property.slice(6), expected);
+  }
+  if (property.startsWith("valueAttr:")) {
+    return scriptExpectedValueMatches(cell.wrapper.getAttribute(property.slice(10)), expected);
+  }
+  if (property.startsWith("cell:")) {
+    return scriptExpectedValueMatches(cell.cell.getAttribute(property.slice(5)), expected);
+  }
+  if (property.startsWith("geometry:")) {
+    const key = property.slice(9);
+    if (key === "relative") return Boolean(cell.geometry) && boolAttribute(cell.geometry!, "relative", false) === expected;
+    if (!["x", "y", "width", "height"].includes(key) || typeof expected !== "number") return false;
+    return numericAttribute(cell.geometry, key) === expected;
+  }
+  const pointMatch = /^point:(\d+):(x|y)$/.exec(property);
+  if (pointMatch) {
+    if (typeof expected !== "number") return false;
+    const point = pointFor(cell, Number(pointMatch[1]));
+    return numericAttribute(point, pointMatch[2]!) === expected;
+  }
+  return false;
+}
+
+/** Recompute native postconditions from serialized XML; never trust the script's reported actual value. */
+function hasVerifiedScriptPostcondition(value: unknown, after: ModelRecords[], pageId: string | null | undefined): boolean {
   if (!value || typeof value !== "object") return false;
   const envelope = value as { available?: unknown; value?: unknown };
   if (envelope.available !== true || !envelope.value || typeof envelope.value !== "object") return false;
@@ -427,8 +472,7 @@ function hasVerifiedScriptPostcondition(value: unknown): boolean {
     typeof (check as { name?: unknown }).name === "string" &&
     (check as { name: string }).name.trim().length > 0 &&
     (check as { passed?: unknown }).passed === true &&
-    Object.prototype.hasOwnProperty.call(check, "expected") &&
-    Object.prototype.hasOwnProperty.call(check, "actual"));
+    scriptPostconditionMatches(after, pageId, check as Record<string, unknown>));
 }
 
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
@@ -457,7 +501,7 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       const script = documentOperations[0];
       return operations.length === 1 && script.cellId === "__active_page__" &&
         typeof script.value === "string" && Boolean(script.value.trim()) &&
-        hasVerifiedScriptPostcondition(input.scriptResult) &&
+        hasVerifiedScriptPostcondition(input.scriptResult, after, input.pageId) &&
         scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
     }
     return documentOperations.every((operation) =>
