@@ -230,56 +230,78 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
-test("Copilot script proposals show the requested change and complete JavaScript body", async ({ page, request }) => {
-  await createWorkspace(request);
+test("Copilot executes a direct native Draw.io script without a review proposal", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
 
-  const reviewedScriptSentinel = "REVIEWED_SCRIPT_SENTINEL_73491";
-  await page.route("**/api/copilot/intent", async (route) => {
-    const requestBody = JSON.parse(route.request().postData() || "{}") as {
-      documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
+  const scriptMarker = "AI_SCRIPT_EXECUTED_73491";
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        outcome: "proposal_required",
-        reply: "This action needs confirmation.",
-        proposal: {
-          id: "55555555-5555-4555-8555-555555555555",
-          summary: "Rearrange the diagram using the native editor",
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
+
+  await page.route("**/api/copilot/intent", async (route) => {
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      sessionId?: string;
+      documentRevision?: unknown;
+      context?: { activePageId?: string | null };
+    };
+    const script = [
+      "var parent = graph.getDefaultParent();",
+      "var created = graph.insertVertex(parent, null, '" + scriptMarker + "', 120, 180, 160, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
+      "graph.refresh();",
+      "return { cellId: created.id, label: graph.convertValueToString(created) };"
+    ].join("\\n");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "command_ready",
+        reply: "Executing a direct native Draw.io script.",
+        nativeEdits: {
           operations: [{
             op: "run_drawio_script",
             target: "active_page",
-            summary: "Rearrange the diagram using the native editor",
-            script: "throw new Error('" + reviewedScriptSentinel + "');",
+            summary: "Add a native Draw.io vertex",
+            script,
             cellId: "__active_page__",
             targetLabel: "active Draw.io page"
           }],
+          summary: "Add a native Draw.io vertex",
+          requestId: "55555555-5555-4555-8555-555555555555",
           pageId: requestBody.context?.activePageId ?? null,
           documentRevision: String(requestBody.documentRevision ?? "")
         },
-        sessionId: "e2e-script-proposal",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1
+        sessionId: requestBody.sessionId || "e2e-native-script",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
+        toolsUsed: ["run_drawio_script"]
       })
     });
   });
 
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
-  await input.fill("Rearrange the diagram");
+  await input.fill("Add one native vertex");
   await input.press("Enter");
 
-  const proposalMessage = page.locator(".gemini-message.assistant").last();
-  await expect(proposalMessage).toContainText("Proposed changes");
-  await expect(proposalMessage).toContainText("Rearrange the diagram using the native editor");
-  await expect(proposalMessage.getByRole("button", { name: "Confirm changes" })).toBeVisible();
-  await expect(proposalMessage).toContainText(reviewedScriptSentinel);
-  await expect(proposalMessage).toContainText("throw new Error");
-  await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("Applied 1 native change");
+  await expect(resultMessage).toContainText(scriptMarker);
+  await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
+  await expect(nativeFrame(page).getByText(scriptMarker, { exact: true })).toBeVisible();
+  await expect.poll(async () => (await readWorkspaceXml(workspace)).includes(scriptMarker)).toBe(true);
 });
-
 test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
