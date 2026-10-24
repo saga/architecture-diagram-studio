@@ -956,8 +956,8 @@
           var newY = path === "cell:add-node-after"
             ? Number(nodeGeometry.y)
             : Number(nodeGeometry.y) + newHeight + gridSpacing;
-          var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight,
-            activeModel.getStyle(cell));
+          // Omit the style argument so Draw.io applies its own default vertex style.
+          var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight);
           if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
           var insertedEdge = null;
           try {
