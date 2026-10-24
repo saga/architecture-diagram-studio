@@ -61,9 +61,9 @@ Relevant code: `v2/src/App.tsx`, `v2/server/copilot/intent-route.ts`.
 
 **Remaining caution:** `standalone` is still a request field rather than a server-issued capability token. The current server does not offer workspace file tools to the standalone prompt, and session context is reset, but the API is designed for a local single-user process rather than an authenticated multi-tenant boundary. Do not treat this flag as a sufficient authorization model if the deployment model changes.
 
-### P2 — Schema defaults must agree with the typed runtime
+### P2 — Avoid implicit style and color conversions
 
-`set_style.key` is intentionally optional; `parseNativeEditOperations` normalizes an omitted key to `fillColor`. The tool Schema now documents that default and a regression assertion checks it. This is not a missing required field. Keep style keys allowlisted in the server parser even though the underlying plugin can accept `style:<arbitrary-key>`.
+The earlier `set_style` implementation defaulted a missing key to `fillColor` and converted English/Chinese color names (including color names embedded in phrases) through a hard-coded lookup table. Both behaviors have been removed: the typed shortcut now requires an explicit style key and explicit hexadecimal color, and preserves that value. For other native Draw.io style values, use `run_drawio_script` instead of adding another alias or conversion table. The three typed color keys remain an intentionally narrow shortcut; direct scripts retain the full native style capability.
 
 Relevant code: `v2/server/copilot/native-edit-tool-schema.ts`, `v2/server/copilot/native-edit-tool-schema.test.ts`, `v2/src/model/native-edit-operations.ts`.
 
