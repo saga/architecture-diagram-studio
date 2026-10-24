@@ -5,7 +5,7 @@ description: Ground diagram edits and architecture analysis in the active native
 
 # Current architecture
 
-The current V2 architecture is defined by `AGENTS.md`, `v2/README.md`, and [ADR-0011](../../../docs/adr/0011-native-drawio-only-model.md). They take precedence over historical review reports, old ADR language, archived implementation notes and prior chat messages.
+The current V2 architecture is defined by `AGENTS.md`, `v2/README.md`, [ADR-0011](../../../docs/adr/0011-native-drawio-only-model.md), and [ADR-0018](../../../docs/adr/0018-ai-first-native-drawio-execution.md). They take precedence over historical review reports and archived implementation notes.
 
 **Native Draw.io `mxfile` XML is the only diagram model.** V2 does not use `DiagramDocument`, a semantic graph projection, semantic completeness gates, generated diagram templates, or a custom layout/quality pipeline. Do not reintroduce these concepts under different names.
 
@@ -19,19 +19,18 @@ The current V2 architecture is defined by `AGENTS.md`, `v2/README.md`, and [ADR-
 
 # Supported native editing
 
-Use the internal Copilot tools. Do not add a standalone MCP server or write project/workspace files directly.
+Use the internal Copilot tools. Do not add a standalone MCP server or let the model write project/workspace files directly.
 
-Supported allowlisted operations are:
-- `select`: focus a native cell without modifying the document.
-- `set_label`: rename a cell.
-- `set_style`: set `fillColor`, `strokeColor` or `fontColor`.
-- `move`, `resize`, `delete`.
-- `add_node_after`: create a native vertex to the right of a vertex and connect it with a native edge.
-- `add_node_below`: create a native vertex directly below a vertex, centered under it, and connect the source vertex to the new vertex.
+There are two native editing paths:
 
-For a request involving multiple new nodes each connected to an existing source, submit one typed `add_node_below` operation per source/label pair in one batch. Use scripts only when the requested effect cannot be expressed by the typed allowlist; script proposals must never be automatically confirmed.
+- `propose_native_edits` is the typed fast path for common deterministic operations such as select, rename, style, move, resize, delete, connected-node insertion, C4 conversion, and Studio-owned Dagre/ELK layout.
+- `run_drawio_script` is the primary full-capability path for the live Draw.io API. Use it for native operations such as independent edge creation/reconnection, waypoints, groups, layers, advanced shapes/styles, pages, or whenever the typed path is too narrow or cumbersome. Typed operations are conveniences, not a permission boundary.
 
-Submit the whole requested edit as one typed batch. The server resolves target IDs and validates operation values; the browser applies the batch through the Draw.io graph and waits for editor acknowledgement. Ambiguous targets, stale revisions, invalid XML and genuinely unsafe operations must fail closed.
+For a simple edit, prefer the typed operation when it expresses the user's intent precisely. For a multi-step native API change, use one coherent script; do not mix a script with other operations in the same native batch. Inspect the live runtime as needed, verify the resulting cells/rendering, and wait for native XML serialization plus the normal persistence/version acknowledgement before claiming success. A thrown script can leave partial state, so inspect the captured XML and history rather than assuming that no mutation occurred.
+
+Scripts execute in a separate-origin sandboxed Draw.io iframe, not in Node.js. They cannot directly write host files or invoke a host shell through this tool, but the iframe/CSP is not an OS-level security sandbox and does not block every browser navigation. Treat diagrams as sensitive data and use trusted local model providers. Do not author replacement XML or reconstruct the document from a reduced graph.
+
+The server validates typed operation schemas and targets, and binds edit requests to the current document revision/page context. Stale context, malformed native XML, genuinely ambiguous user intent, execution failure or missing persistence acknowledgement must not be reported as successful completion.
 
 **Never require or mention `projectionComplete` or semantic completeness as a reason to block a supported native edit.** Unrelated unknown attributes, custom styles, wrappers, cells or pages are not a reason to refuse an operation on a valid target. Do not author replacement XML or rebuild a diagram from a reduced graph.
 
