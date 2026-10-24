@@ -242,7 +242,7 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
   const studioOrigin = new URL(page.url()).origin;
   expect(drawioCsp).toContain("connect-src 'self'");
   expect(drawioCsp).toContain("img-src 'self' data: blob:");
-  const frameAncestors = /frame-ancestors ([^;]+)/.exec(drawioCsp)?.[1]?.split(/\\s+/) ?? [];
+  const frameAncestors = /frame-ancestors ([^;]+)/.exec(drawioCsp)?.[1]?.split(/\s+/) ?? [];
   expect(frameAncestors).toContain(studioOrigin);
   expect(drawioCsp).not.toContain("localhost:*");
   expect(drawioCsp).not.toContain("127.0.0.1:*");
