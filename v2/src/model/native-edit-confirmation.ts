@@ -11,7 +11,6 @@ export interface NativeEditConfirmationInput extends NativeEditOperation {
   beforeXml: string;
   xml: string;
   pageId?: string | null;
-  scriptResult?: unknown;
 }
 
 interface CellRecord {
@@ -347,9 +346,10 @@ function operationIsReflected(
 }
 
 /**
- * An XML snapshot only confirms a native edit when that exact requested outcome is
- * visible in the snapshot. Generic autosaves and unrelated edits are not sufficient.
- * Unknown operations fail closed so callers can report a timeout instead of false success.
+ * Typed operations are confirmed against their requested native XML postconditions.
+ * Direct scripts have an intentionally broader contract: a non-throwing script may mutate any
+ * native editor structure, so its acknowledgement requires a valid serialized Draw.io document
+ * rather than a predeclared cell-level postcondition allowlist.
  */
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
