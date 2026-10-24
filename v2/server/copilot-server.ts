@@ -184,7 +184,9 @@ const { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectA
 const localDiagramFileService = createLocalDiagramFileService({
   allowedRoots: async () => {
     const workspace = await getProjectWorkspace();
-    return [os.homedir(), ...(workspace ? [workspace.rootPath] : [])];
+    // Start the local file picker in the active workspace so import/export actions work
+    // on the current diagram without making users navigate from their home directory.
+    return [...(workspace ? [workspace.rootPath] : []), os.homedir()];
   },
   historyDirectory: path.join(GLOBAL_DATA_DIR, "standalone-history")
 });
