@@ -76,7 +76,7 @@ export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): N
   const parsed = parseDrawioXml(xml);
   if (parsed.documentElement.nodeName !== "mxfile") return { id: null, title: null };
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const page = (pageId ? diagrams.find((item) => item.getAttribute("id") === pageId) : undefined) || diagrams[0];
+  const page = pageId != null ? diagrams.find((item) => item.getAttribute("id") === pageId) : diagrams[0];
   if (!page) return { id: null, title: null };
   return {
     id: page.getAttribute("id") || null,
@@ -103,8 +103,11 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   if (parsed.documentElement.nodeName === "mxGraphModel") return parsed;
   if (parsed.documentElement.nodeName !== "mxfile") return parsed;
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const diagram = (pageId ? diagrams.find((page) => page.getAttribute("id") === pageId) : undefined) || diagrams[0];
-  if (!diagram) return parsed;
+  const diagram = pageId != null ? diagrams.find((page) => page.getAttribute("id") === pageId) : diagrams[0];
+  if (!diagram) {
+    if (pageId != null) throw new Error(`Draw.io page “${pageId}” was not found; refusing to inspect cells from another page.`);
+    return parsed;
+  }
   const model = diagram.getElementsByTagName("mxGraphModel").item(0);
   if (model) return model as unknown as Document;
   const payload = (diagram.textContent || "").trim();
