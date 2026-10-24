@@ -25,12 +25,31 @@
     // Cells created during an atomic batch are tracked for rollback.
     var activeBatchCreatedCells = null;
     var studioParentOrigin = "";
-    try {
-      studioParentOrigin = document.referrer ? new URL(document.referrer).origin : "";
-    } catch (_) {}
+    var pendingBridgeReadyMessage = null;
+    var bridgeHelloTimer = null;
     var publish = function (message) {
       if (!studioParentOrigin) return;
       window.parent.postMessage(JSON.stringify(message), studioParentOrigin);
+    };
+    var requestStudioHandshake = function () {
+      if (studioParentOrigin) {
+        if (bridgeHelloTimer !== null) window.clearInterval(bridgeHelloTimer);
+        bridgeHelloTimer = null;
+        return;
+      }
+      // The hello has no sensitive content. Studio validates event.source and event.origin,
+      // then replies to this exact Draw.io origin; only that welcome can lock the parent origin.
+      window.parent.postMessage(JSON.stringify({ event: "studioDrawioHello" }), "*");
+      if (bridgeHelloTimer === null) {
+        bridgeHelloTimer = window.setInterval(function () {
+          if (studioParentOrigin) {
+            window.clearInterval(bridgeHelloTimer);
+            bridgeHelloTimer = null;
+            return;
+          }
+          window.parent.postMessage(JSON.stringify({ event: "studioDrawioHello" }), "*");
+        }, 250);
+      }
     };
     var currentPageId = function () {
       var page = ui.currentPage;
@@ -1098,11 +1117,24 @@
     }
 
     window.addEventListener("message", function (event) {
-      if (!studioParentOrigin || event.source !== window.parent || event.origin !== studioParentOrigin) return;
+      if (event.source !== window.parent) return;
       var request;
       try { request = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
       catch (_) { return; }
       if (!request || typeof request !== "object") return;
+      if (!studioParentOrigin && request.event === "studioDrawioWelcome") {
+        if (!event.origin || event.origin === "null") return;
+        studioParentOrigin = event.origin;
+        if (bridgeHelloTimer !== null) window.clearInterval(bridgeHelloTimer);
+        bridgeHelloTimer = null;
+        if (pendingBridgeReadyMessage) {
+          publish(pendingBridgeReadyMessage);
+          pendingBridgeReadyMessage = null;
+          publishSelection();
+        }
+        return;
+      }
+      if (!studioParentOrigin || event.origin !== studioParentOrigin) return;
       if (request.event === "studioPresentationThemeRequest") {
         if (typeof request.css !== "string" || request.css.length > 50_000) return;
         var themeStyle = document.getElementById("studio-native-theme");
@@ -1187,8 +1219,12 @@
       model: runtimeMethods(bridgeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate"]),
       view: runtimeMethods(bridgeGraph && bridgeGraph.view, ["getState", "validate"])
     };
-    publish({ event: "studioBridgeReady", drawioVersion: "v32.0.2", capabilityManifest: buildCapabilityManifest(bridgeCapabilities) });
-    publishSelection();
+    pendingBridgeReadyMessage = {
+      event: "studioBridgeReady",
+      drawioVersion: "v32.0.2",
+      capabilityManifest: buildCapabilityManifest(bridgeCapabilities)
+    };
+    requestStudioHandshake();
     });
   }
   register();
