@@ -14,7 +14,7 @@ export interface StudioLocalFileHandle {
   requestPermission?(descriptor: { mode: "readwrite" }): Promise<PermissionState>;
 }
 
-type FilePickerWindow = Window & {
+type FilePickerWindow = {
   showOpenFilePicker?: (options?: {
     multiple?: boolean;
     excludeAcceptAllOption?: boolean;
@@ -82,7 +82,7 @@ function saveStoredHandle(database: IDBDatabase, value: StoredHandle): Promise<v
 
 /** Opens the operating-system file picker provided by the browser. No path is exposed or needed. */
 export async function chooseDrawioFile(): Promise<StudioLocalFileHandle | null> {
-  const picker = window as FilePickerWindow;
+  const picker = window as unknown as FilePickerWindow;
   if (typeof picker.showOpenFilePicker !== "function") {
     throw new Error("This browser does not support the native file picker required to open a local Draw.io file. Use a current Chromium-based browser.");
   }
