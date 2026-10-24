@@ -1482,27 +1482,46 @@ export default function App() {
               let persistedRevision: string | null = null;
               let persistedVersionId: string | null = null;
               let persistenceStatus = "not_attempted";
-              if (result.success && result.path === "cell:batch") {
+              if (result.path === "cell:batch") {
                 if (typeof result.serializedXml !== "string") {
-                  finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
-                  persistenceStatus = "failed";
+                  if (result.success) {
+                    finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
+                    persistenceStatus = "failed";
+                  } else {
+                    // Failed scripts also request XML serialization so any partial native edits can be
+                    // saved as a version and shown to the agent. If serialization timed out, retain the
+                    // original script failure and leave the last good persisted revision untouched.
+                    persistenceStatus = "not_attempted";
+                  }
                 } else {
                   serializedXmlRevision = await calculateDrawioXmlRevision(result.serializedXml);
                   if (projectWorkspace && !standaloneFileName) {
                     try {
-                      // The visible success receipt is gated on the same revision-checked save used by autosave.
-                      const saved = await persistDocumentNow(result.serializedXml, "Copilot native edit");
+                      // Persist both successful results and captured failed-script state through the same
+                      // revision-checked path; only the editor acknowledgement decides success/failure.
+                      const saved = await persistDocumentNow(result.serializedXml, result.success
+                        ? "Copilot native edit"
+                        : "Captured native XML after Copilot script failure");
                       persistedRevision = typeof saved.workspaceRevision === "string" ? saved.workspaceRevision : null;
                       persistedVersionId = typeof saved.version?.id === "string" ? saved.version.id : null;
                       if (persistedRevision !== serializedXmlRevision) throw new Error("The server did not confirm the exact serialized XML revision.");
                       if (!persistedVersionId) throw new Error("The server did not confirm the immutable version ID for this XML revision.");
                       persistenceStatus = "saved";
                     } catch (error) {
+                      const persistenceError = error instanceof Error ? error.message : String(error);
                       persistenceStatus = "failed";
-                      finalResult = {
-                        ...result, success: false, error: "Draw.io applied and serialized the edit, but the workspace save failed: " +
-                          (error instanceof Error ? error.message : String(error)), batchRolledBack: false, failureStage: "persistence"
-                      };
+                      finalResult = result.success
+                        ? {
+                            ...result, success: false,
+                            error: "Draw.io applied and serialized the edit, but the workspace save failed: " + persistenceError,
+                            batchRolledBack: false, failureStage: "persistence"
+                          }
+                        : {
+                            ...result,
+                            error: (result.error || "The native Draw.io script failed.") +
+                              " The resulting editor XML could not be saved as a version: " + persistenceError,
+                            failureStage: "persistence"
+                          };
                     }
                   } else {
                     persistenceStatus = "not_managed_by_server";
@@ -1563,12 +1582,13 @@ export default function App() {
                   recordDiagnostic("copilot.native-batch.step." + (finalResult.success ? "applied" : "rolled-back"),
                     "Native batch step " + step.index + (finalResult.success ? " applied" : " failed"),
                     { requestId: finalResult.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
-                      stepSuccess: step.success, stepError: step.error ?? null, batchSuccess: finalResult.success, rollbackConfirmed: finalResult.batchRolledBack ?? null });
+                      stepSuccess: step.success, stepError: step.error ?? null, stepStack: step.stack ?? null,
+                      batchSuccess: finalResult.success, rollbackConfirmed: finalResult.batchRolledBack ?? null });
                 }
               }
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
-                failedIndex: finalResult.failedIndex ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
+                failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
                 batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
