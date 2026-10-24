@@ -135,8 +135,11 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
     const edge = cell.getAttribute("edge") === "1";
     if (!id || seen.has(id) || (!vertex && !edge) || id === "0" || id === "1") continue;
     seen.add(id);
-    const rawLabel = wrapper?.getAttribute("label") || wrapper?.getAttribute("value") ||
-      cell.getAttribute("value") || cell.getAttribute("label") || "";
+    const c4Name = wrapper?.getAttribute("c4Name");
+    const rawLabel = c4Name !== null && c4Name !== undefined
+      ? c4Name
+      : wrapper?.getAttribute("label") || wrapper?.getAttribute("value") ||
+        cell.getAttribute("value") || cell.getAttribute("label") || "";
     result.push({ id, name: plainNativeLabel(rawLabel), cellType: vertex ? "vertex" : "edge" });
   }
   return result;
