@@ -244,6 +244,22 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
   expect(new URL(await nativeEditor.getAttribute("src") || page.url()).origin).not.toBe(new URL(page.url()).origin);
   expect(await nativeEditor.getAttribute("sandbox")).toContain("allow-scripts");
   expect(await nativeEditor.getAttribute("sandbox")).not.toContain("allow-top-navigation");
+  await expect.poll(() => page.frames().some((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"))).toBe(true);
+  const isolatedFrame = page.frames().find((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"));
+  expect(isolatedFrame).toBeTruthy();
+  if (!isolatedFrame) throw new Error("The isolated Draw.io frame did not become available.");
+  const isolationCheck = await isolatedFrame.evaluate(async () => {
+    let parentDomAccessible = true;
+    try { void window.parent.document.documentElement; } catch { parentDomAccessible = false; }
+    let studioApiReachable = false;
+    try {
+      const response = await fetch("http://127.0.0.1:5180/api/workspace/config");
+      studioApiReachable = response.ok;
+    } catch { /* CSP connect-src 'none' should block this request. */ }
+    return { parentDomAccessible, studioApiReachable };
+  });
+  expect(isolationCheck.parentDomAccessible).toBe(false);
+  expect(isolationCheck.studioApiReachable).toBe(false);
 
   const scriptMarker = "AI_SCRIPT_EXECUTED_73491";
   await page.route("**/api/copilot/intent/ack", async (route) => {
