@@ -56,7 +56,7 @@ function mockElement() {
   };
 }
 
-function createHarness(options: { personShapeAvailable?: boolean; customShapeAvailable?: boolean } = {}) {
+function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   const root = makeCell("0");
   const layer = makeCell("1");
   const service = makeCell("service", { vertex: true, style: "rounded=1;fillColor=#ffffff;" });
@@ -145,7 +145,7 @@ function createHarness(options: { personShapeAvailable?: boolean; customShapeAva
   };
 
   const shapeRegistry: Record<string, () => undefined> = {};
-  if (options.personShapeAvailable !== false) shapeRegistry["mxgraph.c4.person2"] = () => undefined;
+  shapeRegistry["mxgraph.c4.person2"] = () => undefined;
   if (options.customShapeAvailable !== false) shapeRegistry["mxgraph.test.cloud"] = () => undefined;
 
   const messages: Array<Record<string, any>> = [];
@@ -237,50 +237,21 @@ const curveAllConnectorsScript = [
 ].join("\n");
 
 describe("native Draw.io script bridge", () => {
-  it("applies the canonical Draw.io C4 palette styles, metadata and dimensions for all supported C4 types", () => {
-    const cases = [
-      { kind: "person", fill: "#083F75", stroke: "#06315C", width: 200, height: 180, type: "Person", shape: "shape=mxgraph.c4.person2" },
-      { kind: "system", fill: "#1061B0", stroke: "#0D5091", width: 240, height: 120, type: "Software System", shape: "rounded=1" },
-      { kind: "external", fill: "#8C8496", stroke: "#736782", width: 240, height: 120, type: "Software System", shape: "rounded=1" }
-    ] as const;
-
-    for (const c4 of cases) {
-      const harness = createHarness();
-      harness.service.value = "Payment API";
-      harness.service.geometry = mockGeometry(10, 20, 120, 60);
-      const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: c4.kind }));
-
-      expect(result).toMatchObject({ event: "studioPropertyEditResult", success: true });
-      expect(harness.service.style).toContain(c4.shape);
-      expect(harness.service.style).toContain("fillColor=" + c4.fill);
-      expect(harness.service.style).toContain("strokeColor=" + c4.stroke);
-      expect(harness.service.style).toContain("fontColor=#ffffff");
-      expect(harness.service.value.getAttribute("c4Name")).toBe("Payment API");
-      expect(harness.service.value.getAttribute("c4Type")).toBe(c4.type);
-      expect(harness.service.value.getAttribute("placeholders")).toBe("1");
-      expect(harness.service.value.getAttribute("label")).toContain("%c4Name%");
-      expect(harness.service.value.getAttribute("label")).toContain("%c4Type%");
-      expect(harness.service.geometry).toMatchObject({ width: c4.width, height: c4.height });
-      expect(harness.getEditorModifiedCalls()).toBe(1);
-      expect(harness.getGraphRefreshCalls()).toBe(1);
-    }
-  });
-
-  it("rejects C4 Person when the real shape registry is missing and never uses a fallback", () => {
-    const harness = createHarness({ personShapeAvailable: false });
+  it("rejects the removed in-place C4 conversion path without changing the original cell", () => {
+    const harness = createHarness();
     harness.service.value = "Payment API";
     harness.service.geometry = mockGeometry(10, 20, 120, 60);
-    const originalStyle = harness.service.style;
-    const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: "person" }));
+    const before = { style: harness.service.style, value: harness.service.value, geometry: harness.service.geometry.clone() };
+    const result = harness.runOperation("service", "cell:set-c4-type", JSON.stringify({ kind: "system" }));
 
     expect(result).toMatchObject({ event: "studioPropertyEditResult", success: false, batchRolledBack: true });
-    expect(result.error).toContain("No UML actor or other approximate fallback");
-    expect(harness.service.style).toBe(originalStyle);
-    expect(harness.service.value).toBe("Payment API");
-    expect(harness.service.geometry).toMatchObject({ width: 120, height: 60 });
+    expect(result.error).toContain("Unsupported cell property: set-c4-type");
+    expect(harness.service.style).toBe(before.style);
+    expect(harness.service.value).toBe(before.value);
+    expect(harness.service.geometry).toMatchObject({ x: before.geometry.x, y: before.geometry.y, width: before.geometry.width, height: before.geometry.height });
   });
 
-  it("executes whole-page curved-edge changes including connectors inside groups", () => {
+
     const harness = createHarness();
     const result = harness.runScript(curveAllConnectorsScript);
 
