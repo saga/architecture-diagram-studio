@@ -89,18 +89,18 @@ function loadSavedTheme(): UiTheme {
   } catch { /* Theme selection is optional when browser storage is disabled. */ }
   return "warm";
 }
-type PanelWidths = { left: number; right: number };
-const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { left: [190, 420], right: [300, 620] };
+type PanelWidths = { right: number };
+const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { right: [300, 620] };
 const PANEL_STORAGE_KEY = "architecture-diagram-studio:v2:panel-widths";
 function loadPanelWidths(): PanelWidths {
   try {
     const raw = window.localStorage.getItem(PANEL_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PanelWidths>;
-      if (typeof parsed.left === "number" && typeof parsed.right === "number") return { left: parsed.left, right: parsed.right };
+      if (typeof parsed.right === "number") return { right: parsed.right };
     }
   } catch { /* Fall back to the default sidebar widths. */ }
-  return { left: 240, right: 380 };
+  return { right: 380 };
 }
 
 /** Ant Design Button adapter preserving existing HTML button semantics during UI migration. */
@@ -626,15 +626,15 @@ export default function App() {
 
 
 
-  /** Drag a sidebar edge to resize it; the width is persisted with the rest of the UI preferences. */
-  function startPanelResize(side: keyof PanelWidths, event: ReactPointerEvent<HTMLDivElement>) {
+  /** Drag the inspector edge to resize it; the width is persisted with the rest of the UI preferences. */
+  function startPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = panelWidths[side];
-    const [min, max] = PANEL_LIMITS[side];
+    const startWidth = panelWidths.right;
+    const [min, max] = PANEL_LIMITS.right;
     const onMove = (moveEvent: PointerEvent) => {
-      const delta = side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
-      setPanelWidths((current) => ({ ...current, [side]: Math.min(max, Math.max(min, startWidth + delta)) }));
+      const delta = startX - moveEvent.clientX;
+      setPanelWidths((current) => ({ ...current, right: Math.min(max, Math.max(min, startWidth + delta)) }));
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
@@ -1196,7 +1196,7 @@ export default function App() {
     >
       <XProvider>
         <AntApp>
-    <Layout className="app-shell" data-theme={uiTheme} style={{ "--left-w": panelWidths.left + "px", "--right-w": panelWidths.right + "px" } as CSSProperties}>
+    <Layout className="app-shell" data-theme={uiTheme} style={{ "--right-w": panelWidths.right + "px" } as CSSProperties}>
       <Modal
         title={workspaceLaunchMode === "open" ? "Open existing Draw.io" : "Create new Draw.io"}
         open={!workspaceChecking && workspaceSetupOpen}
@@ -1334,6 +1334,7 @@ export default function App() {
         }}>New Draw.io</UiButton>
 
         <div className="topbar-actions">
+          {projectWorkspace && <UiButton className="button button-secondary workspace-switch" aria-label="Switch workspace" title={"Switch workspace — " + projectWorkspace.name + " (" + projectWorkspace.rootPath + ")"} onClick={() => setWorkspaceSetupOpen(true)}><span className="workspace-switch-glyph" aria-hidden="true">⇄</span><span className="workspace-switch-label">Switch workspace</span></UiButton>}
           {activePage === "diagram" && <>
             <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => void openLocalFileDialog("import")}><span className="button-icon">↑</span>Import</UiButton>
             <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram}><span className="button-icon">↓</span>Export</UiButton>
@@ -1345,16 +1346,6 @@ export default function App() {
 
       <div className={"diagram-workspace" + (activePage === "diagram" ? "" : " is-hidden")}>
         <>
-      <aside className="left-panel">
-        {projectWorkspace && <div className="workspace-card" title={projectWorkspace.rootPath}>
-          <b>{projectWorkspace.name}</b>
-          <UiButton type="button" className="workspace-switch" onClick={() => setWorkspaceSetupOpen(true)}>Switch workspace</UiButton>
-        </div>}
-
-
-      </aside>
-      <div className="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the left sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("left", event)} />
-
       <main className="main-panel">
         <div className="canvas-toolbar">
           <div className="canvas-toolbar-actions" role="group" aria-label="Layout controls">
@@ -1690,7 +1681,7 @@ export default function App() {
           </span>
         </div></div>
       </main>
-      <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize("right", event)} />
+      <div className="panel-resizer panel-resizer-right" role="separator" aria-orientation="vertical" aria-label="Resize the inspector sidebar" title="Drag to resize" onPointerDown={(event) => startPanelResize(event)} />
 
       <aside className="right-panel">
         <div className="right-tabs" role="tablist" aria-label="Inspector panel">

@@ -8,7 +8,7 @@ body { margin: 0; min-width: 0; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .58; cursor: wait; }
-.app-shell { min-height: 100vh; height: 100vh; overflow: hidden; display: grid; grid-template-columns: 218px minmax(560px, 1fr) 314px; grid-template-rows: 68px minmax(0, 1fr); background: #f6f7f9; }
+.app-shell { min-height: 100vh; height: 100vh; overflow: hidden; display: grid; grid-template-columns: minmax(560px, 1fr) 314px; grid-template-rows: 68px minmax(0, 1fr); background: #f6f7f9; }
 .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 20px; padding: 0 22px; background: #fff; border-bottom: 1px solid #e7eaf0; z-index: 3; }
 .brand-lockup { display: flex; align-items: center; gap: 10px; min-width: 174px; }
 .brand-mark { width: 30px; height: 30px; padding: 5px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; border: 1px solid #d7deeb; border-radius: 9px; }
@@ -26,23 +26,25 @@ button:disabled { opacity: .58; cursor: wait; }
 .save-state-saving i { background: #d6a13b; }
 .save-state-conflict i, .save-state-failed i { background: #c94b4b; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* Workspace switching moved out of the removed left sidebar. It collapses to a glyph before the
+   topbar runs out of room, so Import/Export/History stay reachable at laptop widths. */
+.workspace-switch { display: inline-flex; align-items: center; gap: 5px; }
+.workspace-switch-glyph { display: none; font-size: 13px; line-height: 1; }
+@media (max-width: 1240px) {
+  .workspace-switch-label { display: none; }
+  .workspace-switch-glyph { display: inline; }
+  .workspace-switch { padding-inline: 9px; }
+}
 .button { border: 1px solid transparent; padding: 8px 12px; border-radius: 7px; font-size: 11px; font-weight: 600; white-space: nowrap; transition: background .15s, border-color .15s; }
 .button-quiet { background: transparent; color: #647286; } .button-quiet:hover { background: #f6f7fa; }
 .button-secondary { background: #fff; border-color: #dfe4ec; color: #344256; } .button-secondary:hover { background: #f8f9fb; border-color: #c5cfdd; }
 .button-primary { background: #425bc7; color: #fff; box-shadow: 0 2px 5px #425bc719; } .button-primary:hover { background: #354caf; }
 .button-icon { font-size: 15px; margin-right: 5px; line-height: 0; }
 
-/* The sidebar is a fixed track: scroll it instead of clipping the last card on short or narrow viewports. */
-.left-panel { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; background: #fff; border-right: 1px solid #e7eaf0; padding: 22px 12px 14px; }
+/* The canvas is the first grid track now that the left sidebar is gone. */
 .workspace-label, .section-heading, .panel-section-heading, .canvas-kicker { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; letter-spacing: 1px; color: #8995a6; }
 .workspace-label { padding: 0 9px 10px; }
 .side-section { padding: 0 0 17px; margin-bottom: 15px; border-bottom: 1px solid #eef0f4; }
-/* Workspace identity: the name and path clamp to two lines so a long slug cannot push the sidebar sections down. */
-.workspace-card { margin: 0 0 15px; padding: 9px 9px 8px; display: flex; flex-direction: column; gap: 3px; min-width: 0; border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-nav-bg); }
-.workspace-card b { font-size: 11px; font-weight: 650; color: var(--theme-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.workspace-card small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font: 9px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--theme-muted); }
-.workspace-card .workspace-switch { margin-top: 4px; align-self: flex-start; height: 24px; padding: 0 8px; border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-panel); color: var(--theme-secondary); font-size: 10px; font-weight: 500; }
-.workspace-card .workspace-switch:hover { background: var(--theme-soft); border-color: var(--theme-accent); color: var(--theme-accent); }
 .section-heading { padding: 0 9px 10px; display: flex; align-items: center; justify-content: space-between; } .section-heading span { color: #afb7c3; }
 .diagram-kind { border: 1px solid transparent; width: 100%; border-radius: 8px; display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px 8px; margin: 3px 0; background: transparent; color: #536276; height: auto; white-space: normal; }
 .diagram-kind:hover { background: #f8f9fc; } .diagram-kind.active { background: #f0f3ff; border-color: #e0e6ff; color: #263d97; }
@@ -192,7 +194,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .spinner { display: inline-block; width: 10px; height: 10px; border: 1.5px solid #c7d0e1; border-top-color: #425bc7; border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1440px) {
-  .app-shell { grid-template-columns: 202px minmax(520px, 1fr) 292px; }
+  .app-shell { grid-template-columns: minmax(520px, 1fr) 292px; }
   .topbar { gap: 14px; padding: 0 15px; } .canvas-toolbar { padding-left: 18px; padding-right: 18px; }
   .right-tabs { gap: 12px; padding: 0 13px; } .inspector-section, .quality-section, .design-section { padding-left: 13px; padding-right: 13px; }
 }
@@ -490,7 +492,6 @@ button:disabled { opacity: .58; cursor: wait; }
   color-scheme: dark;
 }
 .app-shell .topbar,
-.app-shell .left-panel,
 .app-shell .right-panel,
 .app-shell .right-tabs,
 .app-shell .canvas-toolbar,
@@ -511,7 +512,6 @@ button:disabled { opacity: .58; cursor: wait; }
 
 
 .app-shell .topbar,
-.app-shell .left-panel,
 .app-shell .right-panel,
 .app-shell .side-section,
 .app-shell .right-tabs,
@@ -640,7 +640,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .diagram-relation.selected .relation-visible-path { filter: drop-shadow(0 1px 2px #425bc744); }
 .diagram-relation .relation-hit-area { cursor: pointer; }
 @media (max-width: 1480px) {
-  .app-shell { grid-template-columns: 205px minmax(480px, 1fr) 295px; }
+  .app-shell { grid-template-columns: minmax(480px, 1fr) 295px; }
   .topbar { gap: 9px; padding: 0 13px; }
   .brand-lockup { min-width: 145px; }
   .topbar-divider { display: none; }
@@ -786,7 +786,7 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .app-shell .segmented button.selected:disabled { background: var(--theme-panel); color: var(--theme-text); }
 .app-shell .diagram-kind:disabled { background: transparent; color: var(--theme-secondary); }
 .text-field, .ant-input { font-size: 13px !important; }
-.app-shell { grid-template-columns: 218px minmax(480px, 1fr) minmax(340px, 390px); }
+.app-shell { grid-template-columns: minmax(480px, 1fr) minmax(340px, 390px); }
 .settings-workspace { overflow: auto; min-height: 0; }
 .settings-workspace .page-content { width: min(1180px, 100%); max-width: none; margin: 0 auto; padding: 24px 28px 40px; }
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: stretch; }
@@ -847,7 +847,7 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .canvas-tools { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
 
 @media (max-width: 1200px) {
-  .app-shell { grid-template-columns: 190px minmax(400px, 1fr) 340px; }
+  .app-shell { grid-template-columns: minmax(400px, 1fr) 340px; }
   .settings-workspace .page-content { padding: 18px; }
   .right-tabs { gap: 8px; padding: 0 10px; }
   .topbar { gap: 7px; padding: 0 10px; }
@@ -857,7 +857,7 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
   .topbar-actions .button { padding: 7px 7px; }
 }
 @media (max-width: 980px) {
-  .app-shell { grid-template-columns: 180px minmax(360px, 1fr); }
+  .app-shell { grid-template-columns: minmax(360px, 1fr); }
   .app-shell .right-panel { display: none; }
 }
 
@@ -983,9 +983,9 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
   letter-spacing: normal;
 }
 
-/* Layout follows the larger type: the sidebar and inspector need more room than the
-   9px-label era, and the trace toolbar stacks instead of colliding with its caption. */
-.app-shell { grid-template-columns: 240px minmax(460px, 1fr) minmax(360px, 400px); }
+/* Layout follows the larger type: the inspector needs more room than the 9px-label era,
+   and the trace toolbar stacks instead of colliding with its caption. */
+.app-shell { grid-template-columns: minmax(460px, 1fr) minmax(360px, 400px); }
 .topbar { gap: 12px; padding: 0 16px; }
 .topbar-actions { gap: 6px; }
 .app-shell .button,
@@ -993,14 +993,13 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .trace-toolbar { flex-wrap: wrap; gap: 8px 14px; }
 .trace-noise-toggle { margin-left: auto; }
 @media (max-width: 1480px) {
-  .app-shell { grid-template-columns: 220px minmax(420px, 1fr) 360px; }
+  .app-shell { grid-template-columns: minmax(420px, 1fr) 360px; }
 }
 @media (max-width: 1200px) {
-  .app-shell { grid-template-columns: 210px minmax(360px, 1fr) 340px; }
+  .app-shell { grid-template-columns: minmax(360px, 1fr) 340px; }
 }
 
 /* Sidebar starts at the top edge now that the redundant section labels are gone. */
-.left-panel { padding-top: 14px; }
 .side-section { padding-bottom: 12px; margin-bottom: 12px; }
 .diagram-kind { padding: 8px; }
 .app-shell .section-heading { padding: 0 9px 6px; }
@@ -1009,10 +1008,11 @@ body, button, input, select, textarea, .ant-btn, .ant-input, .ant-select, .ant-s
 .bottom-status { margin-bottom: 8px; }
 
 /* ---------------------------------------------------------------------------
-   Resizable sidebars: a 5px gutter between the panels carries the drag handle,
-   and the widths live in --left-w / --right-w so the grid stays declarative.
+   Resizable inspector: a 5px gutter carries the drag handle and the width lives
+   in --right-w so the grid stays declarative. The canvas takes the whole first
+   track; the left sidebar that used to sit here was removed.
    ------------------------------------------------------------------------- */
-.app-shell { grid-template-columns: var(--left-w, 240px) 5px minmax(320px, 1fr) 5px var(--right-w, 380px); }
+.app-shell { grid-template-columns: minmax(320px, 1fr) 5px var(--right-w, 380px); }
 /* Keep the native editor mounted across workspace pages so Draw.io does not reload.
    `display: contents` lets the panes participate in the app grid without a wrapper box. */
 .diagram-workspace { display: contents; }
@@ -1040,11 +1040,10 @@ body.resizing-panels .panel-resizer:after { background: var(--theme-accent); wid
 .app-shell .right-copilot-panel .gemini-composer { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
 .app-shell .right-copilot-panel .antd-composer .ant-sender { border-radius: 10px; }
 .app-shell .right-copilot-panel .gemini-composer { margin: 0 2px 6px; }
-/* The gutter draws the divider, so the panels drop their own edge borders. */
-.app-shell .left-panel { border-right: 0; }
+/* The gutter draws the divider, so the inspector drops its own edge border. */
 .app-shell .right-panel { border-left: 0; }
 @media (max-width: 980px) {
-  .app-shell { grid-template-columns: var(--left-w, 240px) 5px minmax(280px, 1fr); }
+  .app-shell { grid-template-columns: minmax(280px, 1fr); }
   .app-shell .panel-resizer-right { display: none; }
 }
 

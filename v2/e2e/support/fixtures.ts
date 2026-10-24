@@ -63,7 +63,7 @@ export async function createWorkspace(
 export async function openStudio(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toBeVisible();
-  await expect(page.locator('[role="dialog"], .workspace-card').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[role="dialog"], .workspace-switch').first()).toBeVisible({ timeout: 20_000 });
 }
 
 export async function waitForNativeEditor(page: Page): Promise<void> {

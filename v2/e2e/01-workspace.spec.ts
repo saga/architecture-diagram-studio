@@ -24,7 +24,8 @@ test.describe("工作区引导", () => {
     await dialog.getByRole("button", { name: "Create diagram" }).click();
 
     await expect(dialog).toBeHidden();
-    await expect(page.locator(".workspace-card")).toContainText("E2E Payments");
+    // The workspace identity lives in the topbar switch button now that the left panel is gone.
+    await expect(page.locator(".workspace-switch")).toHaveAttribute("title", /E2E Payments/);
     await expect(page.locator(".document-breadcrumb")).toContainText("payments.drawio");
     await waitForNativeEditor(page);
 
