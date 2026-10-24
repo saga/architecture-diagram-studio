@@ -456,7 +456,7 @@ export function summarizeNativeDiagramXmlDiff(
     const summarize = (cell: CellRecord) => ({
       pageId: cell.pageId,
       id: cell.id,
-      label: findText(cell).replace(/\\s+/g, " ").trim().slice(0, 240),
+      label: findText(cell).replace(/\s+/g, " ").trim().slice(0, 240),
       kind: cell.cell.getAttribute("edge") === "1" ? "edge" : cell.cell.getAttribute("vertex") === "1" ? "vertex" : "cell",
       ...(cell.cell.getAttribute("source") ? { sourceId: cell.cell.getAttribute("source")! } : {}),
       ...(cell.cell.getAttribute("target") ? { targetId: cell.cell.getAttribute("target")! } : {})
@@ -487,8 +487,8 @@ export function summarizeNativeDiagramXmlDiff(
       changedAll.push({
         pageId: next.pageId,
         id: next.id,
-        labelBefore: findText(old).replace(/\\s+/g, " ").trim().slice(0, 240),
-        labelAfter: findText(next).replace(/\\s+/g, " ").trim().slice(0, 240),
+        labelBefore: findText(old).replace(/\s+/g, " ").trim().slice(0, 240),
+        labelAfter: findText(next).replace(/\s+/g, " ").trim().slice(0, 240),
         kind: next.cell.getAttribute("edge") === "1" ? "edge" : next.cell.getAttribute("vertex") === "1" ? "vertex" : "cell",
         changedFields
       });
