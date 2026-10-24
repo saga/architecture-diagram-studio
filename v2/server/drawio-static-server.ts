@@ -55,7 +55,7 @@ app.use(express.static(DRAWIO_ROOT, {
   fallthrough: true,
   setHeaders(response, filePath) {
     response.setHeader("X-Content-Type-Options", "nosniff");
-    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader("Referrer-Policy", "strict-origin");
     response.setHeader("Cache-Control", "no-store");
     if (path.basename(filePath).toLowerCase() === "index.html") {
       response.setHeader("Content-Security-Policy", DRAWIO_CONTENT_SECURITY_POLICY);
