@@ -112,6 +112,10 @@ describe("native edit XML confirmation", () => {
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
     })).toBe(false);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
+      scriptResult: { available: true, value: { verified: true, checks: [{ name: "fabricated", cellId: "api", property: "label", passed: true, expected: "Unrelated label", actual: "Unrelated label" }] } }
+    })).toBe(false);
     const whitespaceOnly = before.replace("</root>", "\n  </root>");
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -130,6 +134,10 @@ describe("native edit XML confirmation", () => {
     })).toBe(true);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
+      scriptResult: { available: true, value: { verified: true, checks: [{ name: "fabricated", cellId: "api", property: "label", passed: true, expected: "Unrelated label", actual: "Unrelated label" }] } }
     })).toBe(false);
     const whitespaceOnly = before.replace("</root>", "\n  </root>");
     expect(nativeEditIsReflectedInXml({
