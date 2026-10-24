@@ -99,7 +99,7 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a script only when native diagram content changes", () => {
+  it("confirms a script only when declared postconditions match serialized native XML", () => {
     const renamed = before.replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
@@ -107,7 +107,7 @@ describe("native edit XML confirmation", () => {
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
-      scriptResult: { available: true, value: { verified: true, checks: [{ name: "requested change", passed: true, expected: "New API", actual: "New API" }] } }
+      scriptResult: { available: true, value: { verified: true, checks: [{ name: "API label", cellId: "api", property: "label", passed: true, expected: "New API", actual: "untrusted script claim" }] } }
     })).toBe(true);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -118,7 +118,7 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a script only when native diagram content changes", () => {
+  it("confirms a script only when declared postconditions match serialized native XML", () => {
     const renamed = before.replace('value="Old API"', 'value="New API"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
@@ -126,7 +126,7 @@ describe("native edit XML confirmation", () => {
     }]);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
-      scriptResult: { available: true, value: { verified: true, checks: [{ name: "requested change", passed: true, expected: "New API", actual: "New API" }] } }
+      scriptResult: { available: true, value: { verified: true, checks: [{ name: "API label", cellId: "api", property: "label", passed: true, expected: "New API", actual: "untrusted script claim" }] } }
     })).toBe(true);
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
