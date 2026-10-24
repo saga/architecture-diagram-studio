@@ -45,7 +45,7 @@ Every mutation plan must be revalidated against the same page and current XML re
 
 The server gives Copilot the active page's native cell IDs, labels and cell types. The editing surface has two paths:
 
-- `propose_native_edits`: a typed fast path for common operations such as select, rename, style, move, resize, delete, simple connected-node insertion, C4 conversion and Studio-owned Dagre/ELK layout.
+- `propose_native_edits`: a typed fast path for common operations such as select, rename, style, move, resize, delete, simple connected-node insertion and Studio-owned Dagre/ELK layout.
 - `run_drawio_script`: the primary full-capability path for native Draw.io operations. Copilot can write JavaScript against the live `ui`, `editor`, `graph`, `model` and runtime-inspection bindings to create/reconnect edges, change waypoints, choose shapes, apply styles, group/reparent cells, manage layers/pages and use other APIs available in the bundled editor. New native capabilities do not require a new typed operation or schema branch.
 
 Typed operations are convenience shortcuts, not an allowlist. Local single-user mode does not add a second confirmation just because a script is arbitrary, a batch is large, or a change deletes elements. The runtime method manifest remains diagnostic and never disables the direct script tool. Target/page/revision checks continue to prevent dispatch against a stale diagram snapshot; these are document-coherence checks, not a per-capability permission gate.

@@ -76,7 +76,7 @@ export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): N
   const parsed = parseDrawioXml(xml);
   if (parsed.documentElement.nodeName !== "mxfile") return { id: null, title: null };
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const page = (pageId ? diagrams.find((item) => item.getAttribute("id") === pageId) : undefined) || diagrams[0];
+  const page = pageId != null ? diagrams.find((item) => item.getAttribute("id") === pageId) : diagrams[0];
   if (!page) return { id: null, title: null };
   return {
     id: page.getAttribute("id") || null,
@@ -103,8 +103,11 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   if (parsed.documentElement.nodeName === "mxGraphModel") return parsed;
   if (parsed.documentElement.nodeName !== "mxfile") return parsed;
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const diagram = (pageId ? diagrams.find((page) => page.getAttribute("id") === pageId) : undefined) || diagrams[0];
-  if (!diagram) return parsed;
+  const diagram = pageId != null ? diagrams.find((page) => page.getAttribute("id") === pageId) : diagrams[0];
+  if (!diagram) {
+    if (pageId != null) throw new Error(`Draw.io page “${pageId}” was not found; refusing to inspect cells from another page.`);
+    return parsed;
+  }
   const model = diagram.getElementsByTagName("mxGraphModel").item(0);
   if (model) return model as unknown as Document;
   const payload = (diagram.textContent || "").trim();
@@ -135,41 +138,19 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
     const edge = cell.getAttribute("edge") === "1";
     if (!id || seen.has(id) || (!vertex && !edge) || id === "0" || id === "1") continue;
     seen.add(id);
-    const rawLabel = wrapper?.getAttribute("label") || wrapper?.getAttribute("value") ||
-      cell.getAttribute("value") || cell.getAttribute("label") || "";
-    result.push({ id, name: plainNativeLabel(rawLabel) || id, cellType: vertex ? "vertex" : "edge" });
+    const c4Name = wrapper?.getAttribute("c4Name");
+    const rawLabel = c4Name !== null && c4Name !== undefined
+      ? c4Name
+      : wrapper?.hasAttribute("label")
+        ? wrapper.getAttribute("label") ?? ""
+        : wrapper?.hasAttribute("value")
+          ? wrapper.getAttribute("value") ?? ""
+          : cell.hasAttribute("value")
+            ? cell.getAttribute("value") ?? ""
+            : cell.getAttribute("label") ?? "";
+    result.push({ id, name: plainNativeLabel(rawLabel), cellType: vertex ? "vertex" : "edge" });
   }
   return result;
-}
-
-/**
- * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
- * inside a value such as “红色背景色”.
- */
-const NAMED_COLORS: Record<string, string> = {
-  red: "#ff0000", blue: "#0000ff", green: "#008000", black: "#000000", white: "#ffffff",
-  orange: "#ffa500", purple: "#800080", gray: "#808080", grey: "#808080", yellow: "#ffff00",
-  pink: "#ffc0cb", brown: "#a52a2a", cyan: "#00ffff", teal: "#008080", navy: "#000080",
-  红色: "#ff0000", 红: "#ff0000", 蓝色: "#0000ff", 蓝: "#0000ff", 绿色: "#008000", 绿: "#008000",
-  黑色: "#000000", 黑: "#000000", 白色: "#ffffff", 白: "#ffffff", 橙色: "#ffa500", 橙: "#ffa500",
-  紫色: "#800080", 紫: "#800080", 灰色: "#808080", 灰: "#808080", 黄色: "#ffff00", 黄: "#ffff00",
-  粉色: "#ffc0cb", 粉: "#ffc0cb", 棕色: "#a52a2a", 棕: "#a52a2a", 青色: "#00ffff", 青: "#00ffff"
-};
-const NAMED_COLOR_KEYS = Object.keys(NAMED_COLORS).sort((left, right) => right.length - left.length);
-
-/** Normalizes `#f00`, `#FF0000`, `red` and `红色背景色` to a lowercase six-digit hex color. */
-export function normalizeNativeColor(value: string): string | null {
-  const raw = value.trim().toLowerCase();
-  if (!raw || raw.length > 40) return null;
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(raw);
-  if (hex) {
-    const digits = hex[1];
-    return "#" + (digits.length === 3 ? digits.split("").map((digit) => digit + digit).join("") : digits);
-  }
-  if (NAMED_COLORS[raw]) return NAMED_COLORS[raw];
-  // Accept a named color embedded in a phrase such as “红色背景色” or “字色改成蓝色”.
-  const embedded = NAMED_COLOR_KEYS.find((key) => raw.includes(key));
-  return embedded ? NAMED_COLORS[embedded] : null;
 }
 
 const nativeTargetSchema = z.string().trim().min(1, { message: "target must not be empty" }).max(200, { message: "target exceeds 200 characters" })
@@ -179,21 +160,16 @@ const nativeEditOperationOptions = {
   select: z.object({ op: z.literal("select"), target: nativeTargetSchema }).strict(),
   setLabel: z.object({
     op: z.literal("set_label"), target: nativeTargetSchema,
-    label: z.string().trim().min(1, { message: "label must not be empty" }).max(500, { message: "label exceeds 500 characters" })
-      .describe("Required replacement label.")
+    label: z.string().min(1, { message: "label must not be empty" }).max(500, { message: "label exceeds 500 characters" })
+      .refine((value) => value.trim().length > 0, { message: "label must not be empty or whitespace-only" })
+      .describe("Required replacement label. Preserve the exact supplied string, including intentional leading and trailing whitespace.")
   }).strict(),
   setStyle: z.object({
     op: z.literal("set_style"), target: nativeTargetSchema,
     key: z.enum(NATIVE_EDIT_STYLE_KEYS, { message: "Style key must be one of fillColor, strokeColor, fontColor" })
-      .default("fillColor").describe("Optional; defaults to fillColor when omitted."),
-    color: z.string().trim().min(1, { message: "color must not be empty" }).max(40, { message: "color exceeds 40 characters" })
-      .describe("Required color value, such as #ff0000 or 红色.")
-  }).strict(),
-  setC4Type: z.object({
-    op: z.literal("set_c4_type"),
-    target: nativeTargetSchema.describe("Exact ID or unique label of an existing vertex. Edges, groups, and layer/root cells are not valid C4 targets."),
-    kind: z.enum(["person", "system", "external"], { message: 'kind must be "person", "system", or "external"' })
-      .describe("Apply the pinned Draw.io C4 palette style and placeholder-backed C4 label. person uses mxgraph.c4.person2; system/external use the official C4 rounded-card styles, not a custom shape. Never substitute umlActor or swimlane.")
+      .describe("Required native Draw.io color style key. Do not infer a key when the user did not specify which aspect to change."),
+    color: z.string().trim().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, { message: "color must be an explicit 3- or 6-digit hex value such as #f00 or #ff0000" })
+      .describe("Explicit 3- or 6-digit hex color. Do not translate color names here; supply the concrete color requested or use run_drawio_script for native style values.")
   }).strict(),
   runScript: z.object({
     op: z.literal("run_drawio_script"),
@@ -236,21 +212,23 @@ const nativeEditOperationOptions = {
   addNodeAfter: z.object({
     op: z.literal("add_node_after"),
     target: nativeTargetSchema.describe("Required exact cell ID or unique exact visible label of a vertex."),
-    newLabel: z.string().trim().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
-      .describe("Required visible label for the newly created node.")
+    newLabel: z.string().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
+      .refine((value) => value.trim().length > 0, { message: "newLabel must not be empty or whitespace-only" })
+      .describe("Required visible label for the newly created node. Preserve the exact supplied string, including intentional leading and trailing whitespace.")
   }).strict(),
   addNodeBelow: z.object({
     op: z.literal("add_node_below"),
     target: nativeTargetSchema.describe("Required exact cell ID or unique exact visible label of a vertex; the new node is placed directly beneath this vertex."),
-    newLabel: z.string().trim().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
-      .describe("Required visible label for the newly created node.")
+    newLabel: z.string().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
+      .refine((value) => value.trim().length > 0, { message: "newLabel must not be empty or whitespace-only" })
+      .describe("Required visible label for the newly created node. Preserve the exact supplied string, including intentional leading and trailing whitespace.")
   }).strict()
 } as const;
 
 /** The single runtime contract for all Copilot-visible native edits. */
 export const NativeEditOperationSchema = z.discriminatedUnion("op", [
   nativeEditOperationOptions.select, nativeEditOperationOptions.setLabel, nativeEditOperationOptions.setStyle,
-  nativeEditOperationOptions.setC4Type, nativeEditOperationOptions.runScript, nativeEditOperationOptions.autoLayout,
+  nativeEditOperationOptions.runScript, nativeEditOperationOptions.autoLayout,
   nativeEditOperationOptions.move, nativeEditOperationOptions.resize, nativeEditOperationOptions.delete,
   nativeEditOperationOptions.addNodeAfter, nativeEditOperationOptions.addNodeBelow
 ]);
@@ -282,9 +260,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
   const operations: NativeEditOperation[] = [];
   for (const [index, operation] of parsed.data.entries()) {
     if (operation.op === "set_style") {
-      const color = normalizeNativeColor(operation.color);
-      if (!color) return { ok: false, error: `Operation ${index + 1}: Unsupported color “${operation.color}”` };
-      operations.push({ ...operation, color });
+      operations.push(operation);
     } else if (operation.op === "run_drawio_script") {
       if (!operation.script.trim()) return { ok: false, error: `Operation ${index + 1}: script must be a non-empty JavaScript program` };
       operations.push(operation);
@@ -292,7 +268,10 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
       if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
       operations.push(operation);
     } else if (operation.op === "auto_layout") {
-      operations.push({ ...operation, algorithm: operation.engine === "dagre" ? "layered" : operation.algorithm });
+      if (operation.engine === "dagre" && operation.algorithm !== "layered") {
+        return { ok: false, error: `Operation ${index + 1}: Dagre does not support the requested “${operation.algorithm}” algorithm. Select “layered” or use the ELK engine.` };
+      }
+      operations.push(operation);
     } else {
       operations.push(operation);
     }
@@ -301,15 +280,16 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
 }
 
 /** One-line, user-facing description of a planned operation. */
-export function describeNativeEditOperation(operation: NativeEditOperation & { targetLabel?: string }): string {
+export function describeNativeEditOperation(operation: NativeEditOperation & { targetLabel?: string; cellId?: string }): string {
   const target = typeof operation.targetLabel === "string" && operation.targetLabel.trim()
     ? operation.targetLabel.trim()
-    : operation.target;
+    : operation.cellId && operation.target === operation.cellId
+      ? "unnamed element"
+      : operation.target;
   switch (operation.op) {
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
-    case "set_c4_type": return `Convert “${target}” to the native C4 ${operation.kind === "person" ? "Person" : operation.kind === "system" ? "Software System" : "External Software System"} style`;
     case "run_drawio_script": return operation.summary;
     case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
       " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
@@ -370,9 +350,6 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "set_style":
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
-        break;
-      case "set_c4_type":
-        edits.push({ cellId, path: "cell:set-c4-type", value: JSON.stringify({ kind: operation.kind }) });
         break;
       case "run_drawio_script":
         edits.push({ cellId, path: "cell:execute-script", value: operation.script });

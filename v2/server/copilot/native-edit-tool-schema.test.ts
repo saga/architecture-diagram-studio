@@ -7,6 +7,7 @@ type OperationBranch = {
     target?: unknown;
     newLabel?: { type?: string; minLength?: number; maxLength?: number };
     key?: { type?: string; enum?: readonly string[]; default?: string };
+    color?: { type?: string; pattern?: string };
     engine?: { enum?: readonly string[]; default?: string };
     iterations?: { type?: string; minimum?: number; maximum?: number; default?: number };
     kind?: { enum?: readonly string[] };
@@ -43,13 +44,12 @@ describe("native edit tool parameter schema", () => {
     const requiredByOperation: Record<string, string[]> = {
       select: ["op", "target"],
       set_label: ["op", "target", "label"],
-      set_style: ["op", "target", "color"],
+      set_style: ["op", "target", "key", "color"],
       move: ["op", "target", "dx", "dy"],
       resize: ["op", "target", "width", "height"],
       delete: ["op", "target"],
       add_node_after: ["op", "target", "newLabel"],
       add_node_below: ["op", "target", "newLabel"],
-      set_c4_type: ["op", "target", "kind"],
       auto_layout: ["op", "target"]
     };
 
@@ -60,13 +60,14 @@ describe("native edit tool parameter schema", () => {
       expect(branch?.additionalProperties).toBe(false);
     }
     const styleBranch = branches.find((candidate) => candidate.properties.op.enum.includes("set_style"));
-    expect(styleBranch?.properties.key).toMatchObject({ enum: ["fillColor", "strokeColor", "fontColor"], default: "fillColor" });
+    expect(styleBranch?.properties.key).toMatchObject({ enum: ["fillColor", "strokeColor", "fontColor"] });
+    expect(styleBranch?.required).toContain("key");
+    expect(styleBranch?.properties.color?.pattern).toContain("#");
+    expect(styleBranch?.properties.color?.pattern).not.toContain("red");
     expect(branches.some((candidate) => candidate.properties.op.enum.includes("run_drawio_script"))).toBe(false);
     const layoutBranch = branches.find((candidate) => candidate.properties.op.enum.includes("auto_layout"));
     expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre"], default: "elk" });
     expect(layoutBranch?.properties.iterations).toMatchObject({ type: "integer", minimum: 20, maximum: 3000, default: 300 });
-    const c4Branch = branches.find((candidate) => candidate.properties.op.enum.includes("set_c4_type"));
-    expect(c4Branch?.properties.kind).toMatchObject({ enum: ["person", "system", "external"] });
   });
 });
 

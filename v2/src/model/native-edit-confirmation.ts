@@ -77,8 +77,8 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   const root = document.documentElement;
   if (root.nodeName !== "mxfile") return JSON.stringify(elementSignature(root));
   const pages = elementChildren(root).filter((child) => child.nodeName === "diagram");
-  const page = pageId ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : null;
-  if (pageId) {
+  const page = pageId != null ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : null;
+  if (pageId != null) {
     if (!page) return "missing-page:" + pageId;
     const models = modelRoots(xml);
     const matchingModel = models.find((entry) => entry.pageId === pageId);
@@ -114,7 +114,7 @@ function cellsForXml(xml: string): ModelRecords[] {
 
 function findCell(models: ModelRecords[], cellId: string, pageId?: string | null): CellRecord | null {
   for (const model of models) {
-    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
     const cell = model.cells.find((item) => item.id === cellId);
     if (cell) return cell;
   }
@@ -195,7 +195,7 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
   const targetAfter = findCell(after, operation.cellId, pageId);
   if (!targetBefore || !targetAfter) return false;
   for (const model of after) {
-    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" || !labelMatches(candidate, payload.label.trim())) continue;
       const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
@@ -225,7 +225,7 @@ function hasAddedNodeBelow(before: ModelRecords[], after: ModelRecords[], operat
   const targetHeight = numericAttribute(targetAfter.geometry, "height");
   if (targetX === null || targetY === null || targetWidth === null || targetHeight === null) return false;
   for (const model of after) {
-    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" ||
           !labelMatches(candidate, expectedLabel) || !candidate.geometry) continue;
@@ -264,31 +264,6 @@ function operationIsReflected(
   const value = operation.value;
   const path = operation.path;
   if (path === "label") return labelMatches(nextCell, value);
-  if (path === "cell:set-c4-type") {
-    let payload: { kind?: unknown };
-    try { payload = JSON.parse(value) as { kind?: unknown }; } catch { return false; }
-    const presets = {
-      person: { type: "Person", fill: "#083F75", stroke: "#06315C", width: 200, height: 180, shape: "mxgraph.c4.person2" },
-      system: { type: "Software System", fill: "#1061B0", stroke: "#0D5091", width: 240, height: 120, shape: null },
-      external: { type: "Software System", fill: "#8C8496", stroke: "#736782", width: 240, height: 120, shape: null }
-    } as const;
-    if (payload.kind !== "person" && payload.kind !== "system" && payload.kind !== "external") return false;
-    const preset = presets[payload.kind];
-    const style = nextCell.cell.getAttribute("style") || "";
-    const labelTemplate = nextCell.wrapper.getAttribute("label") || "";
-    return nextCell.cell.getAttribute("vertex") === "1" &&
-      nextCell.wrapper.getAttribute("placeholders") === "1" &&
-      Boolean(nextCell.wrapper.getAttribute("c4Name")?.trim()) &&
-      nextCell.wrapper.getAttribute("c4Type") === preset.type &&
-      nextCell.wrapper.hasAttribute("c4Description") &&
-      labelTemplate.includes("%c4Name%") && labelTemplate.includes("%c4Type%") &&
-      styleKeyMatches(style, "fillColor", preset.fill) &&
-      styleKeyMatches(style, "strokeColor", preset.stroke) &&
-      styleKeyMatches(style, "fontColor", "#ffffff") &&
-      (preset.shape ? styleKeyMatches(style, "shape", preset.shape) : style.split(";").some((entry) => entry === "rounded=1") && styleKeyMatches(style, "shape", "")) &&
-      numericAttribute(nextCell.geometry, "width") === preset.width &&
-      numericAttribute(nextCell.geometry, "height") === preset.height;
-  }
   if (path === "style") return (nextCell.cell.getAttribute("style") || "") === value;
   if (path.startsWith("style:")) return styleKeyMatches(nextCell.cell.getAttribute("style") || "", path.slice(6), value);
   if (path.startsWith("valueAttr:")) {

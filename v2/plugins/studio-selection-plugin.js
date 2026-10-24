@@ -692,10 +692,9 @@
               }
               var restoreAll = snapshot.restoreAll;
               var paths = snapshot.paths;
-              var restoreC4 = paths.indexOf("cell:set-c4-type") >= 0;
-              var restoreValue = restoreAll || restoreC4 || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
-              var restoreStyle = restoreAll || restoreC4 || paths.indexOf("style") >= 0 || paths.indexOf("cell:execute-script") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
-              var restoreGeometry = restoreAll || restoreC4 || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
+              var restoreValue = restoreAll || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
+              var restoreStyle = restoreAll || paths.indexOf("style") >= 0 || paths.indexOf("cell:execute-script") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
+              var restoreGeometry = restoreAll || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
               var restoreSource = restoreAll || paths.indexOf("cell:source") >= 0;
               var restoreTarget = restoreAll || paths.indexOf("cell:target") >= 0;
               if (restoreValue) activeModel.setValue(item, snapshot.value);
@@ -888,84 +887,9 @@
         if (typeof activeGraph.scrollCellToVisible === "function") activeGraph.scrollCellToVisible(cell);
         return { selected: true, cellId: cell.id };
       }
-      var c4EditResult = null;
       activeModel.beginUpdate();
       try {
-        if (path === "cell:set-c4-type") {
-          if (!cell.vertex || !cell.geometry || cell.id === "0" || cell.id === "1") {
-            throw new Error("C4 conversion requires a diagram vertex with geometry");
-          }
-          var c4Request;
-          try { c4Request = JSON.parse(value); } catch (_) { throw new Error("C4 conversion payload is not valid JSON"); }
-          if (!c4Request || ["person", "system", "external"].indexOf(c4Request.kind) < 0) {
-            throw new Error("C4 kind must be person, system, or external");
-          }
-          var c4Presets = {
-            person: {
-              type: "Person", width: 200, height: 180, fill: "#083F75", stroke: "#06315C",
-              style: "html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#083F75;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;"
-            },
-            system: {
-              type: "Software System", width: 240, height: 120, fill: "#1061B0", stroke: "#0D5091",
-              style: "rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];"
-            },
-            external: {
-              type: "Software System", width: 240, height: 120, fill: "#8C8496", stroke: "#736782",
-              style: "rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];"
-            }
-          };
-          var c4Preset = c4Presets[c4Request.kind];
-          if (c4Request.kind === "person") {
-            var c4Shapes = window.mxCellRenderer && window.mxCellRenderer.defaultShapes;
-            if (!c4Shapes || typeof c4Shapes["mxgraph.c4.person2"] !== "function") {
-              throw new Error("The pinned Draw.io bundle does not register mxgraph.c4.person2. No UML actor or other approximate fallback was applied.");
-            }
-          }
-          var oldValue = cell.value;
-          var c4Name = "";
-          var c4Description = "";
-          if (oldValue && oldValue.nodeType === 1) {
-            c4Name = oldValue.getAttribute("c4Name") || "";
-            c4Description = oldValue.getAttribute("c4Description") || "";
-            if (!c4Name) {
-              var oldLabel = oldValue.getAttribute("label") || oldValue.getAttribute("value") || "";
-              if (oldLabel && oldLabel.indexOf("%c4Name%") < 0) c4Name = oldLabel;
-            }
-          } else if (typeof oldValue === "string") c4Name = oldValue;
-          if (!c4Name && activeGraph && typeof activeGraph.convertValueToString === "function") {
-            try { c4Name = activeGraph.convertValueToString(cell) || ""; } catch (_) {}
-          }
-          c4Name = String(c4Name || cell.id).replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ")
-            .replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
-            .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/\s+/g, " ").trim().slice(0, 250);
-          if (!c4Name) c4Name = String(cell.id);
-          if (!window.mxUtils || typeof window.mxUtils.createXmlDocument !== "function") {
-            throw new Error("Draw.io XML value factory is unavailable; C4 conversion was not applied");
-          }
-          var c4Value = window.mxUtils.createXmlDocument().createElement("object");
-          c4Value.setAttribute("placeholders", "1");
-          c4Value.setAttribute("c4Name", c4Name);
-          c4Value.setAttribute("c4Type", c4Preset.type);
-          c4Value.setAttribute("c4Description", c4Description);
-          c4Value.setAttribute("label", '<font style="font-size: 16px"><b>%c4Name%</b></font><div>[%c4Type%]</div><br><div><font style="font-size: 11px"><font color="#cccccc">%c4Description%</font></div>');
-          var c4Geometry = cell.geometry.clone();
-          c4Geometry.width = c4Preset.width;
-          c4Geometry.height = c4Preset.height;
-          activeModel.setStyle(cell, c4Preset.style);
-          activeModel.setValue(cell, c4Value);
-          activeModel.setGeometry(cell, c4Geometry);
-          var verifiedC4Style = String(activeModel.getStyle(cell) || "");
-          if ((c4Request.kind === "person" && verifiedC4Style.indexOf("shape=mxgraph.c4.person2") < 0) ||
-              verifiedC4Style.indexOf("fillColor=" + c4Preset.fill) < 0 ||
-              verifiedC4Style.indexOf("strokeColor=" + c4Preset.stroke) < 0 ||
-              (c4Request.kind !== "person" && (verifiedC4Style.split(";").indexOf("rounded=1") < 0 || /(?:^|;)shape=/.test(verifiedC4Style))) ||
-              !cell.value || cell.value.getAttribute("c4Name") !== c4Name ||
-              cell.value.getAttribute("c4Type") !== c4Preset.type ||
-              !cell.geometry || cell.geometry.width !== c4Preset.width || cell.geometry.height !== c4Preset.height) {
-            throw new Error("C4 conversion postcondition failed; the native shape, label metadata, or dimensions did not match the requested C4 preset");
-          }
-          c4EditResult = { c4Type: c4Request.kind, c4Name: c4Name, styleVerified: true, placeholders: true, width: c4Preset.width, height: c4Preset.height };
-        } else if (path === "label") {
+        if (path === "label") {
           var current = cell.value;
           if (current && typeof current === "object" && current.nodeType === 1) {
             var next = current.cloneNode(true);
@@ -1016,24 +940,30 @@
           if (!addRequest || typeof addRequest.label !== "string" || !addRequest.label.trim() || addRequest.label.length > 500) {
             throw new Error("The new node needs a non-empty label of at most 500 characters");
           }
-          var nodeParent = cell.parent || activeModel.getCell("1");
-          if (!nodeParent) throw new Error("The target has no valid Draw.io layer");
+          var nodeParent = cell.parent;
+          if (!nodeParent) throw new Error("The target has no parent container in the native Draw.io model");
           var nodeGeometry = cell.geometry;
-          var newWidth = Math.max(120, Math.min(220, addRequest.label.trim().length * 10 + 36));
-          var newHeight = 60;
-          var newX = path === "cell:add-node-after"
-            ? Number(nodeGeometry.x) + Number(nodeGeometry.width) + 64
-            : Number(nodeGeometry.x) + (Number(nodeGeometry.width) - newWidth) / 2;
-          var newY = path === "cell:add-node-after"
-            ? Number(nodeGeometry.y)
-            : Number(nodeGeometry.y) + Number(nodeGeometry.height) + 64;
-          var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight,
-            "rounded=0;whiteSpace=wrap;html=1;");
+          var sourceX = Number(nodeGeometry.x);
+          var sourceY = Number(nodeGeometry.y);
+          var newWidth = Number(nodeGeometry.width);
+          var newHeight = Number(nodeGeometry.height);
+          if (!Number.isFinite(sourceX) || !Number.isFinite(sourceY) ||
+              !Number.isFinite(newWidth) || newWidth <= 0 || !Number.isFinite(newHeight) || newHeight <= 0) {
+            throw new Error("The target does not have usable coordinates and geometry to derive the new node placement");
+          }
+          var gridSpacing = Number(activeGraph.gridSize);
+          if (!Number.isFinite(gridSpacing) || gridSpacing < 0) {
+            throw new Error("Draw.io grid spacing is unavailable; use the native script path to choose an explicit placement");
+          }
+          var newX = path === "cell:add-node-after" ? sourceX + newWidth + gridSpacing : sourceX;
+          var newY = path === "cell:add-node-after" ? sourceY : sourceY + newHeight + gridSpacing;
+          // Omit the style argument so Draw.io applies its own default vertex style.
+          var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label, newX, newY, newWidth, newHeight);
           if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
           var insertedEdge = null;
           try {
-            insertedEdge = activeGraph.insertEdge(nodeParent, null, "", cell, insertedNode,
-              "edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;");
+            // Let the active Draw.io editor's default edge style apply; do not invent an arrow/routing style.
+            insertedEdge = activeGraph.insertEdge(nodeParent, null, "", cell, insertedNode);
             if (!insertedEdge) throw new Error("Draw.io did not create the connecting edge");
           } catch (edgeError) {
             try { activeModel.remove(insertedNode); } catch (_) {}
@@ -1113,7 +1043,6 @@
       // editor dirty while the host requests an explicit XML export for confirmation.
       if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
       if (typeof activeGraph.refresh === "function") activeGraph.refresh();
-      return c4EditResult;
     }
 
     window.addEventListener("message", function (event) {

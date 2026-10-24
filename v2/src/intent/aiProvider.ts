@@ -153,8 +153,9 @@ function parseResolvedNativeOperations(value: unknown): ResolvedNativeEditOperat
   return parsed.operations.map((operation, index) => {
     const source = value[index] as Record<string, unknown>;
     const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
-    const targetLabel = typeof source.targetLabel === "string" ? source.targetLabel.trim() : "";
-    if (!cellId || !targetLabel) throw new Error("The agent returned an operation without a resolved cell id and target label");
+    const hasTargetLabel = typeof source.targetLabel === "string";
+    const targetLabel = hasTargetLabel ? (source.targetLabel as string).trim() : "";
+    if (!cellId || !hasTargetLabel) throw new Error("The agent returned an operation without a resolved cell id and target-label field");
     return { ...operation, cellId, targetLabel };
   });
 }

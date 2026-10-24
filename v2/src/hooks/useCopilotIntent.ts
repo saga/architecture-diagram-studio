@@ -103,7 +103,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       let runtimeInspection: DrawioRuntimeInspection | undefined;
       if (getRuntimeInspection) {
         const requestedJsShapeClassNames = new Set<string>();
-        if (/\bc4\b/i.test(requestText)) requestedJsShapeClassNames.add("mxgraph.c4.person2");
         for (const match of requestText.match(/\bmxgraph(?:\.[A-Za-z0-9_-]+)+\b/gi) ?? []) {
           if (requestedJsShapeClassNames.size < 40) requestedJsShapeClassNames.add(match);
         }
@@ -129,7 +128,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           activePageId,
           selectedCell: sourceSelectedCellId ? {
             cellId: sourceSelectedCellId, pageId: activePageId,
-            label: selectedTarget?.name || sourceSelectedCellId
+            label: selectedTarget?.name || ""
           } : null,
           cells: nativeTargets,
           ...(runtimeInspection ? { runtimeInspection } : {})
@@ -287,7 +286,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 activePageId,
                 selectedCell: sourceSelectedCellId ? {
                   cellId: sourceSelectedCellId, pageId: activePageId,
-                  label: selectedTarget?.name || sourceSelectedCellId
+                  label: selectedTarget?.name || ""
                 } : null,
                 cells: nativeTargets,
                 ...(runtimeInspection ? { runtimeInspection } : {}),
@@ -470,7 +469,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         activePageId: pageInfo.id,
         selectedCell: sourceSelectedCellId ? {
           cellId: sourceSelectedCellId, pageId: pageInfo.id,
-          label: selectedTarget?.name || sourceSelectedCellId
+          label: selectedTarget?.name || ""
         } : null,
         cells: nativeTargets
       };

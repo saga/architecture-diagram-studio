@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseNativeEditOperations } from "../../src/model/native-edit-operations";
+import { describeNativeEditOperation, parseNativeEditOperations } from "../../src/model/native-edit-operations";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 
 const CONTEXT = { cells: [
@@ -42,19 +42,15 @@ describe("resolveNativeEditTargets", () => {
     });
   });
 
-  it("resolves a C4 kind against an existing vertex and rejects connector targets", () => {
-    const resolved = resolveNativeEditTargets(CONTEXT, [
-      { op: "set_c4_type", target: "Database", kind: "person" }
-    ]);
-    expect(resolved).toMatchObject({
-      ok: true,
-      operations: [{ op: "set_c4_type", kind: "person", cellId: "db", targetLabel: "Database" }]
-    });
-    const edge = resolveNativeEditTargets({ cells: [{ id: "calls", name: "calls", cellType: "edge" }] }, [
-      { op: "set_c4_type", target: "calls", kind: "system" }
-    ]);
-    expect(edge).toMatchObject({ ok: false, error: expect.stringContaining("must resolve to a vertex") });
+  it("keeps unnamed labels distinct from internal cell IDs", () => {
+    const id = "TwsH19o86vvnPf4LDGem-1";
+    const resolved = resolveNativeEditTargets({ cells: [{ id, name: "", cellType: "vertex" }] }, [{ op: "select", target: id }]);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.operations[0]).toMatchObject({ cellId: id, target: id, targetLabel: "" });
+    expect(describeNativeEditOperation(resolved.operations[0])).toBe("Select “unnamed element”");
   });
+
 
   it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);

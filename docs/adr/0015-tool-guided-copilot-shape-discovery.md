@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0014 — Typed Native Draw.io C4 Conversion](./0014-typed-native-drawio-c4-conversion.md)
+- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0019 — Additive Native C4 Elements](./0019-additive-native-c4-elements.md). ADR-0014 records the superseded approach.
 
 ## Context
 
@@ -16,7 +16,7 @@ The official jgraph/drawio-mcp project offers two useful patterns: keep tool des
 
 ### 1. Keep the permanent prompt short
 
-The always-on instructions contain only high-frequency invariants: native Draw.io XML is the sole model, prefer typed operations, targets must be unambiguous, scripts are constrained fallbacks, C4 uses the typed operation, and success requires verified editor/XML/persistence outcomes.
+The always-on instructions contain only high-frequency invariants: native Draw.io XML is the sole model, typed operations are shortcuts, targets must be unambiguous, and success requires verified editor/XML/persistence outcomes. C4 composition uses the generic native editor path rather than an application-owned conversion preset.
 
 Detailed API recipes remain in the local Draw.io Agent API Contract and are served through the read-only get_drawio_reference tool on demand. Tool descriptions stay short. Typed operation schemas carry the fields and constraints for each operation; the system prompt must not duplicate every schema rule.
 
@@ -26,7 +26,7 @@ The runtime contract is explicitly named capabilityManifest.jsShapeClasses. It r
 
 search_drawio_shapes queries a curated local catalogue and returns exact vetted style strings, dimensions, category and title. The initial catalogue covers common primitives and selected flowchart/UML symbols; it is intentionally non-exhaustive. A search miss does not mean that Draw.io lacks that shape. The Agent must not guess styles or shape IDs to fill a catalogue gap.
 
-Use the catalogue for extended-library symbols when it returns a matching verified entry. Ordinary common shapes do not need an explicit search. C4 Person, Software System and External Software System always use the existing typed set_c4_type operation, not catalog-generated scripts.
+Use the catalogue for extended-library symbols when it returns a matching verified entry. Ordinary common shapes do not need an explicit search. For C4 additions, use the bundled Draw.io C4 library or a verified native C4 example through `run_drawio_script`; preserve original cells and labels instead of applying an in-place conversion preset.
 
 ### 3. Search live diagram elements separately from shape definitions
 
@@ -36,7 +36,7 @@ Element search is distinct from `search_drawio_shapes`: the former discovers exi
 
 ### 4. Enforce policy where code can enforce it
 
-The server rejects scripts that call mxStencilRegistry.getStencil() as a shape lookup or attempt to recreate C4 styles/metadata with a script. C4 remains governed by the typed operation, native bridge checks and serialized-XML postconditions. These are deterministic guardrails, not a general JavaScript sandbox; existing AST, runtime-manifest, confirmation, revision, rollback and persistence controls remain in force.
+Do not treat `mxStencilRegistry.getStencil()` as a universal shape lookup or substitute a different notation after a lookup miss. The native script path may create C4 elements using Draw.io’s own available definitions; verification should focus on the created cells, meaningful label/context, connectors and preservation of the originals. These are behavioral instructions, not a second shape engine or application-owned C4 preset table.
 
 ### 5. Preserve offline operation and native XML ownership
 
@@ -55,5 +55,5 @@ Shape discovery and reference lookup are local and read-only. There is no extern
 - Test prompt size and core safety principles.
 - Test local catalogue search, exact styles/dimensions, result caps and non-exhaustive misses.
 - Test on-demand reference section routing and response bounds.
-- Test the deterministic prohibition against stencil probing and scripted C4 recreation.
-- Preserve C4 typed operations, runtime class registration checks, bridge postconditions, serialized XML validation, confirmation policy and persistence acknowledgement.
+- Test that C4 additions preserve original cells and do not leak internal IDs into display labels.
+- Preserve native runtime inspection, serialized XML validation and persistence acknowledgement without reintroducing an in-place C4 conversion shortcut.

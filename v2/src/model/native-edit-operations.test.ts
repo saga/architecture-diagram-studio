@@ -3,11 +3,11 @@ import { calculateNativeAutoLayout, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS } from ".
 import {
   describeNativeEditOperation,
   extractNativeEditTargets,
+  getNativeDiagramPageInfo,
   MAX_NATIVE_EDIT_OPERATIONS,
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
   NativeEditOperationBatchSchema,
-  normalizeNativeColor,
   parseNativeEditOperations,
   toNativeCellEdits,
   type ResolvedNativeEditOperation
@@ -35,65 +35,75 @@ describe("extractNativeEditTargets", () => {
     ]);
   });
 
+  it("does not fall back to the first page when the requested page ID is stale", () => {
+    const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="other" value="Other page cell" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram>';
+    const multiPage = XML.replace("</mxfile>", secondPage + "</mxfile>");
+
+    expect(getNativeDiagramPageInfo(multiPage, "missing-page")).toEqual({ id: null, title: null });
+    expect(extractNativeEditTargets(multiPage, "p2")).toEqual([{ id: "other", name: "Other page cell", cellType: "vertex" }]);
+    expect(() => extractNativeEditTargets(multiPage, "missing-page"))
+      .toThrow("refusing to inspect cells from another page");
+  });
+
   it("does not expose root/layer cells as editable targets", () => {
     expect(extractNativeEditTargets(XML).map((target) => target.id)).toEqual(["db"]);
   });
+
+  it("keeps an empty visible label empty instead of substituting the native cell id", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="TwsH19o86vvnPf4LDGem-1" value="" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
+    expect(extractNativeEditTargets(xml)).toEqual([{ id: "TwsH19o86vvnPf4LDGem-1", name: "", cellType: "vertex" }]);
+  });
+
+
+  it("preserves an explicitly empty wrapper label instead of falling through to internal cell text", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><object label="" value="Wrapper fallback"><mxCell id="opaque-wrapper-id" value="Inner fallback" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
+    expect(extractNativeEditTargets(xml)).toEqual([{ id: "opaque-wrapper-id", name: "", cellType: "vertex" }]);
+  });
+
+  it("uses native C4 name metadata instead of exposing the placeholder template", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><object placeholders="1" c4Name="" c4Type="Software System" label="&amp;lt;b&amp;gt;%c4Name%&amp;lt;/b&amp;gt; &amp;lt;div&amp;gt;[%c4Type%]&amp;lt;/div&amp;gt;"><mxCell id="opaque-c4-id" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
+    expect(extractNativeEditTargets(xml)).toEqual([{ id: "opaque-c4-id", name: "", cellType: "vertex" }]);
+    const namedXml = xml.replace('c4Name=""', 'c4Name="Orders API"');
+    expect(extractNativeEditTargets(namedXml)).toEqual([{ id: "opaque-c4-id", name: "Orders API", cellType: "vertex" }]);
+  });
 });
 
-describe("normalizeNativeColor", () => {
-  it("expands short hex and lowercases long hex", () => {
-    expect(normalizeNativeColor("#f00")).toBe("#ff0000");
-    expect(normalizeNativeColor("#FF0000")).toBe("#ff0000");
-    expect(normalizeNativeColor(" #0a0B0c ")).toBe("#0a0b0c");
+describe("native style input", () => {
+  it("requires an explicit style key and a concrete hexadecimal color", () => {
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", color: "#f00" }).success).toBe(false);
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", key: "fillColor", color: "red" }).success).toBe(false);
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", key: "fillColor", color: "#f00" }).success).toBe(true);
   });
 
-  it("maps English and Chinese color names", () => {
-    expect(normalizeNativeColor("red")).toBe("#ff0000");
-    expect(normalizeNativeColor("红色")).toBe("#ff0000");
-    expect(normalizeNativeColor("绿色")).toBe("#008000");
-  });
-
-  it("accepts a color name embedded in a phrase", () => {
-    expect(normalizeNativeColor("红色背景色")).toBe("#ff0000");
-  });
-
-  it("rejects unsupported values", () => {
-    expect(normalizeNativeColor("chartreuse")).toBeNull();
-    expect(normalizeNativeColor("rgb(255,0,0)")).toBeNull();
-    expect(normalizeNativeColor("")).toBeNull();
+  it("preserves the supplied hexadecimal value instead of rewriting it through a color-name map", () => {
+    expect(parseNativeEditOperations([{ op: "set_style", target: "db", key: "fillColor", color: "#F00" }]))
+      .toMatchObject({ ok: true, operations: [{ op: "set_style", target: "db", key: "fillColor", color: "#F00" }] });
   });
 });
 
 describe("Zod native-edit contract", () => {
   it("accepts valid operations and rejects unexpected fields at the source schema", () => {
     expect(NativeEditOperationSchema.safeParse({ op: "add_node_after", target: "db", newLabel: "Cache" }).success).toBe(true);
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", key: "strokeColor", color: "#fff" }).success).toBe(true);
     expect(NativeEditOperationSchema.safeParse({ op: "add_node_after", target: "db", newLabel: "Cache", arbitrary: true }).success).toBe(false);
     expect(NativeEditOperationBatchSchema.safeParse([]).success).toBe(false);
   });
 });
 
 describe("parseNativeEditOperations", () => {
+  it("does not describe an unnamed target by leaking its native id", () => {
+    expect(describeNativeEditOperation({ op: "select", target: "TwsH19o86vvnPf4LDGem-1", cellId: "TwsH19o86vvnPf4LDGem-1", targetLabel: "" }))
+      .toBe("Select “unnamed element”");
+  });
   it("accepts a native add-after operation with an explicit label", () => {
     const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx", newLabel: "bbb" }]);
     expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
   });
 
-  it("uses a typed native C4 operation with the canonical type instead of an arbitrary style script", () => {
-    const parsed = parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "system" }]);
-    expect(parsed).toMatchObject({ ok: true, operations: [{ op: "set_c4_type", target: "Database", kind: "system" }] });
-    expect(describeNativeEditOperation({ op: "set_c4_type", target: "Database", targetLabel: "Database", kind: "system" }))
-      .toContain("C4 Software System style");
-    if (!parsed.ok) return;
-    const resolved = parsed.operations.map((operation) => ({
-      ...operation, cellId: "db", targetLabel: "Database"
-    })) as ResolvedNativeEditOperation[];
-    expect(toNativeCellEdits(resolved, XML, "p1")).toMatchObject({
-      ok: true,
-      edits: [{ cellId: "db", path: "cell:set-c4-type", value: JSON.stringify({ kind: "system" }) }]
-    });
-    expect(parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "swimlane" }]))
-      .toMatchObject({ ok: false, error: expect.stringContaining("kind must be") });
+  it("does not expose an in-place C4 conversion as a typed edit", () => {
+    expect(parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "system" }])).toMatchObject({ ok: false });
   });
+
 
   it("plans bounded below-and-connect operations without native script code", () => {
     const parsed = parseNativeEditOperations([
@@ -144,6 +154,13 @@ describe("parseNativeEditOperations", () => {
     ])).toMatchObject({ ok: false, error: expect.stringContaining("only operation") });
   });
 
+  it("rejects an unsupported Dagre algorithm rather than silently mapping it to layered", () => {
+    expect(parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", algorithm: "radial" }]))
+      .toMatchObject({ ok: false, error: expect.stringContaining("does not support") });
+    expect(parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", algorithm: "layered" }]))
+      .toMatchObject({ ok: true, operations: [{ engine: "dagre", algorithm: "layered" }] });
+  });
+
   it("serializes a calculated Dagre plan as a native bridge layout operation", async () => {
     const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", direction: "DOWN" }]);
     expect(parsed.ok).toBe(true);
@@ -158,6 +175,16 @@ describe("parseNativeEditOperations", () => {
       ok: true,
       edits: [{ cellId: "__active_page__", path: "cell:auto-layout" }]
     });
+  });
+
+  it("preserves intentional leading and trailing whitespace in labels", () => {
+    const rename = parseNativeEditOperations([{ op: "set_label", target: "Database", label: "  Primary Database  " }]);
+    expect(rename).toMatchObject({ ok: true, operations: [{ op: "set_label", label: "  Primary Database  " }] });
+
+    const addAfter = parseNativeEditOperations([{ op: "add_node_after", target: "Database", newLabel: "  Cache  " }]);
+    expect(addAfter).toMatchObject({ ok: true, operations: [{ op: "add_node_after", newLabel: "  Cache  " }] });
+    expect(parseNativeEditOperations([{ op: "set_label", target: "Database", label: "   " }]).ok).toBe(false);
+    expect(parseNativeEditOperations([{ op: "add_node_after", target: "Database", newLabel: "   " }]).ok).toBe(false);
   });
 
   it("requires newLabel for add_node_after", () => {
@@ -209,22 +236,20 @@ describe("parseNativeEditOperations", () => {
     expect(plan.edits).toEqual([{ cellId: "db", path: "geometry:translate", value: dx + "," + dy }]);
   });
 
-  it("accepts a compound select + recolor request", () => {
+  it("preserves an explicit color key and hex value without a name lookup or rewrite", () => {
     const parsed = parseNativeEditOperations([
       { op: "select", target: "Database" },
-      { op: "set_style", target: "Database", color: "红色背景色" }
+      { op: "set_style", target: "Database", key: "fillColor", color: "#f00" }
     ]);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    expect(parsed.operations).toEqual([
+    expect(parsed).toMatchObject({ ok: true, operations: [
       { op: "select", target: "Database" },
-      { op: "set_style", target: "Database", key: "fillColor", color: "#ff0000" }
-    ]);
+      { op: "set_style", target: "Database", key: "fillColor", color: "#f00" }
+    ] });
   });
 
   it("keeps an explicit whitelisted style key", () => {
     const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", key: "strokeColor", color: "#0f0" }]);
-    expect(parsed.ok && parsed.operations[0]).toEqual({ op: "set_style", target: "db", key: "strokeColor", color: "#00ff00" });
+    expect(parsed.ok && parsed.operations[0]).toEqual({ op: "set_style", target: "db", key: "strokeColor", color: "#0f0" });
   });
 
   it("rejects style keys outside the whitelist", () => {
@@ -235,7 +260,7 @@ describe("parseNativeEditOperations", () => {
   });
 
   it("rejects an unsupported color", () => {
-    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", color: "chartreuse" }]);
+    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", key: "fillColor", color: "chartreuse" }]);
     expect(parsed.ok).toBe(false);
   });
 
