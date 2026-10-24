@@ -51,9 +51,18 @@ export default defineConfig({
       }
     },
     {
-      // The selection bridge is served from the bundled Draw.io copy; refresh it before
-      // Vite starts so a test never runs against a stale plugin checked into public/.
-      command: `node scripts/bundle-drawio.mjs && npx --no-install concurrently -k -p none "npx --no-install vite --host 127.0.0.1 --port ${WEB_PORT}" "npx --no-install tsx server/drawio-static-server.ts"`,
+      // Bundle before starting the isolated, read-only Draw.io origin.
+      command: "node scripts/bundle-drawio.mjs && npx --no-install tsx server/drawio-static-server.ts",
+      url: `http://127.0.0.1:${DRAWIO_PORT}/__health`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        STUDIO_DRAWIO_PORT: String(DRAWIO_PORT),
+        VITE_STUDIO_DRAWIO_PORT: String(DRAWIO_PORT)
+      }
+    },
+    {
+      command: `npx --no-install vite --host 127.0.0.1 --port ${WEB_PORT}`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,
       timeout: 120_000,
