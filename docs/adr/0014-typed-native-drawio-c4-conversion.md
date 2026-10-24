@@ -14,11 +14,11 @@ That diagnosis was verified against the pinned Draw.io v32.0.2 bundle. C4 Person
 
 ## Decision
 
-### 1. C4 conversions use a typed operation
+### 1. Historical implementation: C4 conversions used a typed operation
 
 The native edit contract includes `set_c4_type` with only three accepted kinds: `person`, `system`, and `external`. It targets one existing vertex with geometry and uses the standard Studio native edit dispatch, revision checks, editor serialization, and persistence flow.
 
-Copilot must use this operation for the three supported C4 types. It must not write a custom script to imitate one of them when the typed operation can express the request.
+At the time, Copilot was instructed to use this operation for the three supported C4 types. That implementation is superseded by ADR-0019; current C4 authoring uses additive native elements and the general script path.
 
 The built-in C4 palette must also be available to people working directly on the canvas. The embedded editor must show its shape-library panel and include `c4` in `defaultLibraries` by default; C4 must not require the user to open More Shapes and enable the library manually. Because Draw.io may persist the previously enabled library list, update the editor configuration version when changing this default so existing preferences are rebuilt once.
 
