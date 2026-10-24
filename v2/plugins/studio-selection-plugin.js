@@ -24,10 +24,13 @@
     var hasOriginalBackground = false;
     // Cells created during an atomic batch are tracked for rollback.
     var activeBatchCreatedCells = null;
+    var studioParentOrigin = "";
+    try {
+      studioParentOrigin = document.referrer ? new URL(document.referrer).origin : "";
+    } catch (_) {}
     var publish = function (message) {
-      // The host verifies both event.source and the dedicated Draw.io origin. Wildcard is used
-      // only for this child-to-parent message; it does not expose the host API to the iframe.
-      window.parent.postMessage(JSON.stringify(message), "*");
+      if (!studioParentOrigin) return;
+      window.parent.postMessage(JSON.stringify(message), studioParentOrigin);
     };
     var currentPageId = function () {
       var page = ui.currentPage;
@@ -1095,7 +1098,7 @@
     }
 
     window.addEventListener("message", function (event) {
-      if (event.source !== window.parent || (event.origin !== window.location.origin && event.origin !== "null")) return;
+      if (!studioParentOrigin || event.source !== window.parent || event.origin !== studioParentOrigin) return;
       var request;
       try { request = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
       catch (_) { return; }
