@@ -10,6 +10,16 @@ export interface DiagnosticEntry {
 }
 
 const STORAGE_KEY = "architecture-diagram-studio:v2:diagnostic-traces";
+let activeDiagnosticScope = "single-file";
+function currentStorageKey(): string {
+  return activeDiagnosticScope === "single-file"
+    ? STORAGE_KEY
+    : STORAGE_KEY + ":" + encodeURIComponent(activeDiagnosticScope);
+}
+export function setDiagnosticScope(scope: string): void {
+  activeDiagnosticScope = scope.startsWith("workspace:") ? scope : "single-file";
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("studio:diagnostic-scope-change"));
+}
 const MAX_ENTRIES = 1200;
 const SENSITIVE_KEY = /^(api.?key|token|secret|password|authorization|prompt|raw.?xml|xml|request.?body|access.?key)$/i;
 
@@ -30,7 +40,7 @@ function safeValue(value: unknown, depth = 0): unknown {
 
 export function readDiagnosticEntries(): DiagnosticEntry[] {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(currentStorageKey());
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -48,7 +58,7 @@ export function readDiagnosticEntries(): DiagnosticEntry[] {
 
 export function clearDiagnosticEntries(): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, "[]");
+    window.localStorage.setItem(currentStorageKey(), "[]");
   } catch {
     // Keep the UI usable when browser storage is disabled.
   }
@@ -73,7 +83,7 @@ export function recordDiagnostic(
 
   try {
     const entries = [...readDiagnosticEntries(), entry].slice(-MAX_ENTRIES);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    window.localStorage.setItem(currentStorageKey(), JSON.stringify(entries));
     window.dispatchEvent(new CustomEvent<DiagnosticEntry>("studio:diagnostic", { detail: entry }));
   } catch {
     // Diagnostics must never break diagram editing.
@@ -86,7 +96,7 @@ export function recordDiagnostic(
     void fetch("/api/workspace/logs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(entry),
+      body: JSON.stringify({ ...entry, storageScope: activeDiagnosticScope }),
       keepalive: true
     }).catch(() => {
       // Server logging is best-effort; the operation itself must remain usable.

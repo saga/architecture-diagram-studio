@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { appendRotatingJsonl, readRecentJsonl } from "./jsonl-log";
 import { parseEnv } from "node:util";
 
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
@@ -16,6 +15,7 @@ import { createLocalDiagramFileService, LocalDiagramFileError } from "./local-di
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
 import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
+import { defaultStudioHome, resolveStudioStorageLayout, type StudioStorageLayout } from "./storage-layout";
 
 /**
  * The Copilot runtime reads its model provider configuration from the environment
@@ -41,17 +41,27 @@ const PORT = Number(process.env.COPILOT_PORT || 4175);
 const DEFAULT_MODEL = process.env.COPILOT_MODEL || "claude-sonnet-5.5";
 /** The retired built-in default; a stored value equal to it was never a deliberate choice. */
 const LEGACY_DEFAULT_MODEL = "claude-sonnet-5.5";
-const LOG_DIR = process.env.COPILOT_LOG_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "logs");
-const LOG_FILE = path.join(LOG_DIR, "copilot-sessions.jsonl");
-const DATA_DIR = process.env.STUDIO_DATA_DIR || path.join(os.homedir(), ".architecture-diagram-studio", "data");
-const WORKSPACE_FILE = path.join(DATA_DIR, "workspace.json");
-const VERSIONS_FILE = path.join(DATA_DIR, "diagram-versions.json");
-const APP_LOG_FILE = path.join(DATA_DIR, "application-events.jsonl");
-const PROJECT_WORKSPACE_FILE = path.join(DATA_DIR, "project-workspace.json");
-const CONFIG_HISTORY_FILE = path.join(DATA_DIR, "studio-config-history.jsonl");
-const JSONL_LOG_MAX_BYTES = 10 * 1024 * 1024;
-const JSONL_LOG_BACKUPS = 3;
-const JSONL_READ_TAIL_BYTES = 1024 * 1024;
+const STUDIO_HOME = defaultStudioHome();
+const DATA_DIR_OVERRIDE = process.env.STUDIO_DATA_DIR?.trim() || undefined;
+const LOG_DIR_OVERRIDE = process.env.COPILOT_LOG_DIR?.trim() || undefined;
+const COPILOT_HOME_OVERRIDE = process.env.COPILOT_HOME?.trim() || undefined;
+const GLOBAL_DATA_DIR = path.resolve(process.env.STUDIO_GLOBAL_DATA_DIR?.trim() || DATA_DIR_OVERRIDE || path.join(STUDIO_HOME, "data"));
+const LEGACY_RUNTIME_DATA_DIR = DATA_DIR_OVERRIDE || path.join(STUDIO_HOME, "data");
+const LEGACY_COPILOT_LOG_DIR = LOG_DIR_OVERRIDE || path.join(STUDIO_HOME, "logs");
+const PROJECT_WORKSPACE_FILE = path.join(GLOBAL_DATA_DIR, "project-workspace.json");
+const CONFIG_HISTORY_FILE = path.join(GLOBAL_DATA_DIR, "studio-config-history.jsonl");
+let activeStorageLayout: StudioStorageLayout = resolveStudioStorageLayout({
+  appHome: STUDIO_HOME, dataDirOverride: DATA_DIR_OVERRIDE,
+  logDirOverride: LOG_DIR_OVERRIDE, copilotHomeOverride: COPILOT_HOME_OVERRIDE
+});
+let activeStorageWorkspace: ProjectWorkspace | null = null;
+let DATA_DIR = activeStorageLayout.dataDir;
+let WORKSPACE_FILE = activeStorageLayout.workspaceStateFile;
+let VERSIONS_FILE = activeStorageLayout.diagramVersionsFile;
+let APP_LOG_FILE = activeStorageLayout.applicationLogFile;
+let LOG_DIR = activeStorageLayout.logDir;
+let LOG_FILE = activeStorageLayout.copilotLogFile;
+let COPILOT_STATE_DIR = activeStorageLayout.copilotDir;
 type StudioConfig = {
   schemaVersion: 1;
   revisionId: string;
@@ -137,8 +147,8 @@ async function adoptConfiguredModel(config: StudioConfig): Promise<StudioConfig>
 }
 
 async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", "utf8");
+  await mkdir(GLOBAL_DATA_DIR, { recursive: true, mode: 0o700 });
+  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", { encoding: "utf8", mode: 0o600 });
   studioConfig = config;
 }
 let projectWorkspace: ProjectWorkspace | null | undefined;
@@ -172,7 +182,7 @@ const localDiagramFileService = createLocalDiagramFileService({
     const workspace = await getProjectWorkspace();
     return [os.homedir(), ...(workspace ? [workspace.rootPath] : [])];
   },
-  historyDirectory: path.join(process.env.STUDIO_HOME?.trim() || path.join(os.homedir(), ".architecture-diagram-studio"), "data", "standalone-history")
+  historyDirectory: path.join(GLOBAL_DATA_DIR, "standalone-history")
 });
 
 /** Draw.io XML is the only persisted model; version entries contain metadata and the complete XML. */
@@ -246,7 +256,7 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
   }
 
   if (typeof workspaceState.drawioXml !== "string") {
-    const activeWorkspace = await getProjectWorkspace();
+    const activeWorkspace = activeStorageWorkspace;
     if (activeWorkspace?.primaryDiagram && /\.(?:drawio|dio|xml)$/i.test(activeWorkspace.primaryDiagram)) {
       try {
         const { absolutePath } = await resolveWorkspaceFile(activeWorkspace.primaryDiagram);
@@ -389,10 +399,20 @@ function terminalLogSummary(event: string, record: Record<string, unknown>): Rec
 }
 
 async function writeLog(event: string, fields: Record<string, unknown> = {}): Promise<void> {
-  const record = { timestamp: new Date().toISOString(), workspaceId: projectWorkspace?.id ?? null, event, ...fields };
+  const record = {
+    timestamp: new Date().toISOString(),
+    event,
+    ...fields,
+    workspaceId: activeStorageWorkspace?.id ?? null,
+    storageScope: activeStorageWorkspace ? "workspace" : "single-file"
+  };
   const line = JSON.stringify(record) + "\n";
+  // Capture destination with the record; a later mode switch must not redirect queued writes.
+  const targetLogDir = LOG_DIR;
+  const targetLogFile = LOG_FILE;
   const persist = logWriteQueue.then(async () => {
-    await appendRotatingJsonl(LOG_FILE, line, JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
+    await mkdir(targetLogDir, { recursive: true, mode: 0o700 });
+    await appendFile(targetLogFile, line, { encoding: "utf8", mode: 0o600 });
   });
   logWriteQueue = persist.catch((error) => {
     const message = error instanceof Error ? error.stack || error.message : String(error);
@@ -425,9 +445,163 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
 }
 
 const SESSION_IDLE_TTL_MS = Number(process.env.COPILOT_SESSION_IDLE_TTL_MS || 30 * 60 * 1000);
-const copilot = new CopilotRuntime({ log: writeLog, defaultModel: DEFAULT_MODEL, idleTtlMs: SESSION_IDLE_TTL_MS });
+const copilot = new CopilotRuntime({
+  log: writeLog, defaultModel: DEFAULT_MODEL, idleTtlMs: SESSION_IDLE_TTL_MS,
+  baseDirectory: COPILOT_STATE_DIR
+});
 
 
+
+
+const migratedStorageScopes = new Set<string>();
+
+function applyStorageLayout(layout: StudioStorageLayout, workspace: ProjectWorkspace | null): void {
+  const changed = layout.scopeKey !== activeStorageLayout.scopeKey;
+  activeStorageLayout = layout;
+  activeStorageWorkspace = workspace;
+  DATA_DIR = layout.dataDir;
+  WORKSPACE_FILE = layout.workspaceStateFile;
+  VERSIONS_FILE = layout.diagramVersionsFile;
+  APP_LOG_FILE = layout.applicationLogFile;
+  LOG_DIR = layout.logDir;
+  LOG_FILE = layout.copilotLogFile;
+  COPILOT_STATE_DIR = layout.copilotDir;
+  if (changed) {
+    workspaceState = null;
+    diagramVersions = null;
+    diagramVersionsLoad = null;
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try { await stat(filePath); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function writeScopedLegacyJsonl(
+  sourcePath: string,
+  targetPath: string,
+  ownsRecord: (record: Record<string, unknown>) => boolean
+): Promise<void> {
+  if (path.resolve(sourcePath) === path.resolve(targetPath) || await fileExists(targetPath)) return;
+  const raw = await readFile(sourcePath, "utf8").catch((error) =>
+    (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
+  const kept = raw.split("\n").filter(Boolean).filter((line) => {
+    try { return ownsRecord(JSON.parse(line) as Record<string, unknown>); }
+    catch { return false; }
+  });
+  if (kept.length) {
+    await mkdir(path.dirname(targetPath), { recursive: true, mode: 0o700 });
+    await writeTextAtomic(targetPath, kept.join("\n") + "\n");
+  }
+}
+
+/** Copy legacy records only where their workspace ownership is explicit. Source data is never deleted. */
+async function migrateLegacyWorkspaceRuntimeData(workspace: ProjectWorkspace, layout: StudioStorageLayout): Promise<void> {
+  if (migratedStorageScopes.has(layout.scopeKey)) return;
+  await mkdir(layout.rootDir, { recursive: true, mode: 0o700 });
+
+  if (!DATA_DIR_OVERRIDE && !(await fileExists(layout.workspaceStateFile))) {
+    const legacy = await readFile(path.join(LEGACY_RUNTIME_DATA_DIR, "workspace.json"), "utf8")
+      .then((raw) => JSON.parse(raw) as Record<string, unknown>)
+      .catch(() => null);
+    if (legacy && legacy.workspaceId === workspace.id) {
+      // The old SDK session ID belonged to a shared SDK store; force a fresh session in this workspace scope.
+      await writeJsonAtomic(layout.workspaceStateFile, { ...legacy, copilotSessionId: null });
+    }
+  }
+
+  if (!DATA_DIR_OVERRIDE && !(await fileExists(layout.diagramVersionsFile))) {
+    const legacy = await readFile(path.join(LEGACY_RUNTIME_DATA_DIR, "diagram-versions.json"), "utf8")
+      .then((raw) => JSON.parse(raw) as Array<Record<string, unknown>>)
+      .catch(() => []);
+    const owned = legacy.filter((item) => item.workspaceId === workspace.id);
+    if (owned.length) await writeJsonAtomic(layout.diagramVersionsFile, owned);
+  }
+
+  if (!LOG_DIR_OVERRIDE) {
+    await writeScopedLegacyJsonl(
+      path.join(LEGACY_RUNTIME_DATA_DIR, "application-events.jsonl"),
+      layout.applicationLogFile,
+      (record) => record.workspaceId === workspace.id
+    );
+    await writeScopedLegacyJsonl(
+      path.join(LEGACY_COPILOT_LOG_DIR, "copilot-sessions.jsonl"),
+      layout.copilotLogFile,
+      (record) => record.workspaceId === workspace.id
+    );
+  }
+  migratedStorageScopes.add(layout.scopeKey);
+}
+
+async function migrateLegacySingleFileData(layout: StudioStorageLayout): Promise<void> {
+  if (migratedStorageScopes.has(layout.scopeKey)) return;
+  if (!LOG_DIR_OVERRIDE) {
+    await writeScopedLegacyJsonl(
+      path.join(LEGACY_RUNTIME_DATA_DIR, "application-events.jsonl"),
+      layout.applicationLogFile,
+      (record) => record.storageScope === "single-file" || record.workspaceId == null
+    );
+    // The old global Copilot log is the new single-file log path. Leave it intact as a recovery source;
+    // readers apply ownership filtering and workspace migrations copy only rows with a matching workspaceId.
+  }
+  migratedStorageScopes.add(layout.scopeKey);
+}
+
+async function setRuntimeStorageScope(workspace: ProjectWorkspace | null): Promise<void> {
+  const layout = resolveStudioStorageLayout({
+    appHome: STUDIO_HOME, workspace,
+    dataDirOverride: DATA_DIR_OVERRIDE,
+    logDirOverride: LOG_DIR_OVERRIDE,
+    copilotHomeOverride: COPILOT_HOME_OVERRIDE
+  });
+  if (layout.scopeKey !== activeStorageLayout.scopeKey) {
+    // Retire the SDK client before switching the log destination, including when an override maps both scopes to one directory.
+    await copilot.setBaseDirectory(layout.copilotDir, true);
+  }
+  applyStorageLayout(layout, workspace);
+  await mkdir(layout.rootDir, { recursive: true, mode: 0o700 });
+  if (workspace) await migrateLegacyWorkspaceRuntimeData(workspace, layout);
+  else await migrateLegacySingleFileData(layout);
+}
+
+app.use("/api", async (req, res, next) => {
+  const localFileOperation = req.path.startsWith("/local/");
+  const traceRead = req.method === "GET" && (
+    req.path === "/workspace/logs" ||
+    req.path === "/copilot/sessions" ||
+    /^\/copilot\/sessions\/[^/]+\/logs$/.test(req.path)
+  );
+  const clientLogWrite = req.method === "POST" && req.path === "/workspace/logs";
+  const globalConfiguration = req.path === "/workspace/configuration" ||
+    req.path.startsWith("/workspace/configuration/") ||
+    req.path === "/copilot/health" || req.path === "/copilot/models";
+  // Global settings, local file I/O and trace reads resolve their own destinations; they must not
+  // switch the live diagram scope or reset the Copilot SDK client.
+  if (localFileOperation || traceRead || clientLogWrite || globalConfiguration) { next(); return; }
+  try {
+    const configuredWorkspace = await getProjectWorkspace();
+    const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+    const storageScope = typeof body.storageScope === "string" ? body.storageScope : "";
+    let requestedWorkspace = configuredWorkspace;
+    if (storageScope.startsWith("workspace:")) {
+      const requestedId = storageScope.slice("workspace:".length);
+      if (!configuredWorkspace || configuredWorkspace.id !== requestedId) {
+        res.status(409).json({ error: "The requested workspace scope is no longer active." });
+        return;
+      }
+      requestedWorkspace = configuredWorkspace;
+    }
+    const standalone = body.standalone === true || storageScope === "single-file" || req.query.scope === "single-file";
+    await setRuntimeStorageScope(standalone ? null : requestedWorkspace);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/api/workspace/config", async (_req, res) => {
   try {
@@ -499,6 +673,7 @@ app.put("/api/workspace/config", async (req, res) => {
       throw new Error("The selected diagram was not found inside the scanned workspace");
     }
     const contextChanged = !previous || previous.id !== workspace.id || previous.primaryDiagram !== workspace.primaryDiagram;
+    await setRuntimeStorageScope(workspace);
     projectWorkspace = workspace;
     await writeJsonAtomic(PROJECT_WORKSPACE_FILE, workspace);
     if (contextChanged) {
@@ -621,6 +796,7 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
       await activeHandle.close(); activeHandle = null;
       createdFileReady = true;
       const files = await scanWorkspaceFiles(workspace);
+      await setRuntimeStorageScope(workspace);
       let versions = await getDiagramVersions();
       if (sameRoot && previous && previous.primaryDiagram !== workspace.primaryDiagram) {
         let migratedLegacyVersions = false;
@@ -648,10 +824,10 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
       };
       await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
-      await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
+      await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: now, event: "diagram.file.created", workspaceId: workspace.id, diagramPath: fileName,
         versionId: version.id, xmlLength: xml.length
-      }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
+      }) + "\n", "utf8");
       return {
         workspace, files, drawioXml: xml,
         version: { id: version.id, createdAt: version.createdAt, label: version.label },
@@ -894,10 +1070,10 @@ app.put("/api/workspace/document", async (req, res) => {
           } catch { /* Keep the committed XML/version even if diagnostics are unavailable. */ }
         }
         try {
-          await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
+          await appendFile(APP_LOG_FILE, JSON.stringify({
             timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
             versionId: version.id, label, xmlLength: drawioXml.length
-          }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
+          }) + "\n", "utf8");
         } catch (error) {
           try {
             await writeLog("workspace.version.event-log.failed", {
@@ -950,10 +1126,10 @@ app.put("/api/workspace/chat", async (req, res) => {
       const state = await getWorkspaceState();
       workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: copilotSessionId ?? state.copilotSessionId, chatMessages, updatedAt: new Date().toISOString() };
       await persistWorkspaceState(workspaceState);
-      await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
+      await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: new Date().toISOString(), event: "copilot.chat.persisted",
         sessionId: workspaceState.copilotSessionId, messageCount: chatMessages.length
-      }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
+      }) + "\n", "utf8");
     });
     res.json({ ok: true, copilotSessionId, messageCount: chatMessages.length });
   } catch (error) {
@@ -969,9 +1145,28 @@ app.post("/api/workspace/logs", async (req, res) => {
     return;
   }
   try {
+    const requestedScope = typeof item.storageScope === "string" ? item.storageScope : "single-file";
+    const configuredWorkspace = await getProjectWorkspace();
+    let workspace: ProjectWorkspace | null = null;
+    if (requestedScope.startsWith("workspace:")) {
+      const requestedId = requestedScope.slice("workspace:".length);
+      if (!configuredWorkspace || configuredWorkspace.id !== requestedId) {
+        res.status(409).json({ error: "The diagnostic workspace scope is no longer active; refresh the trace view." });
+        return;
+      }
+      workspace = configuredWorkspace;
+    } else if (requestedScope === "workspace") {
+      workspace = activeStorageWorkspace;
+    }
+    const layout = resolveStudioStorageLayout({
+      appHome: STUDIO_HOME, workspace,
+      dataDirOverride: DATA_DIR_OVERRIDE, logDirOverride: LOG_DIR_OVERRIDE,
+      copilotHomeOverride: COPILOT_HOME_OVERRIDE
+    });
     const record = {
       receivedAt: new Date().toISOString(),
-      workspaceId: projectWorkspace?.id ?? null,
+      workspaceId: workspace?.id ?? null,
+      storageScope: workspace ? "workspace" : "single-file",
       id: typeof item.id === "string" ? item.id.slice(0, 100) : randomUUID(),
       clientTimestamp: typeof item.timestamp === "string" ? item.timestamp.slice(0, 50) : null,
       level: ["debug", "info", "warn", "error"].includes(item.level) ? item.level : "info",
@@ -979,16 +1174,14 @@ app.post("/api/workspace/logs", async (req, res) => {
       message: item.message.slice(0, 1000),
       details: item.details && typeof item.details === "object" ? item.details : {}
     };
-    await withDataWrite(async () => { await mkdir(DATA_DIR, { recursive: true }); await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify(record) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS); });
-    // Browser console output is not visible in the Node/Vite terminal. Mirror only error and
-    // warning summaries to the server terminal; retain details in the local trace page/JSONL.
+    await withDataWrite(async () => {
+      await mkdir(layout.logDir, { recursive: true, mode: 0o700 });
+      await appendFile(layout.applicationLogFile, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 0o600 });
+    });
     if (record.level === "error" || record.level === "warn") {
       const terminalRecord = {
-        receivedAt: record.receivedAt,
-        workspaceId: record.workspaceId,
-        level: record.level,
-        event: record.event,
-        message: record.message,
+        receivedAt: record.receivedAt, workspaceId: record.workspaceId, storageScope: record.storageScope,
+        level: record.level, event: record.event, message: record.message,
         details: safeTerminalValue(record.details)
       };
       const terminalLine = "[studio:v2] " + JSON.stringify(terminalRecord);
@@ -1001,23 +1194,51 @@ app.post("/api/workspace/logs", async (req, res) => {
     res.status(500).json({ error: "Could not persist the app log" });
   }
 });
-
 app.get("/api/workspace/logs", async (req, res) => {
   try {
+    const requestedScope = typeof req.query.scope === "string" ? req.query.scope : "";
+    const configuredWorkspace = await getProjectWorkspace();
+    let workspace: ProjectWorkspace | null = null;
+    if (requestedScope.startsWith("workspace:")) {
+      const requestedId = requestedScope.slice("workspace:".length);
+      if (!configuredWorkspace || configuredWorkspace.id !== requestedId) {
+        res.status(409).json({ error: "The requested trace workspace is no longer active." });
+        return;
+      }
+      workspace = configuredWorkspace;
+    } else if (requestedScope === "workspace") {
+      workspace = configuredWorkspace;
+      if (!workspace) {
+        res.status(409).json({ error: "No project workspace is configured." });
+        return;
+      }
+    } else if (requestedScope === "") {
+      workspace = activeStorageWorkspace;
+    }
+    const layout = resolveStudioStorageLayout({
+      appHome: STUDIO_HOME, workspace,
+      dataDirOverride: DATA_DIR_OVERRIDE, logDirOverride: LOG_DIR_OVERRIDE,
+      copilotHomeOverride: COPILOT_HOME_OVERRIDE
+    });
     const [appRaw, agentRaw] = await Promise.all([
-      readRecentJsonl(APP_LOG_FILE, JSONL_READ_TAIL_BYTES, JSONL_LOG_BACKUPS),
-      readRecentJsonl(LOG_FILE, JSONL_READ_TAIL_BYTES, JSONL_LOG_BACKUPS)
+      readFile(layout.applicationLogFile, "utf8").catch(() => ""),
+      readFile(layout.copilotLogFile, "utf8").catch(() => "")
     ]);
-    const workspace = await getProjectWorkspace();
     const limit = Math.min(10000, Math.max(1, Number(req.query.limit) || 2000));
+    const ownsRecord = (entry: Record<string, unknown>) => workspace
+      ? entry.workspaceId === workspace.id
+      : entry.storageScope === "single-file" || entry.workspaceId == null;
     const appLogs = appRaw.split("\n").filter(Boolean).flatMap((line) => {
-      try { const entry = JSON.parse(line) as Record<string, unknown>; return !workspace || entry.workspaceId === workspace.id ? [entry] : []; } catch { return []; }
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        return ownsRecord(entry) ? [entry] : [];
+      } catch { return []; }
     });
     const agentLogs = agentRaw.split("\n").filter(Boolean).flatMap((line) => {
       try {
         const entry = JSON.parse(line) as Record<string, unknown>;
-        if (workspace && entry.workspaceId !== workspace.id) return [];
-        const { timestamp, workspaceId, event, ...details } = entry;
+        if (!ownsRecord(entry)) return [];
+        const { timestamp, workspaceId, storageScope, event, ...details } = entry;
         return [{
           id: "agent:" + String(entry.requestId || entry.sessionId || timestamp || "") + ":" + String(event || "event") + ":" + line.length,
           receivedAt: timestamp || new Date(0).toISOString(),
@@ -1026,19 +1247,25 @@ app.get("/api/workspace/logs", async (req, res) => {
           level: String(event || "").endsWith(".failed") || String(event || "").endsWith(".error") ? "error" : "info",
           event: typeof event === "string" ? event : "agent.event",
           message: typeof event === "string" ? event : "Copilot agent event",
-          details
+          details: { ...details, ...(storageScope ? { storageScope } : {}) }
         }];
       } catch { return []; }
     });
-    const logs = [...appLogs, ...agentLogs].sort((a, b) =>
-      new Date(String(a.clientTimestamp || a.receivedAt || 0)).getTime() - new Date(String(b.clientTimestamp || b.receivedAt || 0)).getTime()
+    const logs = [...appLogs, ...agentLogs].sort((left, right) =>
+      new Date(String(left.clientTimestamp || left.receivedAt || 0)).getTime() -
+      new Date(String(right.clientTimestamp || right.receivedAt || 0)).getTime()
     ).slice(-limit);
-    res.json({ logs, logFile: APP_LOG_FILE, agentLogFile: LOG_FILE, workspaceId: workspace?.id ?? null });
+    res.json({
+      logs,
+      logFile: layout.applicationLogFile,
+      agentLogFile: layout.copilotLogFile,
+      workspaceId: workspace?.id ?? null,
+      storageScope: layout.scope
+    });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
-
 app.get("/api/workspace/versions", async (_req, res) => {
   try {
     const workspace = await getProjectWorkspace();
@@ -1083,11 +1310,11 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, drawioXml: version.drawioXml, updatedAt: version.createdAt };
       await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
-      await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
+      await appendFile(APP_LOG_FILE, JSON.stringify({
         timestamp: version.createdAt, event: "diagram.version.restored",
         sourceVersionId: source.id, versionId: version.id, label: version.label,
         xmlLength: version.drawioXml.length
-      }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
+      }) + "\n", "utf8");
       return { version, state: workspaceState };
     });
     if (!result) { res.status(404).json({ error: "The version does not exist or its Draw.io XML is invalid" }); return; }
@@ -1196,8 +1423,7 @@ registerCopilotIntentRoute(app, {
 
 app.get("/api/copilot/sessions", async (_req, res) => {
   try {
-    const workspace = await getProjectWorkspace();
-    res.json({ sessions: copilot.listSessions(workspace?.id) });
+    res.json({ sessions: copilot.listSessions(activeStorageWorkspace?.id) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeLog("copilot.sessions.read.failed", { errorMessage: message, stack: error instanceof Error ? error.stack : undefined });
@@ -1207,18 +1433,43 @@ app.get("/api/copilot/sessions", async (_req, res) => {
 
 app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
   try {
-    const raw = await readRecentJsonl(LOG_FILE, JSONL_READ_TAIL_BYTES, JSONL_LOG_BACKUPS);
-    const workspace = await getProjectWorkspace();
-    const logs = raw.split("\n").filter(Boolean).flatMap((line) => {
-      try { const entry = JSON.parse(line) as Record<string, unknown>; return entry.sessionId === req.params.id && (!workspace || entry.workspaceId === workspace.id) ? [entry] : []; }
-      catch { return []; }
+    const requestedScope = typeof req.query.scope === "string" ? req.query.scope : "workspace";
+    const configuredWorkspace = await getProjectWorkspace();
+    let workspace: ProjectWorkspace | null = null;
+    if (requestedScope.startsWith("workspace:")) {
+      const requestedId = requestedScope.slice("workspace:".length);
+      if (!configuredWorkspace || configuredWorkspace.id !== requestedId) {
+        res.status(409).json({ error: "The requested trace workspace is no longer active." });
+        return;
+      }
+      workspace = configuredWorkspace;
+    } else if (requestedScope === "workspace") {
+      workspace = configuredWorkspace;
+      if (!workspace) {
+        res.status(409).json({ error: "No project workspace is configured." });
+        return;
+      }
+    }
+    const layout = resolveStudioStorageLayout({
+      appHome: STUDIO_HOME, workspace,
+      dataDirOverride: DATA_DIR_OVERRIDE, logDirOverride: LOG_DIR_OVERRIDE,
+      copilotHomeOverride: COPILOT_HOME_OVERRIDE
     });
-    res.json({ sessionId: req.params.id, logFile: LOG_FILE, workspaceId: workspace?.id ?? null, logs });
+    const raw = await readFile(layout.copilotLogFile, "utf8").catch(() => "");
+    const ownsRecord = (entry: Record<string, unknown>) => workspace
+      ? entry.workspaceId === workspace.id
+      : entry.storageScope === "single-file" || entry.workspaceId == null;
+    const logs = raw.split("\n").filter(Boolean).flatMap((line) => {
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        return entry.sessionId === req.params.id && ownsRecord(entry) ? [entry] : [];
+      } catch { return []; }
+    });
+    res.json({ sessionId: req.params.id, logFile: layout.copilotLogFile, workspaceId: workspace?.id ?? null, storageScope: layout.scope, logs });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
-
 // Must be registered after every route so body-parser errors and unexpected route rejections
 // have a JSON contract and a structured terminal-visible record instead of Express' HTML page.
 app.use(async (error: unknown, req: Request, res: Response, next: NextFunction) => {

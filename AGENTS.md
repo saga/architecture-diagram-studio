@@ -15,7 +15,8 @@
 ## Workspace and repository context
 
 - Treat the repository root opened in the editor as the default development workspace. Do not ask the user to create a wrapper directory around the repository.
-- The configured project workspace is a runtime binding to a local directory. Workspace diagram I/O goes through server-owned Node.js fs operations; standalone browse/open/import/save/history/export must also go through v2/server/local-diagram-files.ts, never browser showOpenFilePicker, FileSystemFileHandle.createWritable, or blob downloads. Preserve external-edit conflict checks, symlink rejection, path-root restrictions and non-overwriting export semantics.
+- The configured project workspace is a runtime binding to a local directory. Workspace runtime state, version history, logging and Copilot SDK persistence must use the scope layout from v2/server/storage-layout.ts, not direct global path constants. Single-file mode uses the shared Studio home; workspace mode uses its isolated partition. The workspace registry and Studio configuration history remain global.
+- Workspace diagram I/O goes through server-owned Node.js fs operations; standalone browse/open/import/save/history/export must also go through v2/server/local-diagram-files.ts, never browser showOpenFilePicker, FileSystemFileHandle.createWritable, or blob downloads. Preserve external-edit conflict checks, symlink rejection, path-root restrictions and non-overwriting export semantics.
 - Ground architecture analysis in the primary Draw.io diagram, related diagrams, source code, README files and ADRs. Cite workspace-relative paths and distinguish facts from inferences.
 - Repository Agent Skills live under .github/skills/<skill-name>/SKILL.md. Repository-wide Copilot instructions live in .github/copilot-instructions.md.
 

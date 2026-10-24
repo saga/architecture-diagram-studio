@@ -9,7 +9,7 @@ import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml
 import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
-import { readDiagnosticEntries, recordDiagnostic } from "./diagnostics";
+import { readDiagnosticEntries, recordDiagnostic, setDiagnosticScope } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
@@ -225,6 +225,12 @@ export default function App() {
   const [nativeXmlOverride, setNativeXmlOverride] = useState<string | null>(null);
   const serverRevisionRef = useRef<string | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
+  const traceScopeRef = useRef("single-file");
+  useEffect(() => {
+    const scope = standaloneFileName ? "single-file" : projectWorkspace?.id ? "workspace:" + projectWorkspace.id : "single-file";
+    traceScopeRef.current = scope;
+    setDiagnosticScope(scope);
+  }, [standaloneFileName, projectWorkspace?.id]);
   useEffect(() => { setCellEditRequest(null); }, [activePage, projectWorkspace?.id]);
   const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
   const [workspaceChecking, setWorkspaceChecking] = useState(true);
@@ -393,7 +399,7 @@ export default function App() {
     const refreshTraces = () => {
       if (traceRefreshInFlight) return;
       traceRefreshInFlight = true;
-      void fetch("/api/workspace/logs?limit=1200")
+      void fetch("/api/workspace/logs?limit=1200&scope=" + encodeURIComponent(traceScopeRef.current))
         .then(async (response) => {
           if (!response.ok) throw new Error("HTTP " + response.status);
           return response.json() as Promise<{ logs?: Array<Record<string, unknown>> }>;
@@ -444,6 +450,7 @@ export default function App() {
     window.addEventListener("studio:diagnostic-clear", refreshTraces);
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    window.addEventListener("studio:diagnostic-scope-change", refreshTraces);
     recordDiagnostic("app.started", "V2 workspace started", {
       diagramKind: "drawio", xmlLength: drawioXml.length
     });
@@ -452,6 +459,7 @@ export default function App() {
       window.removeEventListener("studio:diagnostic-clear", refreshTraces);
       window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      window.removeEventListener("studio:diagnostic-scope-change", refreshTraces);
     };
   }, []);
 
@@ -1277,7 +1285,7 @@ export default function App() {
           {activePage === "diagram" && <>
             <UiButton className="button button-secondary" title="Import a .drawio file" onClick={() => void openLocalFileDialog("import")}><span className="button-icon">↑</span>Import</UiButton>
             <UiButton className="button button-secondary" title="Export a .drawio file" onClick={exportDiagram}><span className="button-icon">↓</span>Export</UiButton>
-            <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>
+            {!standaloneFileName && <UiButton className="button button-secondary" title="Browse and restore saved versions" onClick={() => void openVersionHistory()}>History</UiButton>}
             {standaloneFileName && <UiButton className="button button-secondary" title="Browse and restore local Draw.io XML snapshots" onClick={openStandaloneHistory}>Local history</UiButton>}
           </>}
         </div>

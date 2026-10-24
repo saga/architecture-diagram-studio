@@ -155,6 +155,7 @@ function compactEvent(event: SessionEvent): Record<string, unknown> {
  * restarts (resume → create), and are dropped when the studio configuration revision changes.
  */
 export class CopilotRuntime {
+  private baseDirectory: string;
   private client: CopilotClient | null = null;
   private clientStart: Promise<CopilotClient> | null = null;
   private modelsCache: { at: number; models: ModelInfo[] } | null = null;
@@ -168,12 +169,22 @@ export class CopilotRuntime {
   private readonly provider: CopilotProvider;
 
   constructor(private readonly options: CopilotRuntimeOptions) {
+    this.baseDirectory = path.resolve(options.baseDirectory || process.env.COPILOT_HOME || path.join(os.homedir(), ".architecture-diagram-studio", "copilot"));
     this.provider = options.provider || readCopilotProvider();
     if (options.idleTtlMs > 0) {
       const interval = Math.min(Math.max(options.idleTtlMs, 60_000), 5 * 60_000);
       this.sweepTimer = setInterval(() => { void this.sweepIdleSessions(); }, interval);
       this.sweepTimer.unref();
     }
+  }
+
+  /** Change the SDK's persisted state directory when the active Studio scope changes. */
+  async setBaseDirectory(directory: string, forceReset = false): Promise<void> {
+    const next = path.resolve(directory);
+    if (next === this.baseDirectory && !forceReset) return;
+    if (this.clientStart) await this.clientStart.catch(() => undefined);
+    await this.resetClient("storage-scope-changed");
+    this.baseDirectory = next;
   }
 
   /** Custom-provider state of this process, for health output and failure messages. */
@@ -224,7 +235,7 @@ export class CopilotRuntime {
       const client = new CopilotClient({
         mode: "empty",
         useLoggedInUser: true,
-        baseDirectory: this.options.baseDirectory || process.env.COPILOT_HOME || path.join(os.homedir(), ".copilot")
+        baseDirectory: this.baseDirectory
       });
       try {
         await client.start();

@@ -17,6 +17,12 @@ The original native Draw.io `mxfile` XML is the only diagram model. The embedded
 
 Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. V2 never rebuilds a document from a reduced model. Supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
 
+## Runtime storage scope
+
+V2 resolves all runtime persistence paths through `v2/server/storage-layout.ts`. Workspace state, version history, application/agent logs and Copilot SDK state live under `~/.architecture-diagram-studio/workspaces/<workspace-key>/`; single-file mode uses `~/.architecture-diagram-studio/{data,logs,copilot}/`. Switching scope invalidates in-memory state/version caches and resets the SDK client before the next operation. The workspace registry and model/settings revision history remain global under `~/.architecture-diagram-studio/data/`.
+
+Legacy workspace state and logs are copied only when their records explicitly identify that workspace. Existing global files are kept as recovery sources. `STUDIO_HOME`, `STUDIO_GLOBAL_DATA_DIR`, `STUDIO_DATA_DIR`, `COPILOT_LOG_DIR` and `COPILOT_HOME` remain operator/test overrides. See [ADR-0017](../docs/adr/0017-unified-runtime-storage-scope.md).
+
 ## Studio-owned automatic layout — core feature
 
 Automatic layout is calculated in Studio using `@dagrejs/dagre` and `elkjs`; V2 does not call Draw.io's built-in `action: "layout"`. `src/layout/native-layout.ts` derives a temporary, per-operation projection from the selected page's native mxCells, calculates positions and connector waypoints, and returns a revision/page-bound plan. The bridge validates current cell IDs, geometry and connector endpoints before applying only native geometry changes through the Draw.io model. It never converts the full document to another saved model.

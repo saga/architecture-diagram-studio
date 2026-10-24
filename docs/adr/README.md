@@ -18,3 +18,5 @@
 | [0014](./0014-typed-native-drawio-c4-conversion.md) | Typed Native Draw.io C4 Conversion | Accepted |
 | [0015](./0015-tool-guided-copilot-shape-discovery.md) | Tool-Guided Copilot Instructions and Draw.io Shape Discovery | Accepted |
 | [0016](./0016-node-owned-local-drawio-file-io.md) | Node.js-Owned Local Draw.io File I/O | Accepted |
+| [0017](./0017-unified-runtime-storage-scope.md) | Unified Runtime Storage Scope for Workspace and Single-File Modes | Accepted |
+| [0016](./0016-node-owned-local-drawio-file-io.md) | Node.js-Owned Local Draw.io File I/O | Accepted |
