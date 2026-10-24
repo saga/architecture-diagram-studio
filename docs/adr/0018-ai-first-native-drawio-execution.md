@@ -1,6 +1,6 @@
 # ADR-0018: AI-First Native Draw.io Execution
 
-- **Status:** Accepted design direction; implementation pending
+- **Status:** Accepted; initial AI-first runtime changes implemented in this branch
 - **Date:** 2026-10-24
 - **Scope:** V2 local, single-user Architecture Diagram Studio
 - **Supersedes:** The restrictive interpretation of the script path in the Native Copilot Capability Audit and V2 README. This ADR does not introduce a second diagram model.
@@ -150,15 +150,15 @@ Do not expose an independent tool for every verb such as create-edge, bend-edge,
 
 ## Implementation plan
 
-This ADR defines the target design; the current code has not yet been migrated by this document-only change.
+The initial implementation is included in this branch. The direct script tool, manifest/AST gate removal, default confirmation removal, serialized XML acknowledgement changes, local script trace, and iframe watchdog are in place. The remaining plan items below identify validation and follow-up hardening rather than a second design phase.
 
-1. Add a dedicated `run_drawio_script` tool and a standalone route/executor; keep it separate from the typed-edit payload.
-2. Remove AST/manifest allowlisting as a script permission gate and remove default confirmation gates that exist only because a script is being run.
-3. Pass the live runtime bindings and expose actual runtime/version inspection. Keep the runtime manifest diagnostic-only.
-4. Implement one lifecycle for checkpoint → script execution → XML export/diff → normal persistence/version acknowledgement → execution receipt.
-5. Store the full script and execution evidence in local traces; ensure errors report partial mutations rather than assuming atomic rollback.
-6. Add an outer-frame watchdog and reload-from-checkpoint recovery for a blocked Draw.io frame.
-7. Add regression tests that exercise capabilities outside the existing typed vocabulary, not just the current allowlisted operations.
+1. Completed in this branch: add the standalone `run_drawio_script` Copilot tool while keeping the typed-edit schema limited to typed operations.
+2. Completed in this branch: remove AST/script-policy and runtime-manifest permission gates; disable default confirmation gates for scripts, deletes and broad batches.
+3. Completed in this branch: treat the live runtime manifest as diagnostic-only and give direct scripts the live editor bindings.
+4. Existing native XML serialization, persistence/version acknowledgement and request correlation remain the success path; direct script completion no longer requires a custom per-cell `verified/checks` envelope.
+5. Completed in this branch: retain full script source and source revision/page/version metadata in local traces. Script errors and result details are recorded by the native bridge; rollback remains best-effort.
+6. Completed in this branch: add a host-side watchdog that can reload a blocked iframe from Studio's latest saved XML snapshot.
+7. Added/updated regression tests for direct script dispatch without a manifest, direct dispatch without confirmation, broad delete dispatch without confirmation, and native XML acceptance without predeclared script postconditions. Run the PR CI and address any failures before merge.
 
 ## Acceptance criteria
 
