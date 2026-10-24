@@ -50,7 +50,8 @@ describe("extractNativeEditTargets", () => {
     expect(extractNativeEditTargets(xml)).toEqual([{ id: "opaque-c4-id", name: "", cellType: "vertex" }]);
     const namedXml = xml.replace('c4Name=""', 'c4Name="Orders API"');
     expect(extractNativeEditTargets(namedXml)).toEqual([{ id: "opaque-c4-id", name: "Orders API", cellType: "vertex" }]);
-  });});
+  });
+});
 
 describe("normalizeNativeColor", () => {
   it("expands short hex and lowercases long hex", () => {
@@ -99,6 +100,7 @@ describe("parseNativeEditOperations", () => {
   });
 
 
+  it("plans bounded below-and-connect operations without native script code", () => {
     const parsed = parseNativeEditOperations([
       { op: "add_node_below", target: "Database", newLabel: "ddd" },
       { op: "add_node_below", target: "API Service", newLabel: "eee" }
