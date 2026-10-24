@@ -137,6 +137,42 @@ function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsuppo
   };
 }
 
+function elementSearchingCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
+  let searchResult: unknown = null;
+  const copilot: Record<string, unknown> = {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    getPreparedSystemMessage: () => prepared.systemMessage,
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
+        const search = tools.find((candidate) => candidate.name === "search_drawio_elements");
+        if (!search?.handler) throw new Error("search_drawio_elements tool was not registered");
+        searchResult = await search.handler({ query: "Payment Orchestrator", limit: 5 });
+        const report = tools.find((candidate) => candidate.name === "report_intent_outcome");
+        if (!report?.handler) throw new Error("report_intent_outcome tool was not registered");
+        await report.handler({ outcome: "answered", reply: "Element search completed." });
+        return { message: { data: { content: "Element search completed." } }, modelCallUsages: [] };
+      }
+    })
+  };
+  Object.defineProperty(copilot, "searchResult", { get: () => searchResult });
+  return copilot;
+}
+
 function renamingCopilot() {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -645,6 +681,33 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
     expect(harness.snapshot).toHaveBeenCalled();
+  });
+
+  it("searches native cells omitted from the compact 200-cell prompt context", async () => {
+    const filler = Array.from({ length: 230 }, (_, index) =>
+      '<mxCell id="search-extra-' + index + '" value="Unrelated Component ' + index + '" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'
+    ).join("");
+    const target = '<mxCell id="payment-orchestrator" value="Payment Orchestrator" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>';
+    const crowdedXml = XML.replace("</root>", filler + target + "</root>");
+    const copilot = elementSearchingCopilot();
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: crowdedXml, revision: workspaceRevision(crowdedXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "Find Payment Orchestrator",
+      diagramXml: crowdedXml,
+      documentRevision: workspaceRevision(crowdedXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const searchResult = (copilot as { searchResult?: { found: boolean; matchCount: number; results: Array<{ id: string; label: string }> } }).searchResult;
+    expect(searchResult?.found).toBe(true);
+    expect(searchResult?.matchCount).toBe(1);
+    expect(searchResult?.results).toEqual([{ id: "payment-orchestrator", label: "Payment Orchestrator", cellType: expect.any(String) }]);
+    expect(harness.logs.some((entry) => entry.event === "tool.search_drawio_elements.completed")).toBe(true);
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
   it("resolves duplicate labels beyond the prompt's first 200 cells as ambiguous", async () => {
