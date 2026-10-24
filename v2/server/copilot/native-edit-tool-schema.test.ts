@@ -17,7 +17,7 @@ type OperationBranch = {
   additionalProperties: boolean;
 };
 
-const branches = NATIVE_EDIT_OPERATION_ITEM_SCHEMA.anyOf as readonly OperationBranch[];
+const branches = NATIVE_EDIT_OPERATION_ITEM_SCHEMA.anyOf as unknown as readonly OperationBranch[];
 
 describe("native edit tool parameter schema", () => {
   it("requires newLabel on add_node_after instead of leaving the field optional", () => {
