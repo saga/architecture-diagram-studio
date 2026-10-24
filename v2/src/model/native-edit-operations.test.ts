@@ -5,6 +5,8 @@ import {
   extractNativeEditTargets,
   MAX_NATIVE_EDIT_OPERATIONS,
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
+  NativeEditOperationSchema,
+  NativeEditOperationBatchSchema,
   normalizeNativeColor,
   parseNativeEditOperations,
   toNativeCellEdits,
@@ -59,6 +61,14 @@ describe("normalizeNativeColor", () => {
     expect(normalizeNativeColor("chartreuse")).toBeNull();
     expect(normalizeNativeColor("rgb(255,0,0)")).toBeNull();
     expect(normalizeNativeColor("")).toBeNull();
+  });
+});
+
+describe("Zod native-edit contract", () => {
+  it("accepts valid operations and rejects unexpected fields at the source schema", () => {
+    expect(NativeEditOperationSchema.safeParse({ op: "add_node_after", target: "db", newLabel: "Cache" }).success).toBe(true);
+    expect(NativeEditOperationSchema.safeParse({ op: "add_node_after", target: "db", newLabel: "Cache", arbitrary: true }).success).toBe(false);
+    expect(NativeEditOperationBatchSchema.safeParse([]).success).toBe(false);
   });
 });
 

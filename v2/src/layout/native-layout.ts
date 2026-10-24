@@ -1,7 +1,7 @@
 import dagre from "@dagrejs/dagre";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { inflateSync, unzlibSync } from "fflate";
 import { parseDrawioXml } from "../model/drawio-xml-dom";
+import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
 export type NativeAutoLayoutEngine = "elk" | "dagre";
 export type NativeAutoLayoutAlgorithm = "layered" | "mrtree" | "radial" | "stress" | "force";
@@ -146,38 +146,14 @@ function parseGraphModel(xml: string, requestedPageId: string | null): { model: 
 
   const payload = (page.textContent || "").trim();
   if (!payload) throw new Error("The selected Draw.io page has no readable graph model.");
-  if (payload.startsWith("<")) {
-    const nested = parseDrawioXml(payload);
+  try {
+    const nested = parseDrawioXml(decodeDrawioPageXml(payload));
     if (nested.documentElement.nodeName === "mxGraphModel") {
       return { model: nested, pageId: page.getAttribute("id") || null, pageTitle: page.getAttribute("name") || null };
     }
+  } catch {
+    // The shared decoder enforces XML validity and the decompressed-page size limit.
   }
-
-  try {
-    const binary = atob(payload.replace(/\s+/g, ""));
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    let inflated: Uint8Array | null = null;
-    try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped payload next. */ }
-    if (!inflated) {
-      try { inflated = unzlibSync(bytes); } catch { /* The payload may not be compressed XML. */ }
-    }
-    if (inflated) {
-      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
-      const candidates = [decoded];
-      try {
-        const uriDecoded = decodeURIComponent(decoded);
-        if (uriDecoded !== decoded) candidates.push(uriDecoded);
-      } catch { /* Plain XML does not need URI decoding. */ }
-      for (const candidate of candidates) {
-        try {
-          const nested = parseDrawioXml(candidate);
-          if (nested.documentElement.nodeName === "mxGraphModel") {
-            return { model: nested, pageId: page.getAttribute("id") || null, pageTitle: page.getAttribute("name") || null };
-          }
-        } catch { /* Try the next supported representation. */ }
-      }
-    }
-  } catch { /* Report one actionable error below. */ }
   throw new Error("The selected Draw.io page could not be decoded for layout. Open and save it with the bundled Draw.io editor, then retry.");
 }
 
