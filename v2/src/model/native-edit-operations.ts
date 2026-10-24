@@ -261,7 +261,10 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
       if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
       operations.push(operation);
     } else if (operation.op === "auto_layout") {
-      operations.push({ ...operation, algorithm: operation.engine === "dagre" ? "layered" : operation.algorithm });
+      if (operation.engine === "dagre" && operation.algorithm !== "layered") {
+        return { ok: false, error: `Operation ${index + 1}: Dagre does not support the requested “${operation.algorithm}” algorithm. Select “layered” or use the ELK engine.` };
+      }
+      operations.push(operation);
     } else {
       operations.push(operation);
     }
