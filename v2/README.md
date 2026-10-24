@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted embed. `npm run dev` starts both Vite and the loopback Copilot service.
+V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted embed. `npm run dev` starts Vite, the loopback Copilot API, and a dedicated loopback Draw.io static server (default port 4176). Draw.io runs on a separate origin inside a sandboxed iframe; CSP blocks network connections and remote image loads, so scripts can use native editor APIs without inheriting the Studio page or API origin. The paired `STUDIO_DRAWIO_PORT` and `VITE_STUDIO_DRAWIO_PORT` settings must match.
 
 ## One diagram model
 
