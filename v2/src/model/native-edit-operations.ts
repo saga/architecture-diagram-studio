@@ -153,10 +153,6 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   return result;
 }
 
-/**
- * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
- * inside a value such as “红色背景色”.
- */
 const nativeTargetSchema = z.string().trim().min(1, { message: "target must not be empty" }).max(200, { message: "target exceeds 200 characters" })
   .describe("Exact native cell ID or unique exact visible label.");
 
@@ -164,8 +160,9 @@ const nativeEditOperationOptions = {
   select: z.object({ op: z.literal("select"), target: nativeTargetSchema }).strict(),
   setLabel: z.object({
     op: z.literal("set_label"), target: nativeTargetSchema,
-    label: z.string().trim().min(1, { message: "label must not be empty" }).max(500, { message: "label exceeds 500 characters" })
-      .describe("Required replacement label.")
+    label: z.string().min(1, { message: "label must not be empty" }).max(500, { message: "label exceeds 500 characters" })
+      .refine((value) => value.trim().length > 0, { message: "label must not be empty or whitespace-only" })
+      .describe("Required replacement label. Preserve the exact supplied string, including intentional leading and trailing whitespace.")
   }).strict(),
   setStyle: z.object({
     op: z.literal("set_style"), target: nativeTargetSchema,
@@ -215,14 +212,16 @@ const nativeEditOperationOptions = {
   addNodeAfter: z.object({
     op: z.literal("add_node_after"),
     target: nativeTargetSchema.describe("Required exact cell ID or unique exact visible label of a vertex."),
-    newLabel: z.string().trim().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
-      .describe("Required visible label for the newly created node.")
+    newLabel: z.string().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
+      .refine((value) => value.trim().length > 0, { message: "newLabel must not be empty or whitespace-only" })
+      .describe("Required visible label for the newly created node. Preserve the exact supplied string, including intentional leading and trailing whitespace.")
   }).strict(),
   addNodeBelow: z.object({
     op: z.literal("add_node_below"),
     target: nativeTargetSchema.describe("Required exact cell ID or unique exact visible label of a vertex; the new node is placed directly beneath this vertex."),
-    newLabel: z.string().trim().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
-      .describe("Required visible label for the newly created node.")
+    newLabel: z.string().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
+      .refine((value) => value.trim().length > 0, { message: "newLabel must not be empty or whitespace-only" })
+      .describe("Required visible label for the newly created node. Preserve the exact supplied string, including intentional leading and trailing whitespace.")
   }).strict()
 } as const;
 
