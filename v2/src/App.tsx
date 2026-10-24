@@ -984,7 +984,7 @@ export default function App() {
       setLocalHistoryOpen(true);
     } catch (error) {
       recordDiagnostic("copilot.standalone.history.read.failed", "Could not read standalone file history from Node.js storage", {
-        fileName: binding.name, errorMessage: error instanceof Error ? error.message : String(error)
+        fileName: binding?.name ?? null, errorMessage: error instanceof Error ? error.message : String(error)
       }, "error");
       setLastAction("Could not read local history: " + (error instanceof Error ? error.message : String(error)));
     }
