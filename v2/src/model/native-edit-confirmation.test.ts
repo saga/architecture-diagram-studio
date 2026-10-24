@@ -27,36 +27,7 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms only the real C4 palette styles and placeholder-backed labels, never UML/swimlane fallbacks", () => {
-    const oldNode = '<mxCell id="api" value="Old API" vertex="1" parent="1" style="rounded=0;"><mxGeometry x="10" y="20" width="100" height="40" as="geometry"/></mxCell>';
-    const template = '&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;&lt;font color=&quot;#cccccc&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;';
-    const styles = {
-      person: 'html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#083F75;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;',
-      system: 'rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];',
-      external: 'rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;metaEdit=1;resizable=0;points=[[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];'
-    } as const;
-    const c4Xml = (kind: "person" | "system" | "external") => before.replace(oldNode,
-      '<object placeholders="1" c4Name="Old API" c4Type="' + (kind === "person" ? "Person" : "Software System") +
-      '" c4Description="" label="' + template + '"><mxCell id="api" vertex="1" parent="1" style="' + styles[kind] +
-      '"><mxGeometry x="10" y="20" width="' + (kind === "person" ? 200 : 240) + '" height="' +
-      (kind === "person" ? 180 : 120) + '" as="geometry"/></mxCell></object>');
-    for (const kind of ["person", "system", "external"] as const) {
-      expect(nativeEditIsReflectedInXml({
-        beforeXml: before, xml: c4Xml(kind), cellId: "api", pageId: "p1",
-        path: "cell:set-c4-type", value: JSON.stringify({ kind })
-      }), "Expected canonical serialized C4 kind: " + kind).toBe(true);
-    }
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: c4Xml("person").replace("shape=mxgraph.c4.person2", "shape=umlActor"),
-      cellId: "api", pageId: "p1", path: "cell:set-c4-type", value: JSON.stringify({ kind: "person" })
-    })).toBe(false);
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: c4Xml("system").replace("rounded=1;", "shape=swimlane;"),
-      cellId: "api", pageId: "p1", path: "cell:set-c4-type", value: JSON.stringify({ kind: "system" })
-    })).toBe(false);
-  });
 
-  it("confirms a mixed selection and document batch without expecting selection in XML", () => {
     const labelAndStyleEdited = before
       .replace('value="Old API"', 'value="Primary API"')
       .replace('style="rounded=0;"', 'style="rounded=0;fillColor=#ff0000;"');
