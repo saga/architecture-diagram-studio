@@ -50,7 +50,8 @@ type NativeEditResult = {
   cellId: string | null;
   path: string | null;
   error?: string;
-  batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null;
+  errorStack?: string;
+  batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
   failedIndex?: number | null;
   rollbackErrors?: Array<{ cellId: string; error: string }>;
   batchRolledBack?: boolean | null;
@@ -546,8 +547,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           });
         } else {
           const errorMessage = typeof data.error === "string" ? data.error : "Unknown property edit error";
-          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> : null,
+          const errorStack = typeof data.errorStack === "string" ? data.errorStack.slice(0, 8000) : undefined;
+          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage, errorStack,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> : null,
             failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
             rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
             batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null });
@@ -556,7 +558,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null
+            errorMessage, errorStack: errorStack ?? null, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null
           }, "error");
         }
       }
