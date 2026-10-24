@@ -290,6 +290,12 @@ export default function App() {
     try {
       // Flush the current file before the workspace's active diagram changes; the debounced autosave
       // is intentionally paused while the launch dialog is working.
+      const activeStandalone = standaloneFileBindingRef.current;
+      if (activeStandalone && standaloneFileName && drawioXml.trim() &&
+          drawioXml !== standaloneLastSavedXmlRef.current) {
+        await enqueueStandaloneSave(drawioXml, activeStandalone.fileToken);
+        await standaloneSaveQueueRef.current;
+      }
       if (!standaloneFileName && workspaceContentReady && projectWorkspace?.primaryDiagram && drawioXml.trim()) {
         await persistDocumentNow(drawioXml, "Autosave before changing the active diagram");
       }

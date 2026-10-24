@@ -85,6 +85,12 @@ describe("server-managed local Draw.io files", () => {
     const linked = path.join(root, "linked.drawio");
     await symlink(file, linked);
     await expect(service.openDiagram(linked)).rejects.toThrow(/Symbolic links/);
+    const inRootTarget = path.join(root, "real-subdirectory");
+    await mkdir(inRootTarget);
+    await writeFile(path.join(inRootTarget, "nested.drawio"), createEmptyDrawioXml("nested.drawio"), "utf8");
+    const linkedDirectory = path.join(root, "linked-directory");
+    await symlink(inRootTarget, linkedDirectory, "dir");
+    await expect(service.openDiagram(path.join(linkedDirectory, "nested.drawio"))).rejects.toThrow(/Symbolic links/);
     await expect(service.exportDiagram(root, "../escape.drawio", createEmptyDrawioXml("x.drawio"))).rejects.toThrow(/file name/);
     await expect(service.exportDiagram(root, "invalid.drawio", "<mxfile><broken")).rejects.toThrow();
   });

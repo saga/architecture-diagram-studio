@@ -105,17 +105,26 @@ export function createLocalDiagramFileService(options: {
     const roots = await canonicalRoots();
     const root = roots.filter((candidate) => isWithin(candidate, absolute)).sort((a, b) => b.length - a.length)[0];
     if (!root) throw new LocalDiagramFileError("The path must be inside your home directory or the configured workspace", 403);
+    const relative = path.relative(root, absolute);
+    const segments = relative.split(path.sep).filter(Boolean);
+    let cursor = root;
     let info;
-    try { info = await lstat(absolute); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new LocalDiagramFileError("The selected path does not exist", 404);
-      throw error;
+    // Reject symlinks in every path component, not merely when the selected leaf itself is a link.
+    for (let index = 0; index < segments.length; index++) {
+      cursor = path.join(cursor, segments[index]!);
+      try { info = await lstat(cursor); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new LocalDiagramFileError("The selected path does not exist", 404);
+        throw error;
+      }
+      if (info.isSymbolicLink()) throw new LocalDiagramFileError("Symbolic links are not opened or written by the local file service", 403);
+      if (index < segments.length - 1 && !info.isDirectory()) throw new LocalDiagramFileError("A parent path component is not a directory");
     }
-    if (info.isSymbolicLink()) throw new LocalDiagramFileError("Symbolic links are not opened or written by the local file service", 403);
+    if (!segments.length) info = await lstat(root);
     const canonical = await realpath(absolute);
     if (!isWithin(root, canonical)) throw new LocalDiagramFileError("The resolved path escapes the permitted browse root", 403);
-    if (kind === "file" && !info.isFile()) throw new LocalDiagramFileError("The selected path is not a regular file");
-    if (kind === "directory" && !info.isDirectory()) throw new LocalDiagramFileError("The selected path is not a directory");
+    if (kind === "file" && !info!.isFile()) throw new LocalDiagramFileError("The selected path is not a regular file");
+    if (kind === "directory" && !info!.isDirectory()) throw new LocalDiagramFileError("The selected path is not a directory");
     return { path: canonical, root };
   }
 
