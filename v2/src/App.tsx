@@ -943,9 +943,32 @@ export default function App() {
   }
 
   async function openStandaloneHistory() {
-    const binding = standaloneFileBindingRef.current;
-    if (!binding) return;
+    let binding = standaloneFileBindingRef.current;
+    const handle = standaloneFileHandleRef.current;
+    if (!binding || !handle) return;
     try {
+      await standaloneSaveQueueRef.current;
+      if (drawioXml !== standaloneLastSavedXmlRef.current) {
+        await enqueueStandaloneSave(drawioXml, binding.fileToken);
+      }
+      await standaloneSaveQueueRef.current;
+      binding = standaloneFileBindingRef.current;
+      if (!binding || binding.fileToken !== standaloneFileBindingRef.current?.fileToken) return;
+
+      // Retry any deferred snapshot synchronization before showing the history list, so history
+      // does not silently omit a source-file save that previously succeeded.
+      const file = await handle.getFile();
+      const currentXml = await file.text();
+      const currentRevision = await calculateDrawioXmlRevision(currentXml);
+      if (currentRevision !== binding.revision) {
+        setDocumentSaveState("conflict");
+        throw new Error("The file changed outside Draw.io Studio. Reopen it before reading or restoring history.");
+      }
+      await synchronizeStandaloneSnapshot(currentXml, binding.fileToken, "Current file before opening history");
+      binding = standaloneFileBindingRef.current;
+      if (!binding || binding.historyRevision !== currentRevision) {
+        throw new Error("The source file is unchanged, but its history snapshot could not be synchronized. Retry opening history.");
+      }
       const response = await fetch("/api/local/diagram/history?fileToken=" + encodeURIComponent(binding.fileToken));
       const result = await response.json() as { error?: string; history?: Array<{ id: string; createdAt: string; label: string; xmlLength: number }> };
       if (!response.ok) throw new Error(result.error || "Could not read local file history");
