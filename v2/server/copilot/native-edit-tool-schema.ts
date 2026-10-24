@@ -23,7 +23,7 @@ const normalizedBranches = branches.map((raw) => {
     if (value && typeof value === "object" && "const" in value) {
       const literal = (value as { const: unknown }).const;
       const normalized = { ...(value as Record<string, unknown>), enum: [literal] };
-      delete normalized.const;
+      delete (normalized as Record<string, unknown>).const;
       properties[key] = normalized;
     }
   }
