@@ -235,6 +235,16 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
   await openStudio(page);
   await waitForNativeEditor(page);
 
+  const drawioPort = process.env.STUDIO_E2E_DRAWIO_PORT || "5181";
+  const drawioIndex = await request.get("http://127.0.0.1:" + drawioPort + "/index.html");
+  expect(drawioIndex.ok()).toBe(true);
+  expect(drawioIndex.headers()["content-security-policy"]).toContain("connect-src 'none'");
+  expect(drawioIndex.headers()["content-security-policy"]).toContain("img-src 'self' data: blob:");
+  const nativeEditor = page.locator('iframe[title="Native Draw.io editor"]');
+  expect(new URL(await nativeEditor.getAttribute("src") || page.url()).origin).not.toBe(new URL(page.url()).origin);
+  expect(await nativeEditor.getAttribute("sandbox")).toContain("allow-scripts");
+  expect(await nativeEditor.getAttribute("sandbox")).not.toContain("allow-top-navigation");
+
   const scriptMarker = "AI_SCRIPT_EXECUTED_73491";
   await page.route("**/api/copilot/intent/ack", async (route) => {
     const acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
