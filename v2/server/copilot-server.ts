@@ -242,7 +242,7 @@ async function persistWorkspaceState(state: WorkspaceState | null = workspaceSta
   if (!state) return;
   let persistedState = state;
   const workspace = activeStorageWorkspace;
-  if (state.drawioXml && workspace?.id === state.workspaceId &&
+  if (workspace && state.drawioXml && workspace.id === state.workspaceId &&
       workspace.primaryDiagram && state.diagramPath === workspace.primaryDiagram &&
       /\.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
     try {
