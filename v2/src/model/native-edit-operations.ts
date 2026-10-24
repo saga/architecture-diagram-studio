@@ -210,24 +210,24 @@ const nativeEditOperationOptions = {
       .describe("ELK algorithm; Dagre uses directed layered placement."),
     direction: z.enum(["RIGHT", "LEFT", "DOWN", "UP"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction)
       .describe("Layout direction."),
-    nodeSpacing: z.number().finite().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
-    layerSpacing: z.number().finite().min(10).max(800).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing).describe("Gap between ranks/layers."),
+    nodeSpacing: z.number().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
+    layerSpacing: z.number().min(10).max(800).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing).describe("Gap between ranks/layers."),
     edgeRouting: z.enum(["ORTHOGONAL", "POLYLINE", "SPLINES"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting).describe("ELK connector routing style."),
     iterations: z.number().int().min(20).max(3000).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations).describe("ELK stress/force iteration limit."),
     randomSeed: z.number().int().min(0).max(100000).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.randomSeed).describe("Reproducible seed for algorithms that use randomness."),
-    margin: z.number().finite().min(0).max(300).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin).describe("Canvas margin after layout normalization.")
+    margin: z.number().min(0).max(300).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin).describe("Canvas margin after layout normalization.")
   }).strict(),
   move: z.object({
     op: z.literal("move"),
     target: nativeTargetSchema.describe("Exact cell ID or unique exact label of a vertex. Moving connector routing is not supported by this operation."),
-    dx: z.number().finite().min(-10000).max(10000).describe("Required horizontal delta."),
-    dy: z.number().finite().min(-10000).max(10000).describe("Required vertical delta.")
+    dx: z.number().min(-10000).max(10000).describe("Required horizontal delta."),
+    dy: z.number().min(-10000).max(10000).describe("Required vertical delta.")
   }).strict(),
   resize: z.object({
     op: z.literal("resize"),
     target: nativeTargetSchema.describe("Exact cell ID or unique exact label of a vertex. Resizing connector geometry is not supported by this operation."),
-    width: z.number().finite().min(1).max(10000).describe("Required width."),
-    height: z.number().finite().min(1).max(10000).describe("Required height.")
+    width: z.number().min(1).max(10000).describe("Required width."),
+    height: z.number().min(1).max(10000).describe("Required height.")
   }).strict(),
   delete: z.object({ op: z.literal("delete"), target: nativeTargetSchema }).strict(),
   addNodeAfter: z.object({
@@ -282,6 +282,9 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
       const color = normalizeNativeColor(operation.color);
       if (!color) return { ok: false, error: `Operation ${index + 1}: Unsupported color “${operation.color}”` };
       operations.push({ ...operation, color });
+    } else if (operation.op === "run_drawio_script") {
+      if (!operation.script.trim()) return { ok: false, error: `Operation ${index + 1}: script must be a non-empty JavaScript program` };
+      operations.push(operation);
     } else if (operation.op === "move") {
       if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
       operations.push(operation);
