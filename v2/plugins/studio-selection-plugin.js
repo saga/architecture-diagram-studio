@@ -943,21 +943,28 @@
           var nodeParent = cell.parent || activeModel.getCell("1");
           if (!nodeParent) throw new Error("The target has no valid Draw.io layer");
           var nodeGeometry = cell.geometry;
-          var newWidth = Math.max(120, Math.min(220, addRequest.label.trim().length * 10 + 36));
-          var newHeight = 60;
+          var newWidth = Number(nodeGeometry.width);
+          var newHeight = Number(nodeGeometry.height);
+          if (!Number.isFinite(newWidth) || newWidth <= 0 || !Number.isFinite(newHeight) || newHeight <= 0) {
+            throw new Error("The target does not have usable geometry to copy to the new node");
+          }
+          var gridSpacing = Number(activeGraph.gridSize);
+          if (!Number.isFinite(gridSpacing) || gridSpacing < 0) {
+            throw new Error("Draw.io grid spacing is unavailable; the new node position cannot be derived from the editor");
+          }
           var newX = path === "cell:add-node-after"
-            ? Number(nodeGeometry.x) + Number(nodeGeometry.width) + 64
+            ? Number(nodeGeometry.x) + newWidth + gridSpacing
             : Number(nodeGeometry.x) + (Number(nodeGeometry.width) - newWidth) / 2;
           var newY = path === "cell:add-node-after"
             ? Number(nodeGeometry.y)
-            : Number(nodeGeometry.y) + Number(nodeGeometry.height) + 64;
+            : Number(nodeGeometry.y) + newHeight + gridSpacing;
           var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight,
-            "rounded=0;whiteSpace=wrap;html=1;");
+            activeModel.getStyle(cell));
           if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
           var insertedEdge = null;
           try {
-            insertedEdge = activeGraph.insertEdge(nodeParent, null, "", cell, insertedNode,
-              "edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;");
+            // Let the active Draw.io editor's default edge style apply; do not invent an arrow/routing style.
+            insertedEdge = activeGraph.insertEdge(nodeParent, null, "", cell, insertedNode);
             if (!insertedEdge) throw new Error("Draw.io did not create the connecting edge");
           } catch (edgeError) {
             try { activeModel.remove(insertedNode); } catch (_) {}
