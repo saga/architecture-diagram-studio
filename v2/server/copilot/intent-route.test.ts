@@ -421,7 +421,7 @@ describe("Copilot intent route result and revision contract", () => {
       { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(copilot.getPreparedSystemMessage()).toContain("prefer typed operations");
+    expect(copilot.getPreparedSystemMessage()).toContain("typed operations are shortcuts, not an allowlist");
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
