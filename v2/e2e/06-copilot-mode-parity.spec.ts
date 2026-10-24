@@ -117,6 +117,7 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   expect(acknowledgementCalls[1]?.standalone).toBe(true);
   expect(acknowledgementCalls[0]?.versionId).toEqual(expect.any(String));
   expect(acknowledgementCalls[1]?.persistenceStatus).toBe("not_managed_by_server");
+  expect(acknowledgementCalls[1]?.persistedRevision).toBe(acknowledgementCalls[1]?.serializedXmlRevision);
   expect(acknowledgementCalls[1]?.versionId).toBeNull();
   expect(workspaceDocumentWrites).toBe(0);
   expect(await readWorkspaceXml(workspace)).toBe(savedWorkspaceXml);
