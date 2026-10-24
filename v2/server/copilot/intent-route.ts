@@ -527,7 +527,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         properties: {
           topic: {
             type: "string",
-            enum: ["overview", "api_ownership", "shape_discovery", "script_safety", "postconditions", "recipes", "all"],
+            enum: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"],
             description: "Choose the smallest relevant reference section."
           }
         },
