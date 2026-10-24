@@ -56,7 +56,7 @@ The script runs in the live Draw.io editor context and can use the native editor
 - `model` (the live mxGraph model) for cell, parent, terminal, geometry, value and style mutations.
 - `graph.view` for rendered state and geometry inspection.
 - The runtime's available mxGraph/mxUtils/mxGeometry and shape/stencil facilities, discovered from the actual bundled runtime rather than a hard-coded claim that a feature is unavailable.
-- Ordinary JavaScript access within the editor frame, subject to the browser runtime. This broad execution context is intentional for this local tool; it is not a sandbox.
+- Ordinary JavaScript access to the native editor objects inside a dedicated Draw.io origin. The cross-origin sandbox and iframe CSP separate that execution context from the Studio parent DOM and same-origin local APIs; native Graph/Model capabilities remain broadly available. This is browser-origin isolation, not an OS-level VM.
 
 The named parameters are convenience bindings, not a security boundary. Do not add an AST parser that rejects calls merely because they are not on an allowlist. Do not require a capability manifest to approve each method before execution. Runtime inspection can inform the model, but a missing or incomplete manifest must not block a script.
 
@@ -131,7 +131,7 @@ Executing arbitrary JavaScript on the editor's main thread cannot be safely inte
 
 The host page is outside the Draw.io iframe's JavaScript event loop, so use a host-side watchdog to notice a missing execution acknowledgement. If execution does not return within the configured budget, the host can offer or perform a controlled iframe reload from the last persisted XML checkpoint. This is a recovery mechanism, not a sandbox. Make the default budget configurable and report when the editor had to be restarted.
 
-Do not add a cross-origin sandbox or remove APIs merely to make the script tool appear safer; that conflicts with the explicit local single-user objective.
+Do not weaken native Draw.io APIs or add an AST allowlist to reduce editor capability. Keep the editor on a dedicated loopback origin with exact-origin message validation and a restrictive CSP, so broader diagram execution does not implicitly grant access to the Studio parent page or local host APIs.
 
 ## 8. API and tool contracts
 
@@ -158,7 +158,8 @@ The initial implementation is included in this branch. The direct script tool, m
 4. Existing native XML serialization, persistence/version acknowledgement and request correlation remain the success path; direct script completion no longer requires a custom per-cell `verified/checks` envelope.
 5. Completed in this branch: retain full script source and source revision/page/version metadata in local traces. Script errors and result details are recorded by the native bridge; rollback remains best-effort.
 6. Completed in this branch: add a host-side watchdog that can reload a blocked iframe from Studio's latest saved XML snapshot.
-7. Added/updated regression tests for direct script dispatch without a manifest, direct dispatch without confirmation, broad delete dispatch without confirmation, and native XML acceptance without predeclared script postconditions. Run the PR CI and address any failures before merge.
+7. Added/updated regression tests for direct script dispatch without a manifest, direct dispatch without confirmation, broad delete dispatch without confirmation, and native XML acceptance without predeclared script postconditions.
+8. Implemented in this branch: serve Draw.io from a dedicated loopback-only origin, enable a cross-origin iframe sandbox, use exact-origin postMessage in both directions, and apply CSP blocking network connections and remote image loads. Playwright assertions cover the CSP and direct native-script path. Run the PR CI and address any failures before merge.
 
 ## Acceptance criteria
 
@@ -174,6 +175,6 @@ The initial implementation is included in this branch. The direct script tool, m
 
 ## Accepted trade-offs
 
-This design deliberately accepts that the agent may generate incorrect scripts, invoke unfamiliar editor APIs, mutate multiple cells, and access the browser runtime available to code in the Draw.io frame. A script can also block the editor frame; the watchdog/reload path is recovery, not prevention. These are accepted trade-offs for maximum local editor autonomy.
+This design deliberately accepts that the agent may generate incorrect scripts, invoke unfamiliar editor APIs, mutate multiple cells/pages, and access the browser runtime available inside the isolated Draw.io origin. The iframe sandbox/CSP blocks access to the Studio parent DOM, Studio API origin, network connections and external image loads; it is not a process-level sandbox and does not promise protection from every browser-origin side channel. A script can also block the editor frame; the watchdog/reload path is recovery, not prevention. These are accepted trade-offs for maximum local editor autonomy.
 
 The response to a wrong diagram edit is inspect, correct, or restore a version—not weaken the agent by hiding native APIs behind an ever-growing allowlist. The accepted scope is the editor runtime; host OS or shell execution is not silently added as part of this ADR.
