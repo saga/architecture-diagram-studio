@@ -598,7 +598,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             recordDiagnostic("drawio.script-failure-serialization.requested", "Requested the actual native XML after a failed script so partial edits can be versioned and inspected", {
               requestId, durationMs: Date.now() - pending.startedAt, errorMessage, errorStack: errorStack ?? null,
               rollbackConfirmed: failedResult.batchRolledBack === true,
-              nativeDiff: { pendingExport: true, before: summarizeNativeDiagramXmlDiff(pending.beforeXml, pending.beforeXml) }
+              diffPendingUntilXmlExport: true
             }, "warn");
           } else {
             onNativeEditResultRef.current?.(failedResult);
