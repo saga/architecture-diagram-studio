@@ -41,7 +41,7 @@ test.describe("版本历史与文件交换", () => {
   });
 
   test("导出通过 Node.js fs 写入所选目录中的原生 Draw.io XML", async ({ page }) => {
-    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page.getByRole("button", { name: /Export/ }).click();
     const dialog = page.getByRole("dialog", { name: "Export Draw.io copy" });
     await expect(dialog).toBeVisible();
     await dialog.getByRole("textbox", { name: "Export file name" }).fill("architecture-export.drawio");
@@ -60,7 +60,7 @@ test.describe("版本历史与文件交换", () => {
     const importPath = path.join(workspace.rootPath, "incoming.drawio");
     await writeFile(importPath, renamed, "utf8");
 
-    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByRole("button", { name: /Import/ }).click();
     const dialog = page.getByRole("dialog", { name: "Import Draw.io file" });
     await expect(dialog).toBeVisible();
     await dialog.locator("button").filter({ hasText: "incoming.drawio" }).click();
@@ -84,7 +84,7 @@ test.describe("版本历史与文件交换", () => {
     await openDialog.locator("button").filter({ hasText: "architecture.drawio" }).click();
     await expect(page.locator(".status-left")).toContainText("direct Node.js autosave enabled");
 
-    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByRole("button", { name: /Import/ }).click();
     const importDialog = page.getByRole("dialog", { name: "Import Draw.io file" });
     await expect(importDialog).toBeVisible();
     await importDialog.locator("button").filter({ hasText: "standalone-update.drawio" }).click();

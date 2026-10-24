@@ -551,8 +551,11 @@ async function migrateLegacySingleFileData(layout: StudioStorageLayout): Promise
       layout.applicationLogFile,
       (record) => record.storageScope === "single-file" || record.workspaceId == null
     );
-    // The old global Copilot log is the new single-file log path. Leave it intact as a recovery source;
-    // readers apply ownership filtering and workspace migrations copy only rows with a matching workspaceId.
+    await writeScopedLegacyJsonl(
+      path.join(LEGACY_COPILOT_LOG_DIR, "copilot-sessions.jsonl"),
+      layout.copilotLogFile,
+      (record) => record.storageScope === "single-file" || record.workspaceId == null
+    );
   }
   migratedStorageScopes.add(layout.scopeKey);
 }

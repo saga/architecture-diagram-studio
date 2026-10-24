@@ -1,3 +1,5 @@
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { expect, test } from "./support/test";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
@@ -78,40 +80,15 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   const savedWorkspaceXml = await readWorkspaceXml(workspace);
   expect(savedWorkspaceXml).not.toBe(originalWorkspaceXml);
 
-  // Provide a deterministic File System Access handle so the test exercises the standalone-file adapter.
-  await page.evaluate((xml) => {
-    const file = new File([xml], "standalone.drawio", { type: "application/xml" });
-    Object.defineProperty(window, "__mockStandaloneFileSavedXml", { configurable: true, writable: true, value: xml });
-    const handle = {
-      name: file.name,
-      getFile: async () => file,
-      createWritable: async () => ({
-        write: async (value: string) => {
-          (window as Window & { __mockStandaloneFileSavedXml?: string }).__mockStandaloneFileSavedXml = value;
-        },
-        close: async () => undefined
-      })
-    };
-    Object.defineProperty(window, "showOpenFilePicker", {
-      configurable: true, writable: true,
-      value: async () => [handle]
-    });
-  }, originalWorkspaceXml);
+  const standalonePath = path.join(workspace.rootPath, "standalone.drawio");
+  await writeFile(standalonePath, originalWorkspaceXml, "utf8");
   await page.getByRole("button", { name: "Open Draw.io" }).click();
-  await expect.poll(async () => {
-    const name = (await page.locator(".document-breadcrumb strong").textContent())?.trim() || "";
-    if (name === "standalone.drawio") return name;
-    const status = (await page.locator(".status-left").textContent())?.trim() || "";
-    const diagnostics = await page.evaluate(() => {
-      try {
-        const raw = localStorage.getItem("architecture-diagram-studio:v2:diagnostic-traces") || "[]";
-        const entries = JSON.parse(raw) as Array<{ event?: string; message?: string; details?: unknown }>;
-        return entries.filter((entry) => typeof entry.event === "string" && entry.event.startsWith("drawio.open.standalone"))
-          .slice(-4).map((entry) => ({ event: entry.event, message: entry.message, details: entry.details }));
-      } catch { return []; }
-    });
-    return name + " | lastAction=" + status + " | openDiagnostics=" + JSON.stringify(diagnostics);
-  }, { timeout: 15_000 }).toBe("standalone.drawio");
+  const openDialog = page.getByRole("dialog", { name: "Open Draw.io file" });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByRole("button").filter({ hasText: "standalone.drawio" }).click();
+  await expect.poll(async () =>
+    (await page.locator(".document-breadcrumb strong").textContent())?.trim() || ""
+  ).toBe("standalone.drawio");
   await waitForNativeEditor(page);
   await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
   await expect(nativeFrame(page).getByText("Workspace Data Store", { exact: true })).toHaveCount(0);
@@ -128,9 +105,7 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied 1 native change");
   await expect(nativeFrame(page).getByText("Local Data Store", { exact: true })).toBeVisible();
   await expect.poll(async () => (await readWorkspaceXml(workspace)).includes('value="Workspace Data Store"')).toBe(true);
-  await expect.poll(async () => page.evaluate(() =>
-    (window as Window & { __mockStandaloneFileSavedXml?: string }).__mockStandaloneFileSavedXml || ""
-  )).toContain('value="Local Data Store"');
+  await expect.poll(async () => (await readFile(standalonePath, "utf8"))).toContain('value="Local Data Store"');
 
   expect(intentCalls).toBe(2);
   expect(seenPrompts).toEqual([
