@@ -141,8 +141,13 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
     const c4Name = wrapper?.getAttribute("c4Name");
     const rawLabel = c4Name !== null && c4Name !== undefined
       ? c4Name
-      : wrapper?.getAttribute("label") || wrapper?.getAttribute("value") ||
-        cell.getAttribute("value") || cell.getAttribute("label") || "";
+      : wrapper?.hasAttribute("label")
+        ? wrapper.getAttribute("label") ?? ""
+        : wrapper?.hasAttribute("value")
+          ? wrapper.getAttribute("value") ?? ""
+          : cell.hasAttribute("value")
+            ? cell.getAttribute("value") ?? ""
+            : cell.getAttribute("label") ?? "";
     result.push({ id, name: plainNativeLabel(rawLabel), cellType: vertex ? "vertex" : "edge" });
   }
   return result;
