@@ -167,7 +167,7 @@ export function createLocalDiagramFileService(options: { historyDirectory?: stri
       });
     }
     const bounded = retainWithinBudget(valid);
-    if (bounded.length !== valid.length) await writeIndex(binding, bounded);
+    if (bounded.length !== valid.length) await writeIndex(binding, valid);
     return bounded;
   }
 
