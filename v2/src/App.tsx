@@ -1514,6 +1514,42 @@ export default function App() {
                             failureStage: "persistence"
                           };
                     }
+                  } else if (standaloneFileName && standaloneFileBindingRef.current) {
+                    // Standalone persistence is browser-owned, but the native edit receipt must still
+                    // wait for the actual FileSystemFileHandle write to close successfully.
+                    const activeBinding = standaloneFileBindingRef.current;
+                    try {
+                      await enqueueStandaloneSave(result.serializedXml, activeBinding.fileToken);
+                      const savedBinding = standaloneFileBindingRef.current;
+                      if (!savedBinding || savedBinding.fileToken !== activeBinding.fileToken ||
+                          savedBinding.revision !== serializedXmlRevision) {
+                        throw new Error("The browser did not confirm the exact serialized XML revision on the selected local file.");
+                      }
+                      persistedRevision = savedBinding.revision;
+                      // The server records the result but does not claim it wrote the source file.
+                      persistenceStatus = "not_managed_by_server";
+                      if (savedBinding.historyRevision !== savedBinding.revision) {
+                        finalResult = {
+                          ...result,
+                          auditWarning: "The selected file was saved, but the Node.js history snapshot is still pending."
+                        };
+                      }
+                    } catch (error) {
+                      const persistenceError = error instanceof Error ? error.message : String(error);
+                      persistenceStatus = "failed";
+                      finalResult = result.success
+                        ? {
+                            ...result, success: false,
+                            error: "Draw.io applied and serialized the edit, but saving the standalone file failed: " + persistenceError,
+                            batchRolledBack: false, failureStage: "persistence"
+                          }
+                        : {
+                            ...result,
+                            error: (result.error || "The native Draw.io script failed.") +
+                              " The resulting XML could not be saved to the standalone file: " + persistenceError,
+                            failureStage: "persistence"
+                          };
+                    }
                   } else {
                     persistenceStatus = "not_managed_by_server";
                   }
