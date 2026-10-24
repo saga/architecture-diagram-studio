@@ -949,7 +949,9 @@
             throw new Error("The target does not have usable geometry to copy to the new node");
           }
           var gridSpacing = Number(activeGraph.gridSize);
-          if (!Number.isFinite(gridSpacing) || gridSpacing < 0) gridSpacing = 0;
+          if (!Number.isFinite(gridSpacing) || gridSpacing < 0) {
+            throw new Error("Draw.io grid spacing is unavailable; use the native script path to choose an explicit placement");
+          }
           var newX = path === "cell:add-node-after"
             ? Number(nodeGeometry.x) + newWidth + gridSpacing
             : Number(nodeGeometry.x) + (Number(nodeGeometry.width) - newWidth) / 2;
