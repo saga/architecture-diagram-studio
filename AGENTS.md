@@ -26,7 +26,7 @@
 
 - Treat the repository root opened in the editor as the default development workspace. Do not ask the user to create a wrapper directory around the repository.
 - The configured project workspace is a runtime binding to a local directory. Workspace runtime state, version history, logging and Copilot SDK persistence must use the scope layout from v2/server/storage-layout.ts, not direct global path constants. Single-file mode uses the shared Studio home; workspace mode uses its isolated partition. The workspace registry and Studio configuration history remain global.
-- Workspace diagram I/O goes through server-owned Node.js fs operations; standalone browse/open/import/save/history/export must also go through v2/server/local-diagram-files.ts, never browser showOpenFilePicker, FileSystemFileHandle.createWritable, or blob downloads. Preserve external-edit conflict checks, symlink rejection, path-root restrictions and non-overwriting export semantics.
+- Workspace diagram I/O remains owned by server-side Node.js fs operations. Standalone source-file open/read/import/save/history-restore writes/export use the browser File System Access API (`showOpenFilePicker`, `FileSystemFileHandle.getFile`, `createWritable`, `showSaveFilePicker`); do not restore the Studio-simulated filesystem browser or send source-file paths to Node.js. `v2/server/local-diagram-files.ts` stores validated XML history snapshots only for standalone documents. Standalone external-edit detection is a SHA-256 check immediately before writing and is best-effort, not atomic compare-and-swap; report snapshot-sync errors separately from source-file write errors. Workspace path validation/revision checks and non-overwriting workspace/export behavior remain intact.
 - Ground architecture analysis in the primary Draw.io diagram, related diagrams, source code, README files and ADRs. Cite workspace-relative paths and distinguish facts from inferences.
 - Repository Agent Skills live under .github/skills/<skill-name>/SKILL.md. Repository-wide Copilot instructions live in .github/copilot-instructions.md.
 
@@ -35,7 +35,7 @@
 - Preserve unknown XML attributes, style keys, shape/stencil names, UserObject wrappers, nested children and future extension elements. Do not turn Draw.io's open format into a closed shape whitelist.
 - Validate mxfile, plain and compressed page payloads, bare mxGraphModel, root/mxCell/mxGeometry, defs, and the separate mxlibrary root through the appropriate schema entry point.
 - Do not run automatic layout during open/import. The native editor retains the geometry stored in the file.
-- Keep the source XML and server-issued SHA-256 revision together in all save/restore paths. Reject stale saves with HTTP 409 rather than overwriting newer XML.
+- Workspace saves/restores keep native XML paired with the server-issued SHA-256 revision and reject stale saves with HTTP 409. Standalone browser-owned files track a browser-calculated hash of the last observed source XML, compare it to `handle.getFile()` before writes, and use a separate Node.js revision for the snapshot stream; do not imply the Node.js history revision protects the original file.
 
 ## Single-canvas contract
 
