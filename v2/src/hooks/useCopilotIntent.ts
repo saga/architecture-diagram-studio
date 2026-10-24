@@ -262,6 +262,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             recordDiagnostic("copilot.native-script-repair.started", "Starting one automatic native script repair attempt after an editor-reported script failure and confirmed rollback", {
               sessionId: plan.sessionId || copilotSessionId,
               error: boundedError,
+              errorStack: failedStep?.stack?.slice(0, 8000) ?? null,
               scriptLength: failedScriptOperation.script.length,
               rollbackConfirmed: execution.rolledBack,
               documentRevision,
