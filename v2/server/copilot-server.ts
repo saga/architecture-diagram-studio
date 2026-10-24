@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { appendRotatingJsonl, readRecentJsonl } from "./jsonl-log";
 import { parseEnv } from "node:util";
 
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
@@ -48,6 +49,9 @@ const VERSIONS_FILE = path.join(DATA_DIR, "diagram-versions.json");
 const APP_LOG_FILE = path.join(DATA_DIR, "application-events.jsonl");
 const PROJECT_WORKSPACE_FILE = path.join(DATA_DIR, "project-workspace.json");
 const CONFIG_HISTORY_FILE = path.join(DATA_DIR, "studio-config-history.jsonl");
+const JSONL_LOG_MAX_BYTES = 10 * 1024 * 1024;
+const JSONL_LOG_BACKUPS = 3;
+const JSONL_READ_TAIL_BYTES = 1024 * 1024;
 type StudioConfig = {
   schemaVersion: 1;
   revisionId: string;
@@ -388,8 +392,7 @@ async function writeLog(event: string, fields: Record<string, unknown> = {}): Pr
   const record = { timestamp: new Date().toISOString(), workspaceId: projectWorkspace?.id ?? null, event, ...fields };
   const line = JSON.stringify(record) + "\n";
   const persist = logWriteQueue.then(async () => {
-    await mkdir(LOG_DIR, { recursive: true });
-    await appendFile(LOG_FILE, line, "utf8");
+    await appendRotatingJsonl(LOG_FILE, line, JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
   });
   logWriteQueue = persist.catch((error) => {
     const message = error instanceof Error ? error.stack || error.message : String(error);
@@ -645,10 +648,10 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
       };
       await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
-      await appendFile(APP_LOG_FILE, JSON.stringify({
+      await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
         timestamp: now, event: "diagram.file.created", workspaceId: workspace.id, diagramPath: fileName,
         versionId: version.id, xmlLength: xml.length
-      }) + "\n", "utf8");
+      }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
       return {
         workspace, files, drawioXml: xml,
         version: { id: version.id, createdAt: version.createdAt, label: version.label },
@@ -891,10 +894,10 @@ app.put("/api/workspace/document", async (req, res) => {
           } catch { /* Keep the committed XML/version even if diagnostics are unavailable. */ }
         }
         try {
-          await appendFile(APP_LOG_FILE, JSON.stringify({
+          await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
             timestamp: version.createdAt, event: "diagram.version.created", workspaceId: workspace?.id,
             versionId: version.id, label, xmlLength: drawioXml.length
-          }) + "\n", "utf8");
+          }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
         } catch (error) {
           try {
             await writeLog("workspace.version.event-log.failed", {
@@ -947,10 +950,10 @@ app.put("/api/workspace/chat", async (req, res) => {
       const state = await getWorkspaceState();
       workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: copilotSessionId ?? state.copilotSessionId, chatMessages, updatedAt: new Date().toISOString() };
       await persistWorkspaceState(workspaceState);
-      await appendFile(APP_LOG_FILE, JSON.stringify({
+      await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
         timestamp: new Date().toISOString(), event: "copilot.chat.persisted",
         sessionId: workspaceState.copilotSessionId, messageCount: chatMessages.length
-      }) + "\n", "utf8");
+      }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
     });
     res.json({ ok: true, copilotSessionId, messageCount: chatMessages.length });
   } catch (error) {
@@ -976,7 +979,7 @@ app.post("/api/workspace/logs", async (req, res) => {
       message: item.message.slice(0, 1000),
       details: item.details && typeof item.details === "object" ? item.details : {}
     };
-    await withDataWrite(async () => { await mkdir(DATA_DIR, { recursive: true }); await appendFile(APP_LOG_FILE, JSON.stringify(record) + "\n", "utf8"); });
+    await withDataWrite(async () => { await mkdir(DATA_DIR, { recursive: true }); await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify(record) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS); });
     // Browser console output is not visible in the Node/Vite terminal. Mirror only error and
     // warning summaries to the server terminal; retain details in the local trace page/JSONL.
     if (record.level === "error" || record.level === "warn") {
@@ -1002,8 +1005,8 @@ app.post("/api/workspace/logs", async (req, res) => {
 app.get("/api/workspace/logs", async (req, res) => {
   try {
     const [appRaw, agentRaw] = await Promise.all([
-      readFile(APP_LOG_FILE, "utf8").catch(() => ""),
-      readFile(LOG_FILE, "utf8").catch(() => "")
+      readRecentJsonl(APP_LOG_FILE, JSONL_READ_TAIL_BYTES, JSONL_LOG_BACKUPS),
+      readRecentJsonl(LOG_FILE, JSONL_READ_TAIL_BYTES, JSONL_LOG_BACKUPS)
     ]);
     const workspace = await getProjectWorkspace();
     const limit = Math.min(10000, Math.max(1, Number(req.query.limit) || 2000));
@@ -1080,11 +1083,11 @@ app.post("/api/workspace/versions/:id/restore", async (req, res) => {
       workspaceState = { ...state, workspaceId: workspace?.id, diagramPath: workspace?.primaryDiagram ?? null, drawioXml: version.drawioXml, updatedAt: version.createdAt };
       await persistWorkspaceState(workspaceState);
       await mkdir(DATA_DIR, { recursive: true });
-      await appendFile(APP_LOG_FILE, JSON.stringify({
+      await appendRotatingJsonl(APP_LOG_FILE, JSON.stringify({
         timestamp: version.createdAt, event: "diagram.version.restored",
         sourceVersionId: source.id, versionId: version.id, label: version.label,
         xmlLength: version.drawioXml.length
-      }) + "\n", "utf8");
+      }) + "\n", JSONL_LOG_MAX_BYTES, JSONL_LOG_BACKUPS);
       return { version, state: workspaceState };
     });
     if (!result) { res.status(404).json({ error: "The version does not exist or its Draw.io XML is invalid" }); return; }
@@ -1204,8 +1207,7 @@ app.get("/api/copilot/sessions", async (_req, res) => {
 
 app.get("/api/copilot/sessions/:id/logs", async (req, res) => {
   try {
-    const { readFile } = await import("node:fs/promises");
-    const raw = await readFile(LOG_FILE, "utf8").catch(() => "");
+    const raw = await readRecentJsonl(LOG_FILE, JSONL_READ_TAIL_BYTES, JSONL_LOG_BACKUPS);
     const workspace = await getProjectWorkspace();
     const logs = raw.split("\n").filter(Boolean).flatMap((line) => {
       try { const entry = JSON.parse(line) as Record<string, unknown>; return entry.sessionId === req.params.id && (!workspace || entry.workspaceId === workspace.id) ? [entry] : []; }
