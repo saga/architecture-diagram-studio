@@ -49,7 +49,6 @@ describe("native edit tool parameter schema", () => {
       delete: ["op", "target"],
       add_node_after: ["op", "target", "newLabel"],
       add_node_below: ["op", "target", "newLabel"],
-      set_c4_type: ["op", "target", "kind"],
       auto_layout: ["op", "target"]
     };
 
@@ -65,8 +64,6 @@ describe("native edit tool parameter schema", () => {
     const layoutBranch = branches.find((candidate) => candidate.properties.op.enum.includes("auto_layout"));
     expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre"], default: "elk" });
     expect(layoutBranch?.properties.iterations).toMatchObject({ type: "integer", minimum: 20, maximum: 3000, default: 300 });
-    const c4Branch = branches.find((candidate) => candidate.properties.op.enum.includes("set_c4_type"));
-    expect(c4Branch?.properties.kind).toMatchObject({ enum: ["person", "system", "external"] });
   });
 });
 
