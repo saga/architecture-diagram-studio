@@ -462,6 +462,70 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     });
   }
 
+  function createDrawioElementSearchTool(sessionId: string) {
+    return defineTool("search_drawio_elements", {
+      description: "Search every native cell on the active Draw.io page, including cells omitted from the compact prompt context. Read-only. Use before editing when the requested target is not visible or the diagram is large; resolve ambiguous labels by exact ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", minLength: 2, maxLength: 120, description: "Exact cell ID, exact label, or distinctive part of a label." },
+          limit: { type: "integer", minimum: 1, maximum: 10, default: 5 }
+        },
+        required: ["query"],
+        additionalProperties: false
+      },
+      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
+          throw new Error("Element search requires a query from 2 to 120 characters.");
+        }
+        const current = contextBySession.get(sessionId);
+        const context = current && typeof current === "object"
+          ? current as { cells?: unknown }
+          : {};
+        const cells = Array.isArray(context.cells)
+          ? context.cells as Array<{ id?: unknown; name?: unknown; cellType?: unknown }>
+          : [];
+        const query = args.query.trim();
+        const normalized = query.toLocaleLowerCase();
+        const exactId = cells.filter((cell) => typeof cell.id === "string" && cell.id === query);
+        const exactLabel = cells.filter((cell) =>
+          typeof cell.name === "string" && cell.name.trim().toLocaleLowerCase() === normalized
+        );
+        const matches = exactId.length ? exactId : exactLabel.length ? exactLabel : cells.filter((cell) => {
+          const id = typeof cell.id === "string" ? cell.id.toLocaleLowerCase() : "";
+          const label = typeof cell.name === "string" ? cell.name.trim().toLocaleLowerCase() : "";
+          if (label.includes(normalized) || id.includes(normalized)) return true;
+          const tokens = normalized.split(/\s+/u).filter(Boolean);
+          return tokens.length > 1 && tokens.every((token) => label.includes(token));
+        });
+        const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
+          ? Math.max(1, Math.min(10, Math.floor(args.limit)))
+          : 5;
+        const results = matches.slice(0, limit).flatMap((cell) =>
+          typeof cell.id === "string" ? [{
+            id: cell.id,
+            label: typeof cell.name === "string" && cell.name.trim() ? cell.name.trim() : cell.id,
+            cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown"
+          }] : []
+        );
+        await deps.writeLog("tool.search_drawio_elements.completed", {
+          sessionId, matchCount: matches.length, returnedCount: results.length,
+          truncated: matches.length > results.length
+        });
+        return {
+          found: matches.length > 0,
+          query,
+          matchCount: matches.length,
+          truncated: matches.length > results.length,
+          results,
+          ...(matches.length > results.length ? {
+            guidance: "More matches exist than are shown. Narrow the query or use an exact cell ID; do not choose between ambiguous labels arbitrarily."
+          } : {})
+        };
+      }
+    });
+  }
+
   function createDrawioReferenceTool() {
     return defineTool("get_drawio_reference", {
       description: "Read the local Draw.io Agent API reference on demand. Read-only; does not change the diagram.",
@@ -816,6 +880,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             tools: [
               createSelectDiagramElementTool(sessionId),
               createDrawioShapeSearchTool(),
+              createDrawioElementSearchTool(sessionId),
               createDrawioReferenceTool(),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
