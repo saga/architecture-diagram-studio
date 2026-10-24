@@ -926,7 +926,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         // Keep the complete server-derived target index private to tools. The model-facing context is
         // intentionally capped for prompt size, but target uniqueness must be checked against every cell
         // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
-        contextBySession.set(sessionId, { ...context, cells: allNativeCells });
+        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: pageInfo.id, cells: allNativeCells });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
