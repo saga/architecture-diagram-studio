@@ -1,5 +1,6 @@
-import { inflateSync, unzlibSync } from "fflate";
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
+import { decodeDrawioPageXml } from "./drawio-xml-schema";
+import { z } from "zod";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 /**
@@ -18,18 +19,7 @@ export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 /** The bridge batch caps at 50 steps; typed moves are a single live-geometry delta. */
 export const MAX_NATIVE_EDIT_OPERATIONS = 20;
 
-export type NativeEditOperation =
-  | { op: "select"; target: string }
-  | { op: "set_label"; target: string; label: string }
-  | { op: "set_style"; target: string; key: NativeEditStyleKey; color: string }
-  | { op: "set_c4_type"; target: string; kind: "person" | "system" | "external" }
-  | { op: "run_drawio_script"; target: "active_page"; summary: string; script: string }
-  | ({ op: "auto_layout"; target: "active_page" } & NativeAutoLayoutOptions)
-  | { op: "move"; target: string; dx: number; dy: number }
-  | { op: "resize"; target: string; width: number; height: number }
-  | { op: "delete"; target: string }
-  | { op: "add_node_after"; target: string; newLabel: string }
-  | { op: "add_node_below"; target: string; newLabel: string };
+export type NativeEditOperation = z.infer<typeof NativeEditOperationSchema>;
 
 /** An operation whose target label was resolved to a concrete Draw.io cell by the server. */
 export type ResolvedNativeEditOperation = NativeEditOperation & { cellId: string; targetLabel: string };
@@ -116,33 +106,12 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   if (model) return model as unknown as Document;
   const payload = (diagram.textContent || "").trim();
   if (!payload) return parsed;
-  if (payload.startsWith("<")) {
-    const nested = parseDrawioXml(payload);
-    if (nested.documentElement.nodeName === "mxGraphModel") return nested;
-  }
   try {
-    const binary = atob(payload.replace(/\s+/g, ""));
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    let inflated: Uint8Array | null = null;
-    try { inflated = inflateSync(bytes); } catch { /* Try a zlib-wrapped legacy payload. */ }
-    if (!inflated) {
-      try { inflated = unzlibSync(bytes); } catch { /* The page is not a supported compressed payload. */ }
-    }
-    if (inflated) {
-      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(inflated);
-      const candidates = [decoded];
-      try {
-        const uriDecoded = decodeURIComponent(decoded);
-        if (uriDecoded !== decoded) candidates.push(uriDecoded);
-      } catch { /* A plain XML payload does not need URI decoding. */ }
-      for (const candidate of candidates) {
-        try {
-          const nested = parseDrawioXml(candidate);
-          if (nested.documentElement.nodeName === "mxGraphModel") return nested;
-        } catch { /* Try the next representation. */ }
-      }
-    }
-  } catch { /* Non-compressed or malformed pages yield no targets. */ }
+    const nested = parseDrawioXml(decodeDrawioPageXml(payload));
+    if (nested.documentElement.nodeName === "mxGraphModel") return nested;
+  } catch {
+    // Malformed compressed pages yield no editable targets; validation reports the detailed issue elsewhere.
+  }
   return parsed;
 }
 
@@ -169,8 +138,6 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
   }
   return result;
 }
-
-const OPERATION_NAMES = ["select", "set_label", "set_style", "set_c4_type", "run_drawio_script", "auto_layout", "move", "resize", "delete", "add_node_after", "add_node_below"] as const;
 
 /**
  * Colors the agent may name. Longest keys are matched first so “红色” wins over “红”
@@ -202,143 +169,126 @@ export function normalizeNativeColor(value: string): string | null {
   return embedded ? NAMED_COLORS[embedded] : null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
+const nativeTargetSchema = z.string().trim().min(1, { message: "target must not be empty" }).max(200, { message: "target exceeds 200 characters" })
+  .describe("Exact native cell ID or unique exact visible label.");
 
-function textField(source: Record<string, unknown>, field: string, maxLength: number): string {
-  const value = source[field];
-  if (typeof value !== "string") throw new Error(`Operation field “${field}” must be a string`);
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error(`Operation field “${field}” must not be empty`);
-  if (trimmed.length > maxLength) throw new Error(`Operation field “${field}” exceeds ${maxLength} characters`);
-  return trimmed;
-}
+const nativeEditOperationOptions = {
+  select: z.object({ op: z.literal("select"), target: nativeTargetSchema }).strict(),
+  setLabel: z.object({
+    op: z.literal("set_label"), target: nativeTargetSchema,
+    label: z.string().trim().min(1, { message: "label must not be empty" }).max(500, { message: "label exceeds 500 characters" })
+      .describe("Required replacement label.")
+  }).strict(),
+  setStyle: z.object({
+    op: z.literal("set_style"), target: nativeTargetSchema,
+    key: z.enum(NATIVE_EDIT_STYLE_KEYS, { message: "Style key must be one of fillColor, strokeColor, fontColor" })
+      .default("fillColor").describe("Optional; defaults to fillColor when omitted."),
+    color: z.string().trim().min(1, { message: "color must not be empty" }).max(40, { message: "color exceeds 40 characters" })
+      .describe("Color value, such as #ff0000 or 红色.")
+  }).strict(),
+  setC4Type: z.object({
+    op: z.literal("set_c4_type"),
+    target: nativeTargetSchema.describe("Exact ID or unique label of an existing vertex. Edges, groups, and layer/root cells are not valid C4 targets."),
+    kind: z.enum(["person", "system", "external"], { message: 'kind must be "person", "system", or "external"' })
+      .describe("Apply the canonical native Draw.io C4 type: Person, Software System, or External Software System.")
+  }).strict(),
+  runScript: z.object({
+    op: z.literal("run_drawio_script"),
+    target: z.literal("active_page").describe("Execute inside the current native Draw.io editor and active page."),
+    summary: z.string().trim().min(1, { message: "summary must not be empty" }).max(1000, { message: "summary exceeds 1000 characters" })
+      .describe("Concise user-facing description of the intended diagram change."),
+    script: z.string().trim().min(1, { message: "script must be a non-empty JavaScript program" })
+      .max(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH, { message: `script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters` })
+      .describe("Synchronous JavaScript for the pinned local Draw.io runtime. Use only when no typed operation can express the effect; do not author XML, manage pages, access network/storage or invoke save/exit actions. Only the reviewed insert-only subset may auto-dispatch.")
+  }).strict(),
+  autoLayout: z.object({
+    op: z.literal("auto_layout"),
+    target: z.literal("active_page").describe("Always target the active native Draw.io page. Auto-layout is a whole-page operation and must be the only item in the batch."),
+    engine: z.enum(["elk", "dagre"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine)
+      .describe("Studio-owned layout engine; never call Draw.io's built-in layout action."),
+    algorithm: z.enum(["layered", "mrtree", "radial", "stress", "force"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm)
+      .describe("ELK algorithm; Dagre uses directed layered placement."),
+    direction: z.enum(["RIGHT", "LEFT", "DOWN", "UP"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction)
+      .describe("Layout direction."),
+    nodeSpacing: z.number().finite().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
+    layerSpacing: z.number().finite().min(10).max(800).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing).describe("Gap between ranks/layers."),
+    edgeRouting: z.enum(["ORTHOGONAL", "POLYLINE", "SPLINES"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting).describe("ELK connector routing style."),
+    iterations: z.number().int().min(20).max(3000).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations).describe("ELK stress/force iteration limit."),
+    randomSeed: z.number().int().min(0).max(100000).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.randomSeed).describe("Reproducible seed for algorithms that use randomness."),
+    margin: z.number().finite().min(0).max(300).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin).describe("Canvas margin after layout normalization.")
+  }).strict(),
+  move: z.object({
+    op: z.literal("move"),
+    target: nativeTargetSchema.describe("Exact cell ID or unique exact label of a vertex. Moving connector routing is not supported by this operation."),
+    dx: z.number().finite().min(-10000).max(10000).describe("Required horizontal delta."),
+    dy: z.number().finite().min(-10000).max(10000).describe("Required vertical delta.")
+  }).strict(),
+  resize: z.object({
+    op: z.literal("resize"),
+    target: nativeTargetSchema.describe("Exact cell ID or unique exact label of a vertex. Resizing connector geometry is not supported by this operation."),
+    width: z.number().finite().min(1).max(10000).describe("Required width."),
+    height: z.number().finite().min(1).max(10000).describe("Required height.")
+  }).strict(),
+  delete: z.object({ op: z.literal("delete"), target: nativeTargetSchema }).strict(),
+  addNodeAfter: z.object({
+    op: z.literal("add_node_after"),
+    target: nativeTargetSchema.describe("Required exact cell ID or unique exact visible label of a vertex."),
+    newLabel: z.string().trim().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
+      .describe("Required visible label for the newly created node.")
+  }).strict(),
+  addNodeBelow: z.object({
+    op: z.literal("add_node_below"),
+    target: nativeTargetSchema.describe("Required exact cell ID or unique exact visible label of a vertex; the new node is placed directly beneath this vertex."),
+    newLabel: z.string().trim().min(1, { message: "newLabel must not be empty" }).max(500, { message: "newLabel exceeds 500 characters" })
+      .describe("Required visible label for the newly created node.")
+  }).strict()
+} as const;
 
-function numericField(source: Record<string, unknown>, field: string, minimum: number, maximum: number): number {
-  const value = source[field];
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`Operation field “${field}” must be a finite number`);
-  if (value < minimum || value > maximum) throw new Error(`Operation field “${field}” must be between ${minimum} and ${maximum}`);
-  return value;
-}
+/** The single runtime contract for all Copilot-visible native edits. */
+export const NativeEditOperationSchema = z.discriminatedUnion("op", [
+  nativeEditOperationOptions.select, nativeEditOperationOptions.setLabel, nativeEditOperationOptions.setStyle,
+  nativeEditOperationOptions.setC4Type, nativeEditOperationOptions.runScript, nativeEditOperationOptions.autoLayout,
+  nativeEditOperationOptions.move, nativeEditOperationOptions.resize, nativeEditOperationOptions.delete,
+  nativeEditOperationOptions.addNodeAfter, nativeEditOperationOptions.addNodeBelow
+]);
 
-/**
- * Validates an untrusted operation list from the model.
- *
- * Style keys are restricted here, not in the bridge: the bridge applies any `style:<key>`
- * it receives, so an unvalidated key would let the model rewrite arbitrary Draw.io style.
- */
+export const NativeEditOperationBatchSchema = z.array(NativeEditOperationSchema)
+  .min(1, { message: "operations must contain at least one operation" })
+  .max(MAX_NATIVE_EDIT_OPERATIONS, { message: `operations must contain at most ${MAX_NATIVE_EDIT_OPERATIONS} operations` });
+
+/** Zod owns field contracts; transaction rules and canonicalization remain explicit business logic. */
 export function parseNativeEditOperations(input: unknown): NativeEditParseResult {
   if (!Array.isArray(input)) return { ok: false, error: "operations must be an array" };
   if (input.length === 0) return { ok: false, error: "operations must contain at least one operation" };
   if (input.length > MAX_NATIVE_EDIT_OPERATIONS) {
     return { ok: false, error: `operations must contain at most ${MAX_NATIVE_EDIT_OPERATIONS} operations` };
   }
-  const containsScript = input.some((raw) => isRecord(raw) && raw.op === "run_drawio_script");
-  const containsLayout = input.some((raw) => isRecord(raw) && raw.op === "auto_layout");
-  if (containsScript && input.length !== 1) {
-    return { ok: false, error: "run_drawio_script must be the only operation in its batch" };
-  }
-  if (containsLayout && input.length !== 1) {
-    return { ok: false, error: "auto_layout must be the only operation in its batch because it recalculates the active page as one transaction" };
+  const isOperation = (raw: unknown): raw is Record<string, unknown> => Boolean(raw) && typeof raw === "object" && !Array.isArray(raw);
+  const containsScript = input.some((raw) => isOperation(raw) && raw.op === "run_drawio_script");
+  const containsLayout = input.some((raw) => isOperation(raw) && raw.op === "auto_layout");
+  if (containsScript && input.length !== 1) return { ok: false, error: "run_drawio_script must be the only operation in its batch" };
+  if (containsLayout && input.length !== 1) return { ok: false, error: "auto_layout must be the only operation in its batch because it recalculates the active page as one transaction" };
+
+  const parsed = NativeEditOperationBatchSchema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const index = typeof issue?.path[0] === "number" ? issue.path[0] + 1 : 1;
+    const field = issue?.path.slice(1).map(String).join(".");
+    return { ok: false, error: `Operation ${index}: ${field ? field + " " : ""}${issue?.message || "invalid operation"}` };
   }
   const operations: NativeEditOperation[] = [];
-  for (const [index, raw] of input.entries()) {
-    const position = index + 1;
-    try {
-      if (!isRecord(raw)) throw new Error("Operation must be an object");
-      const name = raw.op;
-      if (typeof name !== "string" || !OPERATION_NAMES.includes(name as (typeof OPERATION_NAMES)[number])) {
-        throw new Error(`Unsupported operation “${String(name)}”; expected one of ${OPERATION_NAMES.join(", ")}`);
-      }
-      const target = textField(raw, "target", 200);
-      switch (name) {
-        case "select":
-        case "delete":
-          operations.push({ op: name, target });
-          break;
-        case "add_node_after":
-        case "add_node_below":
-          operations.push({ op: name, target, newLabel: textField(raw, "newLabel", 500) });
-          break;
-        case "set_label":
-          operations.push({ op: name, target, label: textField(raw, "label", 500) });
-          break;
-        case "set_c4_type": {
-          const kind = raw.kind;
-          if (kind !== "person" && kind !== "system" && kind !== "external") {
-            throw new Error('kind must be "person", "system", or "external"');
-          }
-          operations.push({ op: name, target, kind });
-          break;
-        }
-        case "run_drawio_script": {
-          if (target !== "active_page") throw new Error('run_drawio_script target must be "active_page"');
-          const script = raw.script;
-          if (typeof script !== "string" || !script.trim()) throw new Error("script must be a non-empty JavaScript program");
-          if (script.length > MAX_NATIVE_DRAWIO_SCRIPT_LENGTH) {
-            throw new Error(`script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters`);
-          }
-          operations.push({ op: name, target: "active_page", summary: textField(raw, "summary", 1000), script });
-          break;
-        }
-        case "auto_layout": {
-          if (target !== "active_page") throw new Error('auto_layout target must be "active_page"');
-          const engineValue = raw.engine ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine;
-          if (engineValue !== "elk" && engineValue !== "dagre") throw new Error('engine must be "elk" or "dagre"');
-          const algorithmValue = raw.algorithm ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm;
-          if (!["layered", "mrtree", "radial", "stress", "force"].includes(String(algorithmValue))) {
-            throw new Error("algorithm must be layered, mrtree, radial, stress, or force");
-          }
-          const directionValue = raw.direction ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction;
-          if (!["RIGHT", "LEFT", "DOWN", "UP"].includes(String(directionValue))) {
-            throw new Error("direction must be RIGHT, LEFT, DOWN, or UP");
-          }
-          const routingValue = raw.edgeRouting ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting;
-          if (!["ORTHOGONAL", "POLYLINE", "SPLINES"].includes(String(routingValue))) {
-            throw new Error("edgeRouting must be ORTHOGONAL, POLYLINE, or SPLINES");
-          }
-          operations.push({
-            op: "auto_layout", target: "active_page",
-            engine: engineValue,
-            algorithm: engineValue === "dagre" ? "layered" : algorithmValue as NativeAutoLayoutOptions["algorithm"],
-            direction: directionValue as NativeAutoLayoutOptions["direction"],
-            nodeSpacing: numericField({ value: raw.nodeSpacing ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing }, "value", 5, 500),
-            layerSpacing: numericField({ value: raw.layerSpacing ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing }, "value", 10, 800),
-            edgeRouting: routingValue as NativeAutoLayoutOptions["edgeRouting"],
-            iterations: Math.round(numericField({ value: raw.iterations ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations }, "value", 20, 3000)),
-            randomSeed: Math.round(numericField({ value: raw.randomSeed ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.randomSeed }, "value", 0, 100000)),
-            margin: numericField({ value: raw.margin ?? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin }, "value", 0, 300)
-          });
-          break;
-        }
-        case "set_style": {
-          const key = raw.key === undefined || raw.key === null ? "fillColor" : raw.key;
-          if (typeof key !== "string" || !NATIVE_EDIT_STYLE_KEYS.includes(key as NativeEditStyleKey)) {
-            throw new Error(`Style key must be one of ${NATIVE_EDIT_STYLE_KEYS.join(", ")}`);
-          }
-          const colorValue = raw.color;
-          if (typeof colorValue !== "string") throw new Error("Style color must be a string");
-          const color = normalizeNativeColor(colorValue);
-          if (!color) throw new Error(`Unsupported color “${colorValue}”`);
-          operations.push({ op: name, target, key: key as NativeEditStyleKey, color });
-          break;
-        }
-        case "move": {
-          const dx = numericField(raw, "dx", -10000, 10000);
-          const dy = numericField(raw, "dy", -10000, 10000);
-          if (dx === 0 && dy === 0) throw new Error("move requires a non-zero dx or dy");
-          operations.push({ op: name, target, dx, dy });
-          break;
-        }
-        case "resize":
-          operations.push({ op: name, target, width: numericField(raw, "width", 1, 10000), height: numericField(raw, "height", 1, 10000) });
-          break;
-        default:
-          throw new Error(`Unsupported operation “${name}”`);
-      }
-    } catch (error) {
-      return { ok: false, error: `Operation ${position}: ${error instanceof Error ? error.message : String(error)}` };
+  for (const [index, operation] of parsed.data.entries()) {
+    if (operation.op === "set_style") {
+      const color = normalizeNativeColor(operation.color);
+      if (!color) return { ok: false, error: `Operation ${index + 1}: Unsupported color “${operation.color}”` };
+      operations.push({ ...operation, color });
+    } else if (operation.op === "move") {
+      if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
+      operations.push(operation);
+    } else if (operation.op === "auto_layout") {
+      operations.push({ ...operation, algorithm: operation.engine === "dagre" ? "layered" : operation.algorithm });
+    } else {
+      operations.push(operation);
     }
   }
   return { ok: true, operations };
