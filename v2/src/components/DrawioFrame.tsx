@@ -694,6 +694,29 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
               continue;
             }
+            const nativeDiff = pending.captureOnFailure
+              ? summarizeNativeDiagramXmlDiff(pending.beforeXml, data.xml)
+              : null;
+            if (pending.deferredBatchAck) {
+              let acknowledgement: NativeEditResult = { ...pending.deferredBatchAck, serializedXml: data.xml };
+              if (pending.captureOnFailure) {
+                const rollbackConfirmed = acknowledgement.batchRolledBack === true &&
+                  nativeDiff?.available === true && nativeDiff.changed === false;
+                if (!rollbackConfirmed) {
+                  const reason = nativeDiff?.available === false
+                    ? "The post-failure XML could not be compared with the pre-script snapshot."
+                    : nativeDiff?.changed
+                      ? "The serialized document differs from the pre-script snapshot."
+                      : "The editor did not explicitly confirm rollback.";
+                  acknowledgement = {
+                    ...acknowledgement,
+                    batchRolledBack: false,
+                    rollbackErrors: [...(acknowledgement.rollbackErrors || []), { cellId: "__document__", error: reason }]
+                  };
+                }
+              }
+              deferredBatchAcks.push(acknowledgement);
+            }
             recordDiagnostic(pending.captureOnFailure ? "drawio.script-failure.serialization.captured" : "drawio.selection.property.save_confirmed",
               pending.captureOnFailure
                 ? "Captured actual native Draw.io XML after script failure for persistence/versioning and agent diagnosis"
@@ -701,8 +724,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path, value: pending.value,
                 captureOnFailure: pending.captureOnFailure === true, durationMs: Date.now() - pending.startedAt,
                 xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization,
-                nativeDiff: summarizeNativeDiagramXmlDiff(pending.beforeXml, data.xml) });
-            if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
+                nativeDiff });
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
