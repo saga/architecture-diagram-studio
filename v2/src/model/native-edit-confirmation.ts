@@ -11,6 +11,7 @@ export interface NativeEditConfirmationInput extends NativeEditOperation {
   beforeXml: string;
   xml: string;
   pageId?: string | null;
+  scriptResult?: unknown;
 }
 
 interface CellRecord {
@@ -416,6 +417,20 @@ function operationIsReflected(
  * visible in the snapshot. Generic autosaves and unrelated edits are not sufficient.
  * Unknown operations fail closed so callers can report a timeout instead of false success.
  */
+function hasVerifiedScriptPostcondition(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const envelope = value as { available?: unknown; value?: unknown };
+  if (envelope.available !== true || !envelope.value || typeof envelope.value !== "object") return false;
+  const result = envelope.value as { verified?: unknown; checks?: unknown };
+  if (result.verified !== true || !Array.isArray(result.checks) || result.checks.length === 0) return false;
+  return result.checks.every((check) => !!check && typeof check === "object" &&
+    typeof (check as { name?: unknown }).name === "string" &&
+    (check as { name: string }).name.trim().length > 0 &&
+    (check as { passed?: unknown }).passed === true &&
+    Object.prototype.hasOwnProperty.call(check, "expected") &&
+    Object.prototype.hasOwnProperty.call(check, "actual"));
+}
+
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
     const before = cellsForXml(input.beforeXml);
@@ -442,6 +457,7 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       const script = documentOperations[0];
       return operations.length === 1 && script.cellId === "__active_page__" &&
         typeof script.value === "string" && Boolean(script.value.trim()) &&
+        hasVerifiedScriptPostcondition(input.scriptResult) &&
         scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
     }
     return documentOperations.every((operation) =>

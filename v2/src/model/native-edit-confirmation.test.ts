@@ -106,8 +106,12 @@ describe("native edit XML confirmation", () => {
       value: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);'
     }]);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
+      scriptResult: { available: true, value: { verified: true, checks: [{ name: "requested change", passed: true, expected: "New API", actual: "New API" }] } }
     })).toBe(true);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
     const whitespaceOnly = before.replace("</root>", "\n  </root>");
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
@@ -121,8 +125,12 @@ describe("native edit XML confirmation", () => {
       value: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);'
     }]);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
+      scriptResult: { available: true, value: { verified: true, checks: [{ name: "requested change", passed: true, expected: "New API", actual: "New API" }] } }
     })).toBe(true);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
     const whitespaceOnly = before.replace("</root>", "\n  </root>");
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch

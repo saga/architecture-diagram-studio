@@ -13,7 +13,7 @@ import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { calculateNativeAutoLayout } from "../layout/native-layout";
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string; script?: string } };
 type Workspace = { id: string } | null;
 
 interface CopilotIntentOptions {
@@ -162,12 +162,16 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       if (plan.outcome === "proposal_required") {
         const safeReply = hideNativeScriptDetails(plan.reply);
         const safeSummary = hideNativeScriptDetails(plan.proposal.summary);
+        const scriptOperation = plan.proposal.operations.find((operation) => operation.op === "run_drawio_script");
+        const reviewScript = scriptOperation?.op === "run_drawio_script" ? scriptOperation.script : undefined;
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: (safeReply || "A diagram change is ready for review.") +
             "\n\n**Proposed changes:** " + (safeSummary || "Apply the proposed diagram changes.") +
+            (reviewScript ? "\n\n原生 Draw.io 脚本（完整内容）：\n" + reviewScript +
+              "\n\n只有实际结果检查全部通过并且序列化 XML 符合预期，才会确认成功。" : "") +
             "\n\nNothing has been changed yet. Confirm to apply this proposal to the current diagram.",
-          proposal: { id: plan.proposal.id, summary: safeSummary || "Apply the proposed diagram changes." }
+          proposal: { id: plan.proposal.id, summary: safeSummary || "Apply the proposed diagram changes.", ...(reviewScript ? { script: reviewScript } : {}) }
         }]);
         return;
       }
@@ -359,8 +363,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   role: "assistant",
                   id: Date.now() + 1,
                   text: "自动修正提案（1/1）： " + repairPlan.proposal.summary +
+                    "\n\n修正脚本（完整内容）：\n" + repairedScript.script +
                     "\n\n尚未执行。确认后才会应用修改。",
-                  proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary }
+                  proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary, script: repairedScript.script }
                 }]);
                 return;
               }

@@ -61,7 +61,7 @@ type NativeEditResult = {
   scriptResult?: unknown;
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
-type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; timeoutId?: number };
+type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; scriptResult?: unknown; timeoutId?: number };
 type PendingRuntimeInspection = {
   resolve: (inspection: DrawioRuntimeInspection) => void;
   reject: (error: Error) => void;
@@ -509,6 +509,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
             const confirmation: PendingSaveConfirmation = {
               ...pending,
+              ...(data.scriptResult !== undefined ? { scriptResult: data.scriptResult } : {}),
               ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
             };
             confirmation.timeoutId = window.setTimeout(() => {
@@ -636,7 +637,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           for (const [requestId, pending] of pendingSaves) {
             const reflected = nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
-              path: pending.path, value: pending.value
+              path: pending.path, value: pending.value, scriptResult: pending.scriptResult
             });
             if (!reflected) {
               recordDiagnostic("drawio.selection.property.save-confirmation.unmatched",
