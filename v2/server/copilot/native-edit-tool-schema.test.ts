@@ -44,7 +44,7 @@ describe("native edit tool parameter schema", () => {
     const requiredByOperation: Record<string, string[]> = {
       select: ["op", "target"],
       set_label: ["op", "target", "label"],
-      set_style: ["op", "target", "color"],
+      set_style: ["op", "target", "key", "color"],
       move: ["op", "target", "dx", "dy"],
       resize: ["op", "target", "width", "height"],
       delete: ["op", "target"],
