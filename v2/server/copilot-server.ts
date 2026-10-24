@@ -1,5 +1,4 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
