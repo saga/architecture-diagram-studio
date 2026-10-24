@@ -284,13 +284,9 @@ function scriptProposingCopilot(script = "return { checked: true };", summary = 
       get session() { return activeSession; },
       send: async () => {
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "propose_native_edits");
-        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
-        await tool.handler({ operations: [{
-          op: "run_drawio_script", target: "active_page",
-          summary,
-          script
-        }] });
+          .find((candidate) => candidate.name === "run_drawio_script");
+        if (!tool?.handler) throw new Error("run_drawio_script tool was not registered");
+        await tool.handler({ summary, script });
         return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
       }
     })
@@ -446,7 +442,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt.length).toBeLessThan(2800);
   });
 
-  it("requires an explicit review proposal even for insertion-only native scripts", async () => {
+  it("dispatches insertion-only native scripts without a confirmation step", async () => {
     const harness = await createServer({
       copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
     });
@@ -456,13 +452,15 @@ describe("Copilot intent route result and revision contract", () => {
     };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    const proposal = body.proposal as { operations: Array<Record<string, unknown>> };
-    expect(proposal.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(body.outcome).toBe("command_ready");
+    const nativeEdits = body.nativeEdits as { operations: Array<Record<string, unknown>> };
+    expect(nativeEdits.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.logs.some((entry) =>
+      entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === SAFE_CREATION_SCRIPT
+    )).toBe(true);
   });
-
-  it("requires a confirmation proposal for a script that does not change the diagram", async () => {
+  it("dispatches no-op scripts without requiring manifest approval or confirmation", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot() });
     const requestContext = {
       kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
@@ -470,33 +468,33 @@ describe("Copilot intent route result and revision contract", () => {
     };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    expect((body.proposal as { operations: Array<{ op: string }> }).operations)
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
       .toMatchObject([{ op: "run_drawio_script", script: "return { checked: true };" }]);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(harness.acknowledgements.pending.size).toBe(1);
   });
-
-  it("requires review before even a single typed deletion", async () => {
+  it("dispatches a single typed deletion without a second confirmation", async () => {
     const harness = await createServer({ copilot: proposingCopilot([{ op: "delete", target: "Database" }]) });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    expect((body.proposal as { operations: Array<{ op: string }> }).operations).toHaveLength(1);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "delete", cellId: "db", targetLabel: "Database" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
   });
-
-  it("rejects native script operations when the runtime capability manifest is absent", async () => {
-    const harness = await createServer({ copilot: scriptProposingCopilot() });
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
-    expect(response.status).toBe(502);
-    expect(body.outcome).toBe("failed");
-    expect(harness.acknowledgements.pending.size).toBe(0);
+  it("allows direct script execution when the runtime capability manifest is absent", async () => {
+    const harness = await createServer({ copilot: scriptProposingCopilot("graph.refresh();") });
+    const requestContext = { kind: "drawio", activePageId: "p1", selectedCell: null, cells: [] };
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "run_drawio_script", script: "graph.refresh();" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
     expect(harness.logs.some((entry) =>
-      entry.event === "tool.propose_native_edits.rejected" &&
-      entry.fields?.reason === "runtime_capability_manifest_missing_or_mismatched"
+      entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === "graph.refresh();"
     )).toBe(true);
   });
-
   it("returns stale_context when the source hash does not match the XML", async () => {
     const harness = await createServer();
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ documentRevision: "forged-revision" }));
@@ -598,55 +596,25 @@ describe("Copilot intent route result and revision contract", () => {
     expect(standaloneHarness.persistSessionId).not.toHaveBeenCalled();
   });
 
-  it("turns broad destructive batches into reviewable proposals and requires a fresh explicit confirmation", async () => {
+  it("dispatches broad destructive batches without a confirmation gate", async () => {
     const harness = await createServer({ copilot: proposingCopilot() });
-    const initial = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
-    expect(initial.response.status).toBe(200);
-    expect(initial.body.outcome).toBe("proposal_required");
-    const proposal = initial.body.proposal as { id: string; summary: string; operations: unknown[]; pageId: string; documentRevision: string };
-    expect(proposal.operations).toHaveLength(2);
-    expect(harness.acknowledgements.pending.size).toBe(0);
-
-    const confirmed = await post(harness.baseUrl, "/api/copilot/intent/confirm", {
-      proposalId: proposal.id,
-      sessionId: "route-test-session",
-      standalone: false,
-      diagramXml: XML,
-      documentRevision: workspaceRevision(XML),
-      context: { activePageId: "p1", selectedCell: null }
-    });
-    expect(confirmed.response.status).toBe(200);
-    expect(confirmed.body.outcome).toBe("command_ready");
-    expect((confirmed.body.nativeEdits as { operations: unknown[] }).operations).toHaveLength(2);
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: unknown[] }).operations).toHaveLength(2);
     expect(harness.acknowledgements.pending.size).toBe(1);
-
-    const replay = await post(harness.baseUrl, "/api/copilot/intent/confirm", {
-      proposalId: proposal.id,
-      sessionId: "route-test-session",
-      standalone: false,
-      diagramXml: XML,
-      documentRevision: workspaceRevision(XML),
-      context: { activePageId: "p1", selectedCell: null }
-    });
-    expect(replay.response.status).toBe(404);
-    expect(replay.body.outcome).toBe("stale_context");
   });
-
-  it("invalidates a proposal when its source revision changes before confirmation", async () => {
+  it("rejects a stale XML revision before dispatch, without prompting for confirmation", async () => {
     const harness = await createServer({ copilot: proposingCopilot() });
-    const initial = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
-    const proposal = initial.body.proposal as { id: string };
-    const changedXml = XML.replace('value="Database"', 'value="Database v2"');
-    const response = await post(harness.baseUrl, "/api/copilot/intent/confirm", {
-      proposalId: proposal.id, sessionId: "route-test-session", standalone: false,
-      diagramXml: changedXml, documentRevision: workspaceRevision(changedXml),
-      context: { activePageId: "p1", selectedCell: null }
-    });
-    expect(response.response.status).toBe(409);
-    expect(response.body.outcome).toBe("stale_context");
-    expect(harness.acknowledgements.pending.size).toBe(0);
+    const editedXml = XML.replace('value="Database"', 'value="Warehouse"');
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      diagramXml: editedXml, documentRevision: workspaceRevision(editedXml)
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect((body.nativeEdits as { documentRevision: string }).documentRevision).toBe(workspaceRevision(editedXml));
   });
-
   it("does not consult or persist workspace state for standalone requests", async () => {
     const harness = await createServer({ copilot: reportingCopilot("answered", "This is a standalone diagram.") });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ standalone: true }));
