@@ -140,7 +140,14 @@ function parseSelection(value: unknown): { cellId: string; pageId: string | null
 
 function parseResolvedNativeOperations(value: unknown): ResolvedNativeEditOperation[] {
   if (!Array.isArray(value)) throw new Error("The native edit proposal must contain an operation list");
-  const parsed = parseNativeEditOperations(value);
+  // Resolved-target metadata is validated separately from the strict operation contract. It is
+  // intentionally not part of the model-authored operation schema or the Copilot tool schema.
+  const operationInputs = value.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const { cellId: _cellId, targetLabel: _targetLabel, ...operation } = raw as Record<string, unknown>;
+    return operation;
+  });
+  const parsed = parseNativeEditOperations(operationInputs);
   if (!parsed.ok) throw new Error("The agent returned an invalid native edit batch: " + parsed.error);
   return parsed.operations.map((operation, index) => {
     const source = value[index] as Record<string, unknown>;
