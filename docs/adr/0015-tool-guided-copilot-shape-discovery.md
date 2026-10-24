@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0014 — Typed Native Draw.io C4 Conversion](./0014-typed-native-drawio-c4-conversion.md)
+- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0019 — Additive Native C4 Elements](./0019-additive-native-c4-elements.md). ADR-0014 records the superseded approach.
 
 ## Context
 
