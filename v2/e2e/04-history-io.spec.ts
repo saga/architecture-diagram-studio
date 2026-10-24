@@ -83,7 +83,7 @@ test.describe("版本历史与文件交换", () => {
     ]);
 
     await page.getByRole("button", { name: "Open Draw.io", exact: true }).click();
-    await expect(page.locator(".status-left")).toContainText("browser file-handle autosave enabled");
+    await expect(page.locator(".document-breadcrumb strong")).toHaveText("architecture.drawio");
     await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
 
     await setNextBrowserFile(page, "standalone-update.drawio");
