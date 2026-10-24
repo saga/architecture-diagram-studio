@@ -270,7 +270,7 @@ describe("native Draw.io script bridge", () => {
   });
 
 
-  it("adds a node using the source cell style and dimensions without inventing edge styling", () => {
+  it("adds a node with Draw.io default styling and source-derived dimensions without inventing edge styling", () => {
     const harness = createHarness();
     harness.service.geometry = mockGeometry(10, 20, 180, 90);
     harness.service.style = "shape=hexagon;fillColor=#f0f0f0;strokeColor=#444444;";
