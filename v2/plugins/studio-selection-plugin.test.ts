@@ -133,7 +133,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   const graph: Record<string, any> = {
     gridSize: 10,
     insertVertex: (parent: MockCell, _id: string | null, value: string, x: number, y: number, width: number, height: number, style?: string | null) => {
-      const created = makeCell("created-" + (++generatedCellCount), { vertex: true, style: style ?? "" });
+      const created = makeCell("created-" + (++generatedCellCount), { vertex: true, style: style ?? "drawio-default-vertex-style;" });
       created.value = value;
       created.geometry = mockGeometry(x, y, width, height);
       append(parent, created);
@@ -280,7 +280,8 @@ describe("native Draw.io script bridge", () => {
     const [node, edge] = harness.getCreatedCells();
     expect(node).toBeTruthy();
     expect(node.value).toBe("Cache");
-    expect(node.style).toBe("");
+    expect(node.style).toBe("drawio-default-vertex-style;");
+    expect(node.style).not.toContain("shape=hexagon");
     expect(node.geometry).toMatchObject({ x: 200, y: 20, width: 180, height: 90 });
     expect(edge).toMatchObject({ edge: true, source: harness.service, target: node, style: "" });
     expect(edge.style).not.toContain("endArrow=");
