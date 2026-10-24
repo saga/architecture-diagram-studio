@@ -262,7 +262,7 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
       "var created = graph.insertVertex(parent, null, '" + scriptMarker + "', 120, 180, 160, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
       "graph.refresh();",
       "return { cellId: created.id, label: graph.convertValueToString(created) };"
-    ].join("\\n");
+    ].join("\n");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
