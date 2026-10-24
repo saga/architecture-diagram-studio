@@ -446,7 +446,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt.length).toBeLessThan(2800);
   });
 
-  it("auto-dispatches insertion-only native scripts after static validation", async () => {
+  it("requires an explicit review proposal even for insertion-only native scripts", async () => {
     const harness = await createServer({
       copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
     });
@@ -456,10 +456,10 @@ describe("Copilot intent route result and revision contract", () => {
     };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    const nativeEdits = body.nativeEdits as { operations: Array<Record<string, unknown>> };
-    expect(nativeEdits.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
-    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(body.outcome).toBe("proposal_required");
+    const proposal = body.proposal as { operations: Array<Record<string, unknown>> };
+    expect(proposal.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
   it("requires a confirmation proposal for a script that does not change the diagram", async () => {

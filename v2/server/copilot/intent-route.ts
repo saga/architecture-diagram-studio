@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
-import { CopilotRuntime, describeCopilotFailure } from "./runtime";
+import { CopilotRuntime, CopilotSessionBusyError, describeCopilotFailure } from "./runtime";
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import {
   describeNativeEditOperation,
@@ -10,7 +10,6 @@ import {
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
 import { resolveNativeEditTargets } from "./native-edit-tool";
-import { isAutoConfirmableCreationScript } from "./native-script-auto-confirm";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
@@ -149,16 +148,16 @@ function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[],
   // Whole-page geometry changes are intentionally reviewable, while still being an agent-native typed operation.
   if (operations.some((operation) => operation.op === "auto_layout")) return true;
   const scripts = operations.filter((operation) => operation.op === "run_drawio_script");
-  if (scripts.length > 0) {
-    if (scripts.length !== 1 || operations.length !== 1) return true;
-    const script = scripts[0];
-    return script.op !== "run_drawio_script" || !isAutoConfirmableCreationScript(script.script);
-  }
+  // Arbitrary native scripts can mutate XML without fulfilling user intent; always show a review proposal.
+  if (scripts.length > 0) return true;
   const deletes = operations.filter((operation) => operation.op === "delete").length;
   return deletes >= 1 || operations.length >= 10;
 }
 
 function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): string {
+  if (operations.some((operation) => operation.op === "run_drawio_script")) {
+    return "Review the native Draw.io script and expected postcondition checks before applying it. Studio only confirms success if the serialized XML and script verification results pass.";
+  }
   if (operations.some((operation) => operation.op === "auto_layout")) {
     return "Review this whole-page layout change before applying it. Studio will calculate positions with its configured Dagre/ELK engine, then update only native cell geometry and connector waypoints.";
   }
@@ -623,6 +622,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
   }
 
   app.post("/api/copilot/intent", async (req, res) => {
+    let requestCancelled = false;
+    let abortActiveTurn: (() => Promise<unknown>) | null = null;
+    res.once("close", () => {
+      if (res.writableEnded) return;
+      requestCancelled = true;
+      if (abortActiveTurn) void abortActiveTurn().catch(() => undefined);
+    });
     const requestId = randomUUID();
     const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
     const requestedContext = req.body?.context;
@@ -890,7 +896,17 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         }
       });
       await deps.writeLog("request.session.acquire.completed", { requestId, sessionId, sdkSessionId: runtime.sdkSessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", durationMs: Date.now() - acquireStartedAt });
+      abortActiveTurn = () => runtime.session.abort();
+      if (requestCancelled) {
+        await runtime.session.abort().catch(() => undefined);
+        return;
+      }
       const plan = await deps.copilot.withTurn(sessionId, async (turn) => {
+        abortActiveTurn = () => turn.session.session.abort();
+        if (requestCancelled) {
+          await turn.session.session.abort().catch(() => undefined);
+          throw new Error("Copilot request cancelled by client.");
+        }
         // Keep the complete server-derived target index private to tools. The model-facing context is
         // intentionally capped for prompt size, but target uniqueness must be checked against every cell
         // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
@@ -931,6 +947,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         });
         let modelText = "";
         const sendAttempt = async (attempt: number, requestPrompt: string, reason?: string): Promise<void> => {
+          if (requestCancelled) throw new Error("Copilot request cancelled by client.");
           const callStartedAt = Date.now();
           const timeoutMs = Math.max(0, turnDeadlineAt - callStartedAt);
           if (timeoutMs === 0) {
@@ -943,7 +960,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             requestPrompt, standalone, toolCount: turn.session.prepared.tools.length,
             ...(reason ? { reason } : {})
           });
-          const result = await turn.send({ prompt: requestPrompt }, timeoutMs, { requestId, attempt });
+          const result = await turn.send({ prompt: requestPrompt }, timeoutMs, { requestId, attempt }, () => requestCancelled);
           if (result.usage) usageSamples.push(result.usage);
           modelCallUsages.push(...result.modelCallUsages);
           contextUsage = result.contextUsage ?? contextUsage;
@@ -1096,6 +1113,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         requestId, ...shared
       });
     } catch (error) {
+      abortActiveTurn = null;
       contextBySession.delete(sessionId);
       pendingNativeEdits.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
@@ -1103,6 +1121,19 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       pendingTerminalIntents.delete(sessionId);
       conflictingTerminalIntents.delete(sessionId);
       const message = error instanceof Error ? error.message : String(error);
+      if (requestCancelled || res.destroyed) {
+        await deps.writeLog("turn.cancelled", { requestId, sessionId, stage: "client-disconnected", errorMessage: message.slice(0, 300) });
+        return;
+      }
+      if (error instanceof CopilotSessionBusyError) {
+        await deps.writeLog("turn.rejected.busy", { requestId, sessionId, reason: message });
+        res.status(429).json({
+          outcome: "busy",
+          reply: "This Copilot session is already processing another request. Wait for it to finish before sending another instruction.",
+          error: message, requestId, sessionId
+        });
+        return;
+      }
       const actualModel = deps.copilot.lastObservedModel(sessionId);
       const noMutationOutcome = classifyNoMutationFailure(message);
       if (noMutationOutcome) {
