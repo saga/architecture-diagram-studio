@@ -628,7 +628,8 @@
             path: failedOperation && failedOperation.path || null, value: failedOperation && failedOperation.value || null,
             success: false,
             error: (error && error.name ? String(error.name) + ": " : "") +
-              (error && error.message ? String(error.message) : String(error)) });
+              (error && error.message ? String(error.message) : String(error)),
+            stack: error && error.stack ? String(error.stack).slice(0, 8000) : null });
           for (var createdIndex = batchCreatedCells.length - 1; createdIndex >= 0; createdIndex--) {
             try {
               var createdCell = batchCreatedCells[createdIndex];
@@ -1139,6 +1140,7 @@
         } catch (error) {
           publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path,
             error: error && error.message ? String(error.message) : String(error),
+            errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null,
             batchResults: error && error.batchResults || null,
             failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null,
             rollbackErrors: error && error.rollbackErrors || [],
