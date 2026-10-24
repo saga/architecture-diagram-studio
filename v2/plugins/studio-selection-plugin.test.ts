@@ -280,7 +280,7 @@ describe("native Draw.io script bridge", () => {
     const [node, edge] = harness.getCreatedCells();
     expect(node).toBeTruthy();
     expect(node.value).toBe("Cache");
-    expect(node.style).toBe(harness.service.style);
+    expect(node.style).toBe("");
     expect(node.geometry).toMatchObject({ x: 200, y: 20, width: 180, height: 90 });
     expect(edge).toMatchObject({ edge: true, source: harness.service, target: node, style: "" });
     expect(edge.style).not.toContain("endArrow=");
