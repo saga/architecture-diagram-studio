@@ -79,8 +79,7 @@ export async function installFileSystemAccessMock(
               body: JSON.stringify({ name, content: pending })
             });
             if (!response.ok) throw new Error("Mock file write failed: HTTP " + response.status);
-            const previous = state.get(name);
-            state.set(name, { name, content: pending, lastModified: Date.now() + 1, ...(previous ? {} : {}) });
+            state.set(name, { name, content: pending, lastModified: Date.now() + 1 });
           },
           async abort() { pending = ""; }
         };
