@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSerializedWriteQueue, isWorkspaceSaveContextCompatible, matchesWorkspaceRevision, retainRecentVersions, runCompensatingTransaction, workspaceRevision } from "./storage";
+import { canExternalizeWorkspaceXml, createSerializedWriteQueue, isWorkspaceSaveContextCompatible, matchesWorkspaceRevision, retainRecentVersions, runCompensatingTransaction, workspaceRevision } from "./storage";
 describe("server persistence primitives", () => {
   it("retains the most recent bounded number of versions per workspace", () => {
     const versions = Array.from({ length: 8 }, (_, index) => ({ id: "v" + index, workspaceId: "a" }));
@@ -30,6 +30,15 @@ describe("server persistence primitives", () => {
       { id: "newest", workspaceId: "w", drawioXml: "12" }
     ];
     expect(retainRecentVersions(versions, 10, 10, 6, 6).map((item) => item.id)).toEqual(["newer", "newest"]);
+  });
+  it("externalizes XML only when the matching native source file has the exact current revision", () => {
+    const state = { workspaceId: "w1", diagramPath: "architecture.drawio", drawioXml: "<mxfile/>" };
+    const workspace = { id: "w1", primaryDiagram: "architecture.drawio" };
+    expect(canExternalizeWorkspaceXml(state, workspace, workspaceRevision("<mxfile/>"))).toBe(true);
+    expect(canExternalizeWorkspaceXml(state, workspace, workspaceRevision("<mxfile changed/>"))).toBe(false);
+    expect(canExternalizeWorkspaceXml(state, { ...workspace, id: "w2" }, workspaceRevision("<mxfile/>"))).toBe(false);
+    expect(canExternalizeWorkspaceXml(state, { ...workspace, primaryDiagram: null }, workspaceRevision("<mxfile/>"))).toBe(false);
+    expect(canExternalizeWorkspaceXml(state, workspace, null)).toBe(false);
   });
   it("accepts only a supplied revision equal to the current server revision", () => {
     expect(matchesWorkspaceRevision(undefined, null)).toBe(false);

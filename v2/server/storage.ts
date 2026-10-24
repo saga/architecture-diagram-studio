@@ -30,6 +30,19 @@ export function isWorkspaceSaveContextCompatible(
 export function workspaceRevision(drawioXml: string | null): string {
   return createHash("sha256").update(drawioXml ?? "").digest("hex");
 }
+
+/** XML can be omitted from persisted workspace state only if the matching native source file is authoritative. */
+export function canExternalizeWorkspaceXml(
+  state: { workspaceId?: string; diagramPath?: string | null; drawioXml?: string | null },
+  workspace: { id: string; primaryDiagram: string | null } | null,
+  diskRevision: string | null
+): boolean {
+  if (!workspace || !workspace.primaryDiagram || typeof state.drawioXml !== "string") return false;
+  if (!/\.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram)) return false;
+  return state.workspaceId === workspace.id &&
+    state.diagramPath === workspace.primaryDiagram &&
+    diskRevision === workspaceRevision(state.drawioXml);
+}
 export function retainRecentVersions<T extends { id: string; workspaceId?: string; diagramPath?: string | null; drawioXml?: string }>(
   versions: T[], maxPerWorkspace: number, maxTotalVersions = 500,
   maxBytesPerWorkspace = Number.MAX_SAFE_INTEGER, maxTotalBytes = Number.MAX_SAFE_INTEGER

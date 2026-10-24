@@ -15,7 +15,7 @@ import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-f
 import { createLocalDiagramFileService, LocalDiagramFileError } from "./local-diagram-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
-import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
+import { canExternalizeWorkspaceXml, createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 import { defaultStudioHome, resolveStudioStorageLayout, type StudioStorageLayout } from "./storage-layout";
 import { createRuntimeScopeLeaseManager } from "./runtime-scope-lease";
 
@@ -239,7 +239,25 @@ async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
 }
 
 async function persistWorkspaceState(state: WorkspaceState | null = workspaceState): Promise<void> {
-  if (state) await writeJsonAtomic(WORKSPACE_FILE, state);
+  if (!state) return;
+  let persistedState = state;
+  const workspace = activeStorageWorkspace;
+  if (state.drawioXml && workspace?.id === state.workspaceId &&
+      workspace.primaryDiagram && state.diagramPath === workspace.primaryDiagram &&
+      /\.(?:drawio|dio|xml)$/i.test(workspace.primaryDiagram)) {
+    try {
+      const { absolutePath } = await resolveWorkspaceFile(workspace.primaryDiagram, { allowMissingFile: true });
+      const sourceXml = await readFile(absolutePath, "utf8");
+      if (canExternalizeWorkspaceXml(state, workspace, workspaceRevision(sourceXml))) {
+        persistedState = { ...state, drawioXml: null };
+      }
+    } catch (error) {
+      // If the source is missing, unreadable or has been replaced with something unexpected,
+      // keep the current XML in workspace state as a recovery copy instead of losing it.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  await writeJsonAtomic(WORKSPACE_FILE, persistedState);
 }
 
 const DIAGRAM_VERSION_XML_DIR_NAME = "diagram-version-xml";
@@ -301,8 +319,11 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
       chatMessages: Array.isArray(stored.chatMessages) ? stored.chatMessages : [],
       updatedAt: typeof stored.updatedAt === "string" ? stored.updatedAt : null
     };
-    // Discard the obsolete persisted projection field the first time XML-only state is written.
-    if (Object.prototype.hasOwnProperty.call(stored, "document")) await persistWorkspaceState(workspaceState);
+    // Migrate older full-XML state only after verifying that its workspace primary file is the same revision.
+    // If the source is missing or differs, persistWorkspaceState deliberately retains the XML recovery copy.
+    if (Object.prototype.hasOwnProperty.call(stored, "document") || typeof stored.drawioXml === "string") {
+      await persistWorkspaceState(workspaceState);
+    }
   }
 
   if (typeof workspaceState.drawioXml !== "string") {
