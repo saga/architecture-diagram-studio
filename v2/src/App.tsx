@@ -535,6 +535,7 @@ export default function App() {
       if (!edits.length) return Promise.resolve({ ok: false, error: "No native edits were supplied", rolledBack: false, steps: [] });
       const requestId = ++cellEditRequestSequenceRef.current;
       await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
+      const containsScript = edits.some((edit) => edit.path === "cell:execute-script");
       return new Promise((resolve) => {
         nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
@@ -557,8 +558,13 @@ export default function App() {
           const pending = nativeEditResolversRef.current.get(requestId);
           if (!pending) return;
           nativeEditResolversRef.current.delete(requestId);
-          recordDiagnostic("copilot.native-edits.timeout", "The native Draw.io editor did not acknowledge a Copilot batch", { requestId, editCount: edits.length }, "error");
+          nativeEditAckContextsRef.current.delete(requestId);
+          setCellEditRequest((current) => current?.requestId === requestId ? null : current);
+          recordDiagnostic("copilot.native-edits.timeout", "The native Draw.io editor did not acknowledge a Copilot batch", {
+            requestId, editCount: edits.length, containsScript
+          }, "error");
           resolve({ ok: false, error: "The native editor did not acknowledge the batch within 30 seconds.", rolledBack: false, steps: [] });
+          if (containsScript) drawioFrameRef.current?.recoverFromLastSavedXml();
         }, 30_000);
       });
     }
@@ -1570,10 +1576,11 @@ export default function App() {
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Same-origin local Draw.io bundle · no hosted embed">Local Draw.io {DRAWIO_VERSION}</span>
-          <span className={nativeScriptSupported ? "status-native" : "status-native status-warn"}
-            title={(nativeEditorReady ? "Native editor ready · edits autosave back into Studio" : "Waiting for the Draw.io embed handshake") +
-              (nativeScriptSupported ? " · Pinned Draw.io script API manifest verified" : " · Script operations disabled until the pinned Draw.io API manifest matches")}>
-            {nativeEditorReady ? "Native editor ready" : "Connecting to Draw.io…"} · {nativeScriptSupported ? "Native script ready" : "Native script disabled"}
+          <span className={nativeEditorReady ? "status-native" : "status-native status-warn"}
+            title={nativeEditorReady
+              ? "Native Draw.io editor ready · AI scripts use the live editor API and save through Studio"
+              : "Waiting for the native Draw.io editor handshake"}>
+            {nativeEditorReady ? "Native editor ready · AI execution enabled" : "Connecting to Draw.io…"}
           </span>
         </div></div>
       </main>
