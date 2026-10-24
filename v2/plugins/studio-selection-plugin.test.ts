@@ -270,16 +270,16 @@ describe("native Draw.io script bridge", () => {
   });
 
 
-  it("adds a node with Draw.io default styling and source-derived dimensions without inventing edge styling", () => {
+  it("adds a node with Draw.io default styling and source-derived dimensions without inventing edge styling or rewriting its label", () => {
     const harness = createHarness();
     harness.service.geometry = mockGeometry(10, 20, 180, 90);
     harness.service.style = "shape=hexagon;fillColor=#f0f0f0;strokeColor=#444444;";
-    const result = harness.runOperation("service", "cell:add-node-after", JSON.stringify({ label: "Cache" }));
+    const result = harness.runOperation("service", "cell:add-node-after", JSON.stringify({ label: " Cache " }));
 
     expect(result).toMatchObject({ event: "studioPropertyEditResult", success: true });
     const [node, edge] = harness.getCreatedCells();
     expect(node).toBeTruthy();
-    expect(node.value).toBe("Cache");
+    expect(node.value).toBe(" Cache ");
     expect(node.style).toBe("drawio-default-vertex-style;");
     expect(node.style).not.toContain("shape=hexagon");
     expect(node.geometry).toMatchObject({ x: 200, y: 20, width: 180, height: 90 });
