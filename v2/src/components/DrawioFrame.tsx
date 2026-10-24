@@ -757,6 +757,16 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
 
   function retryEditor(recovery = false) {
     rejectPendingAutoLayout(new Error("Draw.io editor was re-initialised before auto layout completed."));
+    for (const pending of pendingSaveConfirmationsRef.current.values()) {
+      if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+    }
+    pendingSaveConfirmationsRef.current.clear();
+    pendingNativeEditsRef.current.clear();
+    for (const pending of pendingRuntimeInspectionsRef.current.values()) {
+      window.clearTimeout(pending.timeoutId);
+      pending.reject(new Error("Draw.io editor was reloaded before runtime inspection completed."));
+    }
+    pendingRuntimeInspectionsRef.current.clear();
     recordDiagnostic(recovery ? "drawio.script-watchdog.recovery" : "drawio.retry",
       recovery ? "Reloading the Draw.io iframe from Studio's latest saved XML after a script execution timeout" : "The user asked to re-initialise the Draw.io editor",
       { previousFrameKey: frameKey, recoverySource: recovery ? "latest-studio-xml" : "manual" }, recovery ? "error" : "warn");
