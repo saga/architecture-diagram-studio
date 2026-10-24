@@ -137,7 +137,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
     seen.add(id);
     const rawLabel = wrapper?.getAttribute("label") || wrapper?.getAttribute("value") ||
       cell.getAttribute("value") || cell.getAttribute("label") || "";
-    result.push({ id, name: plainNativeLabel(rawLabel) || id, cellType: vertex ? "vertex" : "edge" });
+    result.push({ id, name: plainNativeLabel(rawLabel), cellType: vertex ? "vertex" : "edge" });
   }
   return result;
 }
@@ -188,12 +188,6 @@ const nativeEditOperationOptions = {
       .default("fillColor").describe("Optional; defaults to fillColor when omitted."),
     color: z.string().trim().min(1, { message: "color must not be empty" }).max(40, { message: "color exceeds 40 characters" })
       .describe("Required color value, such as #ff0000 or 红色.")
-  }).strict(),
-  setC4Type: z.object({
-    op: z.literal("set_c4_type"),
-    target: nativeTargetSchema.describe("Exact ID or unique label of an existing vertex. Edges, groups, and layer/root cells are not valid C4 targets."),
-    kind: z.enum(["person", "system", "external"], { message: 'kind must be "person", "system", or "external"' })
-      .describe("Apply the pinned Draw.io C4 palette style and placeholder-backed C4 label. person uses mxgraph.c4.person2; system/external use the official C4 rounded-card styles, not a custom shape. Never substitute umlActor or swimlane.")
   }).strict(),
   runScript: z.object({
     op: z.literal("run_drawio_script"),
@@ -250,7 +244,7 @@ const nativeEditOperationOptions = {
 /** The single runtime contract for all Copilot-visible native edits. */
 export const NativeEditOperationSchema = z.discriminatedUnion("op", [
   nativeEditOperationOptions.select, nativeEditOperationOptions.setLabel, nativeEditOperationOptions.setStyle,
-  nativeEditOperationOptions.setC4Type, nativeEditOperationOptions.runScript, nativeEditOperationOptions.autoLayout,
+  nativeEditOperationOptions.runScript, nativeEditOperationOptions.autoLayout,
   nativeEditOperationOptions.move, nativeEditOperationOptions.resize, nativeEditOperationOptions.delete,
   nativeEditOperationOptions.addNodeAfter, nativeEditOperationOptions.addNodeBelow
 ]);
@@ -301,15 +295,16 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
 }
 
 /** One-line, user-facing description of a planned operation. */
-export function describeNativeEditOperation(operation: NativeEditOperation & { targetLabel?: string }): string {
+export function describeNativeEditOperation(operation: NativeEditOperation & { targetLabel?: string; cellId?: string }): string {
   const target = typeof operation.targetLabel === "string" && operation.targetLabel.trim()
     ? operation.targetLabel.trim()
-    : operation.target;
+    : operation.cellId && operation.target === operation.cellId
+      ? "unnamed element"
+      : operation.target;
   switch (operation.op) {
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
-    case "set_c4_type": return `Convert “${target}” to the native C4 ${operation.kind === "person" ? "Person" : operation.kind === "system" ? "Software System" : "External Software System"} style`;
     case "run_drawio_script": return operation.summary;
     case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
       " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
@@ -370,9 +365,6 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "set_style":
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
-        break;
-      case "set_c4_type":
-        edits.push({ cellId, path: "cell:set-c4-type", value: JSON.stringify({ kind: operation.kind }) });
         break;
       case "run_drawio_script":
         edits.push({ cellId, path: "cell:execute-script", value: operation.script });
