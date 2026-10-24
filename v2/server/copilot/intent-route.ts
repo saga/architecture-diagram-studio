@@ -544,7 +544,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createRunDrawioScriptTool(sessionId: string) {
     return defineTool("run_drawio_script", {
-      description: "Execute JavaScript directly against the live local Draw.io editor runtime. This is the primary full-capability path for graph operations not covered cleanly by typed edits. Use the actual runtime objects and APIs; inspect the runtime or get_drawio_reference when useful, execute without a confirmation step, and let Studio persist the resulting native XML/version. You may create/reconnect edges, alter geometry and routing, choose shapes/styles, group/reparent cells, and use other native editor capabilities without requesting new typed operations. Return a useful result or throw a descriptive error. The script executes in the editor frame, not in Node.js.",
+      description: "Execute JavaScript directly against the live local Draw.io editor runtime. This is the primary full-capability path for native graph operations. Use the actual runtime objects and APIs; inspect the runtime or get_drawio_reference when useful, execute without a confirmation step, and let Studio persist the resulting native XML/version. You may create/reconnect edges, alter geometry and routing, choose shapes/styles, group/reparent cells, manage pages/layers, and use other available native editor capabilities without requesting new typed operations. This is a terminal action for the current model turn: after calling it, do not call another terminal or mutating tool. The actual editor action happens after this model call ends; do not claim success in the tool-call turn. The script executes in the editor frame, not in Node.js.",
       parameters: {
         type: "object",
         properties: {
@@ -584,7 +584,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           execution: "after_model_turn",
           summary,
           scriptLength: args.script.length,
-          instructions: "The script will execute automatically after this model turn. Inspect the returned execution receipt and serialized XML before claiming success; if it fails, use the exact error and runtime state to produce a corrected script."
+          terminal: true,
+          instructions: "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Do not claim success in this turn; Studio will report the acknowledged result, and may ask for one corrected script if execution fails and rollback is confirmed."
         };
       }
     });
