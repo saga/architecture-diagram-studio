@@ -197,7 +197,7 @@ const nativeEditOperationOptions = {
     target: z.literal("active_page").describe("Execute inside the current native Draw.io editor and active page."),
     summary: z.string().trim().min(1, { message: "summary must not be empty" }).max(1000, { message: "summary exceeds 1000 characters" })
       .describe("Concise user-facing description of the intended diagram change."),
-    script: z.string().trim().min(1, { message: "script must be a non-empty JavaScript program" })
+    script: z.string().min(1, { message: "script must be a non-empty JavaScript program" })
       .max(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH, { message: `script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters` })
       .describe("Synchronous JavaScript for the pinned local Draw.io runtime. Use only when no typed operation can express the effect; do not author XML, manage pages, access network/storage or invoke save/exit actions. Only the reviewed insert-only subset may auto-dispatch.")
   }).strict(),
