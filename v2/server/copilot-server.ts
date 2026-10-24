@@ -737,7 +737,15 @@ app.use("/api", async (req, res, next) => {
     res.off("close", markClosed);
     res.once("finish", releaseOnce);
     res.once("close", releaseOnce);
-    await setRuntimeStorageScope(standalone ? null : requestedWorkspace);
+    const latestWorkspace = await getProjectWorkspace();
+    if (!standalone && latestWorkspace?.id !== requestedWorkspace?.id && !scopeTransition) {
+      releaseOnce();
+      res.status(409).json({ error: "The active workspace changed while this request was waiting. Retry against the current workspace." });
+      return;
+    }
+    // A scope-transition request runs exclusively. Re-read the workspace after waiting so it
+    // cannot switch the mutable runtime back to a workspace that was active before the transition.
+    await setRuntimeStorageScope(standalone ? null : latestWorkspace);
     next();
   } catch (error) {
     releaseOnce();

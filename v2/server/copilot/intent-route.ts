@@ -896,11 +896,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         }
       });
       await deps.writeLog("request.session.acquire.completed", { requestId, sessionId, sdkSessionId: runtime.sdkSessionId, model: runtime.model, reasoningEffort: runtime.reasoningEffort || "model-default", durationMs: Date.now() - acquireStartedAt });
-      abortActiveTurn = () => runtime.session.abort();
-      if (requestCancelled) {
-        await runtime.session.abort().catch(() => undefined);
-        return;
-      }
+      if (requestCancelled) return;
       const plan = await deps.copilot.withTurn(sessionId, async (turn) => {
         abortActiveTurn = () => turn.session.session.abort();
         if (requestCancelled) {
