@@ -50,6 +50,13 @@ The server passes the selected page's native cell IDs, labels and cell types to 
 
 Supported edits include select, rename, fill/stroke/font color, move, resize, delete, `add_node_after`, `add_node_below`, typed C4 conversion (`set_c4_type`: Person, Software System, External Software System), and the configurable `auto_layout` operation. C4 conversion uses the pinned Draw.io palette styles, placeholder-backed labels and semantic XML postconditions. It never substitutes a UML actor or swimlane; if the C4 Person shape is unavailable, the operation fails without a fallback. See [ADR-0014](../docs/adr/0014-typed-native-drawio-c4-conversion.md). A bounded typed batch that does not trigger the server's review gate executes after target uniqueness, page and revision checks without a separate confirmation click. Every whole-page `auto_layout` and all review-gated batches require explicit confirmation. A narrowly allowlisted insert-only script may auto-dispatch only after the server-side AST, runtime-manifest and revision checks; scripts are not a substitute for layout, and script bodies are not shown in chat. The browser applies edits through the Draw.io bridge and waits for editor acknowledgement and persistence. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
 
+### AI-first native execution target
+
+The accepted design direction is to make direct JavaScript execution against the live native Draw.io runtime the agent's full-capability path, while keeping typed operations as convenience shortcuts. The target removes script AST/manifest checks as permission gates and removes mandatory confirmation that exists only because a script is being executed. XML snapshots, normal persistence/version acknowledgement, complete local execution traces, and iframe reload recovery handle mistakes operationally. The document model remains native Draw.io XML.
+
+**Implementation status:** this is the target design, not a claim that the current code already follows it. The current script route still has its existing checks and dispatch behavior until the implementation plan is completed. See [ADR-0018](../docs/adr/0018-ai-first-native-drawio-execution.md).
+
+
 ## Copilot session permission and authentication callbacks
 
 Every Studio session config registers `onPermissionRequest` and `onMcpAuthRequest` before either `resumeSession` or `createSession` is called. Missing permission handlers can leave SDK permission requests pending while the caller waits for `sendAndWait`; a returned `session.idle` event is not a substitute for registering the policy callback or resolving the pending permission RPC.
