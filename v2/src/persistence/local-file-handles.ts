@@ -96,7 +96,7 @@ export async function chooseDrawioFile(): Promise<StudioLocalFileHandle | null> 
 
 /** Opens the browser's native Save dialog; the returned handle owns the export destination. */
 export async function chooseDrawioSaveFile(suggestedName: string): Promise<StudioLocalFileHandle> {
-  const picker = window as FilePickerWindow;
+  const picker = window as unknown as FilePickerWindow;
   if (typeof picker.showSaveFilePicker !== "function") {
     throw new Error("This browser does not support the native file save picker required to export a local Draw.io file. Use a current Chromium-based browser.");
   }
