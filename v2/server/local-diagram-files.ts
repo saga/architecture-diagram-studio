@@ -144,6 +144,22 @@ export function createLocalDiagramFileService(options: {
     return { path: resolved.path, name: path.basename(resolved.path), xml, revision: digest(xml), size: info.size };
   }
 
+  async function atomicReplace(filePath: string, content: string, mode: number): Promise<void> {
+    const temporaryPath = filePath + "." + randomUUID() + ".tmp";
+    const handle = await open(temporaryPath, "wx", mode);
+    try {
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      await unlink(temporaryPath).catch(() => undefined);
+      throw error;
+    }
+    await handle.close();
+    try { await rename(temporaryPath, filePath); }
+    catch (error) { await unlink(temporaryPath).catch(() => undefined); throw error; }
+  }
+
   function historyDirectoryFor(binding: OpenFileBinding): string {
     return path.join(historyDirectory, digest(binding.path));
   }
