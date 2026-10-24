@@ -2,7 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](./0013-studio-owned-layout-engines.md), [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md), [ADR-0010 — Unified Server-Side Copilot Intent Processing](./0010-unified-server-side-copilot-intent-processing.md)
+- Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](./0013-studio-owned-layout-engines.md), [ADR-0018 — AI-First Native Draw.io Execution](./0018-ai-first-native-drawio-execution.md), [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md), [ADR-0010 — Unified Server-Side Copilot Intent Processing](./0010-unified-server-side-copilot-intent-processing.md)
+
+> **Execution policy update:** ADR-0018 supersedes any interpretation of this ADR that treats `run_drawio_script` as only a fallback for gaps in the typed vocabulary. The script tool is the primary full-capability native-editor path; typed operations and `auto_layout` remain validated shortcuts for common deterministic workflows. The no-shadow-model, current-revision, native bridge, XML acknowledgement and persistence contracts below remain in force.
 
 ## Context
 
@@ -21,7 +23,7 @@ Keep the native Draw.io XML and editor as the only document model and canvas. Ad
 ### Contract boundaries
 
 1. **Input context is native and revision-bound.** A capability receives the authoritative XML snapshot, its server-issued revision, active page ID, selected cell ID, and the lightweight native-cell target index. This context is transient and read-only, not a persisted graph model.
-2. **Mutation capabilities target the native editor.** Focused edits use shared typed operations. Whole-page Dagre/ELK layout must use the typed, configurable `auto_layout` operation defined by ADR-0013; do not replace it with a Draw.io built-in layout action or hand-written layout script. Other complex style/structural edits may use one revision-bound `run_drawio_script` command against the actual Draw.io Graph/Model API. Scripts must not return replacement XML, write files, or create a parallel graph model.
+2. **Mutation capabilities target the native editor.** Use shared typed operations as the fast path for common deterministic edits. Whole-page Dagre/ELK layout must use the typed, configurable `auto_layout` operation defined by ADR-0013; do not replace it with a Draw.io built-in layout action or hand-written layout script. `run_drawio_script` is the primary full-capability path for native editing outside those shortcuts and can use the actual Draw.io Graph/Model API. Scripts must not return replacement XML, write host files, or create a parallel graph model.
 3. **Analysis capabilities return findings only.** Quality, contrast, geometry and routing analyzers return native page/cell IDs and diagnostics. A finding does not itself block ordinary native editing or saving. A separately approved operation may define its own validation policy.
 4. **Execution remains centralized.** Server revision checks, the native editor bridge, acknowledgement handling, XML save path and versioning remain the execution boundary. The generic script operation lets AI use new native editor capabilities without adding each one to the shared operation union/schema. Script mutations are wrapped in a model update and active-page cells are snapshotted for rollback on script errors.
 5. **No implicit semantic model.** Providers may use the shared XML DOM/schema utilities and derive temporary facts needed for one operation. They must not persist nodes/edges as a substitute for mxCells, assign a closed Studio-specific shape taxonomy to the document, or serialize a derived representation over the original XML.
@@ -56,4 +58,4 @@ flowchart TD
 
 - V2 remains small today while retaining a stable contract for future native operations and analysis.
 - The current runtime has no generic capability registry or quality-analysis engine. The core Dagre/ELK layout path is implemented separately and is not a generic provider registry.
-- Future capability work should not add an operation for every UI action. Use the generic script runtime only for native effects that lack a safer typed operation; whole-page layout must continue to use `auto_layout`. Add tests for shared helpers or concrete editor/API failure cases. Keep coverage for stale revisions, script/layout rollback, active-page checks, and XML/persistence acknowledgement.
+- Future capability work should not add an operation for every UI action. Keep the typed path for common deterministic workflows, use `run_drawio_script` for broader native runtime access, and keep whole-page layout on `auto_layout`. Add tests for shared helpers or concrete editor/API failure cases. Keep coverage for stale revisions, script/layout failure recovery, page scope, and XML/persistence acknowledgement.
