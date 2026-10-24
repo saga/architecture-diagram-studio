@@ -685,7 +685,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           for (const [requestId, pending] of pendingSaves) {
             const reflected = pending.captureOnFailure === true || nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
-              path: pending.path, value: pending.value, scriptResult: pending.scriptResult
+              path: pending.path, value: pending.value
             });
             if (!reflected) {
               recordDiagnostic("drawio.selection.property.save-confirmation.unmatched",
