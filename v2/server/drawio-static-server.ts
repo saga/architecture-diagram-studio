@@ -24,6 +24,18 @@ const PORT = Number.isInteger(configuredPort) && configuredPort >= 1024 && confi
   ? configuredPort : 4176;
 const HOST = "127.0.0.1";
 const DRAWIO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/drawio");
+const configuredStudioPorts = [
+  process.env.STUDIO_WEB_PORT || 5174,
+  process.env.STUDIO_PREVIEW_PORT || 4174
+].map(Number).filter((port, index, ports) =>
+  Number.isInteger(port) && port >= 1024 && port <= 65535 && ports.indexOf(port) === index
+);
+const allowedStudioAncestors = configuredStudioPorts.flatMap((port) => [
+  "http://localhost:" + port,
+  "http://127.0.0.1:" + port
+]).join(" ");
+if (!allowedStudioAncestors) throw new Error("No valid Studio parent ports are configured for the isolated Draw.io origin.");
+
 if (!existsSync(path.join(DRAWIO_ROOT, "index.html")) ||
     !existsSync(path.join(DRAWIO_ROOT, "studio-selection-plugin.js"))) {
   console.error("[studio:drawio-static] The local Draw.io bundle is missing. Run npm run drawio:fetch first.");
@@ -46,7 +58,7 @@ export const DRAWIO_CONTENT_SECURITY_POLICY = [
   "form-action 'none'",
   "base-uri 'self'",
   "navigate-to 'self'",
-  "frame-ancestors http://localhost:* http://127.0.0.1:*"
+  "frame-ancestors " + allowedStudioAncestors
 ].join("; ");
 
 const app = express();
