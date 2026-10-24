@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
+import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
@@ -597,7 +597,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
             recordDiagnostic("drawio.script-failure-serialization.requested", "Requested the actual native XML after a failed script so partial edits can be versioned and inspected", {
               requestId, durationMs: Date.now() - pending.startedAt, errorMessage, errorStack: errorStack ?? null,
-              rollbackConfirmed: failedResult.batchRolledBack === true
+              rollbackConfirmed: failedResult.batchRolledBack === true,
+              nativeDiff: { pendingExport: true, before: summarizeNativeDiagramXmlDiff(pending.beforeXml, pending.beforeXml) }
             }, "warn");
           } else {
             onNativeEditResultRef.current?.(failedResult);
@@ -701,7 +702,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 : "Native Draw.io XML serialization reflects the requested edit",
               { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path, value: pending.value,
                 captureOnFailure: pending.captureOnFailure === true, durationMs: Date.now() - pending.startedAt,
-                xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization });
+                xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization,
+                nativeDiff: summarizeNativeDiagramXmlDiff(pending.beforeXml, data.xml) });
             if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
