@@ -47,6 +47,7 @@ export interface NativeBatchStepResult {
   value: string;
   success: boolean;
   error?: string;
+  stack?: string;
 }
 
 /** Outcome of one atomic bridge batch, as reported by the native editor. */
