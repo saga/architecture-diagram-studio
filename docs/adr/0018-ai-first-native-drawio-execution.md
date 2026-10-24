@@ -159,7 +159,7 @@ The initial implementation is included in this branch. The direct script tool, m
 5. Completed in this branch: retain full script source and source revision/page/version metadata in local traces. Script errors and result details are recorded by the native bridge; rollback remains best-effort.
 6. Completed in this branch: add a host-side watchdog that can reload a blocked iframe from Studio's latest saved XML snapshot.
 7. Added/updated regression tests for direct script dispatch without a manifest, direct dispatch without confirmation, broad delete dispatch without confirmation, and native XML acceptance without predeclared script postconditions.
-8. Implemented in this branch: serve Draw.io from a dedicated loopback-only origin, enable a cross-origin iframe sandbox, use exact-origin postMessage in both directions, and apply CSP blocking network connections and remote image loads. Playwright assertions cover the CSP and direct native-script path. Run the PR CI and address any failures before merge.
+8. Implemented in this branch: serve Draw.io from a dedicated loopback-only origin, enable a cross-origin iframe sandbox, use exact-origin postMessage in both directions, and apply CSP that permits same-origin Draw.io asset requests but blocks cross-origin network connections and remote image loads. Playwright assertions cover the CSP and direct native-script path. Run the PR CI and address any failures before merge.
 
 ## Acceptance criteria
 
@@ -175,6 +175,6 @@ The initial implementation is included in this branch. The direct script tool, m
 
 ## Accepted trade-offs
 
-This design deliberately accepts that the agent may generate incorrect scripts, invoke unfamiliar editor APIs, mutate multiple cells/pages, and access the browser runtime available inside the isolated Draw.io origin. The iframe sandbox/CSP blocks access to the Studio parent DOM and Studio API origin, and blocks `connect-src` traffic and external image loads. It is not a process-level sandbox; CSP does not restrict all browser navigations, so sensitive diagrams should only be sent to trusted local model providers. A script can also block the editor frame; the watchdog/reload path is recovery, not prevention. These are accepted trade-offs for maximum local editor autonomy.
+This design deliberately accepts that the agent may generate incorrect scripts, invoke unfamiliar editor APIs, mutate multiple cells/pages, and access the browser runtime available inside the isolated Draw.io origin. The iframe sandbox/CSP blocks access to the Studio parent DOM and Studio API origin, and blocks cross-origin `connect-src` traffic and external image loads while allowing the local Draw.io bundle to load its own assets. It is not a process-level sandbox; CSP does not restrict all browser navigations, so sensitive diagrams should only be sent to trusted local model providers. A script can also block the editor frame; the watchdog/reload path is recovery, not prevention. These are accepted trade-offs for maximum local editor autonomy.
 
 The response to a wrong diagram edit is inspect, correct, or restore a version—not weaken the agent by hiding native APIs behind an ever-growing allowlist. The accepted scope is the editor runtime; host OS or shell execution is not silently added as part of this ADR.
