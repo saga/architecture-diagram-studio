@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test } from "./support/test";
 import type { WorkspaceFixture } from "./support/fixtures";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
+import { installFileSystemAccessMock, setNextBrowserFile } from "./support/file-system-access";
 
 let workspace: WorkspaceFixture;
 
@@ -40,30 +41,28 @@ test.describe("版本历史与文件交换", () => {
     await expect(dialog.getByText(/Restored version: Created diagram: architecture\.drawio/)).toBeVisible();
   });
 
-  test("导出通过 Node.js fs 写入所选目录中的原生 Draw.io XML", async ({ page }) => {
+  test("导出使用浏览器原生保存选择器写入 Draw.io XML", async ({ page }) => {
+    await installFileSystemAccessMock(page, workspace.rootPath, []);
     await page.getByRole("button", { name: /Export/ }).click();
-    const dialog = page.getByRole("dialog", { name: "Export Draw.io copy" });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("textbox", { name: "Export file name" }).fill("architecture-export.drawio");
-    await dialog.getByRole("button", { name: "Export file" }).click();
 
-    const exported = await readFile(path.join(workspace.rootPath, "architecture-export.drawio"), "utf8");
-    expect(exported).toContain("<mxfile");
+    const exportedPath = path.join(workspace.rootPath, "architecture-export.drawio");
+    await expect.poll(async () => readFile(exportedPath, "utf8").catch(() => ""), { timeout: 15_000 }).toContain("<mxfile");
+    const exported = await readFile(exportedPath, "utf8");
     expect(exported).toContain("Database");
-    await expect(page.locator(".status-left")).toContainText("Exported native Draw.io XML to");
+    await expect(page.locator(".status-left")).toContainText("Exported native Draw.io XML to architecture-export.drawio");
   });
 
-  test("导入本地 .drawio 文件后画布与工作区文件都更新", async ({ page }) => {
+  test("导入使用浏览器原生文件选择器读取 XML，工作区模式仍由 Node.js 持久化", async ({ page }) => {
     const source = await readWorkspaceXml(workspace);
     const renamed = source.replace("Database", "Edge Gateway");
     expect(renamed).not.toBe(source);
     const importPath = path.join(workspace.rootPath, "incoming.drawio");
     await writeFile(importPath, renamed, "utf8");
+    await installFileSystemAccessMock(page, workspace.rootPath, [
+      { name: "incoming.drawio", path: importPath, content: renamed }
+    ]);
 
     await page.getByRole("button", { name: /Import/ }).click();
-    const dialog = page.getByRole("dialog", { name: "Import Draw.io file" });
-    await expect(dialog).toBeVisible();
-    await dialog.locator("button").filter({ hasText: "incoming.drawio" }).click();
 
     await expect(nativeFrame(page).getByText("Edge Gateway", { exact: true })).toBeVisible();
     await expect
@@ -71,26 +70,30 @@ test.describe("版本历史与文件交换", () => {
       .toBe(true);
   });
 
-  test("打开本地 Draw.io 后通过 Node.js 自动保存，不再依赖浏览器文件写入权限", async ({ page }) => {
+  test("standalone 打开使用浏览器句柄读写，Node.js 只保存 XML 历史快照", async ({ page }) => {
     const source = await readWorkspaceXml(workspace);
-    const changed = source.replace('value="Database"', 'value="NodeFS Save"');
+    const changed = source.replace('value="Database"', 'value="Browser Handle Save"');
     expect(changed).not.toBe(source);
     const importedPath = path.join(workspace.rootPath, "standalone-update.drawio");
     await writeFile(importedPath, changed, "utf8");
+    const primaryPath = path.join(workspace.rootPath, "architecture.drawio");
+    await installFileSystemAccessMock(page, workspace.rootPath, [
+      { name: "architecture.drawio", path: primaryPath, content: source },
+      { name: "standalone-update.drawio", path: importedPath, content: changed }
+    ]);
 
     await page.getByRole("button", { name: "Open Draw.io", exact: true }).click();
-    const openDialog = page.getByRole("dialog", { name: "Open Draw.io file" });
-    await expect(openDialog).toBeVisible();
-    await openDialog.locator("button").filter({ hasText: "architecture.drawio" }).click();
-    await expect(page.locator(".status-left")).toContainText("direct Node.js autosave enabled");
+    await expect(page.locator(".status-left")).toContainText("browser file-handle autosave enabled");
+    await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
 
+    await setNextBrowserFile(page, "standalone-update.drawio");
     await page.getByRole("button", { name: /Import/ }).click();
-    const importDialog = page.getByRole("dialog", { name: "Import Draw.io file" });
-    await expect(importDialog).toBeVisible();
-    await importDialog.locator("button").filter({ hasText: "standalone-update.drawio" }).click();
 
-    await expect(nativeFrame(page).getByText("NodeFS Save", { exact: true })).toBeVisible();
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("NodeFS Save"), { timeout: 30_000, intervals: [500] }).toBe(true);
+    await expect(nativeFrame(page).getByText("Browser Handle Save", { exact: true })).toBeVisible();
+    await expect.poll(async () => (await readFile(primaryPath, "utf8")).includes("Browser Handle Save"), {
+      timeout: 30_000, intervals: [500]
+    }).toBe(true);
+    await expect(page.locator(".status-left")).toContainText("Saved architecture.drawio through the browser file handle");
   });
 
   test("服务端拒绝格式错误的原生 XML，且不改动文件和 revision", async ({ request }) => {
