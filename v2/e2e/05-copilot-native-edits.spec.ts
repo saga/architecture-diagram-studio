@@ -240,7 +240,7 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
   expect(drawioIndex.ok()).toBe(true);
   const drawioCsp = drawioIndex.headers()["content-security-policy"];
   const studioOrigin = new URL(page.url()).origin;
-  expect(drawioCsp).toContain("connect-src 'none'");
+  expect(drawioCsp).toContain("connect-src 'self'");
   expect(drawioCsp).toContain("img-src 'self' data: blob:");
   const frameAncestors = /frame-ancestors ([^;]+)/.exec(drawioCsp)?.[1]?.split(/\\s+/) ?? [];
   expect(frameAncestors).toContain(studioOrigin);
@@ -262,7 +262,7 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
     try {
       const response = await fetch(apiUrl);
       studioApiReachable = response.ok;
-    } catch { /* CSP connect-src 'none' should block this request. */ }
+    } catch { /* CSP connect-src 'self' should block a cross-origin Studio API request. */ }
     return { parentDomAccessible, studioApiReachable };
   }, studioApiUrl);
   expect(isolationCheck.parentDomAccessible).toBe(false);
