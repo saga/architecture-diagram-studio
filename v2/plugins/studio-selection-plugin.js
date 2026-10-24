@@ -940,8 +940,8 @@
           if (!addRequest || typeof addRequest.label !== "string" || !addRequest.label.trim() || addRequest.label.length > 500) {
             throw new Error("The new node needs a non-empty label of at most 500 characters");
           }
-          var nodeParent = cell.parent || activeModel.getCell("1");
-          if (!nodeParent) throw new Error("The target has no valid Draw.io layer");
+          var nodeParent = cell.parent;
+          if (!nodeParent) throw new Error("The target has no parent container in the native Draw.io model");
           var nodeGeometry = cell.geometry;
           var sourceX = Number(nodeGeometry.x);
           var sourceY = Number(nodeGeometry.y);
@@ -955,12 +955,8 @@
           if (!Number.isFinite(gridSpacing) || gridSpacing < 0) {
             throw new Error("Draw.io grid spacing is unavailable; use the native script path to choose an explicit placement");
           }
-          var newX = path === "cell:add-node-after"
-            ? sourceX + newWidth + gridSpacing
-            : sourceX + (Number(nodeGeometry.width) - newWidth) / 2;
-          var newY = path === "cell:add-node-after"
-            ? sourceY
-            : sourceY + newHeight + gridSpacing;
+          var newX = path === "cell:add-node-after" ? sourceX + newWidth + gridSpacing : sourceX;
+          var newY = path === "cell:add-node-after" ? sourceY : sourceY + newHeight + gridSpacing;
           // Omit the style argument so Draw.io applies its own default vertex style.
           var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight);
           if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
