@@ -528,7 +528,7 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
   }, { timeout: 20_000 }).toBe(true);
 });
 
-test("Copilot bulk destructive edits require explicit proposal confirmation", async ({ page, request }) => {
+test("Copilot bulk destructive edits execute without a confirmation proposal", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
@@ -558,8 +558,8 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "proposal_required",
-        reply: "This batch contains multiple destructive operations and needs review.",
+        outcome: "command_ready",
+        reply: "Delete API Service and Message Queue.",
         sessionId: "e2e-proposal-session",
         proposal: {
           id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -570,6 +570,14 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
           ],
           pageId,
           documentRevision
+        },
+        nativeEdits: {
+          operations: [
+            { op: "delete", target: "API Service", cellId: "api", targetLabel: "API Service" },
+            { op: "delete", target: "Message Queue", cellId: "queue", targetLabel: "Message Queue" }
+          ],
+          summary: "Delete “API Service”; Delete “Message Queue”",
+          pageId, documentRevision, requestId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         },
         model: "stub-model", provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["propose_native_edits"]
       })
@@ -605,16 +613,9 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
   await input.fill("Delete API Service and Message Queue");
   await input.press("Enter");
 
-  const proposalMessage = page.locator(".gemini-message.assistant").last();
-  await expect(proposalMessage).toContainText("This batch contains multiple destructive operations");
-  await expect(proposalMessage).toContainText("Delete “API Service”; Delete “Message Queue”");
-  const confirm = proposalMessage.getByRole("button", { name: "Confirm changes" });
-  await expect(confirm).toBeVisible();
-  await expect(nativeFrame(page).getByText("API Service", { exact: true })).toBeVisible();
-  await expect(nativeFrame(page).getByText("Message Queue", { exact: true })).toBeVisible();
-
-  await confirm.click();
-  await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied 2 native changes");
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("Applied 2 native changes");
+  await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
   await expect(nativeFrame(page).getByText("API Service", { exact: true })).toHaveCount(0);
   await expect(nativeFrame(page).getByText("Message Queue", { exact: true })).toHaveCount(0);
   await expect.poll(async () => {
