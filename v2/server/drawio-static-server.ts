@@ -42,8 +42,8 @@ if (!existsSync(path.join(DRAWIO_ROOT, "index.html")) ||
   process.exit(1);
 }
 
-// Keep arbitrary agent-authored JavaScript on a separate local origin. CSP blocks common
-// request channels (connect-src) and remote images; it is not a process-level network sandbox.
+// Keep arbitrary agent-authored JavaScript on a separate local origin. CSP allows requests to
+// local Draw.io assets but blocks cross-origin connection channels and remote images; it is not a process-level sandbox.
 // The parent UI communicates only through the exact-origin embed protocol.
 export const DRAWIO_CONTENT_SECURITY_POLICY = [
   "default-src 'self' data: blob:",
