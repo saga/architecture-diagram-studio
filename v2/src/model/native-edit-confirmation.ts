@@ -397,6 +397,7 @@ export interface NativeDiagramXmlDiffSummary {
   pagesBefore?: number;
   pagesAfter?: number;
   pageOrderChanged?: boolean;
+  pagesChanged?: string[];
   pagesAdded?: string[];
   pagesRemoved?: string[];
   pagesRenamed?: Array<{ id: string; before: string; after: string }>;
@@ -452,7 +453,7 @@ export function summarizeNativeDiagramXmlDiff(
     };
     const beforeCells = mapCells(beforeRecords);
     const afterCells = mapCells(afterRecords);
-    const summarize = (key: string, cell: CellRecord) => ({
+    const summarize = (cell: CellRecord) => ({
       pageId: cell.pageId,
       id: cell.id,
       label: findText(cell).replace(/\\s+/g, " ").trim().slice(0, 240),
@@ -460,8 +461,16 @@ export function summarizeNativeDiagramXmlDiff(
       ...(cell.cell.getAttribute("source") ? { sourceId: cell.cell.getAttribute("source")! } : {}),
       ...(cell.cell.getAttribute("target") ? { targetId: cell.cell.getAttribute("target")! } : {})
     });
-    const addedAll = [...afterCells.entries()].filter(([key]) => !beforeCells.has(key)).map(([key, cell]) => summarize(key, cell));
-    const removedAll = [...beforeCells.entries()].filter(([key]) => !afterCells.has(key)).map(([key, cell]) => summarize(key, cell));
+    const addedAll = [...afterCells.entries()].filter(([key]) => !beforeCells.has(key)).map(([, cell]) => summarize(cell));
+    const removedAll = [...beforeCells.entries()].filter(([key]) => !afterCells.has(key)).map(([, cell]) => summarize(cell));
+    const changedPageIdsAll: string[] = [];
+    for (const page of afterPages) {
+      const key = page.id ?? "__single__";
+      if (!beforePageMap.has(key)) continue;
+      const beforeSignature = semanticDiagramSignature(beforeXml, page.id);
+      const afterSignature = semanticDiagramSignature(afterXml, page.id);
+      if (beforeSignature !== afterSignature) changedPageIdsAll.push(key);
+    }
     const changedAll: Array<{ pageId: string | null; id: string; labelBefore: string; labelAfter: string; kind: string; changedFields: string[] }> = [];
     for (const [key, next] of afterCells) {
       const old = beforeCells.get(key);
@@ -492,20 +501,21 @@ export function summarizeNativeDiagramXmlDiff(
     const pageOrderChanged = beforePages.map((page) => page.id ?? "__single__").join("\\u0000") !==
       afterPages.map((page) => page.id ?? "__single__").join("\\u0000");
     const changed = pageOrderChanged || pagesAddedAll.length > 0 || pagesRemovedAll.length > 0 ||
-      pagesRenamedAll.length > 0 || addedAll.length > 0 || removedAll.length > 0 || changedAll.length > 0;
+      pagesRenamedAll.length > 0 || changedPageIdsAll.length > 0 || addedAll.length > 0 || removedAll.length > 0 || changedAll.length > 0;
     return {
       available: true,
       changed,
       pagesBefore: beforePages.length,
       pagesAfter: afterPages.length,
       pageOrderChanged,
+      pagesChanged: changedPageIdsAll.slice(0, limit),
       pagesAdded: pagesAddedAll.slice(0, limit),
       pagesRemoved: pagesRemovedAll.slice(0, limit),
       pagesRenamed: pagesRenamedAll.slice(0, limit),
       cellsAdded: addedAll.slice(0, limit),
       cellsRemoved: removedAll.slice(0, limit),
       cellsChanged: changedAll.slice(0, limit),
-      truncated: pagesAddedAll.length > limit || pagesRemovedAll.length > limit ||
+      truncated: changedPageIdsAll.length > limit || pagesAddedAll.length > limit || pagesRemovedAll.length > limit ||
         pagesRenamedAll.length > limit || addedAll.length > limit || removedAll.length > limit || changedAll.length > limit
     };
   } catch (error) {
