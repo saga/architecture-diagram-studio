@@ -1,7 +1,7 @@
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 import { z } from "zod";
-import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
+import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeLayoutPlan } from "../layout/native-layout";
 
 /**
  * Shared contract for native Draw.io cell edits.
