@@ -138,6 +138,13 @@ describe("parseNativeEditOperations", () => {
     ])).toMatchObject({ ok: false, error: expect.stringContaining("only operation") });
   });
 
+  it("rejects an unsupported Dagre algorithm rather than silently mapping it to layered", () => {
+    expect(parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", algorithm: "radial" }]))
+      .toMatchObject({ ok: false, error: expect.stringContaining("does not support") });
+    expect(parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", algorithm: "layered" }]))
+      .toMatchObject({ ok: true, operations: [{ engine: "dagre", algorithm: "layered" }] });
+  });
+
   it("serializes a calculated Dagre plan as a native bridge layout operation", async () => {
     const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", direction: "DOWN" }]);
     expect(parsed.ok).toBe(true);
@@ -203,22 +210,20 @@ describe("parseNativeEditOperations", () => {
     expect(plan.edits).toEqual([{ cellId: "db", path: "geometry:translate", value: dx + "," + dy }]);
   });
 
-  it("accepts a compound select + recolor request", () => {
+  it("preserves an explicit color key and hex value without a name lookup or rewrite", () => {
     const parsed = parseNativeEditOperations([
       { op: "select", target: "Database" },
-      { op: "set_style", target: "Database", color: "红色背景色" }
+      { op: "set_style", target: "Database", key: "fillColor", color: "#f00" }
     ]);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    expect(parsed.operations).toEqual([
+    expect(parsed).toMatchObject({ ok: true, operations: [
       { op: "select", target: "Database" },
-      { op: "set_style", target: "Database", key: "fillColor", color: "#ff0000" }
-    ]);
+      { op: "set_style", target: "Database", key: "fillColor", color: "#f00" }
+    ] });
   });
 
   it("keeps an explicit whitelisted style key", () => {
     const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", key: "strokeColor", color: "#0f0" }]);
-    expect(parsed.ok && parsed.operations[0]).toEqual({ op: "set_style", target: "db", key: "strokeColor", color: "#00ff00" });
+    expect(parsed.ok && parsed.operations[0]).toEqual({ op: "set_style", target: "db", key: "strokeColor", color: "#0f0" });
   });
 
   it("rejects style keys outside the whitelist", () => {
@@ -229,7 +234,7 @@ describe("parseNativeEditOperations", () => {
   });
 
   it("rejects an unsupported color", () => {
-    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", color: "chartreuse" }]);
+    const parsed = parseNativeEditOperations([{ op: "set_style", target: "db", key: "fillColor", color: "chartreuse" }]);
     expect(parsed.ok).toBe(false);
   });
 
