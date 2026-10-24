@@ -378,7 +378,9 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       // the host has serialized and validated native Draw.io XML. Do not constrain what the script
       // may change to a predeclared cell-level postcondition: scripts may edit routing, groups,
       // custom attributes, layers, page metadata, or other native structures.
-      return true;
+      return after.length > 0 && after.every((page) =>
+        page.cells.some((cell) => cell.id === "0") && page.cells.some((cell) => cell.id === "1")
+      );
     }
     return documentOperations.every((operation) =>
       operationIsReflected(before, after, operation, input.pageId)
