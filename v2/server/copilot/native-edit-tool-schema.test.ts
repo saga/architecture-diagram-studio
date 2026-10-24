@@ -62,6 +62,7 @@ describe("native edit tool parameter schema", () => {
     expect(styleBranch?.properties.key).toMatchObject({ enum: ["fillColor", "strokeColor", "fontColor"] });
     expect(styleBranch?.required).toContain("key");
     expect(styleBranch?.properties.color.pattern).toContain("#");
+    expect(styleBranch?.properties.color.pattern).not.toContain("red");
     expect(branches.some((candidate) => candidate.properties.op.enum.includes("run_drawio_script"))).toBe(false);
     const layoutBranch = branches.find((candidate) => candidate.properties.op.enum.includes("auto_layout"));
     expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre"], default: "elk" });
