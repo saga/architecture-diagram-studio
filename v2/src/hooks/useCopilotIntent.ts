@@ -348,28 +348,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 return;
               }
 
-              const repairedScript = repairPlan.outcome === "proposal_required"
-                ? repairPlan.proposal.operations.find((operation) => operation.op === "run_drawio_script")
-                : undefined;
-              if (repairPlan.outcome === "proposal_required" && repairedScript?.op === "run_drawio_script") {
-                recordDiagnostic("copilot.native-script-repair.proposal-ready", "The repaired native script was returned as a confirmation proposal; it has not been executed", {
-                  sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
-                  proposalId: repairPlan.proposal.id,
-                  scriptLength: repairedScript.script.length,
-                  documentRevision,
-                  pageId: activePageId
-                });
-                setMessages((items) => [...items, {
-                  role: "assistant",
-                  id: Date.now() + 1,
-                  text: "自动修正提案（1/1）： " + repairPlan.proposal.summary +
-                    "\n\n修正脚本（完整内容）：\n" + repairedScript.script +
-                    "\n\n尚未执行。确认后才会应用修改。",
-                  proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary, script: repairedScript.script }
-                }]);
-                return;
-              }
-              recordDiagnostic("copilot.native-script-repair.no-proposal", "The repair turn did not return an explicit script proposal; no repaired script was executed", {
+              // The AI-first runtime does not turn a corrected script into a manual approval proposal.
+              // A repair request must call run_drawio_script and return a command_ready receipt.
+              recordDiagnostic("copilot.native-script-repair.no-command", "The repair turn did not return an executable native script command", {
                 sessionId: plan.sessionId || copilotSessionId,
                 outcome: repairPlan.outcome,
                 reply: repairPlan.reply.slice(0, 400),
@@ -378,8 +359,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               setMessages((items) => [...items, {
                 role: "assistant",
                 id: Date.now() + 1,
-                text: "未获得可供确认的修正脚本提案；第二次执行没有发生。原编辑失败：" + reason +
-                  (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知）")
+                text: "自动修正没有返回可执行的脚本命令；未进行第二次执行。原编辑失败：" + reason +
+                  (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知，请从 History 检查或恢复版本）")
               }]);
               return;
             } catch (repairError) {
