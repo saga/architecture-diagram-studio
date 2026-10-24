@@ -37,6 +37,23 @@ describe("native Draw.io Copilot contract", () => {
     }))).toThrow("resolved cell id");
   });
 
+  it("accepts an empty visible label without requiring the internal cell ID to be displayed", () => {
+    const id = "TwsH19o86vvnPf4LDGem-1";
+    const response = parseAIIntentResponse(JSON.stringify({
+      outcome: "command_ready",
+      reply: "Rename the unnamed element",
+      nativeEdits: {
+        operations: [{ op: "set_label", target: id, cellId: id, targetLabel: "", label: "New label" }],
+        summary: "Rename the unnamed element",
+        requestId: "44444444-4444-4444-8444-444444444444",
+        pageId: "p1",
+        documentRevision: "revision-1"
+      }
+    }));
+    if (response.outcome !== "command_ready") throw new Error("Expected a validated native command");
+    expect(response.nativeEdits.operations[0]).toMatchObject({ cellId: id, targetLabel: "" });
+  });
+
   it("preserves the requested new label separately from the resolved target label", () => {
     const response = parseAIIntentResponse(JSON.stringify({
       outcome: "command_ready",
