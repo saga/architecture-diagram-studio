@@ -52,6 +52,7 @@ describe("resolveNativeEditTargets", () => {
   });
 
 
+  it("resolves an exact id and an exact label to the same cell", () => {
     const byId = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "db" }]);
     const byLabel = resolveNativeEditTargets(CONTEXT, [{ op: "select", target: "database" }]);
     expect(byId.ok && byId.operations[0].cellId).toBe("db");
