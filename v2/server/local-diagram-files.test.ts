@@ -75,7 +75,8 @@ describe("standalone Draw.io history for browser-owned files", () => {
     expect(prepared.drawioXml).toBe(original);
     expect(prepared.revision).toBe(session.revision);
     expect((await service.listHistory(session.fileToken)).map((item) => item.label))
-      .toContain("Before restore");
+      .toEqual(["Opened file", "Changed"]);
+    expect((await service.readHistoryEntry(session.fileToken, initialHistory[0]!.id)).xml).toBe(original);
   });
 
   it("rejects invalid document IDs, invalid XML and expired session tokens", async () => {
