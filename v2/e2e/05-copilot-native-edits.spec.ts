@@ -248,16 +248,17 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
   const isolatedFrame = page.frames().find((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"));
   expect(isolatedFrame).toBeTruthy();
   if (!isolatedFrame) throw new Error("The isolated Draw.io frame did not become available.");
-  const isolationCheck = await isolatedFrame.evaluate(async () => {
+  const studioApiUrl = new URL("/api/workspace/config", page.url()).toString();
+  const isolationCheck = await isolatedFrame.evaluate(async (apiUrl) => {
     let parentDomAccessible = true;
     try { void window.parent.document.documentElement; } catch { parentDomAccessible = false; }
     let studioApiReachable = false;
     try {
-      const response = await fetch("http://127.0.0.1:5180/api/workspace/config");
+      const response = await fetch(apiUrl);
       studioApiReachable = response.ok;
     } catch { /* CSP connect-src 'none' should block this request. */ }
     return { parentDomAccessible, studioApiReachable };
-  });
+  }, studioApiUrl);
   expect(isolationCheck.parentDomAccessible).toBe(false);
   expect(isolationCheck.studioApiReachable).toBe(false);
 
