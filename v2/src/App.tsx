@@ -559,15 +559,38 @@ export default function App() {
         window.setTimeout(() => {
           const pending = nativeEditResolversRef.current.get(requestId);
           if (!pending) return;
+          const ackContext = nativeEditAckContextsRef.current.get(requestId);
           nativeEditResolversRef.current.delete(requestId);
           nativeEditAckContextsRef.current.delete(requestId);
           setCellEditRequest((current) => current?.requestId === requestId ? null : current);
+          const timeoutError = "The native Draw.io editor did not acknowledge the batch within 75 seconds.";
           recordDiagnostic("copilot.native-edits.timeout", "The native Draw.io editor did not acknowledge a Copilot batch", {
-            requestId, editCount: edits.length, containsScript
+            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs: 75_000
           }, "error");
-          resolve({ ok: false, error: "The native editor did not acknowledge the batch within 30 seconds.", rolledBack: false, steps: [] });
+          resolve({ ok: false, error: timeoutError, rolledBack: false, steps: [] });
+          if (ackContext) {
+            void fetch("/api/copilot/intent/ack", {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                requestId: ackContext.requestId, sessionId: ackContext.sessionId,
+                standalone: ackContext.standalone, documentRevision: ackContext.documentRevision,
+                outcome: "failed", editorAcknowledged: false, serializedXmlRevision: null,
+                persistenceStatus: "not_attempted", persistedRevision: null, versionId: null,
+                failureStage: "editor", error: timeoutError
+              })
+            }).then(async (response) => {
+              const receipt = await response.json().catch(() => null);
+              recordDiagnostic("copilot.native-edits.watchdog-receipt", "Recorded the native editor watchdog failure with the Copilot server", {
+                requestId: ackContext.requestId, httpStatus: response.status, receipt
+              }, response.ok ? "warn" : "error");
+            }).catch((error) => {
+              recordDiagnostic("copilot.native-edits.watchdog-receipt-failed", "Could not record the native editor watchdog failure", {
+                requestId: ackContext.requestId, error: error instanceof Error ? error.message : String(error)
+              }, "error");
+            });
+          }
           if (containsScript) drawioFrameRef.current?.recoverFromLastSavedXml();
-        }, 30_000);
+        }, 75_000);
       });
     }
   });
