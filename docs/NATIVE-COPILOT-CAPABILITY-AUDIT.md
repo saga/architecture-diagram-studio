@@ -5,6 +5,8 @@
 - Reference: [Architecture V2](../ARCHITECTURE-V2.md), [ADR-0010](adr/0010-unified-server-side-copilot-intent-processing.md), [ADR-0011](adr/0011-native-drawio-only-model.md), [ADR-0012](adr/0012-native-diagram-extension-contracts.md).
 - Ground rule: the bundled Draw.io editor and its `mxCell` model are the only active diagram model. More internal editor methods do not automatically become Copilot permissions.
 
+> **Status (2026-10-24): Historical audit.** The execution-policy conclusion in this report predates and is superseded by [ADR-0018 — AI-First Native Draw.io Execution](./adr/0018-ai-first-native-drawio-execution.md). For current behavior, `run_drawio_script` is the primary full-capability path and typed operations are convenience shortcuts. The XML-only document model, revision checks, native bridge, save acknowledgement and the distinction between local execution and an OS sandbox remain relevant.
+
 ## Executive finding
 
 The original typed-operation allowlist was deliberately narrower than Draw.io's native API, forcing every new capability to require changes across several layers. Keep typed operations for focused edits and use the typed `auto_layout` operation for whole-page Dagre/ELK layout (ADR-0013); use the generic `run_drawio_script` entry point only for other complex native effects that are not covered by a typed operation. The important protections remain source-revision/page binding, native editor execution, script-error rollback of active-page cells, serialized XML confirmation and workspace persistence.
