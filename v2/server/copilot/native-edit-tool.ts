@@ -64,16 +64,13 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       return { ok: false, error: `Operation ${index + 1}: label “${target}” is ambiguous (${matches.length} elements match). Use the exact cell id instead.` };
     }
     const cell = matches[0];
-    if (operation.op === "set_c4_type" && cell.cellType !== "vertex") {
-      return { ok: false, error: `Operation ${index + 1}: “${target}” must resolve to a vertex; C4 styles cannot be applied to connectors or unknown cell types.` };
-    }
     if ((operation.op === "add_node_after" || operation.op === "add_node_below") && cell.cellType !== "vertex") {
       return { ok: false, error: `Operation ${index + 1}: “${target}” must resolve to a vertex; ${operation.op} cannot target a connector or an unknown cell type.` };
     }
     if ((operation.op === "move" || operation.op === "resize") && cell.cellType !== "vertex") {
       return { ok: false, error: `Operation ${index + 1}: “${target}” is not a vertex. Move/resize applies to node geometry; use a dedicated connector-routing operation for edges.` };
     }
-    resolved.push({ ...operation, target, cellId: cell.id, targetLabel: cell.name || cell.id });
+    resolved.push({ ...operation, target, cellId: cell.id, targetLabel: cell.name });
   }
   return { ok: true, operations: resolved };
 }
