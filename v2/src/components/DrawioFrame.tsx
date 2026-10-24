@@ -13,7 +13,13 @@ const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32e
  * Keep the native shape panel available in the embedded editor. `libraries=1`
  * enables palettes in embed mode; omitting `sidebar=0` prevents hiding the panel.
  */
-export const DRAWIO_EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
+export const DRAWIO_PORT = (() => {
+  const configured = import.meta.env.VITE_STUDIO_DRAWIO_PORT || "4176";
+  const value = Number(configured);
+  return Number.isInteger(value) && value >= 1024 && value <= 65535 ? String(value) : "4176";
+})();
+const DRAWIO_ORIGIN = "http://127.0.0.1:" + DRAWIO_PORT;
+const DRAWIO_EMBED_URL = DRAWIO_ORIGIN + "/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
 
 /**
  * C4 is built into the pinned Draw.io bundle as the `c4` palette. The version bump
@@ -203,7 +209,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           event: "studioNativeLayoutRequest",
           requestId,
           plan
-        }), window.location.origin);
+        }), DRAWIO_ORIGIN);
         recordDiagnostic("drawio.layout.requested", "Sent a revision-bound Dagre/ELK plan to the native Draw.io editor", {
           drawioVersion: DRAWIO_VERSION, engine: plan.engine, algorithm: plan.algorithm,
           direction: plan.direction, positionCount: plan.positions.length,
@@ -241,7 +247,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           maxCells: 60,
           maxRenderedEdges: 24,
           jsShapeClassNames: Array.isArray(jsShapeClassNames) ? jsShapeClassNames.slice(0, 40) : []
-        }), window.location.origin);
+        }), DRAWIO_ORIGIN);
         recordDiagnostic("drawio.runtime-inspection.requested", "Requested a read-only snapshot of the live native Draw.io runtime", {
           requestId, documentRevision, pageId, drawioVersion: DRAWIO_VERSION
         });
@@ -367,7 +373,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       nativeDocumentLoadedRef.current = false;
       iframeRef.current.contentWindow.postMessage(
         JSON.stringify({ action: "load", xml, autosave: 1 }),
-        window.location.origin
+        DRAWIO_ORIGIN
       );
       lastSent.current = xml;
       setStartupError(null);
@@ -394,7 +400,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       pageId: cellEdit.pageId,
       path: cellEdit.path,
       value: cellEdit.value
-    }), window.location.origin);
+    }), DRAWIO_ORIGIN);
     recordDiagnostic("drawio.selection.property.requested", "Sent a native property edit through the Draw.io plugin bridge", {
       cellId: cellEdit.cellId, property: cellEdit.path, value: cellEdit.value, requestId: cellEdit.requestId,
       pageId: cellEdit.pageId, xmlLengthBefore: xml.length
@@ -407,8 +413,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     // and send its configure/init handshake. Keep it stable across document and callback changes.
     function receive(event: MessageEvent) {
       if (event.source !== iframeRef.current?.contentWindow) return;
-      if (event.origin !== window.location.origin && event.origin !== "null") {
-        recordDiagnostic("drawio.message.origin_rejected", "Ignored a Draw.io message from an unexpected origin", { origin: event.origin }, "warn");
+      if (event.origin !== DRAWIO_ORIGIN) {
+        recordDiagnostic("drawio.message.origin_rejected", "Ignored a Draw.io message from an unexpected origin", {
+          origin: event.origin, expectedOrigin: DRAWIO_ORIGIN
+        }, "warn");
         return;
       }
       let data: Record<string, unknown>;
@@ -537,7 +545,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           // "save" is an editor-to-host event, not a supported host action. Request native XML
           // serialization through the documented export action so programmatic mutations can be
           // acknowledged even when they do not trigger autosave.
-          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
           recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", {
             requestId, cellId: data.cellId, property: data.path, protocolAction: "export", format: "xml"
           });
@@ -584,7 +592,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               }, "error");
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
             pendingSaveConfirmationsRef.current.set(requestId, confirmation);
-            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
             recordDiagnostic("drawio.script-failure-serialization.requested", "Requested the actual native XML after a failed script so partial edits can be versioned and inspected", {
               requestId, durationMs: Date.now() - pending.startedAt, errorMessage, errorStack: errorStack ?? null,
               rollbackConfirmed: failedResult.batchRolledBack === true,
@@ -607,7 +615,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
           action: "configure",
           config: DRAWIO_EDITOR_CONFIG
-        }), window.location.origin);
+        }), DRAWIO_ORIGIN);
       }
       if (data.event === "load") {
         nativeDocumentLoadedRef.current = true;
@@ -644,7 +652,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             documentRevision: pending.plan.documentRevision, pageId: pending.plan.pageId
           });
           try {
-            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
           } catch (error) {
             rejectPendingAutoLayout(new Error("Draw.io applied the layout but the updated XML could not be requested: " +
               (error instanceof Error ? error.message : String(error))));
@@ -787,6 +795,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         <span>{startupError}</span><button type="button" onClick={() => retryEditor()}>Re-initialise</button>
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"
+        sandbox="allow-scripts allow-same-origin allow-modals"
         src={DRAWIO_EMBED_URL}
         onLoad={() => {
           setIframeLoaded(true);
@@ -797,7 +806,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         onError={() => {
           embedUiObserverRef.current?.disconnect();
           embedUiObserverRef.current = null;
-          setStartupError("The browser could not load the local Draw.io page. Check that /drawio/index.html exists.");
+          setStartupError("The browser could not load the isolated Draw.io origin. Check that the local Draw.io static server is running.");
           recordDiagnostic("drawio.iframe.load.failed", "The browser could not load the local Draw.io iframe", { url: DRAWIO_EMBED_URL }, "error");
         }}
         allow="clipboard-read; clipboard-write" />
