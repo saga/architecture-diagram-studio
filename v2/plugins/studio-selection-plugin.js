@@ -943,10 +943,13 @@
           var nodeParent = cell.parent || activeModel.getCell("1");
           if (!nodeParent) throw new Error("The target has no valid Draw.io layer");
           var nodeGeometry = cell.geometry;
+          var sourceX = Number(nodeGeometry.x);
+          var sourceY = Number(nodeGeometry.y);
           var newWidth = Number(nodeGeometry.width);
           var newHeight = Number(nodeGeometry.height);
-          if (!Number.isFinite(newWidth) || newWidth <= 0 || !Number.isFinite(newHeight) || newHeight <= 0) {
-            throw new Error("The target does not have usable geometry to copy to the new node");
+          if (!Number.isFinite(sourceX) || !Number.isFinite(sourceY) ||
+              !Number.isFinite(newWidth) || newWidth <= 0 || !Number.isFinite(newHeight) || newHeight <= 0) {
+            throw new Error("The target does not have usable coordinates and geometry to derive the new node placement");
           }
           var gridSpacing = Number(activeGraph.gridSize);
           if (!Number.isFinite(gridSpacing) || gridSpacing < 0) {
