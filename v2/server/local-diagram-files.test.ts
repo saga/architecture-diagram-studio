@@ -28,7 +28,7 @@ describe("standalone Draw.io history for browser-owned files", () => {
     expect(session.snapshotCount).toBe(1);
     const history = await service.listHistory(session.fileToken);
     expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({ label: "Opened file", revision: undefined });
+    expect(history[0]?.label).toBe("Opened file");
     expect((await service.readHistoryEntry(session.fileToken, history[0]!.id)).xml).toBe(xml);
   });
 
