@@ -1,7 +1,9 @@
 # ADR-0014: Typed Native Draw.io C4 Conversion
 
-- Status: Accepted
+- Status: Superseded by [ADR-0019 — Additive Native C4 Elements](./0019-additive-native-c4-elements.md)
 - Date: 2026-10-23
+
+> Historical record only. This ADR documents the earlier `set_c4_type` in-place conversion implementation. It was retired because it replaced original labels and geometry and could turn internal cell IDs into visible content. Current C4 authoring follows ADR-0019: add native C4 elements without rewriting the source element.
 - Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0013 — Studio-Owned Dagre/ELK Layout](./0013-studio-owned-layout-engines.md)
 
 ## Context
