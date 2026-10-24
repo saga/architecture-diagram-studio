@@ -230,12 +230,12 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
-test("Copilot script proposals show the requested change but hide JavaScript bodies", async ({ page, request }) => {
+test("Copilot script proposals show the requested change and complete JavaScript body", async ({ page, request }) => {
   await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
 
-  const hiddenScriptSentinel = "HIDDEN_SCRIPT_SENTINEL_73491";
+  const reviewedScriptSentinel = "REVIEWED_SCRIPT_SENTINEL_73491";
   await page.route("**/api/copilot/intent", async (route) => {
     const requestBody = JSON.parse(route.request().postData() || "{}") as {
       documentRevision?: unknown; context?: { activePageId?: string | null };
@@ -253,7 +253,7 @@ test("Copilot script proposals show the requested change but hide JavaScript bod
             op: "run_drawio_script",
             target: "active_page",
             summary: "Rearrange the diagram using the native editor",
-            script: "throw new Error('" + hiddenScriptSentinel + "');",
+            script: "throw new Error('" + reviewedScriptSentinel + "');",
             cellId: "__active_page__",
             targetLabel: "active Draw.io page"
           }],
@@ -275,8 +275,8 @@ test("Copilot script proposals show the requested change but hide JavaScript bod
   await expect(proposalMessage).toContainText("Proposed changes");
   await expect(proposalMessage).toContainText("Rearrange the diagram using the native editor");
   await expect(proposalMessage.getByRole("button", { name: "Confirm changes" })).toBeVisible();
-  await expect(proposalMessage).not.toContainText(hiddenScriptSentinel);
-  await expect(proposalMessage).not.toContainText("throw new Error");
+  await expect(proposalMessage).toContainText(reviewedScriptSentinel);
+  await expect(proposalMessage).toContainText("throw new Error");
   await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
 });
 
