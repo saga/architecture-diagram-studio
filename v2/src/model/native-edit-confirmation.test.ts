@@ -111,8 +111,7 @@ describe("native edit XML confirmation", () => {
     // The script may be a read-only inspection or a no-op; successful execution and valid native
     // XML serialization are enough to acknowledge it.
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: before, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
-      scriptResult: { available: true, value: { arbitrary: "result" } }
+      beforeXml: before, xml: before, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
     })).toBe(true);
     const whitespaceOnly = before.replace("</root>", "\\n  </root>");
     expect(nativeEditIsReflectedInXml({
