@@ -1,6 +1,6 @@
 import express from "express";
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +24,11 @@ const PORT = Number.isInteger(configuredPort) && configuredPort >= 1024 && confi
   ? configuredPort : 4176;
 const HOST = "127.0.0.1";
 const DRAWIO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/drawio");
+if (!existsSync(path.join(DRAWIO_ROOT, "index.html")) ||
+    !existsSync(path.join(DRAWIO_ROOT, "studio-selection-plugin.js"))) {
+  console.error("[studio:drawio-static] The local Draw.io bundle is missing. Run npm run drawio:fetch first.");
+  process.exit(1);
+}
 
 // Keep arbitrary agent-authored JavaScript inside a separate local origin with no network
 // connection capability. The parent UI talks to it only through the exact-origin embed protocol.
