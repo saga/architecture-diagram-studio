@@ -542,13 +542,14 @@ export default function App() {
           resolve({
             ok: result.success,
             error: result.error,
+            errorStack: result.errorStack,
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
             scriptResult: result.scriptResult,
             errorStack: result.errorStack,
             // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
             rolledBack: result.success ? false : result.batchRolledBack === true,
-            steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error }))
+            steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error, stack: step.stack }))
           });
         });
         recordDiagnostic("copilot.native-edits.dispatch", "Dispatching an atomic native Draw.io edit batch to the active editor", {
