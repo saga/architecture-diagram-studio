@@ -7,6 +7,9 @@ type OperationBranch = {
     target?: unknown;
     newLabel?: { type?: string; minLength?: number; maxLength?: number };
     key?: { type?: string; enum?: readonly string[]; default?: string };
+    engine?: { enum?: readonly string[]; default?: string };
+    iterations?: { type?: string; minimum?: number; maximum?: number; default?: number };
+    kind?: { enum?: readonly string[] };
     script?: { type?: string; minLength?: number; maxLength?: number };
     summary?: { type?: string; minLength?: number; maxLength?: number };
   };
@@ -46,7 +49,9 @@ describe("native edit tool parameter schema", () => {
       resize: ["op", "target", "width", "height"],
       delete: ["op", "target"],
       add_node_after: ["op", "target", "newLabel"],
-      add_node_below: ["op", "target", "newLabel"]
+      add_node_below: ["op", "target", "newLabel"],
+      set_c4_type: ["op", "target", "kind"],
+      auto_layout: ["op", "target"]
     };
 
     for (const [op, required] of Object.entries(requiredByOperation)) {
@@ -61,5 +66,10 @@ describe("native edit tool parameter schema", () => {
     expect(scriptBranch?.required).toEqual(["op", "target", "summary", "script"]);
     expect(scriptBranch?.properties.target).toMatchObject({ enum: ["active_page"] });
     expect(scriptBranch?.properties.script).toMatchObject({ type: "string", minLength: 1, maxLength: 50000 });
+    const layoutBranch = branches.find((candidate) => candidate.properties.op.enum.includes("auto_layout"));
+    expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre"], default: "elk" });
+    expect(layoutBranch?.properties.iterations).toMatchObject({ type: "integer", minimum: 20, maximum: 3000, default: 300 });
+    const c4Branch = branches.find((candidate) => candidate.properties.op.enum.includes("set_c4_type"));
+    expect(c4Branch?.properties.kind).toMatchObject({ enum: ["person", "system", "external"] });
   });
 });
