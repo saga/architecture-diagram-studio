@@ -105,7 +105,7 @@ const apiTarget = process.env.STUDIO_API_URL || "http://127.0.0.1:4175";
 const webPort = Number(process.env.STUDIO_WEB_PORT || 5174);
 const previewPort = Number(process.env.STUDIO_PREVIEW_PORT || 4174);
 const cacheDir = process.env.STUDIO_VITE_CACHE_DIR || "node_modules/.vite";
-const apiProxy = { "/api/copilot": apiTarget, "/api/workspace": apiTarget };
+const apiProxy = { "/api/copilot": apiTarget, "/api/workspace": apiTarget, "/api/local": apiTarget };
 
 export default defineConfig({
   plugins: [react(), terminalDiagnostics()],
