@@ -307,7 +307,7 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
 
   const resultMessage = page.locator(".gemini-message.assistant").last();
   await expect(resultMessage).toContainText("Applied 1 native change");
-  await expect(resultMessage).toContainText(scriptMarker);
+  await expect(resultMessage).toContainText("Add a native Draw.io vertex");
   await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
   await expect(nativeFrame(page).getByText(scriptMarker, { exact: true })).toBeVisible();
   await expect.poll(async () => (await readWorkspaceXml(workspace)).includes(scriptMarker)).toBe(true);
