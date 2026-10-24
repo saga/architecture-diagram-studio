@@ -94,6 +94,7 @@ test("Copilot uses the same server intent contract while standalone edits stay o
   await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
   await expect(nativeFrame(page).getByText("Workspace Data Store", { exact: true })).toHaveCount(0);
 
+  let workspaceDocumentWrites = 0;
   await page.route("**/api/workspace/document", async (route) => {
     workspaceDocumentWrites++;
     await route.continue();
