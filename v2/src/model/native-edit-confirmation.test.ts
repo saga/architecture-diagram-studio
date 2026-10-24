@@ -28,6 +28,15 @@ describe("native edit XML confirmation", () => {
   });
 
 
+  it("does not confirm an edit by reading cells from another page when the requested page ID is missing", () => {
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: labelEdited, cellId: "api", pageId: "missing-page", path: "label", value: "New API"
+    })).toBe(false);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: labelEdited, cellId: "api", pageId: "", path: "label", value: "New API"
+    })).toBe(false);
+  });
+
   it("confirms a mixed selection and document batch without expecting selection in XML", () => {
     const labelAndStyleEdited = before
       .replace('value="Old API"', 'value="Primary API"')
