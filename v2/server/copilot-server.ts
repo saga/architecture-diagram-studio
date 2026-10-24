@@ -17,6 +17,7 @@ import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
 import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 import { defaultStudioHome, resolveStudioStorageLayout, type StudioStorageLayout } from "./storage-layout";
+import { createRuntimeScopeLeaseManager } from "./runtime-scope-lease";
 
 /**
  * The Copilot runtime reads its model provider configuration from the environment
@@ -640,46 +641,7 @@ async function setRuntimeStorageScope(workspace: ProjectWorkspace | null): Promi
   else await migrateLegacySingleFileData(layout);
 }
 
-type RuntimeScopeWaiter = { key: string; resolve: (release: () => void) => void };
-let activeRequestScopeKey: string | null = null;
-let activeRequestScopeCount = 0;
-const runtimeScopeWaiters: RuntimeScopeWaiter[] = [];
-
-function createRuntimeScopeRelease(key: string): () => void {
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    if (activeRequestScopeKey !== key) return;
-    activeRequestScopeCount = Math.max(0, activeRequestScopeCount - 1);
-    if (activeRequestScopeCount > 0) return;
-    activeRequestScopeKey = null;
-    const next = runtimeScopeWaiters.shift();
-    if (!next) return;
-    activeRequestScopeKey = next.key;
-    activeRequestScopeCount = 1;
-    next.resolve(createRuntimeScopeRelease(next.key));
-    while (runtimeScopeWaiters[0]?.key === activeRequestScopeKey) {
-      const sameScope = runtimeScopeWaiters.shift()!;
-      activeRequestScopeCount += 1;
-      sameScope.resolve(createRuntimeScopeRelease(sameScope.key));
-    }
-  };
-}
-
-function acquireRuntimeScope(key: string): Promise<() => void> {
-  const hasDifferentScopeQueued = runtimeScopeWaiters.some((waiter) => waiter.key !== key);
-  if (activeRequestScopeKey === null) {
-    activeRequestScopeKey = key;
-    activeRequestScopeCount = 1;
-    return Promise.resolve(createRuntimeScopeRelease(key));
-  }
-  if (activeRequestScopeKey === key && !hasDifferentScopeQueued) {
-    activeRequestScopeCount += 1;
-    return Promise.resolve(createRuntimeScopeRelease(key));
-  }
-  return new Promise((resolve) => runtimeScopeWaiters.push({ key, resolve }));
-}
+const runtimeScopeLeases = createRuntimeScopeLeaseManager();
 
 app.use("/api", async (req, res, next) => {
   const localFileOperation = req.path.startsWith("/local/");
@@ -692,13 +654,18 @@ app.use("/api", async (req, res, next) => {
   const globalConfiguration = req.path === "/workspace/configuration" ||
     req.path.startsWith("/workspace/configuration/") ||
     req.path === "/copilot/health" || req.path === "/copilot/models";
-  // Global settings, local file I/O and trace reads resolve their own destinations; they must not
-  // switch the live diagram scope or reset the Copilot SDK client.
   if (localFileOperation || traceRead || clientLogWrite || globalConfiguration) { next(); return; }
+
+  const waitController = new AbortController();
   let releaseScope: (() => void) | null = null;
   let released = false;
   let responseClosedWhileWaiting = false;
-  const markClosed = () => { if (!res.writableEnded) responseClosedWhileWaiting = true; };
+  const markClosed = () => {
+    if (!res.writableEnded) {
+      responseClosedWhileWaiting = true;
+      waitController.abort();
+    }
+  };
   res.once("close", markClosed);
   const releaseOnce = () => {
     if (released) return;
@@ -709,6 +676,7 @@ app.use("/api", async (req, res, next) => {
     releaseScope?.();
     releaseScope = null;
   };
+
   try {
     const configuredWorkspace = await getProjectWorkspace();
     const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
@@ -730,25 +698,25 @@ app.use("/api", async (req, res, next) => {
       dataDirOverride: DATA_DIR_OVERRIDE, logDirOverride: LOG_DIR_OVERRIDE,
       copilotHomeOverride: COPILOT_HOME_OVERRIDE
     }).scopeKey;
-    // Configuration/create requests can change the active scope inside their handler; make them exclusive.
     const requestedScope = scopeTransition ? "scope-transition:" + randomUUID() : derivedScope;
-    releaseScope = await acquireRuntimeScope(requestedScope);
+    releaseScope = await runtimeScopeLeases.acquire(requestedScope, waitController.signal);
     if (responseClosedWhileWaiting || res.destroyed) { releaseOnce(); return; }
     res.off("close", markClosed);
     res.once("finish", releaseOnce);
     res.once("close", releaseOnce);
+
     const latestWorkspace = await getProjectWorkspace();
     if (!standalone && latestWorkspace?.id !== requestedWorkspace?.id && !scopeTransition) {
       releaseOnce();
       res.status(409).json({ error: "The active workspace changed while this request was waiting. Retry against the current workspace." });
       return;
     }
-    // A scope-transition request runs exclusively. Re-read the workspace after waiting so it
-    // cannot switch the mutable runtime back to a workspace that was active before the transition.
+    // A scope-transition request is exclusive; refresh after waiting so it cannot restore a stale workspace.
     await setRuntimeStorageScope(standalone ? null : latestWorkspace);
     next();
   } catch (error) {
     releaseOnce();
+    if (responseClosedWhileWaiting || res.destroyed) return;
     next(error);
   }
 });
