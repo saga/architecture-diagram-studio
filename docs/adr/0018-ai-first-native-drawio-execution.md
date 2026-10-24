@@ -1,6 +1,6 @@
 # ADR-0018: AI-First Native Draw.io Execution
 
-- **Status:** Accepted; initial AI-first runtime changes implemented in this branch
+- **Status:** Accepted; implementation merged to `main` by [PR #14](https://github.com/saga/architecture-diagram-studio/pull/14). The PR's V2 CI run passed.
 - **Date:** 2026-10-24
 - **Scope:** V2 local, single-user Architecture Diagram Studio
 - **Supersedes:** The restrictive interpretation of the script path in the Native Copilot Capability Audit and V2 README. This ADR does not introduce a second diagram model.
@@ -150,16 +150,16 @@ Do not expose an independent tool for every verb such as create-edge, bend-edge,
 
 ## Implementation plan
 
-The initial implementation is included in this branch. The direct script tool, manifest/AST gate removal, default confirmation removal, serialized XML acknowledgement changes, local script trace, and iframe watchdog are in place. The remaining plan items below identify validation and follow-up hardening rather than a second design phase.
+The initial implementation was merged into `main` by PR #14. The direct script tool, manifest/AST gate removal, default confirmation removal, serialized XML acknowledgement changes, local script trace, and iframe watchdog are in place. Remaining work is maintenance and focused hardening, not a second design phase.
 
-1. Completed in this branch: add the standalone `run_drawio_script` Copilot tool while keeping the typed-edit schema limited to typed operations.
-2. Completed in this branch: remove AST/script-policy and runtime-manifest permission gates; disable default confirmation gates for scripts, deletes and broad batches.
-3. Completed in this branch: treat the live runtime manifest as diagnostic-only and give direct scripts the live editor bindings.
+1. Implemented in PR #14 and merged to `main`: add the standalone `run_drawio_script` Copilot tool while keeping the typed-edit schema limited to typed operations.
+2. Implemented in PR #14 and merged to `main`: remove AST/script-policy and runtime-manifest permission gates; disable default confirmation gates for scripts, deletes and broad batches.
+3. Implemented in PR #14 and merged to `main`: treat the live runtime manifest as diagnostic-only and give direct scripts the live editor bindings.
 4. Existing native XML serialization, persistence/version acknowledgement and request correlation remain the success path; direct script completion no longer requires a custom per-cell `verified/checks` envelope.
-5. Completed in this branch: retain full script source and source revision/page/version metadata in local traces. Script errors and result details are recorded by the native bridge; rollback remains best-effort.
-6. Completed in this branch: add a host-side watchdog that can reload a blocked iframe from Studio's latest saved XML snapshot.
+5. Implemented in PR #14 and merged to `main`: retain full script source and source revision/page/version metadata in local traces. Script errors and result details are recorded by the native bridge; rollback remains best-effort.
+6. Implemented in PR #14 and merged to `main`: add a host-side watchdog that can reload a blocked iframe from Studio's latest saved XML snapshot.
 7. Added/updated regression tests for direct script dispatch without a manifest, direct dispatch without confirmation, broad delete dispatch without confirmation, and native XML acceptance without predeclared script postconditions.
-8. Implemented in this branch: serve Draw.io from a dedicated loopback-only origin, enable a cross-origin iframe sandbox, use exact-origin postMessage in both directions, and apply CSP that permits same-origin Draw.io asset requests but blocks cross-origin network connections and remote image loads. Playwright assertions cover the CSP and direct native-script path. Run the PR CI and address any failures before merge.
+8. Implemented in PR #14 and merged to `main`: serve Draw.io from a dedicated loopback-only origin, enable a cross-origin iframe sandbox, use exact-origin postMessage in both directions, and apply CSP that permits same-origin Draw.io asset requests but blocks cross-origin network connections and remote image loads. Playwright assertions cover the CSP and direct native-script path; PR #14's V2 CI passed. Re-run relevant checks for later changes.
 
 ## Acceptance criteria
 
