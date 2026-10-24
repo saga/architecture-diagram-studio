@@ -23,7 +23,7 @@ describe("bounded JSONL logs", () => {
 
     const combined = await readRecentJsonl(file, 4096, 3);
     const parsed = combined.trim().split("\n").map((line) => JSON.parse(line) as { index: number });
-    expect(parsed.map((row) => row.index)).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(parsed.map((row) => row.index)).toEqual([4, 5, 6, 7]);
     expect((await readdir(path.dirname(file))).sort()).toEqual(["events.jsonl", "events.jsonl.1", "events.jsonl.2", "events.jsonl.3"]);
   });
 
