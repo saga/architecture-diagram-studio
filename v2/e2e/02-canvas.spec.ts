@@ -10,6 +10,9 @@ test.beforeEach(async ({ page, request }) => {
   workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
+  const editorFrame = page.locator('iframe[title="Native Draw.io editor"]');
+  // noSaveBtn=1 alone replaces Save with Save and Exit; keep saveAndExit=0 explicit.
+  await expect(editorFrame).toHaveAttribute("src", /saveAndExit=0&noSaveBtn=1&noExitBtn=1/);
   await expect(nativeFrame(page).getByText("API Service", { exact: true })).toBeVisible();
 });
 
