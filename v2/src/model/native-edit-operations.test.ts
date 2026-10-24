@@ -3,6 +3,7 @@ import { calculateNativeAutoLayout, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS } from ".
 import {
   describeNativeEditOperation,
   extractNativeEditTargets,
+  getNativeDiagramPageInfo,
   MAX_NATIVE_EDIT_OPERATIONS,
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
@@ -32,6 +33,16 @@ describe("extractNativeEditTargets", () => {
       { id: "api", name: "API & Service", cellType: "vertex" },
       { id: "db-to-api", name: "calls", cellType: "edge" }
     ]);
+  });
+
+  it("does not fall back to the first page when the requested page ID is stale", () => {
+    const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="other" value="Other page cell" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram>';
+    const multiPage = XML.replace("</mxfile>", secondPage + "</mxfile>");
+
+    expect(getNativeDiagramPageInfo(multiPage, "missing-page")).toEqual({ id: null, title: null });
+    expect(extractNativeEditTargets(multiPage, "p2")).toEqual([{ id: "other", name: "Other page cell", cellType: "vertex" }]);
+    expect(() => extractNativeEditTargets(multiPage, "missing-page"))
+      .toThrow("refusing to inspect cells from another page");
   });
 
   it("does not expose root/layer cells as editable targets", () => {
