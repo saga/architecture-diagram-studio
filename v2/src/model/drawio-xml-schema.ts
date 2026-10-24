@@ -384,14 +384,19 @@ function inflatePageBytes(bytes: Uint8Array): Uint8Array {
   return inflated;
 }
 
-function decodeCompressedPage(payload: string): string {
+interface DecodedDrawioPage {
+  xml: string;
+  root: DrawioXmlElement;
+}
+
+function decodeCompressedPageTree(payload: string): DecodedDrawioPage {
   const trimmed = payload.trim();
   if (trimmed.startsWith("<")) {
     const root = parseXmlTree(trimmed);
     if (root.name !== "mxGraphModel") throw new Error("The plaintext diagram page must contain mxGraphModel.");
     const validated = MxGraphModelSchema.safeParse(root);
     if (!validated.success) throw new Error(issuesAsStrings(validated.error.issues).slice(0, 5).join("; "));
-    return trimmed;
+    return { xml: trimmed, root };
   }
   const compact = payload.replace(/\s+/g, "");
   let bytes: Uint8Array;
@@ -417,13 +422,17 @@ function decodeCompressedPage(payload: string): string {
         continue;
       }
       const result = MxGraphModelSchema.safeParse(root);
-      if (result.success) return candidate;
+      if (result.success) return { xml: candidate, root };
       nestedErrors.push(...issuesAsStrings(result.error.issues));
     } catch (error) {
       nestedErrors.push(error instanceof Error ? error.message : String(error));
     }
   }
   throw new Error(nestedErrors.slice(0, 5).join("; ") || "Invalid compressed Draw.io page.");
+}
+
+function decodeCompressedPage(payload: string): string {
+  return decodeCompressedPageTree(payload).xml;
 }
 
 function addCellInventoryWarnings(root: DrawioXmlElement, warnings: string[], pageLabel: string): void {
@@ -474,13 +483,14 @@ function parseValidated(xml: string, allowLibrary: boolean): DrawioXmlValidation
   const parsed = schema.safeParse(root);
   if (!parsed.success) return { success: false, issues: issuesAsStrings(parsed.error.issues) };
 
+  const decodedPages = new Map<number, DrawioXmlElement>();
   if (root.name === "mxfile") {
     const pages = root.children.filter((child) => child.name === "diagram");
     for (const [index, page] of pages.entries()) {
       const inlineModel = page.children.find((child) => child.name === "mxGraphModel");
       if (inlineModel) continue;
       try {
-        decodeCompressedPage(page.text);
+        decodedPages.set(index, decodeCompressedPageTree(page.text).root);
       } catch (error) {
         return { success: false, issues: ["diagram[" + index + "]: " + (error instanceof Error ? error.message : String(error))] };
       }
@@ -492,8 +502,8 @@ function parseValidated(xml: string, allowLibrary: boolean): DrawioXmlValidation
       const model = page.children.find((child) => child.name === "mxGraphModel");
       if (model) addCellInventoryWarnings(model, warnings, "diagram[" + index + "]");
       else {
-        try { addCellInventoryWarnings(parseXmlTree(decodeCompressedPage(page.text)), warnings, "diagram[" + index + "]"); }
-        catch { /* Compressed payload errors already return above. */ }
+        const decoded = decodedPages.get(index);
+        if (decoded) addCellInventoryWarnings(decoded, warnings, "diagram[" + index + "]");
       }
     });
   } else if (root.name === "mxGraphModel") addCellInventoryWarnings(root, warnings, "mxGraphModel");
