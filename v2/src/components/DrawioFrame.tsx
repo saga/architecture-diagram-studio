@@ -39,6 +39,8 @@ export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }): Promise<DrawioRuntimeInspection>;
   /** Applies a revision/page-bound Dagre or ELK geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
+  /** Reloads the editor from the latest XML retained by Studio after a synchronous script hangs. */
+  recoverFromLastSavedXml(): void;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -216,6 +218,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       });
     },
+    recoverFromLastSavedXml: () => retryEditor(true),
     inspectRuntime: ({ documentRevision, pageId, jsShapeClassNames }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
@@ -447,14 +450,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (!inspection) {
               pending.reject(new Error("The runtime inspection did not match the pinned Draw.io version, active page, and source document revision."));
             } else {
-              if (runtimeManifestCompatibleRef.current !== true) {
-                inspection.capabilityManifest.scriptSupported = false;
-                if (!inspection.capabilityManifest.missing.graph?.length &&
-                    !inspection.capabilityManifest.missing.model?.length &&
-                    !inspection.capabilityManifest.missing.view?.length) {
-                  inspection.capabilityManifest.missing.graph = ["host_bundle_or_bridge_handshake_mismatch"];
-                }
-              }
               recordDiagnostic("drawio.runtime-inspection.completed", "Received a bounded read-only snapshot of the live native Draw.io runtime", {
                 requestId, documentRevision: inspection.documentRevision, pageId: inspection.pageId,
                 cellCount: inspection.counts.cells, vertexCount: inspection.counts.vertices, edgeCount: inspection.counts.edges,
@@ -480,10 +475,12 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         );
         const compatible = advertisedVersion === DRAWIO_VERSION && manifest?.scriptSupported === true && !hasMissing;
         runtimeManifestCompatibleRef.current = compatible;
-        setRuntimeScriptSupported(compatible);
-        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.mismatch",
-          compatible ? "The pinned Draw.io script capability manifest matches the host contract" : "Native script execution is disabled because the Draw.io runtime manifest does not match the host contract",
-          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "error");
+        // In local AI-first mode the manifest is diagnostic evidence, never a permission gate.
+        // A completed native bridge handshake is enough to expose direct script execution.
+        setRuntimeScriptSupported(true);
+        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.diagnostic-mismatch",
+          compatible ? "The observed Draw.io runtime manifest matches the curated contract" : "The observed Draw.io runtime manifest differs from the curated contract; direct script execution remains enabled",
+          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "warn");
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }
@@ -703,9 +700,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     embedUiObserverRef.current.observe(frameDocument.documentElement, { childList: true, subtree: true });
   }
 
-  function retryEditor() {
+  function retryEditor(recovery = false) {
     rejectPendingAutoLayout(new Error("Draw.io editor was re-initialised before auto layout completed."));
-    recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", { previousFrameKey: frameKey }, "warn");
+    recordDiagnostic(recovery ? "drawio.script-watchdog.recovery" : "drawio.retry",
+      recovery ? "Reloading the Draw.io iframe from Studio's latest saved XML after a script execution timeout" : "The user asked to re-initialise the Draw.io editor",
+      { previousFrameKey: frameKey, recoverySource: recovery ? "latest-studio-xml" : "manual" }, recovery ? "error" : "warn");
     lastSent.current = "";
     setEditorReady(false);
     setIframeLoaded(false);
@@ -714,7 +713,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     setBridgeReady(false);
     runtimeManifestCompatibleRef.current = null;
     setRuntimeScriptSupported(null);
-    setStartupError(null);
+    setStartupError(recovery ? "A Draw.io script timed out. The editor was reloaded from Studio's latest saved XML snapshot." : null);
     setFrameKey((value) => value + 1);
   }
 
