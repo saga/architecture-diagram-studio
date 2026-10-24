@@ -7,6 +7,7 @@ type OperationBranch = {
     target?: unknown;
     newLabel?: { type?: string; minLength?: number; maxLength?: number };
     key?: { type?: string; enum?: readonly string[]; default?: string };
+    color?: { type?: string; pattern?: string };
     engine?: { enum?: readonly string[]; default?: string };
     iterations?: { type?: string; minimum?: number; maximum?: number; default?: number };
     kind?: { enum?: readonly string[] };
