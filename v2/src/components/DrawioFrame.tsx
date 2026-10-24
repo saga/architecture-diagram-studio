@@ -19,7 +19,8 @@ export const DRAWIO_PORT = (() => {
   return Number.isInteger(value) && value >= 1024 && value <= 65535 ? String(value) : "4176";
 })();
 const DRAWIO_ORIGIN = "http://127.0.0.1:" + DRAWIO_PORT;
-export const DRAWIO_EMBED_URL = DRAWIO_ORIGIN + "/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
+// Draw.io semantics: noSaveBtn=1 replaces Save with Save & Exit unless saveAndExit=0 is also set.
+export const DRAWIO_EMBED_URL = DRAWIO_ORIGIN + "/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1";
 
 /**
  * C4 is built into the pinned Draw.io bundle as the `c4` palette. The version bump
@@ -31,6 +32,7 @@ export const DRAWIO_EDITOR_CONFIG = {
   defaultPageFormat: "A4",
   defaultLibraries: "general;uml;er;bpmn;flowchart;basic;arrows2;c4",
   autosave: 1,
+  saveAndExit: false,
   noSaveBtn: true,
   noExitBtn: true
 } as const;
