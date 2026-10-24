@@ -395,6 +395,9 @@ export async function calculateNativeAutoLayout(
   if (!documentRevision || !/^[a-f0-9]{64}$/i.test(documentRevision)) {
     throw new Error("Auto layout requires the revision of the exact native Draw.io XML snapshot.");
   }
+  if (options.engine === "dagre" && options.algorithm !== "layered") {
+    throw new Error(`Dagre supports only the layered algorithm; “${options.algorithm}” is not available for this engine. Choose ELK for other algorithms.`);
+  }
   const projection = projectNativePage(xml, pageId);
   if (projection.vertices.length === 0) {
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page.");
