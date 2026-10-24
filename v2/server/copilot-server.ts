@@ -208,7 +208,8 @@ type WorkspaceState = {
   chatMessages: unknown[];
   updatedAt: string | null;
 };
-type StoredDiagramVersion = Omit<DiagramVersion, "drawioXml"> & { drawioXml?: unknown; document?: unknown };
+type StoredDiagramVersion = Omit<DiagramVersion, "drawioXml"> & { drawioXml?: unknown; document?: unknown; revision?: unknown; xmlBytes?: unknown };
+type StoredDiagramVersionIndex = { schemaVersion: 2; versions: StoredDiagramVersion[] };
 type StoredWorkspaceState = Partial<WorkspaceState> & { document?: unknown };
 
 const withDataWrite = createSerializedWriteQueue();
@@ -240,8 +241,50 @@ async function persistWorkspaceState(state: WorkspaceState | null = workspaceSta
   if (state) await writeJsonAtomic(WORKSPACE_FILE, state);
 }
 
+const DIAGRAM_VERSION_XML_DIR_NAME = "diagram-version-xml";
+const MAX_WORKSPACE_DIAGRAM_VERSION_BYTES = Math.max(32 * 1024 * 1024, Number(process.env.STUDIO_MAX_WORKSPACE_DIAGRAM_VERSION_BYTES) || 64 * 1024 * 1024);
+const MAX_TOTAL_DIAGRAM_VERSION_BYTES = Math.max(64 * 1024 * 1024, Number(process.env.STUDIO_MAX_TOTAL_DIAGRAM_VERSION_BYTES) || 256 * 1024 * 1024);
+function diagramVersionXmlPath(id: string): string {
+  if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(id)) throw new Error("Invalid diagram version ID");
+  return path.join(DATA_DIR, DIAGRAM_VERSION_XML_DIR_NAME, id + ".xml");
+}
+
 async function persistDiagramVersions(versions: DiagramVersion[] = diagramVersions || []): Promise<void> {
-  await writeJsonAtomic(VERSIONS_FILE, versions);
+  const xmlDirectory = path.join(DATA_DIR, DIAGRAM_VERSION_XML_DIR_NAME);
+  await mkdir(xmlDirectory, { recursive: true, mode: 0o700 });
+  const previous = await readJsonFile<unknown>(VERSIONS_FILE, []);
+  const previousItems: unknown[] = Array.isArray(previous)
+    ? previous
+    : previous && typeof previous === "object" && Array.isArray((previous as StoredDiagramVersionIndex).versions)
+      ? (previous as StoredDiagramVersionIndex).versions
+      : [];
+  const previousIds = previousItems.flatMap((value) => {
+    const id = value && typeof value === "object" ? (value as { id?: unknown }).id : null;
+    return typeof id === "string" && /^[a-zA-Z0-9._:-]{1,128}$/.test(id) ? [id] : [];
+  });
+  const indexEntries: StoredDiagramVersion[] = [];
+  for (const version of versions) {
+    const snapshotPath = diagramVersionXmlPath(version.id);
+    const expectedBytes = Buffer.byteLength(version.drawioXml, "utf8");
+    const exists = await stat(snapshotPath).then((info) => info.isFile() && info.size === expectedBytes).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    });
+    if (!exists) await writeTextAtomic(snapshotPath, version.drawioXml);
+    indexEntries.push({
+      id: version.id, ...(version.workspaceId ? { workspaceId: version.workspaceId } : {}),
+      ...(version.diagramPath !== undefined ? { diagramPath: version.diagramPath } : {}),
+      createdAt: version.createdAt, label: version.label,
+      revision: workspaceRevision(version.drawioXml), xmlBytes: expectedBytes
+    });
+  }
+  await writeJsonAtomic(VERSIONS_FILE, { schemaVersion: 2, versions: indexEntries } satisfies StoredDiagramVersionIndex);
+  const retainedIds = new Set(versions.map((version) => version.id));
+  for (const id of previousIds) {
+    if (!retainedIds.has(id)) await unlink(diagramVersionXmlPath(id)).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    });
+  }
 }
 
 async function getWorkspaceState(): Promise<WorkspaceState> {
@@ -287,7 +330,8 @@ async function getWorkspaceState(): Promise<WorkspaceState> {
 const MAX_VERSIONS_PER_WORKSPACE = Math.min(500, Math.max(10, Number(process.env.STUDIO_MAX_DIAGRAM_VERSIONS_PER_WORKSPACE) || 100));
 const MAX_TOTAL_DIAGRAM_VERSIONS = Math.min(5000, Math.max(100, Number(process.env.STUDIO_MAX_TOTAL_DIAGRAM_VERSIONS) || 500));
 function retainRecentVersions(versions: DiagramVersion[]): DiagramVersion[] {
-  return retainVersionsWithinLimit(versions, MAX_VERSIONS_PER_WORKSPACE, MAX_TOTAL_DIAGRAM_VERSIONS);
+  return retainVersionsWithinLimit(versions, MAX_VERSIONS_PER_WORKSPACE, MAX_TOTAL_DIAGRAM_VERSIONS,
+    MAX_WORKSPACE_DIAGRAM_VERSION_BYTES, MAX_TOTAL_DIAGRAM_VERSION_BYTES);
 }
 function versionMatchesActiveDiagram(version: DiagramVersion, workspace: ProjectWorkspace | null): boolean {
   const activePath = workspace?.primaryDiagram ?? null;
@@ -305,28 +349,46 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
   if (diagramVersions) return diagramVersions;
   if (!diagramVersionsLoad) {
     diagramVersionsLoad = (async () => {
-      const stored = await readJsonFile<StoredDiagramVersion[]>(VERSIONS_FILE, []);
+      const storedValue = await readJsonFile<unknown>(VERSIONS_FILE, []);
+      const isLegacyArray = Array.isArray(storedValue);
+      const records: unknown[] = isLegacyArray ? storedValue :
+        storedValue && typeof storedValue === "object" &&
+        (storedValue as { schemaVersion?: unknown }).schemaVersion === 2 &&
+        Array.isArray((storedValue as { versions?: unknown }).versions)
+          ? (storedValue as StoredDiagramVersionIndex).versions : [];
       const hydrated: DiagramVersion[] = [];
-      let migrated = false;
-      for (const item of stored) {
-        const xml = typeof item.drawioXml === "string" ? item.drawioXml : null;
-        // Old semantic-only snapshots cannot be restored faithfully; do not regenerate native XML from them.
+      let migrated = isLegacyArray || records.some((item) =>
+        !!item && typeof item === "object" && Object.prototype.hasOwnProperty.call(item, "document"));
+      for (const rawItem of records) {
+        if (!rawItem || typeof rawItem !== "object") { migrated = true; continue; }
+        const item = rawItem as StoredDiagramVersion;
+        if (typeof item.id !== "string" || !/^[a-zA-Z0-9._:-]{1,128}$/.test(item.id)) { migrated = true; continue; }
+        let xml = typeof item.drawioXml === "string" ? item.drawioXml : null;
+        if (xml === null && !isLegacyArray) {
+          try { xml = await readFile(diagramVersionXmlPath(item.id), "utf8"); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            migrated = true;
+            continue;
+          }
+        }
         if (xml === null || Buffer.byteLength(xml, "utf8") > 20_000_000 || !validateDrawioXmlDocument(xml).success) {
           migrated = true;
           continue;
         }
+        if (typeof item.revision === "string" && item.revision !== workspaceRevision(xml)) { migrated = true; continue; }
         hydrated.push({
           id: item.id,
           ...(typeof item.workspaceId === "string" ? { workspaceId: item.workspaceId } : {}),
           ...(typeof item.diagramPath === "string" || item.diagramPath === null ? { diagramPath: item.diagramPath } : {}),
-          createdAt: item.createdAt,
-          label: item.label,
+          createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date(0).toISOString(),
+          label: typeof item.label === "string" ? item.label : "Recovered version",
           drawioXml: xml
         });
-        if (Object.prototype.hasOwnProperty.call(item, "document")) migrated = true;
+        if (isLegacyArray || typeof item.revision !== "string" || typeof item.xmlBytes !== "number") migrated = true;
       }
       const retained = retainRecentVersions(hydrated);
-      if (retained.length !== stored.length) migrated = true;
+      if (retained.length !== records.length) migrated = true;
       if (migrated) await persistDiagramVersions(retained);
       return retained;
     })().catch((error) => {
@@ -337,6 +399,7 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
   diagramVersions = await diagramVersionsLoad;
   return diagramVersions;
 }
+
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 app.use((req, res, next) => {

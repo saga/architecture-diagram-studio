@@ -30,11 +30,19 @@ export function isWorkspaceSaveContextCompatible(
 export function workspaceRevision(drawioXml: string | null): string {
   return createHash("sha256").update(drawioXml ?? "").digest("hex");
 }
-export function retainRecentVersions<T extends { id: string; workspaceId?: string; diagramPath?: string | null }>(versions: T[], maxPerWorkspace: number, maxTotalVersions = 500): T[] {
+export function retainRecentVersions<T extends { id: string; workspaceId?: string; diagramPath?: string | null; drawioXml?: string }>(
+  versions: T[], maxPerWorkspace: number, maxTotalVersions = 500,
+  maxBytesPerWorkspace = Number.MAX_SAFE_INTEGER, maxTotalBytes = Number.MAX_SAFE_INTEGER
+): T[] {
   const counts = new Map<string, number>();
+  const bytesByScope = new Map<string, number>();
   const retained = new Set<string>();
   const totalLimit = Math.max(1, Math.floor(maxTotalVersions));
   const workspaceLimit = Math.max(1, Math.floor(maxPerWorkspace));
+  const workspaceByteLimit = Math.max(1, Math.floor(maxBytesPerWorkspace));
+  const totalByteLimit = Math.max(1, Math.floor(maxTotalBytes));
+  let totalBytes = 0;
+  // Prefer newest history first, but enforce storage budgets as well as count limits.
   for (let i = versions.length - 1; i >= 0 && retained.size < totalLimit; i--) {
     const version = versions[i];
     const workspaceId = version.workspaceId ?? "__legacy__";
@@ -42,7 +50,12 @@ export function retainRecentVersions<T extends { id: string; workspaceId?: strin
     const scopeKey = workspaceId + "\0" + diagramPath;
     const count = counts.get(scopeKey) ?? 0;
     if (count >= workspaceLimit) continue;
+    const size = typeof version.drawioXml === "string" ? Buffer.byteLength(version.drawioXml, "utf8") : 0;
+    const scopeBytes = bytesByScope.get(scopeKey) ?? 0;
+    if (size > workspaceByteLimit || scopeBytes + size > workspaceByteLimit || totalBytes + size > totalByteLimit) continue;
     counts.set(scopeKey, count + 1);
+    bytesByScope.set(scopeKey, scopeBytes + size);
+    totalBytes += size;
     retained.add(version.id);
   }
   return versions.filter((version) => retained.has(version.id));

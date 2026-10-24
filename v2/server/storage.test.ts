@@ -23,6 +23,14 @@ describe("server persistence primitives", () => {
     ];
     expect(retainRecentVersions(versions, 2, 10).map((version) => version.id)).toEqual(["a1", "b1", "a2", "b2"]);
   });
+  it("bounds history by cumulative XML bytes, retaining newest snapshots first", () => {
+    const versions = [
+      { id: "old", workspaceId: "w", drawioXml: "123456" },
+      { id: "newer", workspaceId: "w", drawioXml: "1234" },
+      { id: "newest", workspaceId: "w", drawioXml: "12" }
+    ];
+    expect(retainRecentVersions(versions, 10, 10, 6, 6).map((item) => item.id)).toEqual(["newer", "newest"]);
+  });
   it("accepts only a supplied revision equal to the current server revision", () => {
     expect(matchesWorkspaceRevision(undefined, null)).toBe(false);
     expect(matchesWorkspaceRevision("stale", "current")).toBe(false);
