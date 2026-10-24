@@ -116,6 +116,25 @@ test.describe("版本历史与文件交换", () => {
     expect(after.workspaceRevision).toBe(state.workspaceRevision);
   });
 
+  test("服务端检测主图文件的外部修改，不覆盖磁盘上的新内容", async ({ request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
+    const diskPath = path.join(workspace.rootPath, "architecture.drawio");
+    const originalDiskXml = await readFile(diskPath, "utf8");
+    const externalXml = originalDiskXml.replace('value="Database"', 'value="External Editor Update"');
+    expect(externalXml).not.toBe(originalDiskXml);
+    await writeFile(diskPath, externalXml, "utf8");
+
+    const localXml = state.drawioXml.replace('value="Database"', 'value="Local Studio Save"');
+    expect(localXml).not.toBe(state.drawioXml);
+    const save = await request.put("/api/workspace/document", {
+      data: { drawioXml: localXml, label: "Must not overwrite external edit", baseRevision: state.workspaceRevision }
+    });
+    expect(save.status()).toBe(409);
+    expect(await readFile(diskPath, "utf8")).toBe(externalXml);
+  });
+
   test("服务端拒绝过期 revision，且不覆盖更新后的 XML", async ({ request }) => {
     const stateResponse = await request.get("/api/workspace/state");
     expect(stateResponse.ok()).toBe(true);
