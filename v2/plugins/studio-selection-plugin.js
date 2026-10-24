@@ -956,11 +956,11 @@
             throw new Error("Draw.io grid spacing is unavailable; use the native script path to choose an explicit placement");
           }
           var newX = path === "cell:add-node-after"
-            ? Number(nodeGeometry.x) + newWidth + gridSpacing
-            : Number(nodeGeometry.x) + (Number(nodeGeometry.width) - newWidth) / 2;
+            ? sourceX + newWidth + gridSpacing
+            : sourceX + (Number(nodeGeometry.width) - newWidth) / 2;
           var newY = path === "cell:add-node-after"
-            ? Number(nodeGeometry.y)
-            : Number(nodeGeometry.y) + newHeight + gridSpacing;
+            ? sourceY
+            : sourceY + newHeight + gridSpacing;
           // Omit the style argument so Draw.io applies its own default vertex style.
           var insertedNode = activeGraph.insertVertex(nodeParent, null, addRequest.label.trim(), newX, newY, newWidth, newHeight);
           if (!insertedNode) throw new Error("Draw.io did not create the new vertex");
