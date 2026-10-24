@@ -737,6 +737,7 @@ export default function App() {
   async function openStandaloneDiagram(handle: StudioLocalFileHandle) {
     const startedAt = Date.now();
     try {
+      if (!/\\.(drawio|dio|xml)$/i.test(handle.name)) throw new Error("Choose a .drawio, .dio, or .xml file");
       // Ask for write access immediately after selection, while the picker interaction still has user activation.
       await ensureDrawioWritePermission(handle);
       const file = await handle.getFile();
@@ -820,6 +821,7 @@ export default function App() {
     const startedAt = Date.now();
     recordDiagnostic("drawio.import.started", "Native Draw.io import started through FileSystemFileHandle", { fileName: handle.name });
     try {
+      if (!/\\.(drawio|dio|xml)$/i.test(handle.name)) throw new Error("Choose a .drawio, .dio, or .xml file");
       const file = await handle.getFile();
       if (file.size > 20 * 1024 * 1024) throw new Error("Draw.io XML exceeds the 20 MiB limit");
       const xml = await file.text();
