@@ -129,7 +129,24 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
 
   let editorModifiedCalls = 0;
   let graphRefreshCalls = 0;
+  let generatedCellCount = 0;
   const graph: Record<string, any> = {
+    gridSize: 10,
+    insertVertex: (parent: MockCell, _id: string | null, value: string, x: number, y: number, width: number, height: number, style?: string | null) => {
+      const created = makeCell("created-" + (++generatedCellCount), { vertex: true, style: style ?? "" });
+      created.value = value;
+      created.geometry = mockGeometry(x, y, width, height);
+      append(parent, created);
+      return created;
+    },
+    insertEdge: (parent: MockCell, _id: string | null, value: string, source: MockCell, target: MockCell, style?: string | null) => {
+      const created = makeCell("created-" + (++generatedCellCount), { edge: true, style: style ?? "" });
+      created.value = value;
+      created.source = source;
+      created.target = target;
+      append(parent, created);
+      return created;
+    },
     getModel: () => model,
     getSelectionModel: () => ({ addListener: () => undefined }),
     getSelectionCells: () => [],
@@ -214,6 +231,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   }
 
   return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect,
+    getCreatedCells: () => [...byId.values()].filter((cell) => cell.id.startsWith("created-")),
     getEditorModifiedCalls: () => editorModifiedCalls, getGraphRefreshCalls: () => graphRefreshCalls };
 }
 
@@ -252,6 +270,24 @@ describe("native Draw.io script bridge", () => {
   });
 
 
+  it("adds a node using the source cell style and dimensions without inventing edge styling", () => {
+    const harness = createHarness();
+    harness.service.geometry = mockGeometry(10, 20, 180, 90);
+    harness.service.style = "shape=hexagon;fillColor=#f0f0f0;strokeColor=#444444;";
+    const result = harness.runOperation("service", "cell:add-node-after", JSON.stringify({ label: "Cache" }));
+
+    expect(result).toMatchObject({ event: "studioPropertyEditResult", success: true });
+    const [node, edge] = harness.getCreatedCells();
+    expect(node).toBeTruthy();
+    expect(node.value).toBe("Cache");
+    expect(node.style).toBe(harness.service.style);
+    expect(node.geometry).toMatchObject({ x: 200, y: 20, width: 180, height: 90 });
+    expect(edge).toMatchObject({ edge: true, source: harness.service, target: node, style: "" });
+    expect(edge.style).not.toContain("endArrow=");
+    expect(edge.style).not.toContain("edgeStyle=");
+  });
+
+  it("executes whole-page curved-edge changes including connectors inside groups", () => {
     const harness = createHarness();
     const result = harness.runScript(curveAllConnectorsScript);
 
