@@ -1,8 +1,27 @@
 import express from "express";
 import path from "node:path";
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 
-const PORT = Number(process.env.STUDIO_DRAWIO_PORT || 4176);
+function loadLocalEnv(): void {
+  if (typeof parseEnv !== "function") return;
+  const merged: Record<string, string> = {};
+  for (const dir of [process.cwd(), path.join(process.cwd(), "v2")]) {
+    for (const file of [".env", ".env.local"]) {
+      try { Object.assign(merged, parseEnv(readFileSync(path.join(dir, file), "utf8"))); }
+      catch { /* absent or unreadable; keep looking */ }
+    }
+  }
+  for (const [key, value] of Object.entries(merged)) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
+loadLocalEnv();
+
+const configuredPort = Number(process.env.STUDIO_DRAWIO_PORT || 4176);
+const PORT = Number.isInteger(configuredPort) && configuredPort >= 1024 && configuredPort <= 65535
+  ? configuredPort : 4176;
 const HOST = "127.0.0.1";
 const DRAWIO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/drawio");
 
