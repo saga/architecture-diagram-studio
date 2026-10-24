@@ -28,11 +28,17 @@ search_drawio_shapes queries a curated local catalogue and returns exact vetted 
 
 Use the catalogue for extended-library symbols when it returns a matching verified entry. Ordinary common shapes do not need an explicit search. C4 Person, Software System and External Software System always use the existing typed set_c4_type operation, not catalog-generated scripts.
 
-### 3. Enforce policy where code can enforce it
+### 3. Search live diagram elements separately from shape definitions
+
+The model-facing diagram context remains compact and may omit cells beyond its prompt cap. That cap must not become a capability boundary: the server already holds the authoritative native-cell index parsed from the current Draw.io XML. The read-only `search_drawio_elements` tool queries that full active-page index by exact ID, exact label or distinctive label text, and returns a bounded result set with ambiguity metadata. The Agent uses it when the requested target is not visible in the prompt or the diagram is large; ambiguous results require narrowing by ID rather than guessing.
+
+Element search is distinct from `search_drawio_shapes`: the former discovers existing cells in the current document, while the latter discovers candidate shape definitions. Search does not mutate XML or bypass server-side target resolution, document revision validation, confirmation rules, or versioned persistence.
+
+### 4. Enforce policy where code can enforce it
 
 The server rejects scripts that call mxStencilRegistry.getStencil() as a shape lookup or attempt to recreate C4 styles/metadata with a script. C4 remains governed by the typed operation, native bridge checks and serialized-XML postconditions. These are deterministic guardrails, not a general JavaScript sandbox; existing AST, runtime-manifest, confirmation, revision, rollback and persistence controls remain in force.
 
-### 4. Preserve offline operation and native XML ownership
+### 5. Preserve offline operation and native XML ownership
 
 Shape discovery and reference lookup are local and read-only. There is no external MCP runtime dependency, no parallel graph model and no replacement-XML path. The catalogue is a conservative starter index, not a closed-world registry. Generating a complete index from the pinned Draw.io bundle is future work that needs its own versioned extraction and regression tests; until then, out-of-catalogue shapes must not be guessed.
 
