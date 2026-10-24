@@ -62,7 +62,7 @@ Workspace and version state contain native XML and metadata, not a derived graph
 
 The shared Zod schema validates native `mxfile`, bare `mxGraphModel`, supported compressed pages, geometry and shape-library formats. It intentionally leaves unknown attributes, styles, wrapper elements and custom cell types open. Malformed XML and DTD/custom entity declarations are rejected. Schema validation checks the source format; it does not require the file to fit a Studio-specific shape taxonomy.
 
-Standalone files can be opened without configuring a workspace. When browser file access is available, changes can save to that file; otherwise use **Export**. A configured project workspace adds server autosave and server-side version history. Creating a diagram never overwrites an existing file.
+Standalone files can be opened without configuring a workspace. All local Draw.io file operations—browse, open, import, direct autosave, standalone history and export—go through the local Node.js service and Node.js filesystem APIs; the browser no longer needs a file-write permission grant. The picker is limited to the user's home directory and the configured workspace, and symbolic links are skipped. Saves use a revision check and fail with a conflict rather than overwriting an external edit. Export writes a new file and refuses to overwrite an existing path. Standalone history is stored under ~/.architecture-diagram-studio/data/standalone-history/. A configured project workspace continues to use server-side autosave and version history.
 
 ## Settings and Agent Traces
 

@@ -11,6 +11,7 @@ import { readCopilotProvider, describeModelRouting, isModelConfiguredWithoutProv
 import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
+import { createLocalDiagramFileService, LocalDiagramFileError } from "./local-diagram-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
 import { createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
@@ -162,6 +163,13 @@ async function getProjectWorkspace(): Promise<ProjectWorkspace | null> {
 
 const workspaceFileService = createWorkspaceFileService(getProjectWorkspace);
 const { resolveWorkspaceRoot, scanWorkspaceFiles, resolveWorkspaceFile, collectAgentWorkspaceContext } = workspaceFileService;
+const localDiagramFileService = createLocalDiagramFileService({
+  allowedRoots: async () => {
+    const workspace = await getProjectWorkspace();
+    return [os.homedir(), ...(workspace ? [workspace.rootPath] : [])];
+  },
+  historyDirectory: path.join(process.env.STUDIO_HOME?.trim() || path.join(os.homedir(), ".architecture-diagram-studio"), "data", "standalone-history")
+});
 
 /** Draw.io XML is the only persisted model; version entries contain metadata and the complete XML. */
 type DiagramVersion = {
@@ -312,7 +320,7 @@ async function getDiagramVersions(): Promise<DiagramVersion[]> {
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 app.use((req, res, next) => {
-  if (!req.path.startsWith("/api/workspace") && !req.path.startsWith("/api/copilot")) { next(); return; }
+  if (!req.path.startsWith("/api/workspace") && !req.path.startsWith("/api/copilot") && !req.path.startsWith("/api/local")) { next(); return; }
   const source = req.get("origin") || req.get("referer");
   if (!source) { next(); return; }
   try {
@@ -659,6 +667,106 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
   }
 });
 app.get("/api/workspace/files", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "Configure a project workspace first" }); return; } const files = await scanWorkspaceFiles(workspace); res.json({ workspaceId: workspace.id, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
+
+app.get("/api/local/files", async (req, res) => {
+  try {
+    const directory = typeof req.query.directory === "string" ? req.query.directory : undefined;
+    res.json(await localDiagramFileService.listDirectory(directory));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/local/diagram/open", async (req, res) => {
+  try {
+    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
+    res.json(await localDiagramFileService.openDiagram(filePath));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/local/diagram/import", async (req, res) => {
+  try {
+    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
+    res.json(await localDiagramFileService.importDiagram(filePath));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.put("/api/local/diagram/save", async (req, res) => {
+  try {
+    const token = typeof req.body?.fileToken === "string" ? req.body.fileToken : "";
+    const revision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
+    const xml = typeof req.body?.drawioXml === "string" ? req.body.drawioXml : "";
+    const saved = await localDiagramFileService.saveDiagram(token, revision, xml);
+    res.json(saved);
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/local/diagram/export", async (req, res) => {
+  try {
+    const directory = typeof req.body?.directory === "string" ? req.body.directory : "";
+    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName : "";
+    const xml = typeof req.body?.drawioXml === "string" ? req.body.drawioXml : "";
+    res.status(201).json(await localDiagramFileService.exportDiagram(directory, fileName, xml));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+
+app.post("/api/local/diagram/history/snapshot", async (req, res) => {
+  try {
+    const token = typeof req.body?.fileToken === "string" ? req.body.fileToken : "";
+    const revision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
+    const label = typeof req.body?.label === "string" ? req.body.label : "Before edit";
+    res.json(await localDiagramFileService.snapshotCurrent(token, revision, label));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.get("/api/local/diagram/history/:id", async (req, res) => {
+  try {
+    const token = typeof req.query.fileToken === "string" ? req.query.fileToken : "";
+    res.json(await localDiagramFileService.readHistoryEntry(token, req.params.id));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.get("/api/local/diagram/history", async (req, res) => {
+  try {
+    const token = typeof req.query.fileToken === "string" ? req.query.fileToken : "";
+    res.json({ history: await localDiagramFileService.listHistory(token) });
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/local/diagram/history/:id/restore", async (req, res) => {
+  try {
+    const token = typeof req.body?.fileToken === "string" ? req.body.fileToken : "";
+    const revision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : "";
+    res.json(await localDiagramFileService.restoreHistory(token, revision, req.params.id));
+  } catch (error) {
+    const statusCode = error instanceof LocalDiagramFileError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.get("/api/workspace/files/content", async (req, res) => { try { const relativePath = typeof req.query.path === "string" ? req.query.path : ""; const { workspace, absolutePath } = await resolveWorkspaceFile(relativePath); const info = await stat(absolutePath); const maxBytes = /\.(drawio|dio|xml)$/i.test(relativePath) ? 20 * 1024 * 1024 : 1024 * 1024; if (info.size > maxBytes) { res.status(413).json({ error: "File exceeds the readable limit (" + Math.round(maxBytes / 1024 / 1024) + " MiB)" }); return; } const content = await readFile(absolutePath, "utf8"); await writeLog("workspace.file.read", { workspaceId: workspace.id, path: relativePath, bytes: info.size }); res.json({ workspaceId: workspace.id, path: relativePath, content, size: info.size }); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
 app.get("/api/workspace/agent-context", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "Configure a project workspace first" }); return; } const files = await scanWorkspaceFiles(workspace); const relevant = [...files.filter((f) => f.kind === "diagram").sort((a, b) => (a.path === workspace.primaryDiagram ? -1 : b.path === workspace.primaryDiagram ? 1 : 0)), ...files.filter((f) => f.kind === "code").slice(0, 100), ...files.filter((f) => f.kind === "document").slice(0, 100)].slice(0, 250); const snippets: Array<{path:string;kind:string;content:string;truncated:boolean}> = []; let budget = 120000; for (const item of relevant) { if (budget <= 0) break; if (item.size > (item.kind === "diagram" ? 20 * 1024 * 1024 : 512 * 1024) || item.kind === "other") continue; if ([".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock"].includes(path.extname(item.path).toLowerCase())) continue; const content = await resolveWorkspaceFile(item.path).then(({ absolutePath }) => readFile(absolutePath, "utf8")).catch(() => ""); const excerpt = content.slice(0, Math.min(content.length, budget, item.kind === "diagram" ? 24000 : 6000)); if (excerpt) { snippets.push({ path: item.path, kind: item.kind, content: excerpt, truncated: excerpt.length < content.length }); budget -= excerpt.length; } } res.json({ workspace: { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath, primaryDiagram: workspace.primaryDiagram }, files: relevant.map(({path: filePath, kind, size}) => ({ path: filePath, kind, size })), snippets }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
 
