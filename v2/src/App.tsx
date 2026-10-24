@@ -1601,7 +1601,10 @@ export default function App() {
                 return;
               }
               const status = (finalResult.success
-                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") + (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch" ? "; workspace save confirmed." : ".")
+                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
+                  (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
+                    ? "; workspace save confirmed."
+                    : standaloneFileName && finalResult.path === "cell:batch" ? "; standalone file save confirmed." : ".")
                 : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error")) + (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
               if (finalResult.batchResults?.length) {
