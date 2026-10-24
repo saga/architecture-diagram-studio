@@ -172,7 +172,7 @@ fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;
 
 如果只修一处，优先修 R4：让 `scriptResult` 里的 fallback / assertion 决定回执措辞。它不依赖模型变聪明，也不依赖形状目录是否完整。
 
-## 修复状态（2026-10-23）
+## 历史修复记录（已被 ADR-0019 取代）
 
 上述根因已按代码修复，而不是继续要求模型试写脚本：
 
