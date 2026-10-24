@@ -42,7 +42,7 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
       getSection(markdown, "Contract and trust boundaries"),
       getSection(markdown, "Shape discovery"),
       getSection(markdown, "Validation and postconditions")
-    ].filter(Boolean).join("\\n\\n");
+    ].filter(Boolean).join("\n\n");
   }
   // Bound every topic: an individually large section or the composed overview must not
   // bypass the same response-size guard that protects the "all" path.
