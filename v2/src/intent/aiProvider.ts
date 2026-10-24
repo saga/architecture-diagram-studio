@@ -144,7 +144,9 @@ function parseResolvedNativeOperations(value: unknown): ResolvedNativeEditOperat
   // intentionally not part of the model-authored operation schema or the Copilot tool schema.
   const operationInputs = value.map((raw) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-    const { cellId: _cellId, targetLabel: _targetLabel, ...operation } = raw as Record<string, unknown>;
+    const operation = { ...(raw as Record<string, unknown>) };
+    delete operation.cellId;
+    delete operation.targetLabel;
     return operation;
   });
   const parsed = parseNativeEditOperations(operationInputs);
