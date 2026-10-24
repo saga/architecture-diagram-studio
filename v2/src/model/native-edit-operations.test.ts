@@ -43,7 +43,14 @@ describe("extractNativeEditTargets", () => {
     const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="TwsH19o86vvnPf4LDGem-1" value="" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
     expect(extractNativeEditTargets(xml)).toEqual([{ id: "TwsH19o86vvnPf4LDGem-1", name: "", cellType: "vertex" }]);
   });
-});
+
+
+  it("uses native C4 name metadata instead of exposing the placeholder template", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><object placeholders="1" c4Name="" c4Type="Software System" label="&amp;lt;b&amp;gt;%c4Name%&amp;lt;/b&amp;gt; &amp;lt;div&amp;gt;[%c4Type%]&amp;lt;/div&amp;gt;"><mxCell id="opaque-c4-id" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
+    expect(extractNativeEditTargets(xml)).toEqual([{ id: "opaque-c4-id", name: "", cellType: "vertex" }]);
+    const namedXml = xml.replace('c4Name=""', 'c4Name="Orders API"');
+    expect(extractNativeEditTargets(namedXml)).toEqual([{ id: "opaque-c4-id", name: "Orders API", cellType: "vertex" }]);
+  });});
 
 describe("normalizeNativeColor", () => {
   it("expands short hex and lowercases long hex", () => {
