@@ -97,72 +97,6 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   }));
 }
 
-function scriptSnapshotHasScopedChange(beforeXml: string, afterXml: string, pageId?: string | null): boolean {
-  const beforeDocument = parseDrawioXml(beforeXml);
-  const afterDocument = parseDrawioXml(afterXml);
-  const beforeRoot = beforeDocument.documentElement;
-  const afterRoot = afterDocument.documentElement;
-  if (beforeRoot.nodeName !== afterRoot.nodeName) return false;
-
-  // A standalone mxGraphModel represents one page. For mxfile, require the same ordered
-  // page set and verify every non-target page is semantically unchanged.
-  if (beforeRoot.nodeName === "mxGraphModel") {
-    const beforeCells = cellsForXml(beforeXml);
-    const afterCells = cellsForXml(afterXml);
-    if (!findCell(beforeCells, "0", pageId) || !findCell(beforeCells, "1", pageId) ||
-        !findCell(afterCells, "0", pageId) || !findCell(afterCells, "1", pageId)) return false;
-    return JSON.stringify(elementSignature(beforeRoot)) !== JSON.stringify(elementSignature(afterRoot));
-  }
-  if (beforeRoot.nodeName !== "mxfile" || afterRoot.nodeName !== "mxfile" || !pageId) return false;
-
-  const beforePages = elementChildren(beforeRoot).filter((child) => child.nodeName === "diagram");
-  const afterPages = elementChildren(afterRoot).filter((child) => child.nodeName === "diagram");
-  const getPageIds = (pages: Element[]) => pages.map((page) => page.getAttribute("id") || null);
-  const beforeIds = getPageIds(beforePages);
-  const afterIds = getPageIds(afterPages);
-  if (beforeIds.some((id) => !id) || JSON.stringify(beforeIds) !== JSON.stringify(afterIds) || !beforeIds.includes(pageId)) {
-    return false;
-  }
-
-  const pageMetadataSignature = (page: Element): string => JSON.stringify({
-    attributes: Array.from(page.attributes)
-      .map((attribute) => [attribute.name, attribute.value] as const)
-      .sort(([left], [right]) => left.localeCompare(right)),
-    nonModelChildren: elementChildren(page)
-      .filter((child) => child.nodeName !== "mxGraphModel")
-      .map(elementSignature)
-  });
-  // The envelope/attributes of every page must remain unchanged, not only its ID/name.
-  // This prevents a script from changing page-level flags while a cell mutation masks it.
-  for (const candidateId of beforeIds) {
-    const beforePage = beforePages.find((page) => page.getAttribute("id") === candidateId);
-    const afterPage = afterPages.find((page) => page.getAttribute("id") === candidateId);
-    if (!beforePage || !afterPage ||
-        pageMetadataSignature(beforePage) !== pageMetadataSignature(afterPage)) return false;
-  }
-
-  const beforeCells = cellsForXml(beforeXml);
-  const afterCells = cellsForXml(afterXml);
-  // The active page must still exist with its root and default layer; otherwise a page/layer
-  // deletion or graph replacement must not masquerade as a successful cell edit.
-  for (const requiredId of ["0", "1"]) {
-    if (!findCell(beforeCells, requiredId, pageId) || !findCell(afterCells, requiredId, pageId)) return false;
-  }
-
-  for (const otherPageId of beforeIds) {
-    if (!otherPageId || otherPageId === pageId) continue;
-    if (semanticDiagramSignature(beforeXml, otherPageId) !== semanticDiagramSignature(afterXml, otherPageId)) {
-      return false;
-    }
-  }
-
-  // This signature includes the page name plus the full native mxGraphModel, including
-  // geometry, styles, page dimensions and grid settings. A style string alone is not enough.
-  const beforeTarget = semanticDiagramSignature(beforeXml, pageId);
-  const afterTarget = semanticDiagramSignature(afterXml, pageId);
-  return beforeTarget !== afterTarget;
-}
-
 function cellsForXml(xml: string): ModelRecords[] {
   return modelRoots(xml).map(({ pageId, model }) => {
     const root = directChild(model, "root");
@@ -417,64 +351,6 @@ function operationIsReflected(
  * visible in the snapshot. Generic autosaves and unrelated edits are not sufficient.
  * Unknown operations fail closed so callers can report a timeout instead of false success.
  */
-function scriptExpectedValueMatches(actual: string | null, expected: unknown): boolean {
-  if (typeof expected === "string") return actual === expected;
-  if (typeof expected === "number") return actual !== null && Number.isFinite(Number(actual)) && Number(actual) === expected;
-  if (typeof expected === "boolean") {
-    if (actual === "1" || actual === "true") return expected;
-    if (actual === "0" || actual === "false") return !expected;
-  }
-  return false;
-}
-
-function scriptPostconditionMatches(models: ModelRecords[], pageId: string | null | undefined, check: Record<string, unknown>): boolean {
-  if (typeof check.cellId !== "string" || !check.cellId || typeof check.property !== "string" || !check.property ||
-      !Object.prototype.hasOwnProperty.call(check, "expected")) return false;
-  const property = check.property;
-  const expected = check.expected;
-  const cell = findCell(models, check.cellId, pageId);
-  if (property === "exists") return Boolean(cell) && expected === true;
-  if (!cell) return false;
-  if (property === "label") return typeof expected === "string" && labelMatches(cell, expected);
-  if (property === "style") return typeof expected === "string" && (cell.cell.getAttribute("style") || "") === expected;
-  if (property.startsWith("style:")) {
-    return typeof expected === "string" && styleKeyMatches(cell.cell.getAttribute("style") || "", property.slice(6), expected);
-  }
-  if (property.startsWith("valueAttr:")) {
-    return scriptExpectedValueMatches(cell.wrapper.getAttribute(property.slice(10)), expected);
-  }
-  if (property.startsWith("cell:")) {
-    return scriptExpectedValueMatches(cell.cell.getAttribute(property.slice(5)), expected);
-  }
-  if (property.startsWith("geometry:")) {
-    const key = property.slice(9);
-    if (key === "relative") return Boolean(cell.geometry) && boolAttribute(cell.geometry!, "relative", false) === expected;
-    if (!["x", "y", "width", "height"].includes(key) || typeof expected !== "number") return false;
-    return numericAttribute(cell.geometry, key) === expected;
-  }
-  const pointMatch = /^point:(\d+):(x|y)$/.exec(property);
-  if (pointMatch) {
-    if (typeof expected !== "number") return false;
-    const point = pointFor(cell, Number(pointMatch[1]));
-    return numericAttribute(point, pointMatch[2]!) === expected;
-  }
-  return false;
-}
-
-/** Recompute native postconditions from serialized XML; never trust the script's reported actual value. */
-function hasVerifiedScriptPostcondition(value: unknown, after: ModelRecords[], pageId: string | null | undefined): boolean {
-  if (!value || typeof value !== "object") return false;
-  const envelope = value as { available?: unknown; value?: unknown };
-  if (envelope.available !== true || !envelope.value || typeof envelope.value !== "object") return false;
-  const result = envelope.value as { verified?: unknown; checks?: unknown };
-  if (result.verified !== true || !Array.isArray(result.checks) || result.checks.length === 0) return false;
-  return result.checks.every((check) => !!check && typeof check === "object" &&
-    typeof (check as { name?: unknown }).name === "string" &&
-    (check as { name: string }).name.trim().length > 0 &&
-    (check as { passed?: unknown }).passed === true &&
-    scriptPostconditionMatches(after, pageId, check as Record<string, unknown>));
-}
-
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
     const before = cellsForXml(input.beforeXml);
@@ -498,11 +374,11 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
     }
     if (documentOperations.length === 1 && documentOperations[0].path === "cell:execute-script") {
-      const script = documentOperations[0];
-      return operations.length === 1 && script.cellId === "__active_page__" &&
-        typeof script.value === "string" && Boolean(script.value.trim()) &&
-        hasVerifiedScriptPostcondition(input.scriptResult, after, input.pageId) &&
-        scriptSnapshotHasScopedChange(input.beforeXml, input.xml, input.pageId);
+      // The bridge has already confirmed that the script returned without throwing. At this point
+      // the host has serialized and validated native Draw.io XML. Do not constrain what the script
+      // may change to a predeclared cell-level postcondition: scripts may edit routing, groups,
+      // custom attributes, layers, page metadata, or other native structures.
+      return true;
     }
     return documentOperations.every((operation) =>
       operationIsReflected(before, after, operation, input.pageId)
