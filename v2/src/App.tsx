@@ -946,6 +946,7 @@ export default function App() {
     let binding = standaloneFileBindingRef.current;
     const handle = standaloneFileHandleRef.current;
     if (!binding || !handle) return;
+    const expectedToken = binding.fileToken;
     try {
       await standaloneSaveQueueRef.current;
       if (drawioXml !== standaloneLastSavedXmlRef.current) {
@@ -953,7 +954,7 @@ export default function App() {
       }
       await standaloneSaveQueueRef.current;
       binding = standaloneFileBindingRef.current;
-      if (!binding || binding.fileToken !== standaloneFileBindingRef.current?.fileToken) return;
+      if (!binding || binding.fileToken !== expectedToken || handle !== standaloneFileHandleRef.current) return;
 
       // Retry any deferred snapshot synchronization before showing the history list, so history
       // does not silently omit a source-file save that previously succeeded.
