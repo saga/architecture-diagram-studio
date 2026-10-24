@@ -23,18 +23,30 @@ function bounded(value: string): string {
     : value.slice(0, MAX_REFERENCE_CHARS) + "\n\n[Reference truncated at the configured response limit.]";
 }
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
-  if (topic === "all") return bounded(markdown.trim());
-  if (topic === "api_ownership") return getSection(markdown, "API ownership");
-  if (topic === "shape_discovery") return getSection(markdown, "Shape discovery");
-  if (topic === "script_safety") return getSection(markdown, "Contract and trust boundaries");
-  if (topic === "postconditions") return getSection(markdown, "Validation and postconditions");
-  if (topic === "recipes") return getSection(markdown, "Recipes");
-  return [
-    "# Draw.io Agent Reference (overview)",
-    getSection(markdown, "Contract and trust boundaries"),
-    getSection(markdown, "Shape discovery"),
-    getSection(markdown, "Validation and postconditions")
-  ].filter(Boolean).join("\n\n");
+  let selected: string;
+  if (topic === "all") {
+    selected = markdown.trim();
+  } else if (topic === "api_ownership") {
+    selected = getSection(markdown, "API ownership");
+  } else if (topic === "shape_discovery") {
+    selected = getSection(markdown, "Shape discovery");
+  } else if (topic === "script_safety") {
+    selected = getSection(markdown, "Contract and trust boundaries");
+  } else if (topic === "postconditions") {
+    selected = getSection(markdown, "Validation and postconditions");
+  } else if (topic === "recipes") {
+    selected = getSection(markdown, "Recipes");
+  } else {
+    selected = [
+      "# Draw.io Agent Reference (overview)",
+      getSection(markdown, "Contract and trust boundaries"),
+      getSection(markdown, "Shape discovery"),
+      getSection(markdown, "Validation and postconditions")
+    ].filter(Boolean).join("\\n\\n");
+  }
+  // Bound every topic: an individually large section or the composed overview must not
+  // bypass the same response-size guard that protects the "all" path.
+  return bounded(selected.trim());
 }
 export async function readDrawioAgentReference(topic: DrawioReferenceTopic): Promise<string> {
   let lastError: unknown;
