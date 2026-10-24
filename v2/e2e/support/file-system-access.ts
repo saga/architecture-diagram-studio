@@ -8,11 +8,9 @@ export interface E2EBrowserFile {
   content: string;
 }
 
-interface BrowserPickerTestWindow extends Window {
-  showOpenFilePicker?: (options?: unknown) => Promise<unknown[]>;
-  showSaveFilePicker?: (options?: unknown) => Promise<unknown>;
+type BrowserPickerTestWindow = Window & {
   __studioSelectFile?: (name: string) => void;
-}
+};
 
 /**
  * Installs a deterministic stand-in for the browser File System Access API.
