@@ -398,6 +398,15 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         return;
       }
       if (!data || typeof data !== "object") return;
+      if (data.event === "studioDrawioHello") {
+        // The child hello contains no sensitive data. Require the exact iframe source/origin
+        // above, then reply only to that dedicated Draw.io origin.
+        iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "studioDrawioWelcome" }), DRAWIO_ORIGIN);
+        recordDiagnostic("drawio.bridge.handshake.hello", "Accepted a Draw.io bridge hello from the isolated local origin", {
+          origin: event.origin, expectedOrigin: DRAWIO_ORIGIN
+        });
+        return;
+      }
       if (typeof data.event === "string" && !seenEvents.current.has(data.event)) {
         seenEvents.current.add(data.event);
         recordDiagnostic("drawio.message.first_seen", "First Draw.io embed protocol event received", {
