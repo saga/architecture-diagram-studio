@@ -235,6 +235,8 @@ export function createLocalDiagramFileService(options: {
     let parsedLegacy: unknown;
     try { parsedLegacy = JSON.parse(legacy); } catch { parsedLegacy = []; }
     const entries: LocalHistorySummary[] = [];
+    // Create the per-file snapshot directory before writing any migrated XML blobs.
+    await mkdir(historyDirectoryFor(binding), { recursive: true, mode: 0o700 });
     if (Array.isArray(parsedLegacy)) {
       for (const value of parsedLegacy) {
         if (!value || typeof value !== "object") continue;
