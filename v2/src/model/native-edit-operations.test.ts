@@ -55,6 +55,11 @@ describe("extractNativeEditTargets", () => {
   });
 
 
+  it("preserves an explicitly empty wrapper label instead of falling through to internal cell text", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><object label="" value="Wrapper fallback"><mxCell id="opaque-wrapper-id" value="Inner fallback" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
+    expect(extractNativeEditTargets(xml)).toEqual([{ id: "opaque-wrapper-id", name: "", cellType: "vertex" }]);
+  });
+
   it("uses native C4 name metadata instead of exposing the placeholder template", () => {
     const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><object placeholders="1" c4Name="" c4Type="Software System" label="&amp;lt;b&amp;gt;%c4Name%&amp;lt;/b&amp;gt; &amp;lt;div&amp;gt;[%c4Type%]&amp;lt;/div&amp;gt;"><mxCell id="opaque-c4-id" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
     expect(extractNativeEditTargets(xml)).toEqual([{ id: "opaque-c4-id", name: "", cellType: "vertex" }]);
