@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 export const DRAWIO_REFERENCE_TOPICS = [
-  "overview", "api_ownership", "shape_discovery", "script_safety", "postconditions", "recipes", "all"
+  "overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"
 ] as const;
 export type DrawioReferenceTopic = (typeof DRAWIO_REFERENCE_TOPICS)[number];
 const REFERENCE_URLS = [
@@ -30,7 +30,7 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
     selected = getSection(markdown, "API ownership");
   } else if (topic === "shape_discovery") {
     selected = getSection(markdown, "Shape discovery");
-  } else if (topic === "script_safety") {
+  } else if (topic === "script_execution") {
     selected = getSection(markdown, "Contract and trust boundaries");
   } else if (topic === "postconditions") {
     selected = getSection(markdown, "Validation and postconditions");
