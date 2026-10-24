@@ -23,8 +23,8 @@ export interface AIIntentContext {
   cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
   /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
   runtimeInspection?: DrawioRuntimeInspection;
-  /** One bounded repair context after an explicitly confirmed script rollback. */
-  scriptRepair?: { originalRequest: string; failedScript: string; error: string };
+  /** One bounded repair context after a failed native script with a confirmed rollback. */
+  scriptRepair?: { originalRequest: string; failedScript: string; error: string; stack?: string };
 }
 
 export type AIIntentResponse = CopilotIntentResponse;
@@ -140,7 +140,15 @@ function parseSelection(value: unknown): { cellId: string; pageId: string | null
 
 function parseResolvedNativeOperations(value: unknown): ResolvedNativeEditOperation[] {
   if (!Array.isArray(value)) throw new Error("The native edit proposal must contain an operation list");
-  const parsed = parseNativeEditOperations(value);
+  // Resolve metadata is service-owned, not part of the strict model-authored operation schema.
+  const operationInputs = value.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const operation = { ...(raw as Record<string, unknown>) };
+    delete operation.cellId;
+    delete operation.targetLabel;
+    return operation;
+  });
+  const parsed = parseNativeEditOperations(operationInputs);
   if (!parsed.ok) throw new Error("The agent returned an invalid native edit batch: " + parsed.error);
   return parsed.operations.map((operation, index) => {
     const source = value[index] as Record<string, unknown>;

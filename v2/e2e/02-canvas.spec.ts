@@ -104,7 +104,7 @@ test.describe("原生画布", () => {
     }
     await expect(page.locator(".drawio-error-banner")).toHaveCount(0);
     // The autosave contract lives in the status tooltip so the bar stays one short line.
-    await expect(page.locator(".status-native")).toHaveAttribute("title", /edits autosave back into Studio/);
+    await expect(page.locator(".status-native")).toHaveAttribute("title", /AI scripts use the live editor API and save through Studio/);
   });
 
   test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
@@ -313,7 +313,7 @@ test.describe("原生画布", () => {
         cellId: "__batch__",
         path: "cell:batch",
         value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
-      }), window.location.origin);
+      }), new URL(frame.src).origin);
       return response;
     });
 
@@ -358,7 +358,7 @@ test.describe("原生画布", () => {
         cellId: "__batch__",
         path: "cell:batch",
         value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
-      }), window.location.origin);
+      }), new URL(frame.src).origin);
       return response;
     });
 
@@ -408,7 +408,7 @@ test.describe("原生画布", () => {
           { cellId, path: "geometry:size", value: "240,100" },
           { cellId: "missing-cell-for-rollback-test", path: "label", value: "Must fail" }
         ])
-      }), window.location.origin);
+      }), new URL(frame.src).origin);
       return response;
     }, databaseId!);
 

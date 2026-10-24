@@ -1,10 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
+import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
-import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
+import { drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
@@ -13,7 +13,13 @@ const DRAWIO_SHA256 = "3cb8abec8e9bfc7504760c9cdc9194ecf7e8de178aa2a1d668801c32e
  * Keep the native shape panel available in the embedded editor. `libraries=1`
  * enables palettes in embed mode; omitting `sidebar=0` prevents hiding the panel.
  */
-export const DRAWIO_EMBED_URL = "/drawio/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
+export const DRAWIO_PORT = (() => {
+  const configured = import.meta.env.VITE_STUDIO_DRAWIO_PORT || "4176";
+  const value = Number(configured);
+  return Number.isInteger(value) && value >= 1024 && value <= 65535 ? String(value) : "4176";
+})();
+const DRAWIO_ORIGIN = "http://127.0.0.1:" + DRAWIO_PORT;
+export const DRAWIO_EMBED_URL = DRAWIO_ORIGIN + "/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
 
 /**
  * C4 is built into the pinned Draw.io bundle as the `c4` palette. The version bump
@@ -39,6 +45,8 @@ export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }): Promise<DrawioRuntimeInspection>;
   /** Applies a revision/page-bound Dagre or ELK geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
+  /** Reloads the editor from the latest XML retained by Studio after a synchronous script hangs. */
+  recoverFromLastSavedXml(): void;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -48,7 +56,8 @@ type NativeEditResult = {
   cellId: string | null;
   path: string | null;
   error?: string;
-  batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> | null;
+  errorStack?: string;
+  batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
   failedIndex?: number | null;
   rollbackErrors?: Array<{ cellId: string; error: string }>;
   batchRolledBack?: boolean | null;
@@ -61,7 +70,7 @@ type NativeEditResult = {
   scriptResult?: unknown;
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
-type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; scriptResult?: unknown; timeoutId?: number };
+type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; scriptResult?: unknown; timeoutId?: number; captureOnFailure?: boolean };
 type PendingRuntimeInspection = {
   resolve: (inspection: DrawioRuntimeInspection) => void;
   reject: (error: Error) => void;
@@ -87,22 +96,9 @@ interface Props {
   theme: string;
   /** Reports the embed handshake state so the app's single status bar can show it. */
   onEditorStatusChange?: (ready: boolean) => void;
-  onScriptCapabilityStatusChange?: (compatible: boolean) => void;
 }
 
-/**
- * Draw.io ships its own save/exit buttons; Studio owns persistence, so they are hidden.
- * Matched by id, data-id, and label, in the languages the bundled editor can render.
- */
-const SAVE_AND_EXIT_SELECTOR = [
-  "#save", "#exit", "#saveBtn", "#exitBtn",
-  "[data-id='save']", "[data-id='exit']",
-  "[title*='Save and Exit']", "[title*='Save & Exit']",
-  "[aria-label*='Save and Exit']", "[aria-label*='Save & Exit']",
-  "[title*='保存并退出']", "[aria-label*='保存并退出']"
-].join(", ");
-
-const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange, onScriptCapabilityStatusChange }: Props, ref) {
+const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const xmlRef = useRef(xml);
   xmlRef.current = xml;
@@ -115,14 +111,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
   const pendingAutoLayoutRef = useRef<PendingAutoLayout | null>(null);
   const runtimeInspectionSequenceRef = useRef(0);
-  const runtimeManifestCompatibleRef = useRef<boolean | null>(null);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
-  const themeRef = useRef(theme);
-  const themeBackgroundRef = useRef<{ restore: boolean; background: string; restoreBackground: string | null }>({
-    restore: true, background: "#ffffff", restoreBackground: null
-  });
-  themeRef.current = theme;
   onDocumentChangeRef.current = onDocumentChange;
   onSelectionChangeRef.current = onSelectionChange;
   onNativeEditResultRef.current = onNativeEditResult;
@@ -132,10 +122,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [runtimeScriptSupported, setRuntimeScriptSupported] = useState<boolean | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
-  const embedUiObserverRef = useRef<MutationObserver | null>(null);
 
   function finishPendingAutoLayout(xml: string) {
     const pending = pendingAutoLayoutRef.current;
@@ -203,7 +191,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           event: "studioNativeLayoutRequest",
           requestId,
           plan
-        }), window.location.origin);
+        }), DRAWIO_ORIGIN);
         recordDiagnostic("drawio.layout.requested", "Sent a revision-bound Dagre/ELK plan to the native Draw.io editor", {
           drawioVersion: DRAWIO_VERSION, engine: plan.engine, algorithm: plan.algorithm,
           direction: plan.direction, positionCount: plan.positions.length,
@@ -216,6 +204,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       });
     },
+    recoverFromLastSavedXml: () => retryEditor(true),
     inspectRuntime: ({ documentRevision, pageId, jsShapeClassNames }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
@@ -240,7 +229,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           maxCells: 60,
           maxRenderedEdges: 24,
           jsShapeClassNames: Array.isArray(jsShapeClassNames) ? jsShapeClassNames.slice(0, 40) : []
-        }), window.location.origin);
+        }), DRAWIO_ORIGIN);
         recordDiagnostic("drawio.runtime-inspection.requested", "Requested a read-only snapshot of the live native Draw.io runtime", {
           requestId, documentRevision, pageId, drawioVersion: DRAWIO_VERSION
         });
@@ -271,10 +260,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   useEffect(() => {
     onEditorStatusChange?.(editorReady);
   }, [editorReady, onEditorStatusChange]);
-
-  useEffect(() => {
-    onScriptCapabilityStatusChange?.(runtimeScriptSupported === true);
-  }, [runtimeScriptSupported, onScriptCapabilityStatusChange]);
 
   useEffect(() => {
     let active = true;
@@ -314,13 +299,12 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     return () => window.clearTimeout(timeout);
   }, [available, editorReady, iframeLoaded]);
 
-  // The iframe's DOM load event is not the Draw.io embed API's ready event.
-  // Sending "load" before the editor emits "init" can leave its canvas on an endless spinner.
+  // The isolated Draw.io frame is styled through the exact-origin bridge.
   useEffect(() => {
-    const frameDocument = iframeRef.current?.contentDocument;
-    const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
-    if (!frameDocument || !appShell) return;
-    const computed = window.parent.getComputedStyle(appShell);
+    if (!bridgeReady || !iframeRef.current?.contentWindow) return;
+    const appShell = document.querySelector<HTMLElement>(".app-shell");
+    if (!appShell) return;
+    const computed = window.getComputedStyle(appShell);
     const token = (name: string, fallback: string) => computed.getPropertyValue(name).trim() || fallback;
     const palette: DrawioThemePalette = {
       canvas: token("--theme-canvas", "#ffffff"),
@@ -332,27 +316,17 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       accent: token("--theme-accent", "#425bc7"),
       soft: token("--theme-soft", "#e8edff")
     };
-    let style = frameDocument.getElementById("studio-native-theme") as HTMLStyleElement | null;
-    if (!style && frameDocument.head) {
-      style = frameDocument.createElement("style");
-      style.id = "studio-native-theme";
-      frameDocument.head.appendChild(style);
-    }
-    if (style) style.textContent = drawioFrameThemeCss(palette);
+    const css = drawioFrameThemeCss(palette);
+    iframeRef.current.contentWindow.postMessage(JSON.stringify({
+      event: "studioPresentationThemeRequest",
+      css,
+      theme
+    }), DRAWIO_ORIGIN);
+    recordDiagnostic("drawio.presentation-theme.requested", "Sent presentation-only theme CSS over the isolated Draw.io bridge", {
+      theme, cssLength: css.length
+    });
+  }, [theme, editorReady, iframeLoaded, bridgeReady]);
 
-    // UI themes affect iframe presentation only. Never rewrite the authoritative
-    // Draw.io XML on theme changes; that creates a save/reload feedback loop.
-    const explicitBackground = readDrawioModelBackground(xml);
-    themeBackgroundRef.current = {
-      restore: theme === "editorial",
-      background: palette.canvas,
-      restoreBackground: explicitBackground
-    };
-    // Do not mutate Draw.io's graph model for a Studio UI theme. CSS above controls
-    // presentation without triggering native autosave or dirty-document prompts.
-
-    // Deliberately do not call onDocumentChange here: UI theme changes are not document edits.
-  }, [theme, editorReady, iframeLoaded, xml, bridgeReady]);
 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
@@ -370,7 +344,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       nativeDocumentLoadedRef.current = false;
       iframeRef.current.contentWindow.postMessage(
         JSON.stringify({ action: "load", xml, autosave: 1 }),
-        window.location.origin
+        DRAWIO_ORIGIN
       );
       lastSent.current = xml;
       setStartupError(null);
@@ -397,7 +371,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       pageId: cellEdit.pageId,
       path: cellEdit.path,
       value: cellEdit.value
-    }), window.location.origin);
+    }), DRAWIO_ORIGIN);
     recordDiagnostic("drawio.selection.property.requested", "Sent a native property edit through the Draw.io plugin bridge", {
       cellId: cellEdit.cellId, property: cellEdit.path, value: cellEdit.value, requestId: cellEdit.requestId,
       pageId: cellEdit.pageId, xmlLengthBefore: xml.length
@@ -410,8 +384,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     // and send its configure/init handshake. Keep it stable across document and callback changes.
     function receive(event: MessageEvent) {
       if (event.source !== iframeRef.current?.contentWindow) return;
-      if (event.origin !== window.location.origin && event.origin !== "null") {
-        recordDiagnostic("drawio.message.origin_rejected", "Ignored a Draw.io message from an unexpected origin", { origin: event.origin }, "warn");
+      if (event.origin !== DRAWIO_ORIGIN) {
+        recordDiagnostic("drawio.message.origin_rejected", "Ignored a Draw.io message from an unexpected origin", {
+          origin: event.origin, expectedOrigin: DRAWIO_ORIGIN
+        }, "warn");
         return;
       }
       let data: Record<string, unknown>;
@@ -422,6 +398,15 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         return;
       }
       if (!data || typeof data !== "object") return;
+      if (data.event === "studioDrawioHello") {
+        // The child hello contains no sensitive data. Require the exact iframe source/origin
+        // above, then reply only to that dedicated Draw.io origin.
+        iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "studioDrawioWelcome" }), DRAWIO_ORIGIN);
+        recordDiagnostic("drawio.bridge.handshake.hello", "Accepted a Draw.io bridge hello from the isolated local origin", {
+          origin: event.origin, expectedOrigin: DRAWIO_ORIGIN
+        });
+        return;
+      }
       if (typeof data.event === "string" && !seenEvents.current.has(data.event)) {
         seenEvents.current.add(data.event);
         recordDiagnostic("drawio.message.first_seen", "First Draw.io embed protocol event received", {
@@ -447,14 +432,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (!inspection) {
               pending.reject(new Error("The runtime inspection did not match the pinned Draw.io version, active page, and source document revision."));
             } else {
-              if (runtimeManifestCompatibleRef.current !== true) {
-                inspection.capabilityManifest.scriptSupported = false;
-                if (!inspection.capabilityManifest.missing.graph?.length &&
-                    !inspection.capabilityManifest.missing.model?.length &&
-                    !inspection.capabilityManifest.missing.view?.length) {
-                  inspection.capabilityManifest.missing.graph = ["host_bundle_or_bridge_handshake_mismatch"];
-                }
-              }
               recordDiagnostic("drawio.runtime-inspection.completed", "Received a bounded read-only snapshot of the live native Draw.io runtime", {
                 requestId, documentRevision: inspection.documentRevision, pageId: inspection.pageId,
                 cellCount: inspection.counts.cells, vertexCount: inspection.counts.vertices, edgeCount: inspection.counts.edges,
@@ -479,11 +456,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           Array.isArray(missing[group]) && (missing[group] as unknown[]).length > 0
         );
         const compatible = advertisedVersion === DRAWIO_VERSION && manifest?.scriptSupported === true && !hasMissing;
-        runtimeManifestCompatibleRef.current = compatible;
-        setRuntimeScriptSupported(compatible);
-        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.mismatch",
-          compatible ? "The pinned Draw.io script capability manifest matches the host contract" : "Native script execution is disabled because the Draw.io runtime manifest does not match the host contract",
-          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "error");
+        // In local AI-first mode the manifest is diagnostic evidence, never a permission gate.
+        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.diagnostic-mismatch",
+          compatible ? "The observed Draw.io runtime manifest matches the curated contract" : "The observed Draw.io runtime manifest differs from the curated contract; direct script execution remains enabled",
+          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "warn");
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }
@@ -515,10 +491,16 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
-              const errorMessage = "Draw.io acknowledged the native edit but did not serialize XML within 30 seconds.";
+              const originalError = confirmation.deferredBatchAck?.error;
+              const errorMessage = confirmation.captureOnFailure
+                ? "The failed script's resulting XML could not be serialized within 30 seconds; the last saved XML was preserved." +
+                  (originalError ? " Original script error: " + originalError : "")
+                : "Draw.io acknowledged the native edit but did not serialize XML within 30 seconds.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
-                "Timed out waiting for a serialized XML snapshot after a native property edit",
-                { requestId, cellId: confirmation.cellId, property: confirmation.path,
+                confirmation.captureOnFailure
+                  ? "Timed out while capturing the native XML state after a failed script"
+                  : "Timed out waiting for a serialized XML snapshot after a native property edit",
+                { requestId, cellId: confirmation.cellId, property: confirmation.path, captureOnFailure: confirmation.captureOnFailure === true,
                   timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS,
                   durationMs: Date.now() - confirmation.startedAt }, "warn");
               if (confirmation.deferredBatchAck) {
@@ -543,23 +525,68 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           // "save" is an editor-to-host event, not a supported host action. Request native XML
           // serialization through the documented export action so programmatic mutations can be
           // acknowledged even when they do not trigger autosave.
-          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
           recordDiagnostic("drawio.selection.property.save_requested", "Requested native Draw.io XML serialization after a property edit", {
             requestId, cellId: data.cellId, property: data.path, protocolAction: "export", format: "xml"
           });
         } else {
           const errorMessage = typeof data.error === "string" ? data.error : "Unknown property edit error";
-          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string }> : null,
+          const errorStack = typeof data.errorStack === "string" ? data.errorStack.slice(0, 8000) : undefined;
+          const failedResult: NativeEditResult = {
+            requestId, success: false,
+            cellId: typeof data.cellId === "string" ? data.cellId : null,
+            path: typeof data.path === "string" ? data.path : null,
+            error: errorMessage,
+            errorStack,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
             failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
             rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
-            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null });
+            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null
+          };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          let isFailedScriptBatch = false;
+          if (pending && pending.path === "cell:batch") {
+            try {
+              const operations = JSON.parse(pending.value) as Array<{ path?: unknown }>;
+              isFailedScriptBatch = Array.isArray(operations) && operations.some((operation) => operation?.path === "cell:execute-script");
+            } catch { /* Invalid batch payload is handled by the original editor error path. */ }
+          }
+          if (requestId !== null && pending && isFailedScriptBatch) {
+            // Capture actual XML after a failure because rollback is best-effort. The native result
+            // remains failed, but the exact resulting diagram must still flow through persistence.
+            const confirmation: PendingSaveConfirmation = { ...pending, deferredBatchAck: failedResult, captureOnFailure: true };
+            confirmation.timeoutId = window.setTimeout(() => {
+              if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
+              pendingSaveConfirmationsRef.current.delete(requestId);
+              const originalError = confirmation.deferredBatchAck?.error;
+              const timeoutError = "The failed script's resulting XML could not be serialized within 30 seconds; the last saved XML was preserved." +
+                (originalError ? " Original script error: " + originalError : "");
+              onNativeEditResultRef.current?.({
+                ...(confirmation.deferredBatchAck || failedResult),
+                success: false, error: timeoutError, failureStage: "editor",
+                auditWarning: "The partial editor state could not be captured; inspect History and reload the latest saved XML."
+              });
+              recordDiagnostic("drawio.script-failure-serialization.timeout", "Could not capture native XML after a failed script", {
+                requestId, durationMs: Date.now() - confirmation.startedAt, errorMessage: timeoutError
+              }, "error");
+            }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
+            pendingSaveConfirmationsRef.current.set(requestId, confirmation);
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
+            recordDiagnostic("drawio.script-failure-serialization.requested", "Requested the actual native XML after a failed script so partial edits can be versioned and inspected", {
+              requestId, durationMs: Date.now() - pending.startedAt, errorMessage, errorStack: errorStack ?? null,
+              rollbackConfirmed: failedResult.batchRolledBack === true,
+              diffPendingUntilXmlExport: true
+            }, "warn");
+          } else {
+            onNativeEditResultRef.current?.(failedResult);
+          }
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null
+            errorMessage, errorStack: errorStack ?? null, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null,
+            rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null,
+            capturedFailedScriptState: isFailedScriptBatch
           }, "error");
         }
       }
@@ -568,7 +595,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         iframeRef.current?.contentWindow?.postMessage(JSON.stringify({
           action: "configure",
           config: DRAWIO_EDITOR_CONFIG
-        }), window.location.origin);
+        }), DRAWIO_ORIGIN);
       }
       if (data.event === "load") {
         nativeDocumentLoadedRef.current = true;
@@ -605,7 +632,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             documentRevision: pending.plan.documentRevision, pageId: pending.plan.pageId
           });
           try {
-            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
           } catch (error) {
             rejectPendingAutoLayout(new Error("Draw.io applied the layout but the updated XML could not be requested: " +
               (error instanceof Error ? error.message : String(error))));
@@ -635,9 +662,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
           const deferredBatchAcks: NativeEditResult[] = [];
           for (const [requestId, pending] of pendingSaves) {
-            const reflected = nativeEditIsReflectedInXml({
+            const reflected = pending.captureOnFailure === true || nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
-              path: pending.path, value: pending.value, scriptResult: pending.scriptResult
+              path: pending.path, value: pending.value
             });
             if (!reflected) {
               recordDiagnostic("drawio.selection.property.save-confirmation.unmatched",
@@ -647,12 +674,37 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
               continue;
             }
-            recordDiagnostic("drawio.selection.property.save_confirmed",
-              "Native Draw.io XML serialization reflects the requested edit",
+            const nativeDiff = pending.captureOnFailure
+              ? summarizeNativeDiagramXmlDiff(pending.beforeXml, data.xml)
+              : null;
+            if (pending.deferredBatchAck) {
+              let acknowledgement: NativeEditResult = { ...pending.deferredBatchAck, serializedXml: data.xml };
+              if (pending.captureOnFailure) {
+                const rollbackConfirmed = acknowledgement.batchRolledBack === true &&
+                  nativeDiff?.available === true && nativeDiff.changed === false;
+                if (!rollbackConfirmed) {
+                  const reason = nativeDiff?.available === false
+                    ? "The post-failure XML could not be compared with the pre-script snapshot."
+                    : nativeDiff?.changed
+                      ? "The serialized document differs from the pre-script snapshot."
+                      : "The editor did not explicitly confirm rollback.";
+                  acknowledgement = {
+                    ...acknowledgement,
+                    batchRolledBack: false,
+                    rollbackErrors: [...(acknowledgement.rollbackErrors || []), { cellId: "__document__", error: reason }]
+                  };
+                }
+              }
+              deferredBatchAcks.push(acknowledgement);
+            }
+            recordDiagnostic(pending.captureOnFailure ? "drawio.script-failure.serialization.captured" : "drawio.selection.property.save_confirmed",
+              pending.captureOnFailure
+                ? "Captured actual native Draw.io XML after script failure for persistence/versioning and agent diagnosis"
+                : "Native Draw.io XML serialization reflects the requested edit",
               { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path, value: pending.value,
-                durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length,
-                xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization });
-            if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
+                captureOnFailure: pending.captureOnFailure === true, durationMs: Date.now() - pending.startedAt,
+                xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization,
+                nativeDiff });
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
@@ -679,42 +731,28 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     return () => window.removeEventListener("message", receive);
   }, []);
 
-  function hideSaveAndExitControls() {
-    const frameDocument = iframeRef.current?.contentDocument;
-    if (!frameDocument) return;
-    const hideControls = () => {
-      const controls = frameDocument.querySelectorAll<HTMLElement>(
-        SAVE_AND_EXIT_SELECTOR
-      );
-      controls.forEach((element) => {
-        element.style.setProperty("display", "none", "important");
-        element.setAttribute("aria-hidden", "true");
-      });
-    };
-    hideControls();
-    if (frameDocument.head && !frameDocument.getElementById("studio-hide-save-exit")) {
-      const style = frameDocument.createElement("style");
-      style.id = "studio-hide-save-exit";
-      style.textContent = SAVE_AND_EXIT_SELECTOR + " { display: none !important; }";
-      frameDocument.head.appendChild(style);
-    }
-    embedUiObserverRef.current?.disconnect();
-    embedUiObserverRef.current = new MutationObserver(hideControls);
-    embedUiObserverRef.current.observe(frameDocument.documentElement, { childList: true, subtree: true });
-  }
-
-  function retryEditor() {
+  function retryEditor(recovery = false) {
     rejectPendingAutoLayout(new Error("Draw.io editor was re-initialised before auto layout completed."));
-    recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", { previousFrameKey: frameKey }, "warn");
+    for (const pending of pendingSaveConfirmationsRef.current.values()) {
+      if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+    }
+    pendingSaveConfirmationsRef.current.clear();
+    pendingNativeEditsRef.current.clear();
+    for (const pending of pendingRuntimeInspectionsRef.current.values()) {
+      window.clearTimeout(pending.timeoutId);
+      pending.reject(new Error("Draw.io editor was reloaded before runtime inspection completed."));
+    }
+    pendingRuntimeInspectionsRef.current.clear();
+    recordDiagnostic(recovery ? "drawio.script-watchdog.recovery" : "drawio.retry",
+      recovery ? "Reloading the Draw.io iframe from Studio's latest saved XML after a script execution timeout" : "The user asked to re-initialise the Draw.io editor",
+      { previousFrameKey: frameKey, recoverySource: recovery ? "latest-studio-xml" : "manual" }, recovery ? "error" : "warn");
     lastSent.current = "";
     setEditorReady(false);
     setIframeLoaded(false);
     iframeLoadedRef.current = false;
     nativeDocumentLoadedRef.current = false;
     setBridgeReady(false);
-    runtimeManifestCompatibleRef.current = null;
-    setRuntimeScriptSupported(null);
-    setStartupError(null);
+    setStartupError(recovery ? "A Draw.io script timed out. The editor was reloaded from Studio's latest saved XML snapshot." : null);
     setFrameKey((value) => value + 1);
   }
 
@@ -732,20 +770,19 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   return (
     <div className="drawio-frame-wrap">
       {startupError && <div className="drawio-error-banner" role="alert">
-        <span>{startupError}</span><button type="button" onClick={retryEditor}>Re-initialise</button>
+        <span>{startupError}</span><button type="button" onClick={() => retryEditor()}>Re-initialise</button>
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"
+        sandbox="allow-scripts allow-same-origin allow-modals"
+        referrerPolicy="strict-origin"
         src={DRAWIO_EMBED_URL}
         onLoad={() => {
           setIframeLoaded(true);
           iframeLoadedRef.current = true;
-          hideSaveAndExitControls();
           recordDiagnostic("drawio.iframe.loaded", "The Draw.io iframe fired its browser load event; still waiting for embed init", { url: DRAWIO_EMBED_URL, frameKey });
         }}
         onError={() => {
-          embedUiObserverRef.current?.disconnect();
-          embedUiObserverRef.current = null;
-          setStartupError("The browser could not load the local Draw.io page. Check that /drawio/index.html exists.");
+          setStartupError("The browser could not load the isolated Draw.io origin. Check that the local Draw.io static server is running.");
           recordDiagnostic("drawio.iframe.load.failed", "The browser could not load the local Draw.io iframe", { url: DRAWIO_EMBED_URL }, "error");
         }}
         allow="clipboard-read; clipboard-write" />

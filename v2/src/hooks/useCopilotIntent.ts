@@ -242,7 +242,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const failedScriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
           const scriptRuntimeError = failedStep?.path === "cell:execute-script" &&
             typeof failedStep.error === "string" &&
-            /\b(?:TypeError|ReferenceError)\b/.test(failedStep.error);
+            failedStep.error.trim().length > 0;
           const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
           const shouldTryScriptRepair = Boolean(
             failedScriptOperation &&
@@ -259,9 +259,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           );
           if (shouldTryScriptRepair && failedScriptOperation?.op === "run_drawio_script") {
             const boundedError = (failedStep?.error || reason).slice(0, 1200);
-            recordDiagnostic("copilot.native-script-repair.started", "Starting the one allowed native script repair attempt after a typed runtime error and confirmed rollback", {
+            recordDiagnostic("copilot.native-script-repair.started", "Starting one automatic native script repair attempt after an editor-reported script failure and confirmed rollback", {
               sessionId: plan.sessionId || copilotSessionId,
               error: boundedError,
+              errorStack: failedStep?.stack?.slice(0, 8000) ?? null,
               scriptLength: failedScriptOperation.script.length,
               rollbackConfirmed: execution.rolledBack,
               documentRevision,
@@ -270,7 +271,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             setMessages((items) => [...items, {
               role: "assistant",
               id: Date.now() + 1,
-              text: "原生脚本执行失败（" + boundedError + "），编辑器已确认回滚。正在尝试自动修正 1/1；修正版只会作为提案展示，不会自动执行。"
+              text: "原生脚本执行失败（" + boundedError + "），编辑器已确认回滚。正在自动修正并重试 1/1。"
             }]);
             try {
               const repairPlan = await requestAIIntentPlan({
@@ -280,7 +281,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 standalone: standaloneMode,
                 diagramXml: sourceXml,
                 documentRevision
-              }, "This is the single allowed repair attempt for the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Correct only the reported TypeError/ReferenceError, use the exact runtime API ownership, do not widen the change, and return exactly one corrected run_drawio_script operation. Do not claim the edit has been applied. This repaired script must pass the same server-side insert-only safety check as any other native script. If it falls outside that subset, return a confirmation proposal. Do not claim success; only an acknowledged editor and persistence result counts as applied.", {
+              }, "Automatically repair the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Use the exact editor error and runtime inspection to correct the actual failure; do not merely repeat the failed script unchanged. Return one corrected action by calling the dedicated run_drawio_script tool directly. There is no script allowlist or confirmation gate in local single-user mode. Do not claim the edit has been applied until the native editor returns the script result and the resulting XML/persistence acknowledgement succeeds.", {
                 kind: "drawio",
                 title: nativePage.title || "Draw.io diagram",
                 activePageId,
@@ -293,7 +294,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 scriptRepair: {
                   originalRequest: requestText,
                   failedScript: failedScriptOperation.script,
-                  error: boundedError
+                  error: boundedError,
+                  ...(failedStep?.stack ? { stack: failedStep.stack.slice(0, 8000) } : {})
                 }
               });
               if (repairPlan.outcome === "command_ready") {
@@ -348,28 +350,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 return;
               }
 
-              const repairedScript = repairPlan.outcome === "proposal_required"
-                ? repairPlan.proposal.operations.find((operation) => operation.op === "run_drawio_script")
-                : undefined;
-              if (repairPlan.outcome === "proposal_required" && repairedScript?.op === "run_drawio_script") {
-                recordDiagnostic("copilot.native-script-repair.proposal-ready", "The repaired native script was returned as a confirmation proposal; it has not been executed", {
-                  sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
-                  proposalId: repairPlan.proposal.id,
-                  scriptLength: repairedScript.script.length,
-                  documentRevision,
-                  pageId: activePageId
-                });
-                setMessages((items) => [...items, {
-                  role: "assistant",
-                  id: Date.now() + 1,
-                  text: "自动修正提案（1/1）： " + repairPlan.proposal.summary +
-                    "\n\n修正脚本（完整内容）：\n" + repairedScript.script +
-                    "\n\n尚未执行。确认后才会应用修改。",
-                  proposal: { id: repairPlan.proposal.id, summary: repairPlan.proposal.summary, script: repairedScript.script }
-                }]);
-                return;
-              }
-              recordDiagnostic("copilot.native-script-repair.no-proposal", "The repair turn did not return an explicit script proposal; no repaired script was executed", {
+              // The AI-first runtime does not turn a corrected script into a manual approval proposal.
+              // A repair request must call run_drawio_script and return a command_ready receipt.
+              recordDiagnostic("copilot.native-script-repair.no-command", "The repair turn did not return an executable native script command", {
                 sessionId: plan.sessionId || copilotSessionId,
                 outcome: repairPlan.outcome,
                 reply: repairPlan.reply.slice(0, 400),
@@ -378,8 +361,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               setMessages((items) => [...items, {
                 role: "assistant",
                 id: Date.now() + 1,
-                text: "未获得可供确认的修正脚本提案；第二次执行没有发生。原编辑失败：" + reason +
-                  (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知）")
+                text: "自动修正没有返回可执行的脚本命令；未进行第二次执行。原编辑失败：" + reason +
+                  (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知，请从 History 检查或恢复版本）")
               }]);
               return;
             } catch (repairError) {

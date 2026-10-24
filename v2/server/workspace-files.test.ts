@@ -11,14 +11,17 @@ describe("workspace file service", () => {
     expect(classifyWorkspaceFile("docs/adr.md")).toBe("document");
     expect(classifyWorkspaceFile("assets/logo.png")).toBe("other");
   });
-  it("matches workspace glob patterns", () => {
+  it("matches workspace glob patterns including nested paths and hidden files", () => {
     expect(matchesWorkspacePattern("src/App.tsx", "src/**/*.tsx")).toBe(true);
     expect(matchesWorkspacePattern("packages/node_modules/pkg/index.js", "**/node_modules/**")).toBe(true);
     expect(matchesWorkspacePattern("src/App.tsx", "docs/**/*.md")).toBe(false);
+    expect(matchesWorkspacePattern(".github/workflows/build.yml", "**/*.{yml,yaml}")).toBe(true);
+    expect(matchesWorkspacePattern("src/.hidden/config.ts", "src/**/config.ts")).toBe(true);
+    expect(matchesWorkspacePattern("src/App.tsx", "src/**/[A-Z]*.tsx")).toBe(true);
   });
   it("rejects traversal paths and symlink reads", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "studio-workspace-"));
-    const workspace: ProjectWorkspace = { schemaVersion: 1, id: "w", name: "test", rootPath: root, primaryDiagram: null, includePatterns: [], excludePatterns: [], createdAt: "", updatedAt: "" };
+    const workspace: ProjectWorkspace = { schemaVersion: 1, id: "w", name: "test", rootPath: root, primaryDiagram: null, includePatterns: [], excludePatterns: [], createdAt: "2026-10-24T00:00:00.000Z", updatedAt: "2026-10-24T00:00:00.000Z" };
     const filePath = path.join(root, "diagram.drawio");
     const linkPath = path.join(root, "escape.txt");
     await writeFile(filePath, "<mxfile/>", "utf8");
@@ -32,7 +35,7 @@ describe("workspace file service", () => {
   });
   it("reuses task-relevant excerpts and invalidates them when file metadata changes", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "studio-context-cache-"));
-    const workspace: ProjectWorkspace = { schemaVersion: 1, id: "context-cache", name: "test", rootPath: root, primaryDiagram: null, includePatterns: [], excludePatterns: [], createdAt: "", updatedAt: "" };
+    const workspace: ProjectWorkspace = { schemaVersion: 1, id: "context-cache", name: "test", rootPath: root, primaryDiagram: null, includePatterns: [], excludePatterns: [], createdAt: "2026-10-24T00:00:00.000Z", updatedAt: "2026-10-24T00:00:00.000Z" };
     try {
       await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(root, "src"), { recursive: true }));
       await writeFile(path.join(root, "README.md"), "Workspace instructions and architecture context.", "utf8");

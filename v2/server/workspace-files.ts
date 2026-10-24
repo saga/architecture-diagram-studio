@@ -1,7 +1,21 @@
 import path from "node:path";
 import { readdir, readFile, stat, realpath, lstat } from "node:fs/promises";
+import picomatch from "picomatch";
+import { z } from "zod";
 
-export type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
+export const ProjectWorkspaceSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(120),
+  rootPath: z.string().trim().min(1),
+  primaryDiagram: z.string().nullable(),
+  includePatterns: z.array(z.string()).max(100),
+  excludePatterns: z.array(z.string()).max(200),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime()
+}).strict();
+
+export type ProjectWorkspace = z.infer<typeof ProjectWorkspaceSchema>;
 export type WorkspaceFileEntry = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 const DEFAULT_WORKSPACE_EXCLUDES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".venv", "venv", ".idea", "vendor"]);
 const DIAGRAM_EXTENSIONS = new Set([".drawio", ".dio", ".xml", ".mmd", ".mermaid", ".puml", ".plantuml"]);
@@ -15,23 +29,37 @@ export function classifyWorkspaceFile(filePath: string): WorkspaceFileEntry["kin
   if (DOCUMENT_EXTENSIONS.has(ext)) return "document";
   return "other";
 }
-export function matchesWorkspacePattern(relativePath: string, pattern: string): boolean {
-  const normalized = relativePath.replace(/\\/g, "/");
-  let escaped = "";
-  const source = pattern.trim();
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === "*") {
-      if (source[i + 1] === "*") {
-        i++;
-        if (source[i + 1] === "/") { escaped += "(?:.*/)?"; i++; }
-        else escaped += ".*";
-      } else escaped += "[^/]*";
-    } else if (ch === "?") escaped += "[^/]";
-    else if (".+^$()|{}[]".includes(ch) || ch === "\\") escaped += "\\" + ch;
-    else escaped += ch;
+type WorkspaceGlobMatcher = ReturnType<typeof picomatch>;
+const workspaceGlobMatchers = new Map<string, WorkspaceGlobMatcher>();
+const MAX_CACHED_WORKSPACE_GLOBS = 512;
+
+function workspaceGlobMatcher(pattern: string): WorkspaceGlobMatcher | null {
+  const normalizedPattern = pattern.trim().replace(/\\/g, "/");
+  if (!normalizedPattern) return null;
+  const cached = workspaceGlobMatchers.get(normalizedPattern);
+  if (cached) {
+    workspaceGlobMatchers.delete(normalizedPattern);
+    workspaceGlobMatchers.set(normalizedPattern, cached);
+    return cached;
   }
-  try { return new RegExp("^" + escaped + "$").test(normalized); } catch { return false; }
+  try {
+    const matcher = picomatch(normalizedPattern, { dot: true });
+    workspaceGlobMatchers.set(normalizedPattern, matcher);
+    while (workspaceGlobMatchers.size > MAX_CACHED_WORKSPACE_GLOBS) {
+      const oldest = workspaceGlobMatchers.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      workspaceGlobMatchers.delete(oldest);
+    }
+    return matcher;
+  } catch {
+    return null;
+  }
+}
+
+export function matchesWorkspacePattern(relativePath: string, pattern: string): boolean {
+  const matcher = workspaceGlobMatcher(pattern);
+  if (!matcher) return false;
+  return matcher(relativePath.replace(/\\/g, "/"));
 }
 export async function resolveWorkspaceRoot(requestedPath: string): Promise<{ rootPath: string; repositoryRoot: boolean; requestedPath: string }> {
   const requested = await realpath(path.resolve(requestedPath));
@@ -101,6 +129,12 @@ export function createWorkspaceFileService(getWorkspace: () => Promise<ProjectWo
   }
 
   async function scanWorkspaceFiles(workspace: ProjectWorkspace): Promise<WorkspaceFileEntry[]> {
+    const validatedWorkspace = ProjectWorkspaceSchema.safeParse(workspace);
+    if (!validatedWorkspace.success) {
+      const issue = validatedWorkspace.error.issues[0];
+      throw new Error("Invalid project workspace configuration: " + (issue?.path.map(String).join(".") || "workspace") + " " + (issue?.message || "invalid value"));
+    }
+    workspace = validatedWorkspace.data;
     const root = await realpath(workspace.rootPath);
     const key = [workspace.id, root, workspace.includePatterns.join("\0"), workspace.excludePatterns.join("\0")].join("\0");
     const cached = fileScanCache.get(key);

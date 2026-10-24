@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted embed. `npm run dev` starts both Vite and the loopback Copilot service.
+V2 bundles the pinned Draw.io v32.0.2 editor locally. It does not use the hosted embed. `npm run dev` starts Vite, the loopback Copilot API, and a dedicated loopback Draw.io static server (default port 4176). Draw.io runs on a separate origin inside a sandboxed iframe; CSP permits requests to its own origin for local assets but blocks cross-origin `fetch`/XHR/WebSocket-style connections and remote image loads. The separate origin prevents scripts from reading the Studio parent DOM or calling the Studio API origin. This is browser-origin isolation, not an OS-level sandbox: browser navigation itself is not restricted by CSP, so only use trusted local model providers/scripts for diagrams containing sensitive data. The paired `STUDIO_DRAWIO_PORT` and `VITE_STUDIO_DRAWIO_PORT` settings must match.
 
 ## One diagram model
 
@@ -43,12 +43,17 @@ Every mutation plan must be revalidated against the same page and current XML re
 
 ## Copilot native cell edits
 
-The server passes the selected page's native cell IDs, labels and cell types to the Copilot SDK. The model may request two kinds of action:
+The server gives Copilot the active page's native cell IDs, labels and cell types. The editing surface has two paths:
 
-- `select_diagram_element` focuses an existing cell without changing the document.
-- `propose_native_edits` submits a typed batch of allowlisted operations.
+- `propose_native_edits`: a typed fast path for common operations such as select, rename, style, move, resize, delete, simple connected-node insertion, C4 conversion and Studio-owned Dagre/ELK layout.
+- `run_drawio_script`: the primary full-capability path for native Draw.io operations. Copilot can write JavaScript against the live `ui`, `editor`, `graph`, `model` and runtime-inspection bindings to create/reconnect edges, change waypoints, choose shapes, apply styles, group/reparent cells, manage layers/pages and use other APIs available in the bundled editor. New native capabilities do not require a new typed operation or schema branch.
 
-Supported edits include select, rename, fill/stroke/font color, move, resize, delete, `add_node_after`, `add_node_below`, typed C4 conversion (`set_c4_type`: Person, Software System, External Software System), and the configurable `auto_layout` operation. C4 conversion uses the pinned Draw.io palette styles, placeholder-backed labels and semantic XML postconditions. It never substitutes a UML actor or swimlane; if the C4 Person shape is unavailable, the operation fails without a fallback. See [ADR-0014](../docs/adr/0014-typed-native-drawio-c4-conversion.md). A bounded typed batch that does not trigger the server's review gate executes after target uniqueness, page and revision checks without a separate confirmation click. Every whole-page `auto_layout` and all review-gated batches require explicit confirmation. A narrowly allowlisted insert-only script may auto-dispatch only after the server-side AST, runtime-manifest and revision checks; scripts are not a substitute for layout, and script bodies are not shown in chat. The browser applies edits through the Draw.io bridge and waits for editor acknowledgement and persistence. Failed batches are rolled back when Draw.io confirms rollback; ambiguous targets and unsupported operations fail closed. The model cannot submit replacement XML or write workspace files.
+Typed operations are convenience shortcuts, not an allowlist. Local single-user mode does not add a second confirmation just because a script is arbitrary, a batch is large, or a change deletes elements. The runtime method manifest remains diagnostic and never disables the direct script tool. Target/page/revision checks continue to prevent dispatch against a stale diagram snapshot; these are document-coherence checks, not a per-capability permission gate.
+
+The script runs synchronously inside a separately-originated Draw.io iframe, not in Node.js. The iframe has sandbox flags, is hosted by a loopback-only static server, and receives a CSP that permits same-origin asset requests but blocks cross-origin `connect-src` requests and external image loads; the script cannot access the Studio parent DOM or the Studio API origin. This is not an OS-level network sandbox, and CSP does not prevent all frame navigations. Configure the paired `STUDIO_DRAWIO_PORT` and `VITE_STUDIO_DRAWIO_PORT` values together in `v2/.env`. The browser watchdog defaults to 75 seconds and can be configured with `VITE_NATIVE_SCRIPT_WATCHDOG_TIMEOUT_MS` (30000–180000 ms); it cannot interrupt a synchronous script, so timeout recovery reloads from the latest saved XML. Studio archives the prior state, executes through the native editor bridge, exports and validates the resulting native XML, then follows the normal save/version acknowledgement path. The full script and correlated execution evidence are written to local traces. A thrown script error is reported with runtime details; the bridge attempts to roll back cell-model mutations. If a script blocks the iframe past the host-side watchdog, Studio can reload the editor from its latest saved XML checkpoint. Recovery/version history replaces per-operation approval as the expected response to mistakes.
+
+Native Draw.io `mxfile` XML remains the sole diagram model; there is no reduced shadow graph or XML reconstruction. Use [ADR-0018](../docs/adr/0018-ai-first-native-drawio-execution.md) for the design and implementation details.
+
 
 ## Copilot session permission and authentication callbacks
 

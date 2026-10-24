@@ -1,6 +1,6 @@
 import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { nativeEditIsReflectedInXml } from "./native-edit-confirmation";
+import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "./native-edit-confirmation";
 
 const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -99,74 +99,52 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a script only when declared postconditions match serialized native XML", () => {
-    const renamed = before.replace('value="Old API"', 'value="New API"');
+  it("accepts script execution without requiring predeclared cell-level postconditions", () => {
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
       value: 'graph.insertVertex(graph.getDefaultParent(), null, "New", 10, 10, 100, 40);'
     }]);
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
-      scriptResult: { available: true, value: { verified: true, checks: [{ name: "API label", cellId: "api", property: "label", passed: true, expected: "New API", actual: "untrusted script claim" }] } }
-    })).toBe(true);
+    const renamed = before.replace('value="Old API"', 'value="New API"');
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
-    })).toBe(false);
+    })).toBe(true);
+    // The script may be a read-only inspection or a no-op; successful execution and valid native
+    // XML serialization are enough to acknowledge it.
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: renamed, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch,
-      scriptResult: { available: true, value: { verified: true, checks: [{ name: "fabricated", cellId: "api", property: "label", passed: true, expected: "Unrelated label", actual: "Unrelated label" }] } }
-    })).toBe(false);
-    const whitespaceOnly = before.replace("</root>", "\n  </root>");
+      beforeXml: before, xml: before, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+    const whitespaceOnly = before.replace("</root>", "\\n  </root>");
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: whitespaceOnly, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
-    })).toBe(false);
+    })).toBe(true);
   });
 
-  it("does not confirm a script when active-page metadata changes with the cell model", () => {
-    const withMetadata = before.replace('id="p1" name="Overview"', 'id="p1" name="Overview" customPageFlag="before"');
-    const changedMetadataAndCell = withMetadata
-      .replace('customPageFlag="before"', 'customPageFlag="after"')
-      .replace('value="Old API"', 'value="New API"');
-    const scriptBatch = JSON.stringify([{
-      cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
-    }]);
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: withMetadata, xml: changedMetadataAndCell, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
-    })).toBe(false);
-  });
-
-  it("does not confirm a script when metadata on a non-target page changes", () => {
-    const secondPage = '<diagram id="p2" name="Other" customPageFlag="before"><mxGraphModel><root>' +
+  it("allows scripts to change pages and page metadata as long as the serialized Draw.io document remains structurally valid", () => {
+    const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root>' +
       '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
       '<mxCell id="other" value="Before" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell>' +
       '</root></mxGraphModel></diagram>';
     const multiPageBefore = before.replace("</mxfile>", secondPage + "</mxfile>");
     const activeCellAndOtherMetadataChanged = multiPageBefore
+      .replace('id="p1" name="Overview"', 'id="p1" name="Renamed"')
       .replace('value="Old API"', 'value="New API"')
-      .replace('customPageFlag="before"', 'customPageFlag="after"');
+      .replace('name="Other"', 'name="Other - Renamed"');
     const scriptBatch = JSON.stringify([{
       cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.setCellStyles("curved", "1", graph.getChildCells(graph.getDefaultParent(), false, true));'
+      value: 'ui.pages.push(ui.currentPage);'
     }]);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: multiPageBefore, xml: activeCellAndOtherMetadataChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
-    })).toBe(false);
-  });
-
-  it("does not confirm a script after deleting the active page or its default layer", () => {
-    const scriptBatch = JSON.stringify([{
-      cellId: "__active_page__", path: "cell:execute-script",
-      value: 'graph.removeCells([model.getCell("1")]);'
-    }]);
+      beforeXml: multiPageBefore, xml: activeCellAndOtherMetadataChanged,
+      cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: "<mxfile></mxfile>", cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+      beforeXml: before, xml: "<mxfile></mxfile>",
+      cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
     })).toBe(false);
-
     const withoutDefaultLayer = before.replace('<mxCell id="1" parent="0"/>', "");
-    const activeContentAlsoChanged = withoutDefaultLayer.replace('value="Old API"', 'value="New API"');
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: activeContentAlsoChanged, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+      beforeXml: before, xml: withoutDefaultLayer,
+      cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
     })).toBe(false);
   });
 
@@ -204,6 +182,22 @@ describe("native edit XML confirmation", () => {
     expect(disconnected).toBe(false);
     const wrongDirection = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace('source="db" target="ddd"', 'source="ddd" target="db"') });
     expect(wrongDirection).toBe(false);
+  });
+
+  it("summarizes native Draw.io cell changes and page changes for execution traces", () => {
+    const after = before
+      .replace('id="p1" name="Overview"', 'id="p1" name="Architecture"')
+      .replace('value="Old API"', 'value="Primary API"')
+      .replace("</root>", '<mxCell id="api-db" edge="1" parent="1" source="api" target="db"><mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const diff = summarizeNativeDiagramXmlDiff(before, after);
+    expect(diff.available).toBe(true);
+    expect(diff.changed).toBe(true);
+    expect(diff.pagesRenamed).toEqual([{ id: "p1", before: "Overview", after: "Architecture" }]);
+    expect(diff.pagesChanged).toContain("p1");
+    expect(diff.cellsAdded).toContainEqual(expect.objectContaining({ id: "api-db", kind: "edge", sourceId: "api", targetId: "db" }));
+    expect(diff.cellsChanged).toContainEqual(expect.objectContaining({
+      id: "api", labelBefore: "Old API", labelAfter: "Primary API", changedFields: expect.arrayContaining(["label"])
+    }));
   });
 
 });

@@ -6,17 +6,19 @@
   "scripts": {
     "drawio:fetch": "node scripts/bundle-drawio.mjs",
     "predev": "node scripts/bundle-drawio.mjs",
-    "dev": "concurrently -k -p none \"npm:dev:web\" \"npm:dev:copilot\"",
+    "dev": "concurrently -k -p none \"npm:dev:web\" \"npm:dev:copilot\" \"npm:dev:drawio\"",
     "prebuild": "node scripts/bundle-drawio.mjs",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "concurrently -k -p none \"npm:preview:web\" \"npm:dev:drawio\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "dev:web": "vite --host 0.0.0.0",
     "dev:copilot": "tsx server/copilot-server.ts",
-    "start:copilot": "tsx server/copilot-server.ts"
+    "start:copilot": "tsx server/copilot-server.ts",
+    "preview:web": "vite preview --host 0.0.0.0",
+    "dev:drawio": "tsx server/drawio-static-server.ts"
   },
   "dependencies": {
     "@ant-design/x": "^2.9.0",
@@ -30,7 +32,8 @@
     "undici": "^6.21.0",
     "zod": "^4.3.6",
     "@dagrejs/dagre": "^1.1.5",
-    "elkjs": "^0.10.0"
+    "elkjs": "^0.10.0",
+    "picomatch": "^4.0.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

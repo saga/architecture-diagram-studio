@@ -24,8 +24,32 @@
     var hasOriginalBackground = false;
     // Cells created during an atomic batch are tracked for rollback.
     var activeBatchCreatedCells = null;
+    var studioParentOrigin = "";
+    var pendingBridgeReadyMessage = null;
+    var bridgeHelloTimer = null;
     var publish = function (message) {
-      window.parent.postMessage(JSON.stringify(message), window.location.origin);
+      if (!studioParentOrigin) return;
+      window.parent.postMessage(JSON.stringify(message), studioParentOrigin);
+    };
+    var requestStudioHandshake = function () {
+      if (studioParentOrigin) {
+        if (bridgeHelloTimer !== null) window.clearInterval(bridgeHelloTimer);
+        bridgeHelloTimer = null;
+        return;
+      }
+      // The hello has no sensitive content. Studio validates event.source and event.origin,
+      // then replies to this exact Draw.io origin; only that welcome can lock the parent origin.
+      window.parent.postMessage(JSON.stringify({ event: "studioDrawioHello" }), "*");
+      if (bridgeHelloTimer === null) {
+        bridgeHelloTimer = window.setInterval(function () {
+          if (studioParentOrigin) {
+            window.clearInterval(bridgeHelloTimer);
+            bridgeHelloTimer = null;
+            return;
+          }
+          window.parent.postMessage(JSON.stringify({ event: "studioDrawioHello" }), "*");
+        }, 250);
+      }
     };
     var currentPageId = function () {
       var page = ui.currentPage;
@@ -628,7 +652,8 @@
             path: failedOperation && failedOperation.path || null, value: failedOperation && failedOperation.value || null,
             success: false,
             error: (error && error.name ? String(error.name) + ": " : "") +
-              (error && error.message ? String(error.message) : String(error)) });
+              (error && error.message ? String(error.message) : String(error)),
+            stack: error && error.stack ? String(error.stack).slice(0, 8000) : null });
           for (var createdIndex = batchCreatedCells.length - 1; createdIndex >= 0; createdIndex--) {
             try {
               var createdCell = batchCreatedCells[createdIndex];
@@ -1092,11 +1117,35 @@
     }
 
     window.addEventListener("message", function (event) {
-      if (event.source !== window.parent || (event.origin !== window.location.origin && event.origin !== "null")) return;
+      if (event.source !== window.parent) return;
       var request;
       try { request = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
       catch (_) { return; }
       if (!request || typeof request !== "object") return;
+      if (!studioParentOrigin && request.event === "studioDrawioWelcome") {
+        if (!event.origin || event.origin === "null") return;
+        studioParentOrigin = event.origin;
+        if (bridgeHelloTimer !== null) window.clearInterval(bridgeHelloTimer);
+        bridgeHelloTimer = null;
+        if (pendingBridgeReadyMessage) {
+          publish(pendingBridgeReadyMessage);
+          pendingBridgeReadyMessage = null;
+          publishSelection();
+        }
+        return;
+      }
+      if (!studioParentOrigin || event.origin !== studioParentOrigin) return;
+      if (request.event === "studioPresentationThemeRequest") {
+        if (typeof request.css !== "string" || request.css.length > 50_000) return;
+        var themeStyle = document.getElementById("studio-native-theme");
+        if (!themeStyle) {
+          themeStyle = document.createElement("style");
+          themeStyle.id = "studio-native-theme";
+          document.head.appendChild(themeStyle);
+        }
+        themeStyle.textContent = request.css;
+        return;
+      }
       if (request.event === "studioNativeLayoutRequest") {
         try {
           var layoutGraph = currentGraph();
@@ -1139,6 +1188,7 @@
         } catch (error) {
           publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path,
             error: error && error.message ? String(error.message) : String(error),
+            errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null,
             batchResults: error && error.batchResults || null,
             failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null,
             rollbackErrors: error && error.rollbackErrors || [],
@@ -1169,8 +1219,12 @@
       model: runtimeMethods(bridgeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate"]),
       view: runtimeMethods(bridgeGraph && bridgeGraph.view, ["getState", "validate"])
     };
-    publish({ event: "studioBridgeReady", drawioVersion: "v32.0.2", capabilityManifest: buildCapabilityManifest(bridgeCapabilities) });
-    publishSelection();
+    pendingBridgeReadyMessage = {
+      event: "studioBridgeReady",
+      drawioVersion: "v32.0.2",
+      capabilityManifest: buildCapabilityManifest(bridgeCapabilities)
+    };
+    requestStudioHandshake();
     });
   }
   register();

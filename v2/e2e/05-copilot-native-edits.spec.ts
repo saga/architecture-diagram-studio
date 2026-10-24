@@ -230,56 +230,111 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
-test("Copilot script proposals show the requested change and complete JavaScript body", async ({ page, request }) => {
-  await createWorkspace(request);
+test("Copilot executes a direct native Draw.io script without a review proposal", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
 
-  const reviewedScriptSentinel = "REVIEWED_SCRIPT_SENTINEL_73491";
-  await page.route("**/api/copilot/intent", async (route) => {
-    const requestBody = JSON.parse(route.request().postData() || "{}") as {
-      documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
+  const drawioPort = process.env.STUDIO_E2E_DRAWIO_PORT || "5181";
+  const drawioIndex = await request.get("http://127.0.0.1:" + drawioPort + "/index.html");
+  expect(drawioIndex.ok()).toBe(true);
+  const drawioCsp = drawioIndex.headers()["content-security-policy"];
+  const studioOrigin = new URL(page.url()).origin;
+  expect(drawioCsp).toContain("connect-src 'self'");
+  expect(drawioCsp).toContain("img-src 'self' data: blob:");
+  const frameAncestors = /frame-ancestors ([^;]+)/.exec(drawioCsp)?.[1]?.split(/\s+/) ?? [];
+  expect(frameAncestors).toContain(studioOrigin);
+  expect(drawioCsp).not.toContain("localhost:*");
+  expect(drawioCsp).not.toContain("127.0.0.1:*");
+  const nativeEditor = page.locator('iframe[title="Native Draw.io editor"]');
+  expect(new URL(await nativeEditor.getAttribute("src") || page.url()).origin).not.toBe(new URL(page.url()).origin);
+  expect(await nativeEditor.getAttribute("sandbox")).toContain("allow-scripts");
+  expect(await nativeEditor.getAttribute("sandbox")).not.toContain("allow-top-navigation");
+  await expect.poll(() => page.frames().some((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"))).toBe(true);
+  const isolatedFrame = page.frames().find((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"));
+  expect(isolatedFrame).toBeTruthy();
+  if (!isolatedFrame) throw new Error("The isolated Draw.io frame did not become available.");
+  const studioApiUrl = new URL("/api/workspace/config", page.url()).toString();
+  const isolationCheck = await isolatedFrame.evaluate(async (apiUrl) => {
+    let parentDomAccessible = true;
+    try { void window.parent.document.documentElement; } catch { parentDomAccessible = false; }
+    let studioApiReachable = false;
+    try {
+      const response = await fetch(apiUrl);
+      studioApiReachable = response.ok;
+    } catch { /* CSP connect-src 'self' should block a cross-origin Studio API request. */ }
+    return { parentDomAccessible, studioApiReachable };
+  }, studioApiUrl);
+  expect(isolationCheck.parentDomAccessible).toBe(false);
+  expect(isolationCheck.studioApiReachable).toBe(false);
+
+  const scriptMarker = "AI_SCRIPT_EXECUTED_73491";
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        outcome: "proposal_required",
-        reply: "This action needs confirmation.",
-        proposal: {
-          id: "55555555-5555-4555-8555-555555555555",
-          summary: "Rearrange the diagram using the native editor",
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
+
+  await page.route("**/api/copilot/intent", async (route) => {
+    const requestBody = JSON.parse(route.request().postData() || "{}") as {
+      sessionId?: string;
+      documentRevision?: unknown;
+      context?: { activePageId?: string | null };
+    };
+    const script = [
+      "var parent = graph.getDefaultParent();",
+      "var created = graph.insertVertex(parent, null, '" + scriptMarker + "', 120, 180, 160, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
+      "graph.refresh();",
+      "return { cellId: created.id, label: graph.convertValueToString(created) };"
+    ].join("\n");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "command_ready",
+        reply: "Executing a direct native Draw.io script.",
+        nativeEdits: {
           operations: [{
             op: "run_drawio_script",
             target: "active_page",
-            summary: "Rearrange the diagram using the native editor",
-            script: "throw new Error('" + reviewedScriptSentinel + "');",
+            summary: "Add a native Draw.io vertex",
+            script,
             cellId: "__active_page__",
             targetLabel: "active Draw.io page"
           }],
+          summary: "Add a native Draw.io vertex",
+          requestId: "55555555-5555-4555-8555-555555555555",
           pageId: requestBody.context?.activePageId ?? null,
           documentRevision: String(requestBody.documentRevision ?? "")
         },
-        sessionId: "e2e-script-proposal",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1
+        sessionId: requestBody.sessionId || "e2e-native-script",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
+        toolsUsed: ["run_drawio_script"]
       })
     });
   });
 
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
-  await input.fill("Rearrange the diagram");
+  await input.fill("Add one native vertex");
   await input.press("Enter");
 
-  const proposalMessage = page.locator(".gemini-message.assistant").last();
-  await expect(proposalMessage).toContainText("Proposed changes");
-  await expect(proposalMessage).toContainText("Rearrange the diagram using the native editor");
-  await expect(proposalMessage.getByRole("button", { name: "Confirm changes" })).toBeVisible();
-  await expect(proposalMessage).toContainText(reviewedScriptSentinel);
-  await expect(proposalMessage).toContainText("throw new Error");
-  await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("Applied 1 native change");
+  await expect(resultMessage).toContainText("Add a native Draw.io vertex");
+  await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
+  await expect(nativeFrame(page).getByText(scriptMarker, { exact: true })).toBeVisible();
+  await expect.poll(async () => (await readWorkspaceXml(workspace)).includes(scriptMarker)).toBe(true);
 });
-
 test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
@@ -473,7 +528,7 @@ test("Copilot 原生编辑：完整批次在未知属性存在时保留新增、
   }, { timeout: 20_000 }).toBe(true);
 });
 
-test("Copilot bulk destructive edits require explicit proposal confirmation", async ({ page, request }) => {
+test("Copilot bulk destructive edits execute without a confirmation proposal", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
@@ -503,34 +558,8 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "proposal_required",
-        reply: "This batch contains multiple destructive operations and needs review.",
-        sessionId: "e2e-proposal-session",
-        proposal: {
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          summary: "Delete “API Service”; Delete “Message Queue”",
-          operations: [
-            { op: "delete", target: "API Service", cellId: "api", targetLabel: "API Service" },
-            { op: "delete", target: "Message Queue", cellId: "queue", targetLabel: "Message Queue" }
-          ],
-          pageId,
-          documentRevision
-        },
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["propose_native_edits"]
-      })
-    });
-  });
-  await page.route("**/api/copilot/intent/confirm", async (route) => {
-    const body = JSON.parse(route.request().postData() || "{}") as {
-      documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
-    const pageId = body.context?.activePageId ?? null;
-    const documentRevision = String(body.documentRevision ?? "");
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
         outcome: "command_ready",
-        reply: "The reviewed proposal was confirmed.",
+        reply: "Delete API Service and Message Queue.",
         sessionId: "e2e-proposal-session",
         nativeEdits: {
           operations: [
@@ -540,26 +569,18 @@ test("Copilot bulk destructive edits require explicit proposal confirmation", as
           summary: "Delete “API Service”; Delete “Message Queue”",
           pageId, documentRevision, requestId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         },
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["confirm_native_edit_proposal"]
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["propose_native_edits"]
       })
     });
   });
-
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
   await input.fill("Delete API Service and Message Queue");
   await input.press("Enter");
 
-  const proposalMessage = page.locator(".gemini-message.assistant").last();
-  await expect(proposalMessage).toContainText("This batch contains multiple destructive operations");
-  await expect(proposalMessage).toContainText("Delete “API Service”; Delete “Message Queue”");
-  const confirm = proposalMessage.getByRole("button", { name: "Confirm changes" });
-  await expect(confirm).toBeVisible();
-  await expect(nativeFrame(page).getByText("API Service", { exact: true })).toBeVisible();
-  await expect(nativeFrame(page).getByText("Message Queue", { exact: true })).toBeVisible();
-
-  await confirm.click();
-  await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied 2 native changes");
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("Applied 2 native changes");
+  await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
   await expect(nativeFrame(page).getByText("API Service", { exact: true })).toHaveCount(0);
   await expect(nativeFrame(page).getByText("Message Queue", { exact: true })).toHaveCount(0);
   await expect.poll(async () => {

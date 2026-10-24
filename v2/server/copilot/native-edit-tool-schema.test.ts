@@ -7,6 +7,9 @@ type OperationBranch = {
     target?: unknown;
     newLabel?: { type?: string; minLength?: number; maxLength?: number };
     key?: { type?: string; enum?: readonly string[]; default?: string };
+    engine?: { enum?: readonly string[]; default?: string };
+    iterations?: { type?: string; minimum?: number; maximum?: number; default?: number };
+    kind?: { enum?: readonly string[] };
     script?: { type?: string; minLength?: number; maxLength?: number };
     summary?: { type?: string; minLength?: number; maxLength?: number };
   };
@@ -14,7 +17,7 @@ type OperationBranch = {
   additionalProperties: boolean;
 };
 
-const branches = NATIVE_EDIT_OPERATION_ITEM_SCHEMA.anyOf as readonly OperationBranch[];
+const branches = NATIVE_EDIT_OPERATION_ITEM_SCHEMA.anyOf as unknown as readonly OperationBranch[];
 
 describe("native edit tool parameter schema", () => {
   it("requires newLabel on add_node_after instead of leaving the field optional", () => {
@@ -41,12 +44,13 @@ describe("native edit tool parameter schema", () => {
       select: ["op", "target"],
       set_label: ["op", "target", "label"],
       set_style: ["op", "target", "color"],
-      run_drawio_script: ["op", "target", "summary", "script"],
       move: ["op", "target", "dx", "dy"],
       resize: ["op", "target", "width", "height"],
       delete: ["op", "target"],
       add_node_after: ["op", "target", "newLabel"],
-      add_node_below: ["op", "target", "newLabel"]
+      add_node_below: ["op", "target", "newLabel"],
+      set_c4_type: ["op", "target", "kind"],
+      auto_layout: ["op", "target"]
     };
 
     for (const [op, required] of Object.entries(requiredByOperation)) {
@@ -57,9 +61,18 @@ describe("native edit tool parameter schema", () => {
     }
     const styleBranch = branches.find((candidate) => candidate.properties.op.enum.includes("set_style"));
     expect(styleBranch?.properties.key).toMatchObject({ enum: ["fillColor", "strokeColor", "fontColor"], default: "fillColor" });
-    const scriptBranch = branches.find((candidate) => candidate.properties.op.enum.includes("run_drawio_script"));
-    expect(scriptBranch?.required).toEqual(["op", "target", "summary", "script"]);
-    expect(scriptBranch?.properties.target).toMatchObject({ enum: ["active_page"] });
-    expect(scriptBranch?.properties.script).toMatchObject({ type: "string", minLength: 1, maxLength: 50000 });
+    expect(branches.some((candidate) => candidate.properties.op.enum.includes("run_drawio_script"))).toBe(false);
+    const layoutBranch = branches.find((candidate) => candidate.properties.op.enum.includes("auto_layout"));
+    expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre"], default: "elk" });
+    expect(layoutBranch?.properties.iterations).toMatchObject({ type: "integer", minimum: 20, maximum: 3000, default: 300 });
+    const c4Branch = branches.find((candidate) => candidate.properties.op.enum.includes("set_c4_type"));
+    expect(c4Branch?.properties.kind).toMatchObject({ enum: ["person", "system", "external"] });
+  });
+});
+
+
+describe("AI-first script tool separation", () => {
+  it("does not advertise raw script execution as a typed edit operation", () => {
+    expect(branches.flatMap((branch) => branch.properties.op.enum)).not.toContain("run_drawio_script");
   });
 });
