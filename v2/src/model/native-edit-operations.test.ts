@@ -7,7 +7,6 @@ import {
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
   NativeEditOperationBatchSchema,
-  normalizeNativeColor,
   parseNativeEditOperations,
   toNativeCellEdits,
   type ResolvedNativeEditOperation
@@ -53,33 +52,23 @@ describe("extractNativeEditTargets", () => {
   });
 });
 
-describe("normalizeNativeColor", () => {
-  it("expands short hex and lowercases long hex", () => {
-    expect(normalizeNativeColor("#f00")).toBe("#ff0000");
-    expect(normalizeNativeColor("#FF0000")).toBe("#ff0000");
-    expect(normalizeNativeColor(" #0a0B0c ")).toBe("#0a0b0c");
+describe("native style input", () => {
+  it("requires an explicit style key and a concrete hexadecimal color", () => {
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", color: "#f00" }).success).toBe(false);
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", key: "fillColor", color: "red" }).success).toBe(false);
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", key: "fillColor", color: "#f00" }).success).toBe(true);
   });
 
-  it("maps English and Chinese color names", () => {
-    expect(normalizeNativeColor("red")).toBe("#ff0000");
-    expect(normalizeNativeColor("红色")).toBe("#ff0000");
-    expect(normalizeNativeColor("绿色")).toBe("#008000");
-  });
-
-  it("accepts a color name embedded in a phrase", () => {
-    expect(normalizeNativeColor("红色背景色")).toBe("#ff0000");
-  });
-
-  it("rejects unsupported values", () => {
-    expect(normalizeNativeColor("chartreuse")).toBeNull();
-    expect(normalizeNativeColor("rgb(255,0,0)")).toBeNull();
-    expect(normalizeNativeColor("")).toBeNull();
+  it("preserves the supplied hexadecimal value instead of rewriting it through a color-name map", () => {
+    expect(parseNativeEditOperations([{ op: "set_style", target: "db", key: "fillColor", color: "#F00" }]))
+      .toMatchObject({ ok: true, operations: [{ op: "set_style", target: "db", key: "fillColor", color: "#F00" }] });
   });
 });
 
 describe("Zod native-edit contract", () => {
   it("accepts valid operations and rejects unexpected fields at the source schema", () => {
     expect(NativeEditOperationSchema.safeParse({ op: "add_node_after", target: "db", newLabel: "Cache" }).success).toBe(true);
+    expect(NativeEditOperationSchema.safeParse({ op: "set_style", target: "db", key: "strokeColor", color: "#fff" }).success).toBe(true);
     expect(NativeEditOperationSchema.safeParse({ op: "add_node_after", target: "db", newLabel: "Cache", arbitrary: true }).success).toBe(false);
     expect(NativeEditOperationBatchSchema.safeParse([]).success).toBe(false);
   });
