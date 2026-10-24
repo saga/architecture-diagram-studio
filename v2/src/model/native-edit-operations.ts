@@ -54,6 +54,8 @@ export interface NativeBatchStepResult {
 export interface NativeEditExecution {
   ok: boolean;
   error?: string;
+  /** Original JavaScript/editor stack trace for a failed operation, bounded by the native bridge. */
+  errorStack?: string;
   /** Distinguishes a native editor rejection from a successful edit whose required save failed. */
   failureStage?: "editor" | "persistence";
   /** The local edit may be saved even if its final audit receipt could not be accepted by the server. */
