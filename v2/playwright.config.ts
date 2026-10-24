@@ -10,6 +10,7 @@ import { defineConfig } from "@playwright/test";
  */
 const API_PORT = Number(process.env.STUDIO_E2E_API_PORT || 4180);
 const WEB_PORT = Number(process.env.STUDIO_E2E_WEB_PORT || 5180);
+const DRAWIO_PORT = Number(process.env.STUDIO_E2E_DRAWIO_PORT || 5181);
 const RUN_ROOT = mkdtempSync(path.join(tmpdir(), "studio-e2e-"));
 
 export default defineConfig({
@@ -52,12 +53,14 @@ export default defineConfig({
     {
       // The selection bridge is served from the bundled Draw.io copy; refresh it before
       // Vite starts so a test never runs against a stale plugin checked into public/.
-      command: `node scripts/bundle-drawio.mjs && npx --no-install vite --host 127.0.0.1 --port ${WEB_PORT}`,
+      command: `node scripts/bundle-drawio.mjs && npx --no-install concurrently -k -p none "npx --no-install vite --host 127.0.0.1 --port ${WEB_PORT}" "npx --no-install tsx server/drawio-static-server.ts"`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,
       timeout: 120_000,
       env: {
         STUDIO_WEB_PORT: String(WEB_PORT),
+        STUDIO_DRAWIO_PORT: String(DRAWIO_PORT),
+        VITE_STUDIO_DRAWIO_PORT: String(DRAWIO_PORT),
         STUDIO_API_URL: `http://127.0.0.1:${API_PORT}`,
         STUDIO_VITE_CACHE_DIR: path.join(RUN_ROOT, "vite-cache")
       }
