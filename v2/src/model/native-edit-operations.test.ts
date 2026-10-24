@@ -38,6 +38,11 @@ describe("extractNativeEditTargets", () => {
   it("does not expose root/layer cells as editable targets", () => {
     expect(extractNativeEditTargets(XML).map((target) => target.id)).toEqual(["db"]);
   });
+
+  it("keeps an empty visible label empty instead of substituting the native cell id", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="TwsH19o86vvnPf4LDGem-1" value="" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
+    expect(extractNativeEditTargets(xml)).toEqual([{ id: "TwsH19o86vvnPf4LDGem-1", name: "", cellType: "vertex" }]);
+  });
 });
 
 describe("normalizeNativeColor", () => {
@@ -73,29 +78,20 @@ describe("Zod native-edit contract", () => {
 });
 
 describe("parseNativeEditOperations", () => {
+  it("does not describe an unnamed target by leaking its native id", () => {
+    expect(describeNativeEditOperation({ op: "select", target: "TwsH19o86vvnPf4LDGem-1", cellId: "TwsH19o86vvnPf4LDGem-1", targetLabel: "" }))
+      .toBe("Select “unnamed element”");
+  });
   it("accepts a native add-after operation with an explicit label", () => {
     const parsed = parseNativeEditOperations([{ op: "add_node_after", target: "xxx", newLabel: "bbb" }]);
     expect(parsed).toEqual({ ok: true, operations: [{ op: "add_node_after", target: "xxx", newLabel: "bbb" }] });
   });
 
-  it("uses a typed native C4 operation with the canonical type instead of an arbitrary style script", () => {
-    const parsed = parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "system" }]);
-    expect(parsed).toMatchObject({ ok: true, operations: [{ op: "set_c4_type", target: "Database", kind: "system" }] });
-    expect(describeNativeEditOperation({ op: "set_c4_type", target: "Database", targetLabel: "Database", kind: "system" }))
-      .toContain("C4 Software System style");
-    if (!parsed.ok) return;
-    const resolved = parsed.operations.map((operation) => ({
-      ...operation, cellId: "db", targetLabel: "Database"
-    })) as ResolvedNativeEditOperation[];
-    expect(toNativeCellEdits(resolved, XML, "p1")).toMatchObject({
-      ok: true,
-      edits: [{ cellId: "db", path: "cell:set-c4-type", value: JSON.stringify({ kind: "system" }) }]
-    });
-    expect(parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "swimlane" }]))
-      .toMatchObject({ ok: false, error: expect.stringContaining("kind must be") });
+  it("does not expose an in-place C4 conversion as a typed edit", () => {
+    expect(parseNativeEditOperations([{ op: "set_c4_type", target: "Database", kind: "system" }])).toMatchObject({ ok: false });
   });
 
-  it("plans bounded below-and-connect operations without native script code", () => {
+
     const parsed = parseNativeEditOperations([
       { op: "add_node_below", target: "Database", newLabel: "ddd" },
       { op: "add_node_below", target: "API Service", newLabel: "eee" }
