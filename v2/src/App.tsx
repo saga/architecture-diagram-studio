@@ -1057,7 +1057,6 @@ export default function App() {
   async function runAutoLayout(overrides: Partial<NativeAutoLayoutOptions> = {}) {
     if (autoLayoutRunning) return;
     const options: NativeAutoLayoutOptions = { ...nativeLayoutOptions, ...overrides };
-    if (options.engine === "dagre") options.algorithm = "layered";
     const algorithmLabel = options.engine === "dagre" ? "Dagre directed layout" : "ELK " + options.algorithm;
     const frame = drawioFrameRef.current;
     if (!frame) {
