@@ -28,6 +28,7 @@ describe("native edit XML confirmation", () => {
   });
 
 
+  it("confirms a mixed selection and document batch without expecting selection in XML", () => {
     const labelAndStyleEdited = before
       .replace('value="Old API"', 'value="Primary API"')
       .replace('style="rounded=0;"', 'style="rounded=0;fillColor=#ff0000;"');
