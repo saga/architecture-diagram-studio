@@ -77,8 +77,8 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   const root = document.documentElement;
   if (root.nodeName !== "mxfile") return JSON.stringify(elementSignature(root));
   const pages = elementChildren(root).filter((child) => child.nodeName === "diagram");
-  const page = pageId ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : null;
-  if (pageId) {
+  const page = pageId != null ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : null;
+  if (pageId != null) {
     if (!page) return "missing-page:" + pageId;
     const models = modelRoots(xml);
     const matchingModel = models.find((entry) => entry.pageId === pageId);
@@ -114,7 +114,7 @@ function cellsForXml(xml: string): ModelRecords[] {
 
 function findCell(models: ModelRecords[], cellId: string, pageId?: string | null): CellRecord | null {
   for (const model of models) {
-    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
     const cell = model.cells.find((item) => item.id === cellId);
     if (cell) return cell;
   }
@@ -195,7 +195,7 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
   const targetAfter = findCell(after, operation.cellId, pageId);
   if (!targetBefore || !targetAfter) return false;
   for (const model of after) {
-    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" || !labelMatches(candidate, payload.label.trim())) continue;
       const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
@@ -225,7 +225,7 @@ function hasAddedNodeBelow(before: ModelRecords[], after: ModelRecords[], operat
   const targetHeight = numericAttribute(targetAfter.geometry, "height");
   if (targetX === null || targetY === null || targetWidth === null || targetHeight === null) return false;
   for (const model of after) {
-    if (pageId && model.pageId !== null && model.pageId !== pageId) continue;
+    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" ||
           !labelMatches(candidate, expectedLabel) || !candidate.geometry) continue;
