@@ -19,7 +19,7 @@ export const DRAWIO_PORT = (() => {
   return Number.isInteger(value) && value >= 1024 && value <= 65535 ? String(value) : "4176";
 })();
 const DRAWIO_ORIGIN = "http://127.0.0.1:" + DRAWIO_PORT;
-const DRAWIO_EMBED_URL = DRAWIO_ORIGIN + "/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
+export const DRAWIO_EMBED_URL = DRAWIO_ORIGIN + "/index.html?embed=1&proto=json&configure=1&ui=min&lang=zh&format=0&libraries=1&noSaveBtn=1&noExitBtn=1";
 
 /**
  * C4 is built into the pinned Draw.io bundle as the `c4` palette. The version bump
