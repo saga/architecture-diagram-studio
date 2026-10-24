@@ -4,7 +4,7 @@ import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
-import { drawioFrameThemeCss, readDrawioModelBackground, type DrawioThemePalette } from "../model/drawio-theme";
+import { drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
@@ -98,18 +98,6 @@ interface Props {
   onEditorStatusChange?: (ready: boolean) => void;
 }
 
-/**
- * Draw.io ships its own save/exit buttons; Studio owns persistence, so they are hidden.
- * Matched by id, data-id, and label, in the languages the bundled editor can render.
- */
-const SAVE_AND_EXIT_SELECTOR = [
-  "#save", "#exit", "#saveBtn", "#exitBtn",
-  "[data-id='save']", "[data-id='exit']",
-  "[title*='Save and Exit']", "[title*='Save & Exit']",
-  "[aria-label*='Save and Exit']", "[aria-label*='Save & Exit']",
-  "[title*='保存并退出']", "[aria-label*='保存并退出']"
-].join(", ");
-
 const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, theme, onEditorStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const xmlRef = useRef(xml);
@@ -125,11 +113,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const runtimeInspectionSequenceRef = useRef(0);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
-  const themeRef = useRef(theme);
-  const themeBackgroundRef = useRef<{ restore: boolean; background: string; restoreBackground: string | null }>({
-    restore: true, background: "#ffffff", restoreBackground: null
-  });
-  themeRef.current = theme;
   onDocumentChangeRef.current = onDocumentChange;
   onSelectionChangeRef.current = onSelectionChange;
   onNativeEditResultRef.current = onNativeEditResult;
@@ -141,7 +124,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const [bridgeReady, setBridgeReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
-  const embedUiObserverRef = useRef<MutationObserver | null>(null);
 
   function finishPendingAutoLayout(xml: string) {
     const pending = pendingAutoLayoutRef.current;
@@ -317,13 +299,12 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     return () => window.clearTimeout(timeout);
   }, [available, editorReady, iframeLoaded]);
 
-  // The iframe's DOM load event is not the Draw.io embed API's ready event.
-  // Sending "load" before the editor emits "init" can leave its canvas on an endless spinner.
+  // The isolated Draw.io frame is styled through the exact-origin bridge.
   useEffect(() => {
-    const frameDocument = iframeRef.current?.contentDocument;
-    const appShell = window.parent.document.querySelector<HTMLElement>(".app-shell");
-    if (!frameDocument || !appShell) return;
-    const computed = window.parent.getComputedStyle(appShell);
+    if (!bridgeReady || !iframeRef.current?.contentWindow) return;
+    const appShell = document.querySelector<HTMLElement>(".app-shell");
+    if (!appShell) return;
+    const computed = window.getComputedStyle(appShell);
     const token = (name: string, fallback: string) => computed.getPropertyValue(name).trim() || fallback;
     const palette: DrawioThemePalette = {
       canvas: token("--theme-canvas", "#ffffff"),
@@ -335,27 +316,17 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       accent: token("--theme-accent", "#425bc7"),
       soft: token("--theme-soft", "#e8edff")
     };
-    let style = frameDocument.getElementById("studio-native-theme") as HTMLStyleElement | null;
-    if (!style && frameDocument.head) {
-      style = frameDocument.createElement("style");
-      style.id = "studio-native-theme";
-      frameDocument.head.appendChild(style);
-    }
-    if (style) style.textContent = drawioFrameThemeCss(palette);
+    const css = drawioFrameThemeCss(palette);
+    iframeRef.current.contentWindow.postMessage(JSON.stringify({
+      event: "studioPresentationThemeRequest",
+      css,
+      theme
+    }), DRAWIO_ORIGIN);
+    recordDiagnostic("drawio.presentation-theme.requested", "Sent presentation-only theme CSS over the isolated Draw.io bridge", {
+      theme, cssLength: css.length
+    });
+  }, [theme, editorReady, iframeLoaded, bridgeReady]);
 
-    // UI themes affect iframe presentation only. Never rewrite the authoritative
-    // Draw.io XML on theme changes; that creates a save/reload feedback loop.
-    const explicitBackground = readDrawioModelBackground(xml);
-    themeBackgroundRef.current = {
-      restore: theme === "editorial",
-      background: palette.canvas,
-      restoreBackground: explicitBackground
-    };
-    // Do not mutate Draw.io's graph model for a Studio UI theme. CSS above controls
-    // presentation without triggering native autosave or dirty-document prompts.
-
-    // Deliberately do not call onDocumentChange here: UI theme changes are not document edits.
-  }, [theme, editorReady, iframeLoaded, xml, bridgeReady]);
 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
@@ -751,30 +722,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     return () => window.removeEventListener("message", receive);
   }, []);
 
-  function hideSaveAndExitControls() {
-    const frameDocument = iframeRef.current?.contentDocument;
-    if (!frameDocument) return;
-    const hideControls = () => {
-      const controls = frameDocument.querySelectorAll<HTMLElement>(
-        SAVE_AND_EXIT_SELECTOR
-      );
-      controls.forEach((element) => {
-        element.style.setProperty("display", "none", "important");
-        element.setAttribute("aria-hidden", "true");
-      });
-    };
-    hideControls();
-    if (frameDocument.head && !frameDocument.getElementById("studio-hide-save-exit")) {
-      const style = frameDocument.createElement("style");
-      style.id = "studio-hide-save-exit";
-      style.textContent = SAVE_AND_EXIT_SELECTOR + " { display: none !important; }";
-      frameDocument.head.appendChild(style);
-    }
-    embedUiObserverRef.current?.disconnect();
-    embedUiObserverRef.current = new MutationObserver(hideControls);
-    embedUiObserverRef.current.observe(frameDocument.documentElement, { childList: true, subtree: true });
-  }
-
   function retryEditor(recovery = false) {
     rejectPendingAutoLayout(new Error("Draw.io editor was re-initialised before auto layout completed."));
     for (const pending of pendingSaveConfirmationsRef.current.values()) {
@@ -823,12 +770,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         onLoad={() => {
           setIframeLoaded(true);
           iframeLoadedRef.current = true;
-          hideSaveAndExitControls();
           recordDiagnostic("drawio.iframe.loaded", "The Draw.io iframe fired its browser load event; still waiting for embed init", { url: DRAWIO_EMBED_URL, frameKey });
         }}
         onError={() => {
-          embedUiObserverRef.current?.disconnect();
-          embedUiObserverRef.current = null;
           setStartupError("The browser could not load the isolated Draw.io origin. Check that the local Draw.io static server is running.");
           recordDiagnostic("drawio.iframe.load.failed", "The browser could not load the local Draw.io iframe", { url: DRAWIO_EMBED_URL }, "error");
         }}
