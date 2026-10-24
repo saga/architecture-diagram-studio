@@ -64,7 +64,7 @@ type NativeEditResult = {
   scriptResult?: unknown;
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
-type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; scriptResult?: unknown; timeoutId?: number };
+type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; scriptResult?: unknown; timeoutId?: number; captureOnFailure?: boolean };
 type PendingRuntimeInspection = {
   resolve: (inspection: DrawioRuntimeInspection) => void;
   reject: (error: Error) => void;
@@ -513,10 +513,16 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
-              const errorMessage = "Draw.io acknowledged the native edit but did not serialize XML within 30 seconds.";
+              const originalError = confirmation.deferredBatchAck?.error;
+              const errorMessage = confirmation.captureOnFailure
+                ? "The failed script's resulting XML could not be serialized within 30 seconds; the last saved XML was preserved." +
+                  (originalError ? " Original script error: " + originalError : "")
+                : "Draw.io acknowledged the native edit but did not serialize XML within 30 seconds.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
-                "Timed out waiting for a serialized XML snapshot after a native property edit",
-                { requestId, cellId: confirmation.cellId, property: confirmation.path,
+                confirmation.captureOnFailure
+                  ? "Timed out while capturing the native XML state after a failed script"
+                  : "Timed out waiting for a serialized XML snapshot after a native property edit",
+                { requestId, cellId: confirmation.cellId, property: confirmation.path, captureOnFailure: confirmation.captureOnFailure === true,
                   timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS,
                   durationMs: Date.now() - confirmation.startedAt }, "warn");
               if (confirmation.deferredBatchAck) {
@@ -548,17 +554,60 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         } else {
           const errorMessage = typeof data.error === "string" ? data.error : "Unknown property edit error";
           const errorStack = typeof data.errorStack === "string" ? data.errorStack.slice(0, 8000) : undefined;
-          onNativeEditResultRef.current?.({ requestId, success: false, cellId: typeof data.cellId === "string" ? data.cellId : null, path: typeof data.path === "string" ? data.path : null, error: errorMessage, errorStack,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> : null,
+          const failedResult: NativeEditResult = {
+            requestId, success: false,
+            cellId: typeof data.cellId === "string" ? data.cellId : null,
+            path: typeof data.path === "string" ? data.path : null,
+            error: errorMessage,
+            errorStack,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
             failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
             rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
-            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null });
+            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null
+          };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          let isFailedScriptBatch = false;
+          if (pending && pending.path === "cell:batch") {
+            try {
+              const operations = JSON.parse(pending.value) as Array<{ path?: unknown }>;
+              isFailedScriptBatch = Array.isArray(operations) && operations.some((operation) => operation?.path === "cell:execute-script");
+            } catch { /* Invalid batch payload is handled by the original editor error path. */ }
+          }
+          if (requestId !== null && pending && isFailedScriptBatch) {
+            // Capture actual XML after a failure because rollback is best-effort. The native result
+            // remains failed, but the exact resulting diagram must still flow through persistence.
+            const confirmation: PendingSaveConfirmation = { ...pending, deferredBatchAck: failedResult, captureOnFailure: true };
+            confirmation.timeoutId = window.setTimeout(() => {
+              if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
+              pendingSaveConfirmationsRef.current.delete(requestId);
+              const originalError = confirmation.deferredBatchAck?.error;
+              const timeoutError = "The failed script's resulting XML could not be serialized within 30 seconds; the last saved XML was preserved." +
+                (originalError ? " Original script error: " + originalError : "");
+              onNativeEditResultRef.current?.({
+                ...(confirmation.deferredBatchAck || failedResult),
+                success: false, error: timeoutError, failureStage: "editor",
+                auditWarning: "The partial editor state could not be captured; inspect History and reload the latest saved XML."
+              });
+              recordDiagnostic("drawio.script-failure-serialization.timeout", "Could not capture native XML after a failed script", {
+                requestId, durationMs: Date.now() - confirmation.startedAt, errorMessage: timeoutError
+              }, "error");
+            }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
+            pendingSaveConfirmationsRef.current.set(requestId, confirmation);
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), window.location.origin);
+            recordDiagnostic("drawio.script-failure-serialization.requested", "Requested the actual native XML after a failed script so partial edits can be versioned and inspected", {
+              requestId, durationMs: Date.now() - pending.startedAt, errorMessage, errorStack: errorStack ?? null,
+              rollbackConfirmed: failedResult.batchRolledBack === true
+            }, "warn");
+          } else {
+            onNativeEditResultRef.current?.(failedResult);
+          }
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage, errorStack: errorStack ?? null, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null, rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null
+            errorMessage, errorStack: errorStack ?? null, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null,
+            rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null,
+            capturedFailedScriptState: isFailedScriptBatch
           }, "error");
         }
       }
@@ -634,7 +683,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
           const deferredBatchAcks: NativeEditResult[] = [];
           for (const [requestId, pending] of pendingSaves) {
-            const reflected = nativeEditIsReflectedInXml({
+            const reflected = pending.captureOnFailure === true || nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
               path: pending.path, value: pending.value, scriptResult: pending.scriptResult
             });
@@ -646,11 +695,13 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
               continue;
             }
-            recordDiagnostic("drawio.selection.property.save_confirmed",
-              "Native Draw.io XML serialization reflects the requested edit",
+            recordDiagnostic(pending.captureOnFailure ? "drawio.script-failure.serialization.captured" : "drawio.selection.property.save_confirmed",
+              pending.captureOnFailure
+                ? "Captured actual native Draw.io XML after script failure for persistence/versioning and agent diagnosis"
+                : "Native Draw.io XML serialization reflects the requested edit",
               { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path, value: pending.value,
-                durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length,
-                xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization });
+                captureOnFailure: pending.captureOnFailure === true, durationMs: Date.now() - pending.startedAt,
+                xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization });
             if (pending.deferredBatchAck) deferredBatchAcks.push({ ...pending.deferredBatchAck, serializedXml: data.xml });
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
