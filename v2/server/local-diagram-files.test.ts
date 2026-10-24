@@ -65,6 +65,7 @@ describe("server-managed local Draw.io files", () => {
     const saved = await service.saveDiagram(opened.fileToken, opened.revision, changed);
     const history = await service.listHistory(opened.fileToken);
     expect(history.length).toBeGreaterThan(0);
+    expect(history.every((item) => typeof item.xmlLength === "number")).toBe(true);
     const restored = await service.restoreHistory(opened.fileToken, saved.revision, history[0]!.id);
     expect(restored.drawioXml).toBe(original);
     expect(await readFile(file, "utf8")).toBe(original);

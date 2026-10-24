@@ -6,6 +6,7 @@ import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
 
 const MAX_DIAGRAM_BYTES = 20 * 1024 * 1024;
 const MAX_HISTORY_ENTRIES = 100;
+const MAX_HISTORY_BYTES = 128 * 1024 * 1024;
 const OPEN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const DIAGRAM_EXTENSIONS = new Set([".drawio", ".dio", ".xml"]);
 
@@ -40,10 +41,15 @@ interface OpenFileBinding {
   lastUsedAt: number;
 }
 
-interface LocalHistoryEntry {
+interface LocalHistorySummary {
   id: string;
   createdAt: string;
   label: string;
+  xmlLength: number;
+  xmlBytes: number;
+  revision: string;
+}
+interface LocalHistoryEntry extends LocalHistorySummary {
   xml: string;
 }
 
@@ -138,53 +144,128 @@ export function createLocalDiagramFileService(options: {
     return { path: resolved.path, name: path.basename(resolved.path), xml, revision: digest(xml), size: info.size };
   }
 
-  async function readHistory(binding: OpenFileBinding): Promise<LocalHistoryEntry[]> {
-    const filePath = path.join(historyDirectory, digest(binding.path) + ".json");
-    try {
-      const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter((entry): entry is LocalHistoryEntry =>
-        !!entry && typeof entry === "object" &&
-        typeof (entry as LocalHistoryEntry).id === "string" &&
-        typeof (entry as LocalHistoryEntry).createdAt === "string" &&
-        typeof (entry as LocalHistoryEntry).label === "string" &&
-        typeof (entry as LocalHistoryEntry).xml === "string" &&
-        Buffer.byteLength((entry as LocalHistoryEntry).xml, "utf8") <= MAX_DIAGRAM_BYTES
-      ).slice(-MAX_HISTORY_ENTRIES);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
+  function historyDirectoryFor(binding: OpenFileBinding): string {
+    return path.join(historyDirectory, digest(binding.path));
+  }
+
+  function historyIndexPath(binding: OpenFileBinding): string {
+    return path.join(historyDirectoryFor(binding), "index.json");
+  }
+
+  function historyXmlPath(binding: OpenFileBinding, id: string): string {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new LocalDiagramFileError("Invalid local history snapshot ID");
+    return path.join(historyDirectoryFor(binding), id + ".xml");
+  }
+
+  function retainHistoryWithinBudget(entries: LocalHistorySummary[]): LocalHistorySummary[] {
+    const retained: LocalHistorySummary[] = [];
+    let bytes = 0;
+    for (let index = entries.length - 1; index >= 0 && retained.length < MAX_HISTORY_ENTRIES; index--) {
+      const item = entries[index]!;
+      if (!Number.isFinite(item.xmlBytes) || item.xmlBytes < 0 || item.xmlBytes > MAX_DIAGRAM_BYTES) continue;
+      if (bytes + item.xmlBytes > MAX_HISTORY_BYTES) continue;
+      retained.unshift(item);
+      bytes += item.xmlBytes;
+    }
+    return retained;
+  }
+
+  async function writeHistoryIndex(binding: OpenFileBinding, entries: LocalHistorySummary[]): Promise<void> {
+    const directory = historyDirectoryFor(binding);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const retained = retainHistoryWithinBudget(entries);
+    await atomicReplace(historyIndexPath(binding), JSON.stringify({ schemaVersion: 2, entries: retained }), 0o600);
+    const kept = new Set(retained.map((entry) => entry.id));
+    for (const entry of entries) {
+      if (!kept.has(entry.id)) await unlink(historyXmlPath(binding, entry.id)).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      });
     }
   }
 
-  async function atomicReplace(filePath: string, content: string, mode: number): Promise<void> {
-    const temporaryPath = filePath + "." + randomUUID() + ".tmp";
-    const handle = await open(temporaryPath, "wx", mode);
+  async function readHistoryIndex(binding: OpenFileBinding): Promise<LocalHistorySummary[]> {
     try {
-      await handle.writeFile(content, "utf8");
-      await handle.sync();
+      const parsed: unknown = JSON.parse(await readFile(historyIndexPath(binding), "utf8"));
+      const entries = parsed && typeof parsed === "object" && (parsed as { schemaVersion?: unknown }).schemaVersion === 2 &&
+        Array.isArray((parsed as { entries?: unknown }).entries) ? (parsed as { entries: unknown[] }).entries : [];
+      const valid: LocalHistorySummary[] = [];
+      for (const value of entries) {
+        if (!value || typeof value !== "object") continue;
+        const item = value as Partial<LocalHistorySummary>;
+        if (typeof item.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(item.id) ||
+            typeof item.createdAt !== "string" || typeof item.label !== "string" ||
+            typeof item.xmlLength !== "number" || typeof item.xmlBytes !== "number" ||
+            typeof item.revision !== "string") continue;
+        const info = await stat(historyXmlPath(binding, item.id)).catch(() => null);
+        if (!info?.isFile() || info.size !== item.xmlBytes) continue;
+        valid.push({
+          id: item.id, createdAt: item.createdAt, label: item.label,
+          xmlLength: item.xmlLength, xmlBytes: item.xmlBytes, revision: item.revision
+        });
+      }
+      const bounded = retainHistoryWithinBudget(valid);
+      if (bounded.length !== valid.length) await writeHistoryIndex(binding, bounded);
+      return bounded;
     } catch (error) {
-      await handle.close().catch(() => undefined);
-      await unlink(temporaryPath).catch(() => undefined);
-      throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    await handle.close();
-    try { await rename(temporaryPath, filePath); }
-    catch (error) { await unlink(temporaryPath).catch(() => undefined); throw error; }
+
+    // One-time migration from the previous monolithic JSON history. Normal operations only
+    // read the selected XML file and compact index, and never rewrite all historical XML.
+    const legacyPath = path.join(historyDirectory, digest(binding.path) + ".json");
+    const legacy = await readFile(legacyPath, "utf8").catch((error) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
+    if (!legacy) return [];
+    let parsedLegacy: unknown;
+    try { parsedLegacy = JSON.parse(legacy); } catch { parsedLegacy = []; }
+    const entries: LocalHistorySummary[] = [];
+    if (Array.isArray(parsedLegacy)) {
+      for (const value of parsedLegacy) {
+        if (!value || typeof value !== "object") continue;
+        const item = value as Partial<LocalHistoryEntry>;
+        if (typeof item.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(item.id) ||
+            typeof item.createdAt !== "string" || typeof item.label !== "string" ||
+            typeof item.xml !== "string" || Buffer.byteLength(item.xml, "utf8") > MAX_DIAGRAM_BYTES ||
+            !validateDrawioXmlDocument(item.xml).success) continue;
+        const xmlBytes = Buffer.byteLength(item.xml, "utf8");
+        await atomicReplace(historyXmlPath(binding, item.id), item.xml, 0o600);
+        entries.push({
+          id: item.id, createdAt: item.createdAt, label: item.label,
+          xmlLength: item.xml.length, xmlBytes, revision: digest(item.xml)
+        });
+      }
+    }
+    await writeHistoryIndex(binding, entries);
+    await unlink(legacyPath).catch(() => undefined);
+    return retainHistoryWithinBudget(entries);
   }
 
-  async function writeHistory(binding: OpenFileBinding, entries: LocalHistoryEntry[]): Promise<void> {
-    await mkdir(historyDirectory, { recursive: true, mode: 0o700 });
-    await atomicReplace(path.join(historyDirectory, digest(binding.path) + ".json"), JSON.stringify(entries.slice(-MAX_HISTORY_ENTRIES)), 0o600);
+  async function loadHistoryEntry(binding: OpenFileBinding, id: string): Promise<LocalHistoryEntry> {
+    const summary = (await readHistoryIndex(binding)).find((item) => item.id === id);
+    if (!summary) throw new LocalDiagramFileError("The requested local history snapshot was not found", 404);
+    const xml = await readFile(historyXmlPath(binding, id), "utf8").catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new LocalDiagramFileError("The local history snapshot file is missing", 410);
+      throw error;
+    });
+    if (xml.length !== summary.xmlLength || Buffer.byteLength(xml, "utf8") !== summary.xmlBytes ||
+        digest(xml) !== summary.revision || !validateDrawioXmlDocument(xml).success) {
+      throw new LocalDiagramFileError("The local history snapshot failed integrity validation", 409);
+    }
+    return { ...summary, xml };
   }
 
   async function snapshot(binding: OpenFileBinding, xml: string, label: string): Promise<void> {
     if (!xml || !validateDrawioXmlDocument(xml).success) return;
-    const entries = await readHistory(binding);
-    if (entries.at(-1)?.xml !== xml) {
-      entries.push({ id: randomUUID(), createdAt: new Date().toISOString(), label: label.slice(0, 200), xml });
-      await writeHistory(binding, entries);
-    }
+    const existing = await readHistoryIndex(binding);
+    if (existing.at(-1)?.revision === digest(xml)) return;
+    const id = randomUUID();
+    const summary: LocalHistorySummary = {
+      id, createdAt: new Date().toISOString(), label: label.slice(0, 200),
+      xmlLength: xml.length, xmlBytes: Buffer.byteLength(xml, "utf8"), revision: digest(xml)
+    };
+    await mkdir(historyDirectoryFor(binding), { recursive: true, mode: 0o700 });
+    await atomicReplace(historyXmlPath(binding, id), xml, 0o600);
+    await writeHistoryIndex(binding, [...existing, summary]);
   }
 
   function getBinding(token: string): OpenFileBinding {
@@ -297,32 +378,30 @@ export function createLocalDiagramFileService(options: {
       const binding = getBinding(token);
       const current = await verifyUnchangedOnDisk(binding, baseRevision);
       await snapshot(binding, current.xml, label);
-      return { snapshotCount: (await readHistory(binding)).length };
+      return { snapshotCount: (await readHistoryIndex(binding)).length };
     },
 
     async listHistory(token: string) {
       const binding = getBinding(token);
-      return (await readHistory(binding)).map(({ xml, ...summary }) => ({ ...summary, xmlLength: xml.length }));
+      return (await readHistoryIndex(binding)).map(({ revision, xmlBytes, ...summary }) => summary);
     },
 
     async readHistoryEntry(token: string, versionId: string) {
       const binding = getBinding(token);
-      const entry = (await readHistory(binding)).find((item) => item.id === versionId);
-      if (!entry) throw new LocalDiagramFileError("The requested local history snapshot was not found", 404);
-      return entry;
+      return loadHistoryEntry(binding, versionId);
     },
 
     async restoreHistory(token: string, baseRevision: string, versionId: string) {
       const binding = getBinding(token);
       const current = await verifyUnchangedOnDisk(binding, baseRevision);
-      const target = (await readHistory(binding)).find((entry) => entry.id === versionId);
-      if (!target) throw new LocalDiagramFileError("The requested local history snapshot was not found", 404);
+      const target = await loadHistoryEntry(binding, versionId);
       validateXml(target.xml);
       if (current.xml !== target.xml) {
         await snapshot(binding, current.xml, "Before restore: " + target.label);
         await atomicReplace(binding.path, target.xml, current.mode || 0o600);
       }
       binding.revision = digest(target.xml);
+      binding.lastUsedAt = Date.now();
       return { path: binding.path, name: binding.name, revision: binding.revision, drawioXml: target.xml };
     }
   };
