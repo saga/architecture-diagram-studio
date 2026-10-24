@@ -1,6 +1,6 @@
 import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { nativeEditIsReflectedInXml } from "./native-edit-confirmation";
+import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "./native-edit-confirmation";
 
 const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -182,6 +182,22 @@ describe("native edit XML confirmation", () => {
     expect(disconnected).toBe(false);
     const wrongDirection = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace('source="db" target="ddd"', 'source="ddd" target="db"') });
     expect(wrongDirection).toBe(false);
+  });
+
+  it("summarizes native Draw.io cell changes and page changes for execution traces", () => {
+    const after = before
+      .replace('id="p1" name="Overview"', 'id="p1" name="Architecture"')
+      .replace('value="Old API"', 'value="Primary API"')
+      .replace("</root>", '<mxCell id="api-db" edge="1" parent="1" source="api" target="db"><mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const diff = summarizeNativeDiagramXmlDiff(before, after);
+    expect(diff.available).toBe(true);
+    expect(diff.changed).toBe(true);
+    expect(diff.pagesRenamed).toEqual([{ id: "p1", before: "Overview", after: "Architecture" }]);
+    expect(diff.pagesChanged).toContain("p1");
+    expect(diff.cellsAdded).toContainEqual(expect.objectContaining({ id: "api-db", kind: "edge", sourceId: "api", targetId: "db" }));
+    expect(diff.cellsChanged).toContainEqual(expect.objectContaining({
+      id: "api", labelBefore: "Old API", labelAfter: "Primary API", changedFields: expect.arrayContaining(["label"])
+    }));
   });
 
 });
