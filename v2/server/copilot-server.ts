@@ -1159,6 +1159,16 @@ app.put("/api/workspace/document", async (req, res) => {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           }
         }
+        // The optimistic revision above validates the in-memory state. Also validate the actual
+        // source file so a change made by an external editor cannot be overwritten by stale state.
+        if (primaryDiagramExisted && activeStateMatches && typeof state.drawioXml === "string" &&
+            previousPrimaryDiagramXml !== state.drawioXml) {
+          return {
+            status: 409 as const,
+            error: "The workspace primary Draw.io file changed outside Studio. Reload it before saving to avoid overwriting external edits.",
+            workspaceRevision: currentRevision
+          };
+        }
 
         const steps = [
           {
