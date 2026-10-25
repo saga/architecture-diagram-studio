@@ -232,8 +232,8 @@ test.describe("原生画布", () => {
     const startY = box!.y + box!.height / 2;
     await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(startX + 40, startY + 16, { steps: 8 });
-    await page.mouse.move(startX + 140, startY + 56, { steps: 12 });
+    // Use the same direct drag trajectory as the neighboring reload-after-drag test.
+    await page.mouse.move(startX + 120, startY + 40, { steps: 14 });
     await page.mouse.up();
 
     await expect
