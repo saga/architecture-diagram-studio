@@ -89,10 +89,10 @@
       if (/(database|cylinder|datastore|data[-_]?store|rds|dynamodb|sql)/.test(shape)) return "database";
       if (/(actor|person|user|human)/.test(shape)) return "user";
       if (/(external|cloud|internet|outside)/.test(shape)) return "external";
-      if (/(server|service|container|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
       var children = 0;
       try { children = activeModel && activeModel.getChildCount ? activeModel.getChildCount(cell) : (cell.children || []).length; } catch (_) {}
-      if (children > 0 || /(swimlane|partialrectangle|boundary|group)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
+      if (children > 0 || /(swimlane|partialrectangle|boundary|group|c4\\.container)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
+      if (/(server|service|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
       return "node";
     }
     function rewriteStyleForCell(styleText, category, targetStyle) {
@@ -211,6 +211,8 @@
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
       var changed = 0;
+      var previousStyle = activeDiagramStyle;
+      var previousStyleEnabled = activeDiagramStyleEnabled;
       activeDiagramStyle = targetStyle;
       activeDiagramStyleEnabled = true;
       installStyleAwareGraphOperations(activeGraph);
@@ -236,6 +238,8 @@
         for (var i = originals.length - 1; i >= 0; i--) {
           try { activeModel.setStyle(originals[i].cell, originals[i].style || null); } catch (_) {}
         }
+        activeDiagramStyle = previousStyle;
+        activeDiagramStyleEnabled = previousStyleEnabled;
         throw error;
       } finally {
         activeModel.endUpdate();
