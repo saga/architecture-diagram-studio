@@ -233,7 +233,7 @@ describe("additional native layout engines", () => {
     ["cytoscape", "breadthfirst"], ["cytoscape", "circle"], ["cytoscape", "concentric"],
     ["cytoscape", "grid"], ["cytoscape", "random"], ["cytoscape", "cose"],
     ["d3", "tree"], ["d3", "cluster"], ["d3", "force"],
-    ["elk", "random"]
+    ["elk", "random"], ["elk", "disco"], ["elk", "sporeCompaction"], ["elk", "sporeOverlap"]
   ] as const)("calculates native geometry with %s / %s", async (engine, algorithm) => {
     const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
@@ -266,6 +266,9 @@ describe("additional native layout engines", () => {
 
   it("exposes algorithm choices only for their matching engines", () => {
     expect(nativeLayoutAlgorithmsForEngine("dagre").map((item) => item.value)).toEqual(["layered"]);
+    expect(nativeLayoutAlgorithmsForEngine("elk").map((item) => item.value)).toEqual([
+      "layered", "mrtree", "radial", "stress", "force", "disco", "box", "rectpacking", "random", "sporeCompaction", "sporeOverlap"
+    ]);
     expect(nativeLayoutAlgorithmsForEngine("graphviz").map((item) => item.value)).toContain("sfdp");
     expect(nativeLayoutAlgorithmsForEngine("msagl").map((item) => item.value)).toContain("mds");
     expect(nativeLayoutAlgorithmsForEngine("cytoscape").map((item) => item.value)).toContain("cose");
