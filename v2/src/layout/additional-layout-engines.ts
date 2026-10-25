@@ -199,7 +199,6 @@ async function runMsagl(
     if (input) new msagl.GeomEdge(input);
   }
 
-  let runLayout = true;
   if (options.algorithm === "layered") {
     const settings = new msagl.SugiyamaLayoutSettings();
     const directionMap = {
@@ -217,12 +216,14 @@ async function runMsagl(
     settings.IterationsWithMajorization = Math.min(options.iterations, 100);
     geomGraph.layoutSettings = settings;
   } else {
-    // Use MSAGL's actual IPSepCola implementation, not the generic incremental layout.
-    const settings = new msagl.IPsepColaSetting();
-    new msagl.IPsepCola(geomGraph, settings, 2).run();
-    runLayout = false;
+    // MSAGL's public core API exports IPsepColaSetting under the stable alias
+    // FastIncrementalLayoutSettings; layoutGeomGraph dispatches to the IPSepCola runner.
+    const settings = new msagl.FastIncrementalLayoutSettings();
+    settings.MaxIterations = options.iterations;
+    settings.NodeSeparation = options.nodeSpacing;
+    geomGraph.layoutSettings = settings;
   }
-  if (runLayout) msagl.layoutGeomGraph(geomGraph);
+  msagl.layoutGeomGraph(geomGraph);
 
   const positions = new Map<string, LayoutPoint>();
   for (const vertex of vertices) {
