@@ -1560,7 +1560,7 @@ export default function App() {
             <label className="native-layout-settings-field">
               <span>Iterations</span>
               <InputNumber aria-label="ELK iterations" min={20} max={3000} step={20}
-                disabled={!((nativeLayoutOptions.engine === "elk" && (nativeLayoutOptions.algorithm === "stress" || nativeLayoutOptions.algorithm === "force")) || (nativeLayoutOptions.engine === "d3" && nativeLayoutOptions.algorithm === "force") || (nativeLayoutOptions.engine === "cytoscape" && nativeLayoutOptions.algorithm === "cose") || (nativeLayoutOptions.engine === "msagl" && nativeLayoutOptions.algorithm === "mds"))}
+                disabled={!((nativeLayoutOptions.engine === "elk" && (nativeLayoutOptions.algorithm === "stress" || nativeLayoutOptions.algorithm === "force")) || (nativeLayoutOptions.engine === "d3" && nativeLayoutOptions.algorithm === "force") || (nativeLayoutOptions.engine === "cytoscape" && (nativeLayoutOptions.algorithm === "cose" || nativeLayoutOptions.algorithm === "fcose")) || (nativeLayoutOptions.engine === "msagl" && (nativeLayoutOptions.algorithm === "mds" || nativeLayoutOptions.algorithm === "ipsepcola")))}
                 value={nativeLayoutOptions.iterations}
                 onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, iterations: value })); }}
                 style={{ width: "100%" }} />
