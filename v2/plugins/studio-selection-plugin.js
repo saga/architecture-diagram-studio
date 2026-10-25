@@ -129,7 +129,7 @@
         Object.keys(style.categories[category]).forEach(function (property) {
           var value = style.categories[category][property];
           if (allowed.indexOf(property) < 0 || typeof value !== "string" || !value.trim() || value.length > 120 ||
-              /[;<>\u0000-\u001f]/.test(value) || /url\s*\\(|javascript:/i.test(value)) {
+              /[;<>\u0000-\u001f]/.test(value) || /url\s*\(|javascript:/i.test(value)) {
             throw new Error("Invalid diagram style value for " + property);
           }
         });
