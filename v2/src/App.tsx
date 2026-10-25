@@ -1861,15 +1861,17 @@ export default function App() {
             onEditorStatusChange={setNativeEditorReady}
             onDocumentChange={async (nativeXml) => {
               const changeSequence = ++nativeXmlChangeSequenceRef.current;
+              // Capture the pending operation before hashing: the style request may resolve and
+              // clear its ref before WebCrypto finishes this callback.
+              const pendingStyleAtChange = pendingDiagramStyleRef.current;
               try {
                 const xmlRevision = await calculateDrawioXmlRevision(nativeXml);
                 // Draw.io may emit multiple XML snapshots close together during Undo/Redo.
                 // Hashing is asynchronous, so an earlier callback must not overwrite a newer one.
                 if (changeSequence !== nativeXmlChangeSequenceRef.current) return;
-                const pendingStyle = pendingDiagramStyleRef.current;
                 let styleId = selectedDiagramStyleIdRef.current;
-                if (pendingStyle && xmlRevision !== pendingStyle.sourceRevision) {
-                  styleId = pendingStyle.id;
+                if (pendingStyleAtChange && xmlRevision !== pendingStyleAtChange.sourceRevision) {
+                  styleId = pendingStyleAtChange.id;
                 } else {
                   const mapped = styleRevisionMapRef.current[xmlRevision];
                   const known = mapped === ORIGINAL_DRAWIO_STYLE_ID || diagramStyleLibraryRef.current.styles.some((style) => style.id === mapped);
