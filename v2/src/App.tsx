@@ -15,6 +15,11 @@ import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWor
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 import { calculateNativeAutoLayout } from "./layout/native-layout";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
+import { DEFAULT_DRAWIO_STYLE_LIBRARY } from "./model/drawio-style-presets";
+import {
+  DRAWIO_STYLE_LIBRARY_SCHEMA_VERSION, ORIGINAL_DRAWIO_STYLE_ID, parseDrawioStyleImport,
+  serializeDrawioStyleExport, validateDrawioDiagramStyle, type DrawioDiagramStyle, type DrawioStyleLibrary
+} from "./model/drawio-style-library";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type VersionSummary = { id: string; createdAt: string; label: string };
@@ -76,6 +81,44 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
 }
 /** Ant Design primary colour per theme, so library-rendered controls match the studio palette. */
 const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
+
+const DRAWIO_STYLE_LIBRARY_STORAGE_KEY = "architecture-diagram-studio:v2:drawio-style-library";
+const DRAWIO_STYLE_REVISION_STORAGE_KEY = "architecture-diagram-studio:v2:drawio-style-revisions";
+type DrawioStyleRevisionMap = Record<string, string>;
+
+function loadSavedDrawioStyleLibrary(): DrawioStyleLibrary {
+  try {
+    const raw = window.localStorage.getItem(DRAWIO_STYLE_LIBRARY_STORAGE_KEY);
+    if (!raw) return DEFAULT_DRAWIO_STYLE_LIBRARY;
+    const candidate = JSON.parse(raw) as Record<string, unknown>;
+    if (candidate.schemaVersion !== DRAWIO_STYLE_LIBRARY_SCHEMA_VERSION || !Array.isArray(candidate.styles)) {
+      return DEFAULT_DRAWIO_STYLE_LIBRARY;
+    }
+    const styles = candidate.styles.map(validateDrawioDiagramStyle);
+    if (new Set(styles.map((style) => style.id)).size !== styles.length) return DEFAULT_DRAWIO_STYLE_LIBRARY;
+    return { schemaVersion: DRAWIO_STYLE_LIBRARY_SCHEMA_VERSION, styles };
+  } catch { return DEFAULT_DRAWIO_STYLE_LIBRARY; }
+}
+
+function loadSavedDrawioStyleRevisionMap(): DrawioStyleRevisionMap {
+  try {
+    const raw = window.localStorage.getItem(DRAWIO_STYLE_REVISION_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed as Record<string, unknown>).filter(([revision, styleId]) =>
+      /^[a-f0-9]{32,128}$/i.test(revision) && typeof styleId === "string" &&
+      (styleId === ORIGINAL_DRAWIO_STYLE_ID || /^[a-z][a-z0-9-]{1,63}$/.test(styleId))
+    ).slice(-2500)) as DrawioStyleRevisionMap;
+  } catch { return {}; }
+}
+
+function persistDrawioStyleRevisionMap(map: DrawioStyleRevisionMap): void {
+  try {
+    const entries = Object.entries(map).slice(-2500);
+    window.localStorage.setItem(DRAWIO_STYLE_REVISION_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch { /* Style history is a convenience; the native XML remains authoritative. */ }
+}
 function loadSavedTheme(): UiTheme {
   try {
     const storageKey = "architecture-diagram-studio:v2:ui-theme";
@@ -143,7 +186,18 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
-  const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
+  // The application chrome theme is independent from document style selection.
+  const [uiTheme] = useState<UiTheme>(() => loadSavedTheme());
+  const [diagramStyleLibrary, setDiagramStyleLibrary] = useState<DrawioStyleLibrary>(() => loadSavedDrawioStyleLibrary());
+  const [selectedDiagramStyleId, setSelectedDiagramStyleId] = useState<string>(ORIGINAL_DRAWIO_STYLE_ID);
+  const [diagramStyleBusy, setDiagramStyleBusy] = useState(false);
+  const diagramStyleImportInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedDiagramStyleIdRef = useRef(selectedDiagramStyleId);
+  selectedDiagramStyleIdRef.current = selectedDiagramStyleId;
+  const diagramStyleLibraryRef = useRef(diagramStyleLibrary);
+  diagramStyleLibraryRef.current = diagramStyleLibrary;
+  const styleRevisionMapRef = useRef<DrawioStyleRevisionMap>(loadSavedDrawioStyleRevisionMap());
+  const pendingDiagramStyleRef = useRef<{ id: string; sourceRevision: string } | null>(null);
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [activePage, setActivePage] = useState<WorkspacePage>("diagram");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
@@ -502,14 +556,133 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme", uiTheme);
-      window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme-version", "2");
-    } catch {
-      // The selected theme remains active in memory for this session.
+    try { window.localStorage.setItem(DRAWIO_STYLE_LIBRARY_STORAGE_KEY, JSON.stringify(diagramStyleLibrary)); }
+    catch { recordDiagnostic("drawio.style-library.persist.failed", "Could not persist the diagram style library in browser storage", {}, "warn"); }
+  }, [diagramStyleLibrary]);
+
+  useEffect(() => {
+    let active = true;
+    void calculateDrawioXmlRevision(drawioXml).then((xmlRevision) => {
+      if (!active) return;
+      const savedStyleId = styleRevisionMapRef.current[xmlRevision];
+      const known = savedStyleId === ORIGINAL_DRAWIO_STYLE_ID ||
+        diagramStyleLibrary.styles.some((style) => style.id === savedStyleId);
+      setSelectedDiagramStyleId(known && savedStyleId ? savedStyleId : ORIGINAL_DRAWIO_STYLE_ID);
+    }).catch((error: unknown) => {
+      if (active) recordDiagnostic("drawio.style-revision.read.failed", "Could not resolve the style associated with this native XML revision", {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }, "warn");
+    });
+    return () => { active = false; };
+  }, [drawioXml, diagramStyleLibrary]);
+
+  useEffect(() => {
+    if (!nativeEditorReady || !drawioFrameRef.current) return;
+    const style = selectedDiagramStyleId === ORIGINAL_DRAWIO_STYLE_ID
+      ? null
+      : diagramStyleLibrary.styles.find((candidate) => candidate.id === selectedDiagramStyleId) ?? null;
+    if (selectedDiagramStyleId !== ORIGINAL_DRAWIO_STYLE_ID && !style) return;
+    void drawioFrameRef.current.setActiveDiagramStyle(style).catch((error: unknown) => {
+      recordDiagnostic("drawio.style.activation.failed", "Could not activate the selected document style for newly created cells", {
+        styleId: selectedDiagramStyleId, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "warn");
+    });
+  }, [nativeEditorReady, selectedDiagramStyleId, diagramStyleLibrary]);
+
+  async function applySelectedDiagramStyle(styleId: string): Promise<void> {
+    if (styleId !== ORIGINAL_DRAWIO_STYLE_ID && !diagramStyleLibraryRef.current.styles.some((style) => style.id === styleId)) {
+      setLastAction("The selected diagram style no longer exists.");
+      return;
     }
-    recordDiagnostic("ui.theme.changed", "Updated the interface colour theme", { theme: uiTheme });
-  }, [uiTheme]);
+    if (!drawioFrameRef.current) return;
+    setDiagramStyleBusy(true);
+    try {
+      const targetStyle = styleId === ORIGINAL_DRAWIO_STYLE_ID
+        ? null
+        : diagramStyleLibraryRef.current.styles.find((style) => style.id === styleId) ?? null;
+      const sourceRevision = await calculateDrawioXmlRevision(drawioXml);
+      pendingDiagramStyleRef.current = { id: styleId, sourceRevision };
+      const transformedXml = await drawioFrameRef.current.applyDiagramStyle(targetStyle);
+      const transformedRevision = await calculateDrawioXmlRevision(transformedXml);
+      styleRevisionMapRef.current[transformedRevision] = styleId;
+      persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
+      setSelectedDiagramStyleId(styleId);
+      setLastAction("Applied Draw.io document style: " + (targetStyle?.name ?? "Original"));
+      recordDiagnostic("drawio.style.apply.completed", "Applied a document style through the native Draw.io model and received serialized XML", {
+        styleId, sourceRevision, transformedRevision, xmlLength: transformedXml.length
+      });
+    } catch (error) {
+      setLastAction("Could not apply the Draw.io style: " + (error instanceof Error ? error.message : String(error)));
+      recordDiagnostic("drawio.style.apply.failed", "The native Draw.io style operation failed", {
+        styleId, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "error");
+    } finally {
+      pendingDiagramStyleRef.current = null;
+      setDiagramStyleBusy(false);
+    }
+  }
+
+  function exportSelectedDiagramStyle(): void {
+    const style = diagramStyleLibraryRef.current.styles.find((candidate) => candidate.id === selectedDiagramStyleIdRef.current);
+    if (!style) return;
+    const blob = new Blob([serializeDrawioStyleExport(style)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = style.id + ".drawio-style.json";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setLastAction("Exported diagram style: " + style.name);
+  }
+
+  async function importDiagramStyleFile(file: File): Promise<void> {
+    try {
+      if (file.size > 256 * 1024) throw new Error("Style JSON must be 256 KiB or smaller.");
+      const style = parseDrawioStyleImport(await file.text());
+      const existing = diagramStyleLibraryRef.current.styles.find((candidate) => candidate.id === style.id);
+      if (existing && !window.confirm("A style with id '" + style.id + "' already exists. Replace its configuration?")) return;
+      setDiagramStyleLibrary((current) => ({
+        schemaVersion: DRAWIO_STYLE_LIBRARY_SCHEMA_VERSION,
+        styles: [...current.styles.filter((candidate) => candidate.id !== style.id), style]
+      }));
+      setLastAction((existing ? "Replaced" : "Imported") + " diagram style: " + style.name);
+      recordDiagnostic("drawio.style.import.completed", "Imported one validated diagram-style definition", {
+        styleId: style.id, styleName: style.name, replacedExisting: Boolean(existing)
+      });
+    } catch (error) {
+      window.alert("Could not import Draw.io style: " + (error instanceof Error ? error.message : String(error)));
+      recordDiagnostic("drawio.style.import.failed", "A diagram style could not be imported", {
+        fileName: file.name, errorMessage: error instanceof Error ? error.message : String(error)
+      }, "warn");
+    }
+  }
+
+  async function deleteSelectedDiagramStyle(): Promise<void> {
+    const styleId = selectedDiagramStyleIdRef.current;
+    const style = diagramStyleLibraryRef.current.styles.find((candidate) => candidate.id === styleId);
+    if (!style) return;
+    if (!window.confirm("Delete style '" + style.name + "' from the style library? Existing diagram cells will keep their current XML styles.")) return;
+    try {
+      if (styleId === selectedDiagramStyleIdRef.current) {
+        await drawioFrameRef.current?.setActiveDiagramStyle(null);
+        setSelectedDiagramStyleId(ORIGINAL_DRAWIO_STYLE_ID);
+        const currentRevision = await calculateDrawioXmlRevision(drawioXml);
+        styleRevisionMapRef.current[currentRevision] = ORIGINAL_DRAWIO_STYLE_ID;
+        persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
+      }
+      setDiagramStyleLibrary((current) => ({
+        schemaVersion: DRAWIO_STYLE_LIBRARY_SCHEMA_VERSION,
+        styles: current.styles.filter((candidate) => candidate.id !== styleId)
+      }));
+      setLastAction("Deleted diagram style: " + style.name);
+      recordDiagnostic("drawio.style.delete.completed", "Deleted a style definition without rewriting already-styled diagram XML", { styleId });
+    } catch (error) {
+      setLastAction("Could not delete the style: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
 
   const { sendIntent, confirmProposal } = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
@@ -1310,19 +1483,29 @@ export default function App() {
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
-        <label className="theme-selector" title="Switch the color theme of the whole workspace">
-          <span aria-hidden="true">◐</span>
-          <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
-            const nextTheme = event.target.value as UiTheme;
-            setUiTheme(nextTheme);
-            // Theme selection changes the editor chrome only; native cell styles stay untouched.
-          }}>
-            <option value="editorial">Editorial</option>
-            <option value="youth">Vivid</option>
-            <option value="warm">Warm paper</option>
-            <option value="midnight">Midnight</option>
-          </UiSelect>
-        </label>
+        <div className="diagram-style-controls" aria-label="Draw.io document styles">
+          <label className="theme-selector" title="Apply a visual style to the native Draw.io document">
+            <span aria-hidden="true">◐</span>
+            <UiSelect value={selectedDiagramStyleId} aria-label="Draw.io document style" popupMatchSelectWidth={false}
+              disabled={!nativeEditorReady || diagramStyleBusy}
+              onChange={(event) => { void applySelectedDiagramStyle(String(event.target.value)); }}>
+              <option value={ORIGINAL_DRAWIO_STYLE_ID}>Original</option>
+              {diagramStyleLibrary.styles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}
+            </UiSelect>
+          </label>
+          <UiButton type="button" className="button button-secondary diagram-style-action" disabled={diagramStyleBusy || selectedDiagramStyleId === ORIGINAL_DRAWIO_STYLE_ID}
+            title="Export the selected style definition as JSON" onClick={exportSelectedDiagramStyle}>Export style</UiButton>
+          <UiButton type="button" className="button button-secondary diagram-style-action" disabled={diagramStyleBusy}
+            title="Import one style definition from a JSON file" onClick={() => diagramStyleImportInputRef.current?.click()}>Import style</UiButton>
+          <UiButton type="button" className="button button-secondary diagram-style-action" disabled={diagramStyleBusy || selectedDiagramStyleId === ORIGINAL_DRAWIO_STYLE_ID}
+            title="Delete the selected style definition; already styled cells remain unchanged" onClick={() => void deleteSelectedDiagramStyle()}>Delete style</UiButton>
+          <input ref={diagramStyleImportInputRef} type="file" accept=".json,application/json" hidden
+            aria-label="Import Draw.io style JSON" onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void importDiagramStyleFile(file);
+            }} />
+        </div>
         <UiButton type="button" className="button button-secondary" onClick={() => void openLocalFileDialog("open")}>Open Draw.io</UiButton>
         <UiButton type="button" className="button button-secondary" onClick={() => {
           setWorkspaceLaunchMode("create"); setWorkspaceError("");
@@ -1669,7 +1852,30 @@ export default function App() {
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
-            onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
+            onDocumentChange={async (nativeXml) => {
+              try {
+                const xmlRevision = await calculateDrawioXmlRevision(nativeXml);
+                const pendingStyle = pendingDiagramStyleRef.current;
+                let styleId = selectedDiagramStyleIdRef.current;
+                if (pendingStyle && xmlRevision !== pendingStyle.sourceRevision) {
+                  styleId = pendingStyle.id;
+                } else {
+                  const mapped = styleRevisionMapRef.current[xmlRevision];
+                  const known = mapped === ORIGINAL_DRAWIO_STYLE_ID || diagramStyleLibraryRef.current.styles.some((style) => style.id === mapped);
+                  if (known && mapped) styleId = mapped;
+                }
+                styleRevisionMapRef.current[xmlRevision] = styleId;
+                persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
+                setSelectedDiagramStyleId(styleId);
+              } catch (error) {
+                recordDiagnostic("drawio.style-revision.write.failed", "Could not map serialized XML to a diagram style for Undo/Redo restoration", {
+                  errorMessage: error instanceof Error ? error.message : String(error)
+                }, "warn");
+              }
+              setNativeXmlOverride(nativeXml);
+              setRevision((value) => value + 1);
+              setLastAction("Synced native Draw.io changes");
+            }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Local Draw.io bundle on a dedicated sandboxed origin; CSP blocks network connections">Sandboxed Draw.io {DRAWIO_VERSION}</span>
