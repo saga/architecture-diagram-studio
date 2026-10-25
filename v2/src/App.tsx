@@ -601,6 +601,10 @@ export default function App() {
         ? null
         : diagramStyleLibraryRef.current.styles.find((style) => style.id === styleId) ?? null;
       const sourceRevision = await calculateDrawioXmlRevision(drawioXml);
+      // Preserve the pre-transform style association so native Undo resolves the selector
+      // even when this source revision was loaded before the metadata map was initialized.
+      styleRevisionMapRef.current[sourceRevision] = selectedDiagramStyleIdRef.current;
+      persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
       pendingDiagramStyleRef.current = { id: styleId, sourceRevision };
       const transformedXml = await drawioFrameRef.current.applyDiagramStyle(targetStyle);
       const transformedRevision = await calculateDrawioXmlRevision(transformedXml);
