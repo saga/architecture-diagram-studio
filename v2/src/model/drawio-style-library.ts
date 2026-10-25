@@ -19,12 +19,23 @@ export const DRAWIO_MANAGED_STYLE_PROPERTIES = [
 ] as const;
 
 export type DrawioStyleProperties = Partial<Record<typeof DRAWIO_MANAGED_STYLE_PROPERTIES[number], string>>;
+export type DrawioSemanticCategory = "service" | "database" | "user" | "external" | "container";
+export type DrawioStyleMatchRules = Partial<Record<DrawioSemanticCategory, string[]>>;
+
+export const DEFAULT_DRAWIO_STYLE_MATCH_RULES: DrawioStyleMatchRules = {
+  database: ["database", "cylinder", "datastore", "data-store", "rds", "dynamodb", "sql"],
+  user: ["actor", "person", "user", "human"],
+  external: ["external", "cloud", "internet", "outside"],
+  container: ["swimlane", "partialrectangle", "boundary", "group", "c4.container"],
+  service: ["server", "service", "microservice", "compute", "lambda", "ec2", "ecs", "application"]
+};
 
 export interface DrawioDiagramStyle {
   id: string;
   name: string;
   description?: string;
   version: 1;
+  matchRules?: DrawioStyleMatchRules;
   categories: Partial<Record<DrawioStyleCategory, DrawioStyleProperties>>;
 }
 
@@ -54,6 +65,22 @@ export function validateDrawioDiagramStyle(input: unknown): DrawioDiagramStyle {
   if (!candidate.categories || typeof candidate.categories !== "object" || Array.isArray(candidate.categories)) {
     throw new Error("Style categories must be an object.");
   }
+  const rawRules = candidate.matchRules;
+  const matchRules: DrawioStyleMatchRules = {};
+  if (rawRules !== undefined) {
+    if (!rawRules || typeof rawRules !== "object" || Array.isArray(rawRules)) throw new Error("Style matchRules must be an object.");
+    for (const [category, rawTokens] of Object.entries(rawRules as Record<string, unknown>)) {
+      if (!["service", "database", "user", "external", "container"].includes(category)) {
+        throw new Error("Unsupported style matching category: " + category);
+      }
+      if (!Array.isArray(rawTokens) || rawTokens.length > 40 ||
+          rawTokens.some((token) => typeof token !== "string" || !token.trim() || token.length > 80 ||
+            /[;<>\\u0000-\\u001f]/.test(token))) {
+        throw new Error("Match rules for '" + category + "' must be a list of safe shape-name tokens.");
+      }
+      matchRules[category as DrawioSemanticCategory] = rawTokens.map((token) => String(token).toLowerCase().trim());
+    }
+  }
   const rawCategories = candidate.categories as Record<string, unknown>;
   const categories: DrawioDiagramStyle["categories"] = {};
   for (const [category, rawProperties] of Object.entries(rawCategories)) {
@@ -80,6 +107,7 @@ export function validateDrawioDiagramStyle(input: unknown): DrawioDiagramStyle {
     name: candidate.name.trim(),
     ...(typeof candidate.description === "string" && candidate.description.trim() ? { description: candidate.description.trim() } : {}),
     version: 1,
+    ...(Object.keys(matchRules).length ? { matchRules } : {}),
     categories
   };
 }
@@ -106,25 +134,25 @@ export function serializeDrawioStyleExport(style: DrawioDiagramStyle): string {
 }
 
 /** Classify only from native cell kind and native style/shape identifiers, never from labels or IDs. */
-export function classifyDrawioStyleCell(input: {
-  edge: boolean;
-  vertex: boolean;
-  style: string;
-  hasChildren?: boolean;
-}): DrawioStyleCategory | null {
+export function classifyDrawioStyleCell(
+  input: { edge: boolean; vertex: boolean; style: string; hasChildren?: boolean },
+  style?: DrawioDiagramStyle | null
+): DrawioStyleCategory | null {
   if (input.edge) {
-    if (/(?:^|;)dashPattern=(?:1\s+\d+|[1-4](?:\s|;))/.test(input.style) || /dashed=1/.test(input.style) && /dashPattern=1(?:\s|;)/.test(input.style)) return "edgeDotted";
-    if (/(?:^|;)dashed=1(?:;|$)/.test(input.style) || /dashPattern=/.test(input.style)) return "edgeDashed";
+    if (/(?:^|;)dashed=1(?:;|$)/.test(input.style) && /(?:^|;)dashPattern=1(?:\\s|;)/.test(input.style)) return "edgeDotted";
+    if (/(?:^|;)dashed=1(?:;|$)/.test(input.style) || /(?:^|;)dashPattern=/.test(input.style)) return "edgeDashed";
     return "edge";
   }
   if (!input.vertex) return null;
   const shapeMatch = /(?:^|;)shape=([^;]+)/.exec(input.style);
   const shape = (shapeMatch?.[1] || "").toLowerCase();
-  if (/(database|cylinder|datastore|data[-_]?store|rds|dynamodb|sql)/.test(shape)) return "database";
-  if (/(actor|person|user|human)/.test(shape)) return "user";
-  if (/(external|cloud|internet|outside)/.test(shape)) return "external";
-  if (input.hasChildren || /(swimlane|partialrectangle|boundary|group|c4\.container)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(input.style)) return "container";
-  if (/(server|service|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
+  const rules = { ...DEFAULT_DRAWIO_STYLE_MATCH_RULES, ...(style?.matchRules || {}) };
+  const matches = (category: DrawioSemanticCategory) => (rules[category] || []).some((token) => shape.includes(token.toLowerCase()));
+  if (matches("database")) return "database";
+  if (matches("user")) return "user";
+  if (matches("external")) return "external";
+  if (input.hasChildren || matches("container") || /(?:^|;)swimlane=1(?:;|$)/.test(input.style)) return "container";
+  if (matches("service")) return "service";
   return "node";
 }
 
