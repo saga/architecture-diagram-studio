@@ -221,19 +221,30 @@
         return;
       }
       var originals = [];
+      var originalPage = ui.currentPage || null;
       activeModel.beginUpdate();
       try {
-        var cells = collectStyleCells(activeModel);
-        cells.forEach(function (cell) {
-          var previous = String(activeModel.getStyle(cell) || "");
-          var category = classifyStyleCell(cell, previous, activeModel);
-          if (!category) return;
-          var next = rewriteStyleForCell(previous, category, targetStyle);
-          if (next === previous) return;
-          originals.push({ cell: cell, style: previous });
-          activeModel.setStyle(cell, next || null);
-          changed++;
-        });
+        // One Graph/Model is reused by Draw.io for every page. Switch roots inside the same
+        // model transaction so each page's cell styles join the same native undoable edit.
+        var pages = Array.isArray(ui.pages) && ui.pages.length ? ui.pages.slice() : [originalPage];
+        for (var pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+          var page = pages[pageIndex];
+          if (page && ui.currentPage !== page && typeof ui.selectPage === "function") ui.selectPage(page);
+          activeGraph = currentGraph();
+          activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : activeModel;
+          var cells = collectStyleCells(activeModel);
+          cells.forEach(function (cell) {
+            var previous = String(activeModel.getStyle(cell) || "");
+            var category = classifyStyleCell(cell, previous, activeModel);
+            if (!category) return;
+            var next = rewriteStyleForCell(previous, category, targetStyle);
+            if (next === previous) return;
+            originals.push({ cell: cell, style: previous });
+            activeModel.setStyle(cell, next || null);
+            changed++;
+          });
+        }
+        if (originalPage && ui.currentPage !== originalPage && typeof ui.selectPage === "function") ui.selectPage(originalPage);
       } catch (error) {
         for (var i = originals.length - 1; i >= 0; i--) {
           try { activeModel.setStyle(originals[i].cell, originals[i].style || null); } catch (_) {}
@@ -242,6 +253,9 @@
         activeDiagramStyleEnabled = previousStyleEnabled;
         throw error;
       } finally {
+        if (originalPage && ui.currentPage !== originalPage && typeof ui.selectPage === "function") {
+          try { ui.selectPage(originalPage); } catch (_) {}
+        }
         activeModel.endUpdate();
       }
       if (changed > 0) {
