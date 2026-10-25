@@ -162,7 +162,7 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
     postedMessages,
     latest(eventName: string, requestId: string) {
       return [...postedMessages].reverse().find((message) =>
-        message.event === eventName && message.requestId === requestId
+        message.event === eventName && String(message.requestId) === requestId
       );
     }
   };
