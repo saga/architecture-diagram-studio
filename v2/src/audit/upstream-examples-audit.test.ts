@@ -20,9 +20,11 @@ async function mapLimit<T, R>(items: T[], limit: number, mapper: (item: T) => Pr
   return results;
 }
 
-function activePageId(xml: string): string | null {
-  const page = xml.match(/<diagram\b([^>]*)>/);
-  return page?.[1].match(/\bid=["']([^"']+)["']/)?.[1] ?? null;
+function pageIds(xml: string): Array<string | null> {
+  const document = parseDrawioXml(xml);
+  if (document.documentElement.nodeName === "mxGraphModel") return [null];
+  return Array.from(document.getElementsByTagName("diagram"))
+    .map(page => page.getAttribute("id") || null);
 }
 
 function activeModel(xml: string, pageId: string | null): Element {
@@ -46,7 +48,7 @@ function cellId(cell: Element): string {
 }
 
 describe("temporary upstream Draw.io examples audit", () => {
-  it("validates upstream diagrams and inventories the exact layout scope", async () => {
+  it("validates all upstream samples and inventories every page's native layout scope", async () => {
     const response = await fetch(API, { headers: { Accept: "application/vnd.github+json" } });
     if (!response.ok) throw new Error("GitHub examples directory returned HTTP " + response.status);
     const entries = await response.json() as Array<{ name: string; path: string; type: string; download_url: string | null }>;
@@ -58,67 +60,87 @@ describe("temporary upstream Draw.io examples audit", () => {
         const xml = await source.text();
         const validation = validateDrawioXmlDocument(xml);
         if (!validation.success) return { name: entry.name, valid: false, issues: validation.issues.slice(0, 5) };
-        const pageId = activePageId(xml);
-        const model = activeModel(xml, pageId);
-        const cells = Array.from(model.getElementsByTagName("mxCell")) as Element[];
-        const vertices = cells.filter((cell) => cell.getAttribute("vertex") === "1");
-        const edges = cells.filter((cell) => cell.getAttribute("edge") === "1");
-        const geometry = (cell: Element) => Array.from(cell.children).find((child) => child.nodeName === "mxGeometry");
-        const layers = cells.filter((cell) => {
-          const id = cellId(cell);
-          return cell.getAttribute("vertex") !== "1" && cell.getAttribute("edge") !== "1" &&
-            !geometry(cell) && id && cells.some(candidate => cellId(candidate) !== id && candidate.getAttribute("parent") === id);
-        });
-        let layout: Record<string, unknown>;
-        try {
-          const plan = await calculateNativeAutoLayout(xml, pageId, REVISION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
-          layout = {
-            status: "planned", vertices: plan.positions.length, edges: plan.edgeRoutes.length,
-            layerId: plan.layoutLayerId, layerFallback: plan.layoutLayerFallback
+        const pages = await Promise.all(pageIds(xml).map(async (pageId, pageIndex) => {
+          const model = activeModel(xml, pageId);
+          const cells = Array.from(model.getElementsByTagName("mxCell")) as Element[];
+          const vertices = cells.filter((cell) => cell.getAttribute("vertex") === "1");
+          const edges = cells.filter((cell) => cell.getAttribute("edge") === "1");
+          const geometry = (cell: Element) => Array.from(cell.children).find((child) => child.nodeName === "mxGeometry");
+          const groupOrLayerCells = cells.filter((cell) => {
+            const id = cellId(cell);
+            return cell.getAttribute("vertex") !== "1" && cell.getAttribute("edge") !== "1" &&
+              !geometry(cell) && id && cells.some(candidate => cellId(candidate) !== id && candidate.getAttribute("parent") === id);
+          }).length;
+          const shapes = [...new Set(vertices.map(cell => {
+            const style = cell.getAttribute("style") || "";
+            return style.split(";").find(part => part.trim().startsWith("shape="))?.split("=", 2)[1]?.trim();
+          }).filter((shape): shape is string => Boolean(shape)))];
+          let layout: Record<string, unknown>;
+          try {
+            const plan = await calculateNativeAutoLayout(xml, pageId, REVISION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
+            layout = { status: "planned", vertices: plan.positions.length, edges: plan.edgeRoutes.length,
+              layerId: plan.layoutLayerId, layerFallback: plan.layoutLayerFallback };
+          } catch (error) {
+            layout = { status: "not-planned", reason: error instanceof Error ? error.message : String(error) };
+          }
+          const selectedLayer = (layout.layerId as string | null) ?? null;
+          const eligibleInSelectedLayer = vertices.filter(cell => {
+            const g = geometry(cell);
+            return Boolean(g) && cell.getAttribute("parent") === selectedLayer &&
+              cell.getAttribute("visible") !== "0" &&
+              Number(g?.getAttribute("width")) > 0 && Number(g?.getAttribute("height")) > 0;
+          }).length;
+          return {
+            pageIndex, pageId, sourceVertices: vertices.length,
+            verticesWithGeometry: vertices.filter(cell => Boolean(geometry(cell))).length,
+            topLevelEligible: eligibleInSelectedLayer,
+            plannedVertices: (layout.vertices as number | undefined) ?? 0,
+            sourceEdges: edges.length,
+            plannedEdges: (layout.edges as number | undefined) ?? 0,
+            verticesOutsideChosenLayer: vertices.length - eligibleInSelectedLayer,
+            groupOrLayerCells,
+            shapeFamilies: [...new Set(shapes.map(shape => shape.split(".").slice(0, 2).join(".")))].slice(0, 10),
+            layout
           };
-        } catch (error) {
-          layout = { status: "not-planned", reason: error instanceof Error ? error.message : String(error) };
-        }
-        const shapes = [...new Set(vertices.map(cell => {
-          const style = cell.getAttribute("style") || "";
-          return style.split(";").find(part => part.trim().startsWith("shape="))?.split("=", 2)[1]?.trim();
-        }).filter((shape): shape is string => Boolean(shape)))];
-        const selectedLayer = (layout.layerId as string | null) ?? null;
-        const eligibleInSelectedLayer = vertices.filter(cell => {
-          const g = geometry(cell);
-          return Boolean(g) && cell.getAttribute("parent") === selectedLayer &&
-            cell.getAttribute("visible") !== "0" &&
-            Number(g?.getAttribute("width")) > 0 && Number(g?.getAttribute("height")) > 0;
-        }).length;
+        }));
         return {
-          name: entry.name, valid: true, format: validation.format,
-          pages: (xml.match(/<diagram\b/g) ?? []).length || 1,
-          vertexCells: vertices.length, verticesWithGeometry: vertices.filter(cell => Boolean(geometry(cell))).length,
-          eligibleTopLevel: eligibleInSelectedLayer, plannedVertices: (layout.vertices as number | undefined) ?? 0,
-          verticesOutsideChosenLayer: vertices.length - eligibleInSelectedLayer,
-          edgeCells: edges.length, selectedLayer, groupOrLayerCells: layers.length,
-          shapeFamilies: [...new Set(shapes.map(shape => shape.split(".").slice(0, 2).join(".")))].slice(0, 20),
+          name: entry.name, valid: true,
+          pageCount: pages.length,
+          warningCount: validation.warnings.length,
           warningDetails: validation.warnings.slice(0, 30),
-          warningCount: validation.warnings.length, layout
+          pages
         };
       } catch (error) {
         return { name: entry.name, valid: false, issues: [error instanceof Error ? error.message : String(error)] };
       }
     });
     const invalid = results.filter((row) => !row.valid);
-    const layoutFailures = results.filter((row) => row.valid && row.layout && (row.layout as Record<string, unknown>).status !== "planned");
-    const layoutLossCandidates = results.filter((row) => row.valid && row.vertexCells &&
-      ((row.plannedVertices as number) < Math.min(5, Math.floor((row.vertexCells as number) / 3))));
+    const pageRows = results.filter(row => row.valid).flatMap(row =>
+      (row.pages as Array<Record<string, unknown>>).map(page => ({ name: row.name, ...page }))
+    );
+    const layoutFailures = pageRows.filter((row) => (row.layout as Record<string, unknown>).status !== "planned");
+    const coverageCandidates = pageRows.filter(row => Number(row.sourceVertices) >= 12 &&
+      (Number(row.plannedVertices) < Number(row.sourceVertices) * 0.5 ||
+       (Number(row.sourceEdges) >= 5 && Number(row.plannedEdges) === 0)));
+    const warnings = results.filter(row => row.valid && Number(row.warningCount) > 0).map(row => ({
+      name: row.name, count: row.warningCount, details: row.warningDetails
+    }));
     const summary = {
       upstreamDirectory: "jgraph/drawio-diagrams/examples@dev",
-      examined: results.length, validXml: results.length - invalid.length,
-      invalidSamples: invalid, successfulLayouts: results.length - invalid.length - layoutFailures.length,
-      layoutNotPlanned: layoutFailures, lowTopLevelCoverageCandidates: layoutLossCandidates,
-      warnings: results.filter(row => row.valid && row.warningCount).map(row => ({name:row.name,count:row.warningCount,details:row.warningDetails})),
-      inventory: results.filter(row => row.valid).map(row => ({
-        name: row.name, pages: row.pages, vertices: row.vertexCells, planned: row.plannedVertices,
-        outsideLayoutLayer: row.verticesOutsideChosenLayer, edges: row.edgeCells,
-        layer: row.selectedLayer, warnings: row.warningCount, layout: row.layout
+      examinedFiles: results.length,
+      examinedPages: pageRows.length,
+      validXmlFiles: results.length - invalid.length,
+      invalidSamples: invalid,
+      pagesWithLayoutPlan: pageRows.length - layoutFailures.length,
+      layoutNotPlanned: layoutFailures,
+      lowLayoutCoveragePages: coverageCandidates,
+      warnings,
+      pages: pageRows.map(row => ({
+        name: row.name, pageIndex: row.pageIndex, pageId: row.pageId,
+        sourceVertices: row.sourceVertices, plannedVertices: row.plannedVertices,
+        sourceEdges: row.sourceEdges, plannedEdges: row.plannedEdges,
+        outsideLayoutLayer: row.verticesOutsideChosenLayer, layer: row.layout?.layerId,
+        status: (row.layout as Record<string, unknown>).status
       }))
     };
     console.log("[upstream-samples-audit] " + JSON.stringify(summary));
