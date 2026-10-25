@@ -24,7 +24,7 @@ Dagre and ELK remain important, but they do not cover every layout objective. Gr
 - Do not add an alternative canvas renderer.
 - Do not persist an intermediate graph representation.
 - Do not force one layout engine to implement all routing features. Adapters may return no waypoints; the shared planner explicitly clears outdated connector waypoints, as its existing contract specifies.
-- Do not include Cytoscape extensions that require additional plugin packages until their licensing, bundle size and regression coverage have been reviewed.
+- fCoSE is the first explicit Cytoscape extension because it adds a useful compound spring-embedder layout; defer other extensions (for example Cola, CoSE-Bilkent and AVSDF) until bundle size, licensing and regression coverage are reviewed.
 
 ## Validation
 
