@@ -168,19 +168,21 @@ async function runMsagl(
     throw new Error("MSAGL MDS is quadratic for its refinement stage. Use MSAGL Layered or IPSepCola for diagrams above 1,000 nodes.");
   }
   const msagl = await import("@msagl/core");
-  const graph = new msagl.Graph("studio-native-layout");
+  const graph = new msagl.Graph();
   const nodes = new Map<string, InstanceType<typeof msagl.Node>>();
   for (const vertex of vertices) {
-    const node = graph.addNode(new msagl.Node(vertex.id));
+    const node = new msagl.Node(vertex.id);
+    graph.addNode(node);
     nodes.set(vertex.id, node);
   }
 
+  // MSAGL Edge attaches itself to its endpoint nodes. Build these graph edges before
+  // the geometry graph, then attach GeomEdges after GeomGraph has been created.
+  const inputEdges = new Map<string, InstanceType<typeof msagl.Edge>>();
   for (const edge of edges) {
     const source = nodes.get(edge.sourceId);
     const target = nodes.get(edge.targetId);
-    if (!source || !target) continue;
-    // Edge registers itself with both endpoints; GeomEdge creates its native geometry.
-    new msagl.GeomEdge(new msagl.Edge(source, target));
+    if (source && target) inputEdges.set(edge.id, new msagl.Edge(source, target));
   }
 
   const geomGraph = new msagl.GeomGraph(graph);
@@ -192,7 +194,12 @@ async function runMsagl(
       Math.max(3, vertex.width), Math.max(2, vertex.height), 4, 4, new msagl.Point(0, 0)
     );
   }
+  for (const edge of edges) {
+    const input = inputEdges.get(edge.id);
+    if (input) new msagl.GeomEdge(input);
+  }
 
+  let runLayout = true;
   if (options.algorithm === "layered") {
     const settings = new msagl.SugiyamaLayoutSettings();
     const directionMap = {
@@ -210,15 +217,12 @@ async function runMsagl(
     settings.IterationsWithMajorization = Math.min(options.iterations, 100);
     geomGraph.layoutSettings = settings;
   } else {
-    const settings = new msagl.FastIncrementalLayoutSettings();
-    settings.MaxIterations = options.iterations;
-    settings.NodeSeparation = options.nodeSpacing;
-    geomGraph.layoutSettings = settings;
+    // Use MSAGL's actual IPSepCola implementation, not the generic incremental layout.
+    const settings = new msagl.IPsepColaSetting();
+    new msagl.IPsepCola(geomGraph, settings, 2).run();
+    runLayout = false;
   }
-
-  // Use the supported core-layout entry point for all settings. Renderer-specific
-  // convenience functions are not part of the core geometry contract.
-  msagl.layoutGeomGraph(geomGraph);
+  if (runLayout) msagl.layoutGeomGraph(geomGraph);
 
   const positions = new Map<string, LayoutPoint>();
   for (const vertex of vertices) {
@@ -231,8 +235,8 @@ async function runMsagl(
     throw new Error("MSAGL did not return positions for every native Draw.io node.");
   }
 
-  // MSAGL represents routes as geometric curves. Keep the adapter on public, stable node
-  // geometry APIs until curve flattening has a tested contract; Draw.io recalculates routes.
+  // MSAGL routes edges as geometry curves. Until curve flattening and waypoint fidelity
+  // have dedicated coverage, return only node positions and let native Draw.io reroute edges.
   return { positions, routes: new Map() };
 }
 
