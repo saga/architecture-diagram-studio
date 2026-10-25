@@ -128,18 +128,14 @@ test.describe("原生画布", () => {
 
     await page.reload();
     await waitForNativeEditor(page);
-    const inspectCanvas = async () => {
-      const frame = page.frames().find((candidate) => candidate.url().includes("/drawio/index.html"));
-      if (!frame) return null;
-      return frame.evaluate(() => {
-        const page = document.querySelector<HTMLElement>(".geBackgroundPage");
-        return {
-          color: page ? getComputedStyle(page).backgroundColor : null,
-          image: page ? getComputedStyle(page).backgroundImage : null,
-          themeOverlay: Boolean(document.querySelector("#studio-native-theme"))
-        };
-      });
-    };
+    const inspectCanvas = async () => nativeFrame(page).locator("body").evaluate(() => {
+      const page = document.querySelector<HTMLElement>(".geBackgroundPage");
+      return {
+        color: page ? getComputedStyle(page).backgroundColor : null,
+        image: page ? getComputedStyle(page).backgroundImage : null,
+        themeOverlay: Boolean(document.querySelector("#studio-native-theme"))
+      };
+    });
     await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
       color: "rgb(255, 255, 102)",
       themeOverlay: false
