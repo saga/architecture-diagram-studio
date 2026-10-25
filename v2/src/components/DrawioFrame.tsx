@@ -5,6 +5,7 @@ import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../mo
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import { drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
+import type { DrawioDiagramStyle } from "../model/drawio-style-library";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
@@ -49,6 +50,10 @@ export interface DrawioFrameHandle {
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
   /** Reloads the editor from the latest XML retained by Studio after a synchronous script hangs. */
   recoverFromLastSavedXml(): void;
+  /** Apply a selected document style through one native Draw.io model transaction and export its XML. */
+  applyDiagramStyle(style: DrawioDiagramStyle | null): Promise<string>;
+  /** Set the style for newly created/pasted cells without mutating existing XML. */
+  setActiveDiagramStyle(style: DrawioDiagramStyle | null): Promise<void>;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -89,6 +94,13 @@ type PendingAutoLayout = {
   requestId: string;
   plan: NativeLayoutPlan;
 };
+type PendingDiagramStyle = {
+  resolve: (xml: string | null) => void;
+  reject: (error: Error) => void;
+  timeoutId: number;
+  apply: boolean;
+  awaitingExport: boolean;
+};
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
@@ -112,6 +124,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const pendingSaveConfirmationsRef = useRef(new Map<number, PendingSaveConfirmation>());
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
   const pendingAutoLayoutRef = useRef<PendingAutoLayout | null>(null);
+  const pendingDiagramStylesRef = useRef(new Map<string, PendingDiagramStyle>());
+  const diagramStyleSequenceRef = useRef(0);
   const runtimeInspectionSequenceRef = useRef(0);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
@@ -154,7 +168,61 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pending.reject(error);
   }
 
+  function settleDiagramStyle(requestId: string, result: { xml?: string | null; error?: Error }) {
+    const pending = pendingDiagramStylesRef.current.get(requestId);
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingDiagramStylesRef.current.delete(requestId);
+    if (result.error) pending.reject(result.error);
+    else pending.resolve(result.xml ?? null);
+  }
+
+  function requestDiagramStyle(style: DrawioDiagramStyle | null, apply: boolean): Promise<string | null> {
+    return new Promise((resolve, reject) => {
+      const target = iframeRef.current?.contentWindow;
+      if (!editorReady || !bridgeReady || !target) {
+        reject(new Error("The native Draw.io editor is not ready for diagram styling."));
+        return;
+      }
+      if (pendingDiagramStylesRef.current.size > 0) {
+        reject(new Error("A diagram-style operation is already running."));
+        return;
+      }
+      if (apply && (pendingNativeEditsRef.current.size > 0 || pendingSaveConfirmationsRef.current.size > 0 || pendingAutoLayoutRef.current)) {
+        reject(new Error("Wait for the current native edit or layout operation to finish before changing diagram style."));
+        return;
+      }
+      const requestId = "diagram-style-" + (++diagramStyleSequenceRef.current) + "-" + Date.now();
+      const timeoutId = window.setTimeout(() => {
+        settleDiagramStyle(requestId, { error: new Error("Draw.io did not confirm the diagram-style operation within 30 seconds.") });
+      }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
+      pendingDiagramStylesRef.current.set(requestId, { resolve, reject, timeoutId, apply, awaitingExport: false });
+      try {
+        target.postMessage(JSON.stringify({
+          event: "studioDiagramStyleRequest",
+          requestId,
+          apply,
+          style: style ? JSON.parse(JSON.stringify(style)) : null
+        }), DRAWIO_ORIGIN);
+        recordDiagnostic(apply ? "drawio.style.apply.requested" : "drawio.style.activation.requested",
+          apply ? "Requested a native Draw.io document-style transformation" : "Set the current style for future native cells",
+          { requestId, styleId: style?.id ?? "original", drawioVersion: DRAWIO_VERSION });
+      } catch (error) {
+        settleDiagramStyle(requestId, { error: new Error("Could not send the diagram-style request: " +
+          (error instanceof Error ? error.message : String(error))) });
+      }
+    });
+  }
+
   useImperativeHandle(ref, () => ({
+    applyDiagramStyle: async (style) => {
+      const result = await requestDiagramStyle(style, true);
+      if (typeof result !== "string") throw new Error("Draw.io did not return the transformed XML.");
+      return result;
+    },
+    setActiveDiagramStyle: async (style) => {
+      await requestDiagramStyle(style, false);
+    },
     applyAutoLayout: async (plan) => {
       const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
       if (currentRevision !== plan.documentRevision) {
@@ -255,6 +323,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       pending.reject(new Error("Draw.io editor was closed before runtime inspection completed."));
     }
     pendingRuntimeInspectionsRef.current.clear();
+    for (const requestId of Array.from(pendingDiagramStylesRef.current.keys())) {
+      settleDiagramStyle(requestId, { error: new Error("Draw.io editor was closed before diagram styling completed.") });
+    }
   }, []);
 
   // The editor's readiness is surfaced in the app's bottom status bar, so the canvas stays flush
@@ -465,6 +536,28 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }
+      if (data.event === "studioDiagramStyleResult") {
+        const requestId = typeof data.requestId === "string" ? data.requestId : "";
+        const pending = pendingDiagramStylesRef.current.get(requestId);
+        if (!pending) {
+          recordDiagnostic("drawio.style.acknowledgement.unmatched", "Ignored a diagram-style response without a pending request", { requestId }, "warn");
+          return;
+        }
+        if (data.success !== true) {
+          settleDiagramStyle(requestId, { error: new Error(typeof data.error === "string" ? data.error.slice(0, 1000) : "Draw.io rejected the diagram style.") });
+        } else if (!pending.apply) {
+          recordDiagnostic("drawio.style.activation.acknowledged", "Draw.io acknowledged the active style for new cells", { requestId, styleId: data.styleId ?? null });
+          settleDiagramStyle(requestId, { xml: null });
+        } else {
+          pending.awaitingExport = true;
+          try {
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
+          } catch (error) {
+            settleDiagramStyle(requestId, { error: new Error("Draw.io applied the style but XML export could not be requested: " +
+              (error instanceof Error ? error.message : String(error))) });
+          }
+        }
+      }
       if (data.event === "studioSelectionChanged") {
         const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
         const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
@@ -648,8 +741,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         rejectPendingAutoLayout(new Error("Draw.io reported an error during auto layout: " + message));
       }
       const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
+      const pendingDiagramStyle = Array.from(pendingDiagramStylesRef.current.entries()).find((entry) => entry[1].apply && entry[1].awaitingExport);
       const exportSerialization = data.event === "export" && data.format === "xml" &&
-        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true);
+        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || Boolean(pendingDiagramStyle));
       if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
@@ -659,6 +753,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) {
               rejectPendingAutoLayout(new Error("Draw.io auto layout returned invalid XML; the previous saved source was preserved."));
             }
+            if (pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { error: new Error("Draw.io diagram-style operation returned invalid XML; the previous saved source was preserved.") });
             return;
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
@@ -712,6 +807,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           }
           if (duplicateXml) {
             for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
+            if (pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { xml: data.xml });
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
             return;
           }
@@ -720,6 +816,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             event: data.event, xmlLength: data.xml.length
           });
           onDocumentChangeRef.current(data.xml);
+          if (pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { xml: data.xml });
           for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
           if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
         } catch (error) {
