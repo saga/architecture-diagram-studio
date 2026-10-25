@@ -45,6 +45,30 @@ describe("Zod Draw.io XML schema", () => {
     expect(validateDrawioXmlDocument(model).success).toBe(true);
   });
 
+  it("does not warn when an edge omits relative=1 and has no relative label geometry", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="40" height="20" as="geometry"/></mxCell>' +
+      '<mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="100" y="0" width="40" height="20" as="geometry"/></mxCell>' +
+      '<mxCell id="edge" edge="1" parent="1" source="a" target="b"><mxGeometry as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const result = validateDrawioXmlDocument(xml);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.warnings.some((warning) => warning.includes("relative=1"))).toBe(false);
+  });
+
+  it("warns when a legacy edge label uses relative offsets without relative=1", () => {
+    const xml = '<mxfile><diagram id="p1"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="40" height="20" as="geometry"/></mxCell>' +
+      '<mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="100" y="0" width="40" height="20" as="geometry"/></mxCell>' +
+      '<mxCell id="edge" edge="1" parent="1" source="a" target="b"><mxGeometry x="0.5" y="-1" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const result = validateDrawioXmlDocument(xml);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.warnings.some((warning) => warning.includes("relative label offsets"))).toBe(true);
+  });
+
   it("decodes a compressed page payload for read-only property inspection", () => {
     const model = extractModel(XML);
     const payload = encodeRawDeflatePayload(model);
