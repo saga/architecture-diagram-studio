@@ -47,13 +47,38 @@ function cellId(cell: Element): string {
   return cell.getAttribute("id") || "";
 }
 
+interface PageAudit {
+  pageIndex: number;
+  pageId: string | null;
+  sourceVertices: number;
+  verticesWithGeometry: number;
+  topLevelEligible: number;
+  plannedVertices: number;
+  sourceEdges: number;
+  plannedEdges: number;
+  verticesOutsideChosenLayer: number;
+  groupOrLayerCells: number;
+  shapeFamilies: string[];
+  layout: Record<string, unknown>;
+}
+
+interface FileAudit {
+  name: string;
+  valid: boolean;
+  issues?: string[];
+  pageCount?: number;
+  warningCount?: number;
+  warningDetails?: string[];
+  pages?: PageAudit[];
+}
+
 describe("temporary upstream Draw.io examples audit", () => {
   it("validates all upstream samples and inventories every page's native layout scope", async () => {
     const response = await fetch(API, { headers: { Accept: "application/vnd.github+json" } });
     if (!response.ok) throw new Error("GitHub examples directory returned HTTP " + response.status);
     const entries = await response.json() as Array<{ name: string; path: string; type: string; download_url: string | null }>;
     const examples = entries.filter((entry) => entry.type === "file" && /\.(drawio|xml)$/i.test(entry.name));
-    const results = await mapLimit(examples, 5, async (entry) => {
+    const results: FileAudit[] = await mapLimit(examples, 5, async (entry): Promise<FileAudit> => {
       try {
         const source = await fetch(RAW_PREFIX + entry.path);
         if (!source.ok) throw new Error("raw source returned HTTP " + source.status);
