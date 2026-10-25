@@ -131,7 +131,7 @@ function applyThemeToGraphModel(
     const values: Record<string, string> = isEdge
       ? { strokeColor: palette.edgeStroke, fontColor: palette.edgeFont }
       : isTextOnlyVertex(originalStyle)
-        ? { fontColor: palette.vertexFont }
+        ? { fillColor: "none", strokeColor: "none", fontColor: palette.vertexFont }
         : { fillColor: palette.vertexFill, strokeColor: palette.vertexStroke, fontColor: palette.vertexFont };
     const nextStyle = updateStyleProperties(originalStyle, values);
     if (nextStyle !== originalStyle) {
