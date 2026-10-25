@@ -402,6 +402,9 @@ button:disabled { opacity: .58; cursor: wait; }
 .drawio-error-banner button:hover { background: #fff0f0; }
 
 @media (max-width: 1380px) {
+  .diagram-style-controls { gap: 3px; }
+  .app-shell .diagram-style-controls .theme-selector .ant-select { width: 96px; }
+  .app-shell .diagram-style-action { padding: 6px 5px; font-size: 8px; }
   .topbar { gap: 11px; padding: 0 14px; }
   .brand-lockup { min-width: 156px; }
   .document-breadcrumb { gap: 7px; flex: 1; }
@@ -552,6 +555,10 @@ button:disabled { opacity: .58; cursor: wait; }
 .app-shell .theme-selector .ant-select { height: 30px; width: 104px; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .app-shell .theme-selector .ant-select-content { font-size: 11px; color: var(--theme-text); }
 .app-shell .theme-selector .ant-select-suffix { color: var(--theme-muted); font-size: 10px; }
+.diagram-style-controls { display: inline-flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; }
+.app-shell .diagram-style-controls .theme-selector .ant-select { width: 118px; }
+.app-shell .diagram-style-action { flex: 0 0 auto; white-space: nowrap; font-size: 9px; padding: 6px 7px; }
+.app-shell .diagram-style-action:disabled { opacity: .45; cursor: not-allowed; }
 .app-shell .button-secondary,
 .app-shell .toolbar-button,
 .app-shell .segmented,
