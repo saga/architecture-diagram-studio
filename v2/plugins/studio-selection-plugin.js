@@ -77,22 +77,34 @@
       });
       return pairs;
     }
-    function classifyStyleCell(cell, styleText, activeModel) {
+    var defaultStyleMatchRules = {
+      database: ["database", "cylinder", "datastore", "data-store", "rds", "dynamodb", "sql"],
+      user: ["actor", "person", "user", "human"],
+      external: ["external", "cloud", "internet", "outside"],
+      container: ["swimlane", "partialrectangle", "boundary", "group", "c4.container"],
+      service: ["server", "service", "microservice", "compute", "lambda", "ec2", "ecs", "application"]
+    };
+    function classifyStyleCell(cell, styleText, activeModel, style) {
       if (cell && cell.edge) {
-        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\s|;)/.test(styleText)) return "edgeDotted";
+        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\\s|;)/.test(styleText)) return "edgeDotted";
         if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) || /(?:^|;)dashPattern=/.test(styleText)) return "edgeDashed";
         return "edge";
       }
       if (!cell || !cell.vertex) return null;
       var shapeMatch = /(?:^|;)shape=([^;]+)/.exec(styleText);
       var shape = (shapeMatch && shapeMatch[1] || "").toLowerCase();
-      if (/(database|cylinder|datastore|data[-_]?store|rds|dynamodb|sql)/.test(shape)) return "database";
-      if (/(actor|person|user|human)/.test(shape)) return "user";
-      if (/(external|cloud|internet|outside)/.test(shape)) return "external";
+      var rules = Object.assign({}, defaultStyleMatchRules, style && style.matchRules || {});
+      function matches(category) {
+        var tokens = Array.isArray(rules[category]) ? rules[category] : defaultStyleMatchRules[category];
+        return tokens.some(function (token) { return typeof token === "string" && shape.indexOf(token.toLowerCase()) >= 0; });
+      }
+      if (matches("database")) return "database";
+      if (matches("user")) return "user";
+      if (matches("external")) return "external";
       var children = 0;
       try { children = activeModel && activeModel.getChildCount ? activeModel.getChildCount(cell) : (cell.children || []).length; } catch (_) {}
-      if (children > 0 || /(swimlane|partialrectangle|boundary|group|c4\.container)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
-      if (/(server|service|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
+      if (children > 0 || matches("container") || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
+      if (matches("service")) return "service";
       return "node";
     }
     function rewriteStyleForCell(styleText, category, targetStyle) {
@@ -122,6 +134,19 @@
         throw new Error("The diagram style definition is invalid.");
       }
       var allowed = styleManagedProperties;
+      if (style.matchRules !== undefined) {
+        if (!style.matchRules || typeof style.matchRules !== "object" || Array.isArray(style.matchRules)) {
+          throw new Error("Diagram style matchRules must be an object.");
+        }
+        Object.keys(style.matchRules).forEach(function (category) {
+          var tokens = style.matchRules[category];
+          if (["service", "database", "user", "external", "container"].indexOf(category) < 0 ||
+              !Array.isArray(tokens) || tokens.length > 40 ||
+              tokens.some(function (token) { return typeof token !== "string" || !token.trim() || token.length > 80 || /[;<>\\u0000-\\u001f]/.test(token); })) {
+            throw new Error("Invalid diagram style matching rule for " + category);
+          }
+        });
+      }
       Object.keys(style.categories).forEach(function (category) {
         if (styleCategories.indexOf(category) < 0 || !style.categories[category] || typeof style.categories[category] !== "object") {
           throw new Error("Unsupported diagram style category: " + category);
@@ -138,7 +163,7 @@
       return style;
     }
     function styleForNewCell(cell, styleText, targetStyle, activeModel) {
-      var category = classifyStyleCell(cell, styleText, activeModel);
+      var category = classifyStyleCell(cell, styleText, activeModel, targetStyle);
       return category ? rewriteStyleForCell(styleText, category, targetStyle) : styleText;
     }
     function installStyleAwareGraphOperations(activeGraph) {
@@ -240,7 +265,7 @@
           var cells = collectStyleCells(activeModel, pageRoot);
           cells.forEach(function (cell) {
             var previous = String(cell.style || "");
-            var category = classifyStyleCell(cell, previous, activeModel);
+            var category = classifyStyleCell(cell, previous, activeModel, targetStyle);
             if (!category) return;
             var next = rewriteStyleForCell(previous, category, targetStyle);
             if (next === previous) return;
