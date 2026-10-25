@@ -27,7 +27,7 @@ function decompressPage(encoded: string): string {
   return decodeURIComponent(strFromU8(inflateSync(bytes)));
 }
 
-const sourceModel = '<mxGraphModel background="light-dark(#FFFF66,#121212)" grid="1" gridSize="4" page="1" customModelAttribute="keep-me"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="plain" value="Plain" vertex="1" parent="1"/><mxCell id="colored" value="Colored" style="shape=rectangle;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;rounded=1;html=1;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell><mxCell id="text" value="Text only" style="text;html=1;align=center;fillColor=none;strokeColor=none;whiteSpace=wrap;" vertex="1" parent="1"/><mxCell id="edge" edge="1" parent="1" source="colored" target="plain" style="endArrow=block;strokeColor=#111111;fontColor=#222222;rounded=0;"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="40" y="50"/></Array></mxGeometry></mxCell></root></mxGraphModel>';
+const sourceModel = '<mxGraphModel background="light-dark(#FFFF66,#121212)" grid="1" gridSize="4" page="1" customModelAttribute="keep-me"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="plain" value="Plain" vertex="1" parent="1"/><mxCell id="colored" value="Colored" style="shape=rectangle;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;rounded=1;html=1;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell><mxCell id="text" value="Text only" style="text;html=1;align=center;fillColor=#ffffff;strokeColor=#000000;whiteSpace=wrap;" vertex="1" parent="1"/><mxCell id="edge" edge="1" parent="1" source="colored" target="plain" style="endArrow=block;strokeColor=#111111;fontColor=#222222;rounded=0;"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="40" y="50"/></Array></mxGeometry></mxCell></root></mxGraphModel>';
 
 describe("native Draw.io diagram theme presets", () => {
   it("colors unstyled vertices, recolors externally styled cells, and preserves non-color styles", () => {
@@ -55,6 +55,8 @@ describe("native Draw.io diagram theme presets", () => {
     expect(text?.getAttribute("style")).toContain("fontColor=#831843");
     expect(text?.getAttribute("style")).toContain("fillColor=none");
     expect(text?.getAttribute("style")).toContain("strokeColor=none");
+    expect(text?.getAttribute("style")).not.toContain("fillColor=#ffffff");
+    expect(text?.getAttribute("style")).not.toContain("strokeColor=#000000");
 
     const edge = cellById(themed, "edge");
     expect(edge?.getAttribute("style")).toContain("strokeColor=#DB2777");
