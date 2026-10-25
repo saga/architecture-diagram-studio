@@ -114,7 +114,10 @@ test.describe("原生 Draw.io 文档风格", () => {
     expect(styledExport).toContain("Keep non-cell metadata");
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#E6F0FF");
 
-    await nativeFrame(page).locator("body").press("Control+z");
+    // Focus the actual diagram before sending the native shortcut. The iframe may otherwise
+    // still have focus in its hidden loading/body host after the export acknowledgement.
+    await nativeFrame(page).getByText("API Service", { exact: true }).click();
+    await page.keyboard.press("Control+z");
     // Check the actual native XML first. This distinguishes a failed native Undo from a
     // successful XML revert whose style-selector metadata has not yet been resolved.
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 15_000, intervals: [250] }).toContain("fillColor=#FF0000");
