@@ -82,6 +82,43 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.edgeRoutes.map((route) => route.cellId)).toEqual(["edge-ab"]);
   });
 
+  it("keeps honest coverage for the upstream multi-page BPMN example", async () => {
+    const fixture = readFileSync(new URL("./fixtures/bpmn-example.drawio", import.meta.url), "utf8");
+    const plan = await calculateNativeAutoLayout(fixture, null, revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "dagre",
+      algorithm: "layered"
+    });
+
+    expect(plan.coverage).toMatchObject({
+      sourceVertexCount: 45,
+      plannedVertexCount: 3,
+      untouchedVertexCount: 42,
+      sourceEdgeCount: 32,
+      plannedEdgeCount: 0,
+      untouchedEdgeCount: 32
+    });
+    expect(plan.pageId).toBe("L4GpW-EUjeUzysb4IhCQ");
+  });
+
+  it("reports excluded links for the upstream bus topology example", async () => {
+    const fixture = readFileSync(new URL("./fixtures/bus-topology-example.drawio", import.meta.url), "utf8");
+    const plan = await calculateNativeAutoLayout(fixture, null, revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "dagre",
+      algorithm: "layered"
+    });
+
+    expect(plan.coverage).toMatchObject({
+      sourceVertexCount: 54,
+      plannedVertexCount: 54,
+      untouchedVertexCount: 0,
+      sourceEdgeCount: 17,
+      plannedEdgeCount: 1,
+      untouchedEdgeCount: 16
+    });
+  });
+
   it("rejects non-layered algorithms for Dagre rather than silently ignoring the selection", async () => {
     await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", algorithm: "radial"
