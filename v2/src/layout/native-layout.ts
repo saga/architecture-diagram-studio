@@ -65,7 +65,7 @@ export function nativeLayoutSupportsAlgorithm(engine: NativeAutoLayoutEngine, al
 }
 
 export function nativeLayoutSupportsDirection(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
-  if (engine === "elk") return ["layered", "mrtree"].includes(algorithm);
+  if (engine === "elk") return !["box", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(algorithm);
   // Non-layered adapters without a native direction setting use the shared coordinate transform.
   return true;
 }
