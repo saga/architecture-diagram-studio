@@ -1291,10 +1291,10 @@ export default function App() {
       if (coverage.verticesInOtherLayersCount) exclusionReasons.push(coverage.verticesInOtherLayersCount + " nodes in other layers");
       if (coverage.hiddenVertexCount) exclusionReasons.push(coverage.hiddenVertexCount + " hidden nodes");
       if (coverage.verticesWithoutGeometryCount) exclusionReasons.push(coverage.verticesWithoutGeometryCount + " nodes without geometry");
-      if (coverage.edgesOutsideLayoutLayerCount) exclusionReasons.push(coverage.edgesOutsideLayoutLayerCount + " connectors in other layers");
+      if (coverage.edgesOutsideLayoutLayerCount) exclusionReasons.push(coverage.edgesOutsideLayoutLayerCount + " connectors outside the selected layer");
       if (coverage.hiddenEdgeCount) exclusionReasons.push(coverage.hiddenEdgeCount + " hidden connectors");
       if (coverage.edgesWithoutGeometryCount) exclusionReasons.push(coverage.edgesWithoutGeometryCount + " connectors without geometry");
-      if (coverage.edgesMissingTerminalsCount) exclusionReasons.push(coverage.edgesMissingTerminalsCount + " connectors missing endpoints");
+      if (coverage.edgesMissingTerminalsCount) exclusionReasons.push(coverage.edgesMissingTerminalsCount + " connectors without source/target terminals");
       if (coverage.edgesWithEndpointsOutsideTargetVerticesCount) {
         exclusionReasons.push(coverage.edgesWithEndpointsOutsideTargetVerticesCount + " connectors attached to out-of-scope nodes");
       }
