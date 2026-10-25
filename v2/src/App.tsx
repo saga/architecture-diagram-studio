@@ -1,5 +1,5 @@
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, Input, InputNumber, Layout, Modal, Select } from "antd";
+import { App as AntApp, Button, ConfigProvider, Input, InputNumber, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
@@ -21,8 +21,8 @@ type ChatMessage = { role: "assistant" | "user"; text: string; id: number; propo
 type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
+type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 type DiagramTheme = "editorial" | "youth" | "warm" | "midnight";
-const UI_THEME = "warm" as const;
 
 const NATIVE_LAYOUT_STORAGE_KEY = "architecture-diagram-studio:v2:native-layout-options";
 const NATIVE_LAYOUT_ENGINES: Array<{ value: NativeAutoLayoutOptions["engine"]; label: string }> = [
@@ -76,8 +76,15 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
     return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
   }
 }
-/** Fixed application accent; the diagram preset selector never changes Studio UI appearance. */
-const THEME_ACCENTS: Record<DiagramTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
+/** The persisted application appearance remains independent from the Draw.io diagram color preset. */
+const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
+function loadSavedTheme(): UiTheme {
+  try {
+    const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ui-theme");
+    if (saved === "editorial" || saved === "youth" || saved === "warm" || saved === "midnight") return saved;
+  } catch { /* Keep the default appearance when browser storage is unavailable. */ }
+  return "warm";
+}
 type PanelWidths = { right: number };
 const PANEL_LIMITS: Record<keyof PanelWidths, [number, number]> = { right: [300, 620] };
 const PANEL_STORAGE_KEY = "architecture-diagram-studio:v2:panel-widths";
@@ -132,7 +139,7 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
-  const uiTheme = UI_THEME;
+  const [uiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [diagramTheme, setDiagramTheme] = useState<DiagramTheme | "">("");
   const [diagramThemeApplying, setDiagramThemeApplying] = useState(false);
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
@@ -1265,9 +1272,10 @@ export default function App() {
     <ConfigProvider
       locale={zhCN}
       theme={{
+        algorithm: uiTheme === "midnight" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: THEME_ACCENTS.warm,
-          colorInfo: THEME_ACCENTS.warm,
+          colorPrimary: THEME_ACCENTS[uiTheme],
+          colorInfo: THEME_ACCENTS[uiTheme],
           borderRadius: 8,
           fontFamily: '"SF Pro Display", "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
           fontSize: 13,
