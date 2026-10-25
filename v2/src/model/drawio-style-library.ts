@@ -123,8 +123,8 @@ export function classifyDrawioStyleCell(input: {
   if (/(database|cylinder|datastore|data[-_]?store|rds|dynamodb|sql)/.test(shape)) return "database";
   if (/(actor|person|user|human)/.test(shape)) return "user";
   if (/(external|cloud|internet|outside)/.test(shape)) return "external";
-  if (/(server|service|container|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
-  if (input.hasChildren || /(swimlane|partialrectangle|boundary|group)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(input.style)) return "container";
+  if (input.hasChildren || /(swimlane|partialrectangle|boundary|group|c4\.container)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(input.style)) return "container";
+  if (/(server|service|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
   return "node";
 }
 
