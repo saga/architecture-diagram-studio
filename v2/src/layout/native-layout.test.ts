@@ -231,7 +231,7 @@ describe("additional native layout engines", () => {
     ["graphviz", "sfdp"], ["graphviz", "circo"], ["graphviz", "twopi"],
     ["msagl", "layered"], ["msagl", "mds"], ["msagl", "ipsepcola"],
     ["cytoscape", "breadthfirst"], ["cytoscape", "circle"], ["cytoscape", "concentric"],
-    ["cytoscape", "grid"], ["cytoscape", "random"], ["cytoscape", "cose"],
+    ["cytoscape", "grid"], ["cytoscape", "random"], ["cytoscape", "cose"], ["cytoscape", "fcose"],
     ["d3", "tree"], ["d3", "cluster"], ["d3", "force"],
     ["elk", "random"], ["elk", "disco"], ["elk", "sporeCompaction"], ["elk", "sporeOverlap"]
   ] as const)("calculates native geometry with %s / %s", async (engine, algorithm) => {
@@ -271,7 +271,7 @@ describe("additional native layout engines", () => {
     ]);
     expect(nativeLayoutAlgorithmsForEngine("graphviz").map((item) => item.value)).toContain("sfdp");
     expect(nativeLayoutAlgorithmsForEngine("msagl").map((item) => item.value)).toContain("mds");
-    expect(nativeLayoutAlgorithmsForEngine("cytoscape").map((item) => item.value)).toContain("cose");
+    expect(nativeLayoutAlgorithmsForEngine("cytoscape").map((item) => item.value)).toEqual(["breadthfirst", "circle", "concentric", "grid", "random", "cose", "fcose"]);
     expect(nativeLayoutAlgorithmsForEngine("d3").map((item) => item.value)).toContain("tree");
   });
 });
