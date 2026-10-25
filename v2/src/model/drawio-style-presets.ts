@@ -1,4 +1,4 @@
-import type { DrawioStyleLibrary } from "./drawio-style-library";
+import { DEFAULT_DRAWIO_STYLE_MATCH_RULES, type DrawioStyleLibrary } from "./drawio-style-library";
 
 export const DEFAULT_DRAWIO_STYLE_LIBRARY: DrawioStyleLibrary = {
   schemaVersion: 1,
@@ -7,6 +7,7 @@ export const DEFAULT_DRAWIO_STYLE_LIBRARY: DrawioStyleLibrary = {
       id: "editorial",
       name: "Editorial",
       version: 1,
+      matchRules: DEFAULT_DRAWIO_STYLE_MATCH_RULES,
       description: "低饱和蓝灰，适合金融服务、企业架构和技术文档。",
       categories: {
         node: { fillColor: "#F4F7FB", strokeColor: "#617A99", fontColor: "#172B45", strokeWidth: "1.5", rounded: "1", shadow: "0", fontFamily: "Inter", fontSize: "12" },
@@ -24,6 +25,7 @@ export const DEFAULT_DRAWIO_STYLE_LIBRARY: DrawioStyleLibrary = {
       id: "youth",
       name: "Vivid",
       version: 1,
+      matchRules: DEFAULT_DRAWIO_STYLE_MATCH_RULES,
       description: "高对比洋红与青蓝，适合演示和强调关键组件。",
       categories: {
         node: { fillColor: "#FFF5FB", strokeColor: "#A82F70", fontColor: "#4C1938", strokeWidth: "1.8", rounded: "1", shadow: "0", fontFamily: "Inter", fontSize: "12" },
@@ -41,6 +43,7 @@ export const DEFAULT_DRAWIO_STYLE_LIBRARY: DrawioStyleLibrary = {
       id: "warm",
       name: "Warm paper",
       version: 1,
+      matchRules: DEFAULT_DRAWIO_STYLE_MATCH_RULES,
       description: "暖纸色、陶土色和橄榄绿，适合文档式架构说明。",
       categories: {
         node: { fillColor: "#FFFCF6", strokeColor: "#9B7A62", fontColor: "#38271F", strokeWidth: "1.5", rounded: "0", shadow: "0", fontFamily: "Inter", fontSize: "12" },
@@ -58,6 +61,7 @@ export const DEFAULT_DRAWIO_STYLE_LIBRARY: DrawioStyleLibrary = {
       id: "midnight",
       name: "Midnight",
       version: 1,
+      matchRules: DEFAULT_DRAWIO_STYLE_MATCH_RULES,
       description: "深色填充与清晰描边，适合深色背景上的演示图。",
       categories: {
         node: { fillColor: "#202C40", strokeColor: "#839BC2", fontColor: "#F0F4FC", strokeWidth: "1.6", rounded: "1", shadow: "0", fontFamily: "Inter", fontSize: "12" },
