@@ -168,23 +168,22 @@ async function runMsagl(
     throw new Error("MSAGL MDS is quadratic for its refinement stage. Use MSAGL Layered or IPSepCola for diagrams above 1,000 nodes.");
   }
   const msagl = await import("@msagl/core");
-  const graph = new msagl.Graph();
+  const graph = new msagl.Graph("studio-native-layout");
   const nodes = new Map<string, InstanceType<typeof msagl.Node>>();
   for (const vertex of vertices) {
-    const node = new msagl.Node(vertex.id);
-    graph.addNode(node);
+    const node = graph.addNode(new msagl.Node(vertex.id));
     nodes.set(vertex.id, node);
   }
-  const inputEdges = new Map<string, InstanceType<typeof msagl.Edge>>();
+
   for (const edge of edges) {
     const source = nodes.get(edge.sourceId);
     const target = nodes.get(edge.targetId);
     if (!source || !target) continue;
-    inputEdges.set(edge.id, new msagl.Edge(source, target));
+    // Edge registers itself with both endpoints; GeomEdge creates its native geometry.
+    new msagl.GeomEdge(new msagl.Edge(source, target));
   }
 
   const geomGraph = new msagl.GeomGraph(graph);
-  const geomNodes = new Map<string, InstanceType<typeof msagl.GeomNode>>();
   for (const vertex of vertices) {
     const node = nodes.get(vertex.id);
     if (!node) continue;
@@ -192,12 +191,6 @@ async function runMsagl(
     geomNode.boundaryCurve = msagl.CurveFactory.mkRectangleWithRoundedCorners(
       Math.max(3, vertex.width), Math.max(2, vertex.height), 4, 4, new msagl.Point(0, 0)
     );
-    geomNodes.set(vertex.id, geomNode);
-  }
-  const geomEdges = new Map<string, InstanceType<typeof msagl.GeomEdge>>();
-  for (const edge of edges) {
-    const nativeEdge = inputEdges.get(edge.id);
-    if (nativeEdge) geomEdges.set(edge.id, new msagl.GeomEdge(nativeEdge));
   }
 
   if (options.algorithm === "layered") {
@@ -212,37 +205,35 @@ async function runMsagl(
     settings.LayerSeparation = options.layerSpacing;
     settings.commonSettings.NodeSeparation = options.nodeSpacing;
     geomGraph.layoutSettings = settings;
-    msagl.layoutGraphWithSugiayma(geomGraph, new msagl.CancelToken(), true);
   } else if (options.algorithm === "mds") {
     const settings = new msagl.MdsLayoutSettings();
     settings.IterationsWithMajorization = Math.min(options.iterations, 100);
     geomGraph.layoutSettings = settings;
-    msagl.layoutGraphWithMds(geomGraph, new msagl.CancelToken());
   } else {
     const settings = new msagl.FastIncrementalLayoutSettings();
     settings.MaxIterations = options.iterations;
     settings.NodeSeparation = options.nodeSpacing;
     geomGraph.layoutSettings = settings;
-    msagl.layoutGeomGraph(geomGraph);
   }
 
+  // Use the supported core-layout entry point for all settings. Renderer-specific
+  // convenience functions are not part of the core geometry contract.
+  msagl.layoutGeomGraph(geomGraph);
+
   const positions = new Map<string, LayoutPoint>();
-  const routes = new Map<string, LayoutPoint[]>();
   for (const vertex of vertices) {
-    const geomNode = geomNodes.get(vertex.id);
-    if (!geomNode) continue;
+    const node = nodes.get(vertex.id);
+    if (!node) continue;
+    const geomNode = msagl.GeomNode.getGeom(node);
     requirePosition(positions, vertex, { x: geomNode.center.x, y: geomNode.center.y });
-  }
-  for (const edge of edges) {
-    const geomEdge = geomEdges.get(edge.id);
-    if (!geomEdge) continue;
-    const points = Array.from(geomEdge.getSmoothPolyPoints()).map((point) => ({ x: point.x, y: point.y }));
-    routes.set(edge.id, points.length > 2 ? points.slice(1, -1) : []);
   }
   if (positions.size !== vertices.length) {
     throw new Error("MSAGL did not return positions for every native Draw.io node.");
   }
-  return { positions, routes };
+
+  // MSAGL represents routes as geometric curves. Keep the adapter on public, stable node
+  // geometry APIs until curve flattening has a tested contract; Draw.io recalculates routes.
+  return { positions, routes: new Map() };
 }
 
 async function runCytoscape(
@@ -277,7 +268,17 @@ async function runCytoscape(
       numIter: options.iterations,
       roots: (() => { const candidates = cy.nodes().filter((node) => !edges.some((edge) => edge.targetId === node.id())); return candidates.length ? candidates : cy.nodes().first(); })()
     } as unknown as cytoscape.LayoutOptions;
-    cy.layout(layoutOptions as never).run();
+    const layout = cy.layout(layoutOptions as never);
+    // Some Cytoscape layouts (notably CoSE) finish asynchronously even when animation is off.
+    // Waiting for layoutstop prevents reading the untouched starting positions.
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Cytoscape layout did not finish within 30 seconds.")), 30_000);
+      layout.one("layoutstop", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      layout.run();
+    });
 
     const positions = new Map<string, LayoutPoint>();
     for (const vertex of vertices) {
