@@ -44,6 +44,44 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.edgeRoutes).toHaveLength(13);
   });
 
+  it("reports nodes and edges outside the selected layout scope instead of claiming full-page coverage", async () => {
+    const scopedXml = `<mxfile host="test"><diagram id="scope" name="Mixed scope"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Overlay" parent="0"/>
+      <mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="100" y="0" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="group" value="Group" vertex="1" parent="1"><mxGeometry x="0" y="100" width="120" height="80" as="geometry"/></mxCell>
+      <mxCell id="nested" value="Nested child" vertex="1" parent="group"><mxGeometry x="10" y="10" width="40" height="20" as="geometry"/></mxCell>
+      <mxCell id="legacy" value="No geometry" vertex="1" parent="1"/>
+      <mxCell id="hidden" value="Hidden" vertex="1" parent="1" visible="0"><mxGeometry x="0" y="200" width="40" height="20" as="geometry"/></mxCell>
+      <mxCell id="edge-ab" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="edge-overlay" edge="1" parent="2" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="edge-no-geometry" edge="1" parent="1" source="a" target="b"/>
+      <mxCell id="edge-missing-target" edge="1" parent="1" source="a"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="edge-nested-target" edge="1" parent="1" source="a" target="nested"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(scopedXml, "scope", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "dagre"
+    });
+
+    expect(plan.coverage).toEqual({
+      sourceVertexCount: 6,
+      plannedVertexCount: 3,
+      untouchedVertexCount: 3,
+      nestedOrOtherLayerVertexCount: 1,
+      verticesWithoutGeometryCount: 1,
+      sourceEdgeCount: 5,
+      plannedEdgeCount: 1,
+      untouchedEdgeCount: 4,
+      edgesOutsideLayoutLayerCount: 1,
+      edgesWithoutGeometryCount: 1,
+      edgesMissingTerminalsCount: 1,
+      edgesWithEndpointsOutsideTargetVerticesCount: 1
+    });
+    expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
+    expect(plan.edgeRoutes.map((route) => route.cellId)).toEqual(["edge-ab"]);
+  });
+
   it("rejects non-layered algorithms for Dagre rather than silently ignoring the selection", async () => {
     await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", algorithm: "radial"
