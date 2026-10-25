@@ -94,7 +94,7 @@ describe("native Draw.io diagram theme presets", () => {
     const secondPage = sourceModel.replaceAll('id="plain"', 'id="plain-second"');
     const source = '<mxfile host="app.diagrams.net" custom="preserve"><diagram id="p1">' + sourceModel + '</diagram><diagram id="p2">' + secondPage + '</diagram></mxfile>';
     const themed = applyDrawioDiagramTheme(source, "warm");
-    expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel)).length).toBe(2);
+    expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel").length).toBe(2);
     expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFF1E6");
     expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFF1E6");
   });
