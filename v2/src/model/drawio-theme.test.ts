@@ -137,6 +137,16 @@ describe("native Draw.io diagram theme presets", () => {
     expect(detectDrawioDiagramTheme(themed, "p1")).toBe("youth");
   });
 
+
+  it("uses the outer object ID when the native mxCell has no own id attribute", () => {
+    const source = '<mxfile><diagram id="page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<object id="wrapped-vertex" label="Wrapped"><mxCell vertex="1" parent="1" style="rounded=1;fillColor=#FFFFFF;strokeColor=#111111;">' +
+      '<mxGeometry x="1" y="2" width="80" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
+    const plan = calculateNativePalettePlan(source, "page", "e".repeat(64), "warm");
+    expect(plan.expectedPageCellIds).toContain("wrapped-vertex");
+    expect(plan.changes.some((change) => change.cellId === "wrapped-vertex" && change.kind === "vertex")).toBe(true);
+  });
+
   it("creates plans for compressed pages and rejects stale/missing active pages", () => {
     const encoded = compressPage(sourceModel);
     const source = '<mxfile><diagram id="compressed">' + encoded + '</diagram></mxfile>';

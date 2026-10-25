@@ -173,6 +173,15 @@ function decodeCompressedPage(page: DrawioDomElement): DrawioDomDocument | null 
 }
 
 
+function nativeXmlCellId(cell: DrawioDomElement): string {
+  // Draw.io can encode a cell's ID on an outer <object>/<UserObject> wrapper, leaving mxCell.id absent.
+  const wrapper = cell.parentElement as DrawioDomElement | null;
+  const wrapperId = wrapper && (wrapper.nodeName === "object" || wrapper.nodeName === "UserObject")
+    ? wrapper.getAttribute("id")
+    : null;
+  return wrapperId || cell.getAttribute("id") || "";
+}
+
 function parseNativePageModel(xml: string, pageId: string | null): { model: DrawioDomElement; pageId: string | null } {
   const parsed = parseXml(xml);
   const root = parsed?.documentElement;
@@ -217,8 +226,8 @@ export function calculateNativePalettePlan(
   if (!palette) throw new Error("Unsupported Draw.io diagram color preset.");
   const parsed = parseNativePageModel(xml, pageId);
   const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as DrawioDomElement[];
-  const ids = cells.map((cell) => cell.getAttribute("id") || "").filter(Boolean);
-  if (ids.length !== cells.length || new Set(ids).size !== ids.length) {
+  const ids = cells.map(nativeXmlCellId);
+  if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
     throw new Error("The active page has missing or duplicate cell IDs; no color changes were planned.");
   }
   const changes: NativePaletteChange[] = [];
@@ -226,7 +235,7 @@ export function calculateNativePalettePlan(
     const kind = cell.getAttribute("vertex") === "1" ? "vertex"
       : cell.getAttribute("edge") === "1" ? "edge" : null;
     if (!kind) continue;
-    const cellId = cell.getAttribute("id") || "";
+    const cellId = nativeXmlCellId(cell);
     const expectedStyle = cell.getAttribute("style") ?? "";
     const style = updateStyleProperties(expectedStyle, themeStyleValues(expectedStyle, kind, palette));
     if (style !== expectedStyle) changes.push({ cellId, kind, expectedStyle, style });
