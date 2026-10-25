@@ -55,7 +55,9 @@ function parseXml(xml: string): DrawioDomDocument | null {
 export function readDrawioModelBackground(xml: string): string | null {
   const parsed = parseXml(xml);
   if (!parsed) return null;
-  const models = findDrawioElements(parsed, "mxGraphModel");
+  const models = parsed.documentElement?.nodeName === "mxGraphModel"
+    ? [parsed.documentElement as DrawioDomElement]
+    : findDrawioElements(parsed, "mxGraphModel");
   if (!models.length) return null;
   const background = models[0]?.getAttribute("background");
   return background?.trim() || null;
@@ -69,7 +71,9 @@ export function applyDrawioThemeBackground(xml: string, background: string): str
   const color = safeColor(background);
   const parsed = parseXml(xml);
   if (!color || !parsed) return xml;
-  const models = findDrawioElements(parsed, "mxGraphModel");
+  const models = parsed.documentElement?.nodeName === "mxGraphModel"
+    ? [parsed.documentElement as DrawioDomElement]
+    : findDrawioElements(parsed, "mxGraphModel");
   let changed = false;
   for (const model of models) {
     if (model.getAttribute("background") !== color) {
@@ -100,7 +104,7 @@ function updateStyleProperties(style: string, values: Record<string, string>): s
   return result;
 }
 
-function isTextOnlyVertex(cell: DrawioDomElement, style: string): boolean {
+function isTextOnlyVertex(style: string): boolean {
   const shape = style.split(";").find((part) => part.trim().startsWith("shape="))?.split("=", 2)[1]?.trim();
   if (shape === "text") return true;
   return style.split(";").some((part) => part.trim() === "text");
@@ -126,7 +130,7 @@ function applyThemeToGraphModel(
     const originalStyle = cell.getAttribute("style") ?? "";
     const values = isEdge
       ? { strokeColor: palette.edgeStroke, fontColor: palette.edgeFont }
-      : isTextOnlyVertex(cell, originalStyle)
+      : isTextOnlyVertex(originalStyle)
         ? { fontColor: palette.vertexFont }
         : { fillColor: palette.vertexFill, strokeColor: palette.vertexStroke, fontColor: palette.vertexFont };
     const nextStyle = updateStyleProperties(originalStyle, values);
