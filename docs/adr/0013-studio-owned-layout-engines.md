@@ -17,7 +17,7 @@ The V2 architecture must keep native Draw.io XML and its editor as the only sour
 
 - Dagre and ELK are supported layout engines in active V2; the shared native-cell layout path also supports Graphviz, MSAGL.js, Cytoscape.js and D3 through adapter modules. They are not legacy dependencies that may be removed as "unused" while auto layout remains in the product.
 - Dagre provides directed layered placement with LR, RL, TB and BT directions.
-- ELK provides configurable Layered, Mr. Tree, Radial, Stress and Force algorithms, with supported direction, node/layer spacing, edge routing, iteration and seed options.
+- ELK provides the algorithms documented in [ADR-0021](./0021-expanded-native-layout-engines.md), with engine-specific direction, spacing, routing, iteration and seed support. Do not remove algorithms simply because a specific adapter does not use all shared settings.
 - The Studio toolbar must expose the engine selection, applicable algorithm/direction settings, spacing and routing controls, as well as an explicit Auto layout action. Applicable algorithm parameters must remain configurable, not hard-coded in a one-off script.
 
 ### 2. Calculate with Studio-owned engines; do not call Draw.io's built-in layout
