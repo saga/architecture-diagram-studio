@@ -1,10 +1,72 @@
 import dagre from "@dagrejs/dagre";
 import ELK from "elkjs/lib/elk.bundled.js";
+import { calculateAdditionalNativeLayout } from "./additional-layout-engines";
 import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
-export type NativeAutoLayoutEngine = "elk" | "dagre";
-export type NativeAutoLayoutAlgorithm = "layered" | "mrtree" | "radial" | "stress" | "force";
+export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
+export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
+export const NATIVE_AUTO_LAYOUT_ALGORITHMS = [
+  "layered", "mrtree", "radial", "stress", "force", "box", "rectpacking", "random",
+  "dot", "neato", "fdp", "sfdp", "circo", "twopi",
+  "mds", "ipsepcola",
+  "breadthfirst", "circle", "concentric", "grid", "cose",
+  "tree", "cluster"
+] as const;
+export type NativeAutoLayoutAlgorithm = (typeof NATIVE_AUTO_LAYOUT_ALGORITHMS)[number];
+
+export const NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE: Record<NativeAutoLayoutEngine, Array<{ value: NativeAutoLayoutAlgorithm; label: string }>> = {
+  elk: [
+    { value: "layered", label: "Layered · flow" }, { value: "mrtree", label: "Mr. Tree" },
+    { value: "radial", label: "Radial" }, { value: "stress", label: "Stress · relationships" },
+    { value: "force", label: "Force · organic" }, { value: "box", label: "Box packing" },
+    { value: "rectpacking", label: "Rectangle packing" }, { value: "random", label: "Random placement" }
+  ],
+  dagre: [{ value: "layered", label: "Layered · flow" }],
+  graphviz: [
+    { value: "dot", label: "dot · hierarchical" }, { value: "neato", label: "neato · spring model" },
+    { value: "fdp", label: "fdp · force-directed" }, { value: "sfdp", label: "sfdp · large graphs" },
+    { value: "circo", label: "circo · circular" }, { value: "twopi", label: "twopi · radial" }
+  ],
+  msagl: [
+    { value: "layered", label: "Sugiyama · layered" }, { value: "mds", label: "MDS · distance-based" },
+    { value: "ipsepcola", label: "IPSepCola · separation" }
+  ],
+  cytoscape: [
+    { value: "breadthfirst", label: "Breadth-first" }, { value: "circle", label: "Circle" },
+    { value: "concentric", label: "Concentric" }, { value: "grid", label: "Grid" },
+    { value: "random", label: "Random" }, { value: "cose", label: "CoSE force-directed" }
+  ],
+  d3: [
+    { value: "tree", label: "Tree" }, { value: "cluster", label: "Cluster" },
+    { value: "force", label: "Force simulation" }
+  ]
+};
+
+export function nativeLayoutAlgorithmsForEngine(engine: NativeAutoLayoutEngine) {
+  return NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE[engine];
+}
+
+export function defaultNativeLayoutAlgorithm(engine: NativeAutoLayoutEngine): NativeAutoLayoutAlgorithm {
+  switch (engine) {
+    case "dagre": return "layered";
+    case "graphviz": return "dot";
+    case "msagl": return "layered";
+    case "cytoscape": return "breadthfirst";
+    case "d3": return "tree";
+    case "elk": return "layered";
+  }
+}
+
+export function nativeLayoutSupportsAlgorithm(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
+  return NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE[engine].some((item) => item.value === algorithm);
+}
+
+export function nativeLayoutSupportsDirection(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
+  if (engine === "elk") return !["radial", "force", "box", "rectpacking", "random"].includes(algorithm);
+  // Non-layered adapters without a native direction setting use the shared coordinate transform.
+  return true;
+}
 export type NativeAutoLayoutDirection = "RIGHT" | "LEFT" | "DOWN" | "UP";
 export type NativeAutoLayoutEdgeRouting = "ORTHOGONAL" | "POLYLINE" | "SPLINES";
 
@@ -395,7 +457,9 @@ export async function calculateNativeAutoLayout(
   if (!documentRevision || !/^[a-f0-9]{64}$/i.test(documentRevision)) {
     throw new Error("Auto layout requires the revision of the exact native Draw.io XML snapshot.");
   }
-  if (options.engine === "dagre" && options.algorithm !== "layered") {
+  if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
+    throw new Error("The selected algorithm is not supported by the chosen layout engine.");
+  }\n  if (options.engine === "dagre" && options.algorithm !== "layered") {
     throw new Error(`Dagre supports only the layered algorithm; “${options.algorithm}” is not available for this engine. Choose ELK for other algorithms.`);
   }
   const projection = projectNativePage(xml, pageId);
@@ -403,11 +467,29 @@ export async function calculateNativeAutoLayout(
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page.");
   }
 
-  const nodeById = new Map(projection.vertices.map((node) => [node.id, node] as const));
+  if (options.engine === "elk" && (options.algorithm === "box" || options.algorithm === "rectpacking") && projection.edges.length > 0) {
+    throw new Error("ELK Box and Rectangle packing are intended for unconnected nodes. Choose a graph layout algorithm for diagrams with connectors.");
+  }\n\n  const nodeById = new Map(projection.vertices.map((node) => [node.id, node] as const));
   const positions = new Map<string, Point>();
   const routes = new Map<string, Point[]>();
 
-  if (options.engine === "dagre") {
+  if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {
+    const result = await calculateAdditionalNativeLayout(
+      projection.vertices,
+      projection.edges.filter((edge) => edge.sourceId && edge.targetId).map((edge) => ({
+        id: edge.id, sourceId: edge.sourceId!, targetId: edge.targetId!
+      })),
+      options
+    );
+    for (const [id, point] of result.positions) positions.set(id, point);
+    for (const [id, points] of result.routes) routes.set(id, points);
+    if (options.engine === "cytoscape" ||
+        (options.engine === "graphviz" && options.algorithm !== "dot") ||
+        (options.engine === "d3" && options.algorithm === "force") ||
+        (options.engine === "msagl" && options.algorithm !== "layered")) {
+      emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
+    }
+  } else if (options.engine === "dagre") {
     const graph = new dagre.graphlib.Graph({ multigraph: true });
     graph.setDefaultEdgeLabel(() => ({}));
     const rankdir: Record<NativeAutoLayoutDirection, "LR" | "RL" | "TB" | "BT"> = {

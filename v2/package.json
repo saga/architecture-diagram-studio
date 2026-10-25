@@ -31,9 +31,14 @@
     "react-dom": "^19.1.0",
     "undici": "^8.12.3",
     "zod": "^4.6.7",
-    "@dagrejs/dagre":"^3.1.2",
+    "@dagrejs/dagre": "^3.1.2",
     "elkjs": "^0.12.0",
-    "picomatch": "^4.0.7"
+    "picomatch": "^4.0.7",
+    "@hpcc-js/wasm-graphviz": "^1.8.0",
+    "@msagl/core": "^1.1.24",
+    "cytoscape": "^3.34.4",
+    "d3-force": "^3.0.0",
+    "d3-hierarchy": "^3.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
@@ -46,7 +51,9 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-hierarchy": "^3.1.7"
   },
   "engines": {
     "node": ">=22.13"

@@ -153,7 +153,7 @@ function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): s
     return "Review the native Draw.io script and expected postcondition checks before applying it. Studio only confirms success if the serialized XML and script verification results pass.";
   }
   if (operations.some((operation) => operation.op === "auto_layout")) {
-    return "Review this whole-page layout change before applying it. Studio will calculate positions with its configured Dagre/ELK engine, then update only native cell geometry and connector waypoints.";
+    return "Review this whole-page layout change before applying it. Studio will calculate positions with its configured layout engine, then update only native cell geometry and connector waypoints.";
   }
   if (operations.some((operation) => operation.op === "delete")) {
     return "This change deletes existing diagram elements. Confirm before applying it.";
@@ -593,7 +593,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit a batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned Dagre/ELK layout. This is a convenience fast path, not a limit on Draw.io capability. For notation changes or other graph operations, use run_drawio_script against the live editor and preserve existing cells unless the user explicitly requests their removal. No confirmation is required in local single-user mode. Never fabricate cell IDs; use exact IDs or uniquely resolved labels.",
+      description: "Submit a batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. For notation changes or other graph operations, use run_drawio_script against the live editor and preserve existing cells unless the user explicitly requests their removal. No confirmation is required in local single-user mode. Never fabricate cell IDs; use exact IDs or uniquely resolved labels.",
       parameters: {
         type: "object",
         properties: {

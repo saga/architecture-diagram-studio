@@ -1,7 +1,7 @@
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 import { z } from "zod";
-import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeLayoutPlan } from "../layout/native-layout";
+import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_AUTO_LAYOUT_ALGORITHMS, nativeLayoutSupportsAlgorithm, type NativeLayoutPlan } from "../layout/native-layout";
 
 /**
  * Shared contract for native Draw.io cell edits.
@@ -183,10 +183,10 @@ const nativeEditOperationOptions = {
   autoLayout: z.object({
     op: z.literal("auto_layout"),
     target: z.literal("active_page").describe("Always target the active native Draw.io page. Auto-layout is a whole-page operation and must be the only item in the batch."),
-    engine: z.enum(["elk", "dagre"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine)
+    engine: z.enum(NATIVE_AUTO_LAYOUT_ENGINES).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine)
       .describe("Studio-owned layout engine; never call Draw.io's built-in layout action."),
-    algorithm: z.enum(["layered", "mrtree", "radial", "stress", "force"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm)
-      .describe("ELK algorithm; Dagre uses directed layered placement."),
+    algorithm: z.enum(NATIVE_AUTO_LAYOUT_ALGORITHMS).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.algorithm)
+      .describe("Algorithm supported by the selected layout engine."),
     direction: z.enum(["RIGHT", "LEFT", "DOWN", "UP"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction)
       .describe("Layout direction."),
     nodeSpacing: z.number().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
@@ -268,8 +268,8 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
       if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
       operations.push(operation);
     } else if (operation.op === "auto_layout") {
-      if (operation.engine === "dagre" && operation.algorithm !== "layered") {
-        return { ok: false, error: `Operation ${index + 1}: Dagre does not support the requested “${operation.algorithm}” algorithm. Select “layered” or use the ELK engine.` };
+      if (!nativeLayoutSupportsAlgorithm(operation.engine, operation.algorithm)) {
+        return { ok: false, error: `Operation ${index + 1}: algorithm “${operation.algorithm}” is not supported by “${operation.engine}”.` };
       }
       operations.push(operation);
     } else {
@@ -291,7 +291,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
     case "run_drawio_script": return operation.summary;
-    case "auto_layout": return "Auto-layout the active page using " + (operation.engine === "elk" ? "ELK " + operation.algorithm : "Dagre") +
+    case "auto_layout": return "Auto-layout the active page using " + operation.engine + " " + operation.algorithm +
       " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
@@ -355,7 +355,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         edits.push({ cellId, path: "cell:execute-script", value: operation.script });
         break;
       case "auto_layout": {
-        if (!layoutPlan) return { ok: false, error: "The Dagre/ELK layout plan was not calculated from the current native XML revision." };
+        if (!layoutPlan) return { ok: false, error: "The layout plan was not calculated from the current native XML revision." };
         const expectedPage = getNativeDiagramPageInfo(xml, pageId).id;
         const revisionMatches = /^[a-f0-9]{64}$/i.test(layoutPlan.documentRevision);
         const optionsMatch = layoutPlan.engine === operation.engine &&
