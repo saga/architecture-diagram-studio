@@ -125,6 +125,10 @@ export interface NativeLayoutExpectedCell {
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
   documentRevision: string;
   pageId: string | null;
+  /** The single visible native layer targeted by this plan. Draw.io's default layer is ID "1". */
+  layoutLayerId: string | null;
+  /** True when the default layer had no eligible vertices and one other visible layer was unambiguous. */
+  layoutLayerFallback: boolean;
   /** Every native cell ID on the source page, used for an optimistic stale-page check. */
   expectedPageCellIds: string[];
   /** Pre-mutation geometry and terminals for all cells used by this plan. */
@@ -151,6 +155,12 @@ interface NativePageProjection {
   pageId: string | null;
   pageTitle: string | null;
   allCellIds: string[];
+  layoutLayerId: string | null;
+  layoutLayerFallback: boolean;
+  visibleLayerSummaries: Array<{ id: string; vertexCount: number; edgeCount: number }>;
+  sourceVertexCount: number;
+  sourceVertexWithGeometryCount: number;
+  verticesWithNonLayerParents: number;
   vertices: ProjectedCell[];
   edges: ProjectedCell[];
 }
@@ -264,23 +274,53 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   }
 
   const all = Array.from(byId.values());
-  // Lay out one native layer at a time. The first root-level layer in mxGraphModel is Draw.io's
-  // default layer (normally ID "1"); cells in other layers and nested groups remain untouched.
-  const defaultLayer = all.find((cell) => cell.parentId === "0" && cell.kind === "other" && cell.visible);
-  const defaultLayerId = defaultLayer?.id ?? null;
-  const vertices = all.filter((cell) =>
-    cell.kind === "vertex" &&
-    cell.hasGeometry &&
-    cell.parentId === defaultLayerId &&
-    cell.visible &&
-    cell.width > 0 &&
-    cell.height > 0
+  // Draw.io's conventional default layer is ID "1". Do not infer it from XML order:
+  // other visible layers can legally occur first in the root cell list.
+  const rootLayers = all.filter((cell) =>
+    cell.parentId === "0" && cell.kind === "other" && cell.visible
   );
+  const canonicalDefaultLayer = rootLayers.find((cell) => cell.id === "1") ?? null;
+  let layoutLayer = canonicalDefaultLayer ?? rootLayers[0] ?? null;
+  let layoutLayerFallback = !canonicalDefaultLayer && layoutLayer !== null;
+
+  const eligibleVerticesForLayer = (layerId: string | null): ProjectedCell[] => {
+    if (!layerId) return [];
+    return all.filter((cell) =>
+      cell.kind === "vertex" &&
+      cell.hasGeometry &&
+      cell.parentId === layerId &&
+      cell.visible &&
+      cell.width > 0 &&
+      cell.height > 0
+    );
+  };
+  const visibleLayerSummaries = rootLayers.map((layer) => ({
+    id: layer.id,
+    vertexCount: eligibleVerticesForLayer(layer.id).length,
+    edgeCount: all.filter((cell) =>
+      cell.kind === "edge" && cell.hasGeometry && cell.parentId === layer.id && cell.visible
+    ).length
+  }));
+
+  let vertices = eligibleVerticesForLayer(layoutLayer?.id ?? null);
+  if (vertices.length === 0) {
+    // Some valid files keep the default layer empty and place the entire diagram on one
+    // named layer. Supporting that unambiguous case avoids a false "no vertices" failure,
+    // while refusing to guess when multiple other layers contain independent content.
+    const populatedLayers = rootLayers.filter((layer) => eligibleVerticesForLayer(layer.id).length > 0);
+    if (populatedLayers.length === 1 && populatedLayers[0].id !== layoutLayer?.id) {
+      layoutLayer = populatedLayers[0];
+      vertices = eligibleVerticesForLayer(layoutLayer.id);
+      layoutLayerFallback = true;
+    }
+  }
+
+  const layoutLayerId = layoutLayer?.id ?? null;
   const vertexIds = new Set(vertices.map((cell) => cell.id));
   const edges = all.filter((cell) =>
     cell.kind === "edge" &&
     cell.hasGeometry &&
-    cell.parentId === defaultLayerId &&
+    cell.parentId === layoutLayerId &&
     cell.visible &&
     cell.sourceId &&
     cell.targetId &&
@@ -288,10 +328,18 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     vertexIds.has(cell.targetId)
   );
 
+  const rootLayerIds = new Set(rootLayers.map((layer) => layer.id));
+  const sourceVertices = all.filter((cell) => cell.kind === "vertex");
   return {
     pageId: parsed.pageId,
     pageTitle: parsed.pageTitle,
     allCellIds: Array.from(seenCellIds).sort(),
+    layoutLayerId,
+    layoutLayerFallback,
+    visibleLayerSummaries,
+    sourceVertexCount: sourceVertices.length,
+    sourceVertexWithGeometryCount: sourceVertices.filter((cell) => cell.hasGeometry).length,
+    verticesWithNonLayerParents: sourceVertices.filter((cell) => !rootLayerIds.has(cell.parentId ?? "")).length,
     vertices,
     edges
   };
@@ -392,6 +440,19 @@ export function emulateEmbeddedFlowDirection(
   }
 }
 
+function describeEmptyLayoutScope(projection: NativePageProjection): string {
+  const layers = projection.visibleLayerSummaries.length
+    ? projection.visibleLayerSummaries.map((layer) =>
+        layer.id + " (" + layer.vertexCount + " eligible vertices, " + layer.edgeCount + " edges)"
+      ).join(", ")
+    : "none";
+  return "No top-level native Draw.io vertices with geometry were found on the active page. " +
+    "XML inventory: " + projection.sourceVertexCount + " vertex cells, " +
+    projection.sourceVertexWithGeometryCount + " with geometry, " +
+    projection.verticesWithNonLayerParents + " with a parent outside visible root layers. " +
+    "Visible root layers: " + layers + ". Layout does not guess between multiple populated layers.";
+}
+
 function normalizePlan(
   projection: NativePageProjection,
   options: NativeAutoLayoutOptions,
@@ -448,6 +509,8 @@ function normalizePlan(
     direction: mapDirection(options.direction),
     documentRevision,
     pageId: projection.pageId,
+    layoutLayerId: projection.layoutLayerId,
+    layoutLayerFallback: projection.layoutLayerFallback,
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),
     positions: nativePositions,
@@ -475,7 +538,7 @@ export async function calculateNativeAutoLayout(
   }
   const projection = projectNativePage(xml, pageId);
   if (projection.vertices.length === 0) {
-    throw new Error("No top-level native Draw.io vertices with geometry were found on the active page.");
+    throw new Error(describeEmptyLayoutScope(projection));
   }
 
   if (options.engine === "elk" && (options.algorithm === "box" || options.algorithm === "rectpacking") && projection.edges.length > 0) {
