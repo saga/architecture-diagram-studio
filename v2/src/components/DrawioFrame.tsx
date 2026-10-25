@@ -753,7 +753,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) {
               rejectPendingAutoLayout(new Error("Draw.io auto layout returned invalid XML; the previous saved source was preserved."));
             }
-            if (pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { error: new Error("Draw.io diagram-style operation returned invalid XML; the previous saved source was preserved.") });
+            if (exportSerialization && pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { error: new Error("Draw.io diagram-style operation returned invalid XML; the previous saved source was preserved.") });
             return;
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
@@ -807,7 +807,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           }
           if (duplicateXml) {
             for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
-            if (pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { xml: data.xml });
+            if (exportSerialization && pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { xml: data.xml });
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
             return;
           }
@@ -816,7 +816,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             event: data.event, xmlLength: data.xml.length
           });
           onDocumentChangeRef.current(data.xml);
-          if (pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { xml: data.xml });
+          if (exportSerialization && pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { xml: data.xml });
           for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
           if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
         } catch (error) {
