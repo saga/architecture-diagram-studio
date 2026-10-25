@@ -40,7 +40,8 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
   layer.children.push(a, b);
   a.parent = layer;
   b.parent = layer;
-  const cells = new Map([root, layer, a, b].map((cell) => [cell.id, cell]));
+  const cells = new Map<string, NativeCell>();
+  [root, layer, a, b].forEach((cell) => cells.set(cell.id, cell));
 
   const undoEntries: unknown[] = [{ id: "pre-existing-undo" }];
   const redoEntries: unknown[] = [{ id: "pre-existing-redo" }];
