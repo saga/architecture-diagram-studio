@@ -155,6 +155,15 @@ function decodeCompressedPage(page: DrawioDomElement): DrawioDomDocument | null 
   }
 }
 
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+  }
+  return btoa(binary);
+}
+
 function encodeCompressedPage(document: DrawioDomDocument): string {
   const encodedXml = encodeURIComponent(serializeDrawioXml(document));
   return encodeBase64(deflateSync(strToU8(encodedXml)));
