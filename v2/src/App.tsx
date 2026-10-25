@@ -5,6 +5,7 @@ import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
+import { applyDrawioDiagramTheme, type DrawioDiagramTheme } from "./model/drawio-theme";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
 import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
@@ -21,6 +22,7 @@ type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
+type DiagramTheme = "editorial" | "youth" | "warm" | "midnight";
 
 const NATIVE_LAYOUT_STORAGE_KEY = "architecture-diagram-studio:v2:native-layout-options";
 const NATIVE_LAYOUT_ENGINES: Array<{ value: NativeAutoLayoutOptions["engine"]; label: string }> = [
@@ -74,7 +76,7 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
     return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
   }
 }
-/** Ant Design primary colour per theme, so library-rendered controls match the studio palette. */
+/** The persisted application appearance remains independent from the Draw.io diagram color preset. */
 const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
 function loadSavedTheme(): UiTheme {
   try {
@@ -82,11 +84,10 @@ function loadSavedTheme(): UiTheme {
     const versionKey = "architecture-diagram-studio:v2:ui-theme-version";
     const saved = window.localStorage.getItem(storageKey);
     const migrated = window.localStorage.getItem(versionKey) === "2";
-    // "editorial" was the cold, low-contrast default before the theme chooser existed.
-    // Migrate that default once, while preserving an already-selected vibrant/warm/dark theme.
+    // Preserve the existing one-time migration from the legacy Editorial default to Warm.
     if (saved === "editorial" && !migrated) return "warm";
     if (saved === "editorial" || saved === "youth" || saved === "warm" || saved === "midnight") return saved;
-  } catch { /* Theme selection is optional when browser storage is disabled. */ }
+  } catch { /* Keep the default appearance when browser storage is unavailable. */ }
   return "warm";
 }
 type PanelWidths = { right: number };
@@ -143,7 +144,9 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
-  const [uiTheme, setUiTheme] = useState<UiTheme>(() => loadSavedTheme());
+  const [uiTheme] = useState<UiTheme>(() => loadSavedTheme());
+  const [diagramTheme, setDiagramTheme] = useState<DiagramTheme | "">("");
+  const [diagramThemeApplying, setDiagramThemeApplying] = useState(false);
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [activePage, setActivePage] = useState<WorkspacePage>("diagram");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
@@ -501,16 +504,6 @@ export default function App() {
     }
   }, [messages]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme", uiTheme);
-      window.localStorage.setItem("architecture-diagram-studio:v2:ui-theme-version", "2");
-    } catch {
-      // The selected theme remains active in memory for this session.
-    }
-    recordDiagnostic("ui.theme.changed", "Updated the interface colour theme", { theme: uiTheme });
-  }, [uiTheme]);
-
   const { sendIntent, confirmProposal } = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
@@ -594,6 +587,107 @@ export default function App() {
       });
     }
   });
+
+  async function applyDiagramTheme(theme: DrawioDiagramTheme) {
+    if (diagramThemeApplying) return;
+    if (!projectWorkspace && !standaloneFileBindingRef.current) {
+      setLastAction("Open or create a Draw.io document before applying a diagram color preset.");
+      return;
+    }
+
+    setDiagramThemeApplying(true);
+    const sourceXml = latestDiagramStateRef.current.drawioXml;
+    const nextXml = applyDrawioDiagramTheme(sourceXml, theme);
+    const labels: Record<DiagramTheme, string> = {
+      editorial: "Editorial",
+      youth: "Vivid",
+      warm: "Warm",
+      midnight: "Midnight"
+    };
+    const presetLabel = labels[theme];
+    const saveLabel = "Apply Draw.io diagram theme: " + presetLabel;
+    let standaloneWriteCompleted = false;
+
+    if (nextXml === sourceXml) {
+      setLastAction("No themeable Draw.io vertices or connectors were found; no changes were made.");
+      recordDiagnostic("drawio.theme.noop", "The selected diagram color preset did not change the native XML", {
+        theme, xmlLength: sourceXml.length
+      });
+      setDiagramThemeApplying(false);
+      return;
+    }
+
+    setDocumentSaveState("saving");
+    setLastAction("Applying Draw.io diagram color preset: " + presetLabel + "…");
+    try {
+      if (standaloneFileBindingRef.current) {
+        const binding = standaloneFileBindingRef.current;
+        const requestId = ++cellEditRequestSequenceRef.current;
+        await archiveStandaloneHistory("Before diagram theme: " + presetLabel, requestId);
+        await enqueueStandaloneSave(nextXml, binding.fileToken);
+        const currentBinding = standaloneFileBindingRef.current;
+        if (!currentBinding || currentBinding.fileToken !== binding.fileToken) {
+          throw new Error("The active local file changed while the diagram theme was being saved.");
+        }
+        // enqueueStandaloneSave resolves only after the browser file write succeeds.
+        // Keep the UI's authoritative XML in sync even if the follow-up revision check fails.
+        standaloneWriteCompleted = true;
+        const expectedRevision = await calculateDrawioXmlRevision(nextXml);
+        if (currentBinding.revision !== expectedRevision) {
+          throw new Error("The selected local file did not confirm the exact themed XML revision.");
+        }
+        standaloneLastSavedXmlRef.current = nextXml;
+        setNativeXmlOverride(nextXml);
+        setRevision((value) => value + 1);
+        setDiagramTheme(theme);
+        setDocumentSaveState("saved");
+        try {
+          await synchronizeStandaloneSnapshot(nextXml, currentBinding.fileToken, saveLabel);
+          setLastAction("Applied the " + presetLabel + " diagram theme and saved the Draw.io file.");
+        } catch (historyError) {
+          const message = historyError instanceof Error ? historyError.message : String(historyError);
+          setLastAction("Applied the " + presetLabel + " diagram theme and saved the file, but history sync failed: " + message);
+          recordDiagnostic("drawio.theme.history-sync.failed", "The themed standalone file was saved but its history snapshot could not be synchronized", {
+            theme, fileName: currentBinding.name, errorMessage: message, xmlLength: nextXml.length
+          }, "warn");
+        }
+      } else if (projectWorkspace && workspaceContentReady) {
+        const saved = await persistDocumentNow(nextXml, saveLabel);
+        if (typeof saved.workspaceRevision !== "string" || typeof saved.version?.id !== "string") {
+          throw new Error(saved.error || "The workspace did not confirm the saved themed XML revision and version.");
+        }
+        setNativeXmlOverride(nextXml);
+        setRevision((value) => value + 1);
+        setDiagramTheme(theme);
+        setDocumentSaveState("saved");
+        setLastAction("Applied the " + presetLabel + " diagram theme and saved a new Draw.io version.");
+      } else {
+        throw new Error("The active Draw.io document is not ready for a versioned save.");
+      }
+
+      recordDiagnostic("drawio.theme.applied", "Applied a named color preset to native Draw.io vertex and edge styles", {
+        theme, sourceXmlLength: sourceXml.length, themedXmlLength: nextXml.length,
+        persistence: standaloneWriteCompleted ? "standalone-file" : "workspace"
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (standaloneWriteCompleted) {
+        setLastAction("The Draw.io file was themed and saved, but follow-up processing failed: " + message);
+        setDocumentSaveState("saved");
+        setDiagramTheme(theme);
+        setNativeXmlOverride(nextXml);
+      } else {
+        setDocumentSaveState("failed");
+        setLastAction("Could not apply the Draw.io diagram theme; the document was not changed: " + message);
+      }
+      recordDiagnostic("drawio.theme.failed", "Could not complete the native Draw.io diagram theme operation", {
+        theme, errorMessage: message, sourceXmlLength: sourceXml.length, themedXmlLength: nextXml.length,
+        sourceWasWritten: standaloneWriteCompleted
+      }, "error");
+    } finally {
+      setDiagramThemeApplying(false);
+    }
+  }
 
   async function saveAISettings() {
     const next = { model: aiModel.trim(), reasoningEffort };
@@ -1310,16 +1404,16 @@ export default function App() {
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
-        <label className="theme-selector" title="Switch the color theme of the whole workspace">
+        <label className="theme-selector" title="Apply a color preset to Draw.io elements and connectors">
           <span aria-hidden="true">◐</span>
-          <UiSelect value={uiTheme} aria-label="Interface color theme" popupMatchSelectWidth={false} onChange={(event) => {
-            const nextTheme = event.target.value as UiTheme;
-            setUiTheme(nextTheme);
-            // Theme selection changes the editor chrome only; native cell styles stay untouched.
+          <UiSelect value={diagramTheme} disabled={diagramThemeApplying} aria-label="Draw.io diagram color theme" popupMatchSelectWidth={false} onChange={(event) => {
+            const nextTheme = event.target.value as DiagramTheme;
+            if (nextTheme) void applyDiagramTheme(nextTheme);
           }}>
+            <option value="" disabled>Diagram colors</option>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
-            <option value="warm">Warm paper</option>
+            <option value="warm">Warm</option>
             <option value="midnight">Midnight</option>
           </UiSelect>
         </label>
@@ -1508,7 +1602,7 @@ export default function App() {
         </Modal>
 
         <div className="canvas-stage">
-                      <DrawioFrame ref={drawioFrameRef} xml={drawioXml} theme={uiTheme}
+                      <DrawioFrame ref={drawioFrameRef} xml={drawioXml}
             onNativeEditResult={async (result) => {
               const requestId = result.requestId;
               const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);

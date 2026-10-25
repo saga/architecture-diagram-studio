@@ -1,6 +1,6 @@
 import { expect, test } from "./support/test";
 import { decodeDrawioPageXml } from "../src/model/drawio-xml-schema";
-import { parseDrawioXml } from "../src/model/drawio-xml-dom";
+import { parseDrawioXml, serializeDrawioXml } from "../src/model/drawio-xml-dom";
 import type { WorkspaceFixture } from "./support/fixtures";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
@@ -110,6 +110,61 @@ test.describe("原生画布", () => {
     await expect(page.locator(".status-native")).toHaveAttribute("title", /AI scripts use the live editor API and save through Studio/);
   });
 
+  test("图形主题直接重着色 Draw.io XML，保持应用主题、页面背景和网格", async ({ page, request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
+    const initialXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
+    const sourceDocument = parseDrawioXml(initialXml);
+    const models = sourceDocument.getElementsByTagName("mxGraphModel");
+    expect(models.length).toBeGreaterThan(0);
+    models.item(0)?.setAttribute("background", "#FFFF66");
+    const documentXml = serializeDrawioXml(sourceDocument);
+    expect(documentXml).not.toBe(initialXml);
+    const savedFixture = await request.put("/api/workspace/document", {
+      data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
+    });
+    expect(savedFixture.status(), await savedFixture.text()).toBe(200);
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    const inspectCanvas = async () => nativeFrame(page).locator("body").evaluate(() => {
+      const page = document.querySelector<HTMLElement>(".geBackgroundPage");
+      return {
+        color: page ? getComputedStyle(page).backgroundColor : null,
+        image: page ? getComputedStyle(page).backgroundImage : null,
+        themeOverlay: Boolean(document.querySelector("#studio-native-theme"))
+      };
+    });
+    await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
+      color: "rgb(255, 255, 102)",
+      themeOverlay: false
+    });
+    expect((await inspectCanvas())?.image).not.toBe("none");
+
+    await page.locator(".theme-selector .ant-select").click();
+    await page.getByText("Vivid", { exact: true }).click();
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
+    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
+      .toContain("fillColor=#FCE7F3");
+    await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
+      color: "rgb(255, 255, 102)",
+      themeOverlay: false
+    });
+    expect((await inspectCanvas())?.image).not.toBe("none");
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
+    const reloadedCanvas = await inspectCanvas();
+    expect(reloadedCanvas).toMatchObject({ color: "rgb(255, 255, 102)", themeOverlay: false });
+    expect(reloadedCanvas?.image).not.toBe("none");
+    const savedXml = await readWorkspaceXml(workspace);
+    expect(savedXml).toContain('background="#FFFF66"');
+    expect(savedXml).toContain('grid="1"');
+    expect(savedXml).toContain("fillColor=#FCE7F3");
+  });
+
   test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
     const ids = ["client", "api", "worker", "queue", "database"];
     const beforeXml = await readWorkspaceXml(workspace);
@@ -177,8 +232,8 @@ test.describe("原生画布", () => {
     const startY = box!.y + box!.height / 2;
     await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(startX + 40, startY + 16, { steps: 8 });
-    await page.mouse.move(startX + 140, startY + 56, { steps: 12 });
+    // Use the same direct drag trajectory as the neighboring reload-after-drag test.
+    await page.mouse.move(startX + 120, startY + 40, { steps: 14 });
     await page.mouse.up();
 
     await expect

@@ -54,20 +54,7 @@ test.describe("工作区导航与外观", () => {
     await expect(page.locator(".status-native")).toContainText("Native editor ready");
   });
 
-  test("切换主题会同步到原生画布背景，并在刷新后保留", async ({ page }) => {
-    const frame = nativeFrameHandle(page);
-    const canvasBackground = () => frame.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    await expect.poll(canvasBackground, { timeout: 20_000 }).toBe("rgb(255, 252, 246)");
-    await page.locator(".theme-selector .ant-select").click();
-    await page.getByText("Vivid", { exact: true }).click();
-    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "youth");
-    await expect.poll(canvasBackground, { timeout: 20_000 }).toBe("rgb(255, 250, 255)");
-    await page.reload();
-    await waitForNativeEditor(page);
-    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "youth");
-    await expect.poll(() => nativeFrameHandle(page).evaluate(() => getComputedStyle(document.body).backgroundColor), { timeout: 20_000 })
-      .toBe("rgb(255, 250, 255)");
-  });
+
 
   test("服务端只保存模型与 reasoning 配置", async ({ page, request }) => {
     await page.locator('nav[aria-label="Workspace pages"]').getByRole("button", { name: "Settings" }).click();

@@ -1,8 +1,10 @@
 # ADR-0007: Unified Theme Adapter for Native Draw.io
 
-- Status: Accepted
+- Status: Superseded by ADR-0020
 - Date: 2026-10-22
 - Related: [ADR-0006 — Draw.io XML as the Single Source of Truth](./0006-drawio-xml-single-source-of-truth.md)
+
+> Historical record only. [ADR-0020](./0020-native-drawio-diagram-theme-presets.md) replaces this decision: the selector changes native Draw.io element/connector styles, not the Studio UI theme. The old iframe CSS injection and graph-background theming behavior are removed.
 
 ## Context
 

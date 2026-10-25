@@ -1064,17 +1064,6 @@
         return;
       }
       if (!studioParentOrigin || event.origin !== studioParentOrigin) return;
-      if (request.event === "studioPresentationThemeRequest") {
-        if (typeof request.css !== "string" || request.css.length > 50_000) return;
-        var themeStyle = document.getElementById("studio-native-theme");
-        if (!themeStyle) {
-          themeStyle = document.createElement("style");
-          themeStyle.id = "studio-native-theme";
-          document.head.appendChild(themeStyle);
-        }
-        themeStyle.textContent = request.css;
-        return;
-      }
       if (request.event === "studioNativeLayoutRequest") {
         try {
           var layoutGraph = currentGraph();

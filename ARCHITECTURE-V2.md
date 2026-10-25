@@ -36,6 +36,10 @@ V2 does not include the former `DiagramDocument` model, semantic fixtures/templa
 
 A future provider should reuse the shared XML parser/schema, target resolver, typed operation validation, plugin bridge, editor acknowledgement, and XML revision/version path. Adding a new native operation requires synchronized updates to the operation union/schema, server validation, bridge execution and tests. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
 
+## Native Draw.io diagram color presets
+
+The Diagram colors selector is an explicit document operation, not a Studio appearance setting. It updates the native XML style properties of vertices and connectors across ordinary and compressed pages, then follows the active workspace or standalone-file save/version path. Existing cell colors are intentionally replaced by the selected palette; non-color styles, geometry, labels, connections, page backgrounds, grid settings, and unrelated XML metadata are preserved. Studio does not inject a stylesheet that paints over the native Draw.io graph SVG. See [ADR-0020](docs/adr/0020-native-drawio-diagram-theme-presets.md).
+
 ## Explicit non-goals
 
 V2 does not restore the old semantic graph model or directly port the old SVG/React Flow renderer or DiagramDocument-based quality pipeline. V2 explicitly ships Studio-owned Dagre/ELK layout against native mxCells (ADR-0013). Future capabilities must not introduce a parallel persisted model or replace the complete XML.
@@ -49,7 +53,7 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 | src/model/drawio-xml-schema.ts | Draw.io XML and encoded-page validation |
 | src/model/native-edit-operations.ts | Typed native operations and active-page cell index |
 | src/model/native-diagram-capabilities.ts | Extension contracts for future native operation planners and read-only analyzers |
-| src/model/drawio-theme.ts | Editor background/theme adapter |
+| src/model/drawio-theme.ts | Native Draw.io cell color-preset transformation; page backgrounds/grid remain Draw.io-owned |
 | src/hooks/useWorkspaceBootstrap.ts | Loads XML without conversion |
 | src/hooks/useWorkspacePersistence.ts | Persists exact XML and chat state |
 | src/intent/aiProvider.ts | Native edit request/response contract |
