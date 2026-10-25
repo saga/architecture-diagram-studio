@@ -972,6 +972,14 @@
         } finally {
           activeBatchCreatedCells = previousBatchCreatedCells;
           activeModel.endUpdate();
+          // Rollback restores the native model before throwing, so the success-only refresh
+          // below is skipped. Revalidate Draw.io's cached view after both success and rollback.
+          try {
+            if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+            if (activeGraph.view && typeof activeGraph.view.validate === "function") activeGraph.view.validate();
+          } catch (_) {
+            // Do not mask the original edit or rollback result with a redraw error.
+          }
         }
         if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
         if (typeof activeGraph.refresh === "function") activeGraph.refresh();
