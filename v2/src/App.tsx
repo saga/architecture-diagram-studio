@@ -80,7 +80,12 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
 const THEME_ACCENTS: Record<UiTheme, string> = { editorial: "#425bc7", youth: "#b91f6d", warm: "#ad4d32", midnight: "#4b61ce" };
 function loadSavedTheme(): UiTheme {
   try {
-    const saved = window.localStorage.getItem("architecture-diagram-studio:v2:ui-theme");
+    const storageKey = "architecture-diagram-studio:v2:ui-theme";
+    const versionKey = "architecture-diagram-studio:v2:ui-theme-version";
+    const saved = window.localStorage.getItem(storageKey);
+    const migrated = window.localStorage.getItem(versionKey) === "2";
+    // Preserve the existing one-time migration from the legacy Editorial default to Warm.
+    if (saved === "editorial" && !migrated) return "warm";
     if (saved === "editorial" || saved === "youth" || saved === "warm" || saved === "midnight") return saved;
   } catch { /* Keep the default appearance when browser storage is unavailable. */ }
   return "warm";
