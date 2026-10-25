@@ -1,14 +1,14 @@
 # Architecture Diagram Studio V2
 
-- **Status:** Current architecture as of 2026-10-23.
-- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md); [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](docs/adr/0013-studio-owned-layout-engines.md).
+- **Status:** Current architecture as of 2026-10-25.
+- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md); [ADR-0013 — Studio-Owned Layout Is a Core Feature](docs/adr/0013-studio-owned-layout-engines.md); [ADR-0021 — Expanded Native Layout Engines](docs/adr/0021-expanded-native-layout-engines.md).
 - **Reference implementation:** v2/.
 - **Capability and contract review:** [Native Copilot / Draw.io Capability Audit](docs/NATIVE-COPILOT-CAPABILITY-AUDIT.md).
 - **Legacy:** V1 is read-only reference material.
 
 ## Core design
 
-Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Automatic layout is a core exception only in the computational sense: Studio derives a temporary native-cell projection for Dagre/ELK, then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
+Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Automatic layout is a core exception only in the computational sense: Studio derives a temporary native-cell projection for the selected layout engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
 
 Responsibilities are deliberately small:
 
@@ -17,13 +17,17 @@ Responsibilities are deliberately small:
 3. The workspace service validates XML, applies optimistic revision checks, saves exact XML, stores immutable full-XML versions, and verifies final applied receipts against the version ID and XML hash.
 4. Agent Traces shows browser events and server-side Copilot/model-call records. Token and cost values are shown only when reported by the SDK/provider; missing metrics are not estimated.
 
+## Studio-owned automatic layout
+
+The toolbar exposes ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 through one typed layout contract. Algorithm menus are engine-specific: ELK layered/Mr. Tree/radial/stress/force/box/rectangle-packing/random; Dagre layered; Graphviz dot/neato/fdp/sfdp/circo/twopi; MSAGL layered/MDS/IPSepCola; Cytoscape breadth-first/circle/concentric/grid/random/CoSE; D3 tree/cluster/force. Box and rectangle packing are restricted to unconnected cells. Engines calculate against a disposable projection only; cell geometry and optional routes are applied to native Draw.io with revision checks, serialization acknowledgement and normal versioned persistence.
+
 ## Supported native operations
 
-The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after`, `add_node_below`, and `auto_layout`. Whole-page `auto_layout` is an Agent-native typed operation, must be alone in its batch, and always requires user confirmation. It uses the same configurable Dagre/ELK planner as the toolbar; it never calls Draw.io's built-in layout action or asks the model to write a layout script. A typed batch that does not trigger the server's review gate otherwise executes after page/revision/target validation without a separate confirmation click. Broad batches and review-gated scripts require explicit confirmation; chat proposals show the intended changes, not script source. The model cannot submit raw replacement XML or arbitrary workspace writes.
+The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after`, `add_node_below`, and `auto_layout`. Whole-page `auto_layout` is an Agent-native typed operation, must be alone in its batch, and always requires user confirmation. It uses the same configurable multi-engine planner as the toolbar; it never calls Draw.io's built-in layout action or asks the model to write a layout script. A typed batch that does not trigger the server's review gate otherwise executes after page/revision/target validation without a separate confirmation click. Broad batches and review-gated scripts require explicit confirmation; chat proposals show the intended changes, not script source. The model cannot submit raw replacement XML or arbitrary workspace writes.
 
 ## Extension contracts without porting the old implementation
 
-V2 does not include the former `DiagramDocument` model, semantic fixtures/templates, DiagramDocument-based layout/quality pipeline, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Its removal does not remove core layout: ADR-0013 defines the active Studio-owned Dagre/ELK path over temporary native-cell facts.
+V2 does not include the former `DiagramDocument` model, semantic fixtures/templates, DiagramDocument-based layout/quality pipeline, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Its removal does not remove core layout: ADR-0013 and ADR-0021 define the active Studio-owned multi-engine path over temporary native-cell facts.
 
 `v2/src/model/native-diagram-capabilities.ts` defines the seam for such work:
 
