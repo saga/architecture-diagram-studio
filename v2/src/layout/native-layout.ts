@@ -459,7 +459,8 @@ export async function calculateNativeAutoLayout(
   }
   if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
     throw new Error("The selected algorithm is not supported by the chosen layout engine.");
-  }\n  if (options.engine === "dagre" && options.algorithm !== "layered") {
+  }
+  if (options.engine === "dagre" && options.algorithm !== "layered") {
     throw new Error(`Dagre supports only the layered algorithm; “${options.algorithm}” is not available for this engine. Choose ELK for other algorithms.`);
   }
   const projection = projectNativePage(xml, pageId);
@@ -469,7 +470,9 @@ export async function calculateNativeAutoLayout(
 
   if (options.engine === "elk" && (options.algorithm === "box" || options.algorithm === "rectpacking") && projection.edges.length > 0) {
     throw new Error("ELK Box and Rectangle packing are intended for unconnected nodes. Choose a graph layout algorithm for diagrams with connectors.");
-  }\n\n  const nodeById = new Map(projection.vertices.map((node) => [node.id, node] as const));
+  }
+
+  const nodeById = new Map(projection.vertices.map((node) => [node.id, node] as const));
   const positions = new Map<string, Point>();
   const routes = new Map<string, Point[]>();
 
