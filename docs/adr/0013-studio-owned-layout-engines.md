@@ -25,7 +25,7 @@ The V2 architecture must keep native Draw.io XML and its editor as the only sour
 - Run layout in Studio code through the selected engine adapter (ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js or D3). Never delegate the feature to Draw.io's `action: "layout"` or present Draw.io's built-in algorithms as equivalent.
 - Read the active page's native XML and derive a short-lived layout input from native mxCells: IDs, vertex sizes, parent/layer, edge endpoints and geometry. Do not persist the projection, make it a second source of truth, or create a replacement XML exporter.
 - Return a revision/page-bound layout plan containing node coordinates and connector waypoints. Apply that plan through the native Draw.io model transaction, then accept the editor's serialized native XML through the existing save/version flow.
-- The current implementation scopes automatic layout to top-level vertices and edges in the default layer. Other pages, other layers, nested group contents, cell styles, labels, wrappers, shapes and unknown XML attributes are not rebuilt or implicitly rearranged.
+- Automatic layout targets top-level vertices and edges in Draw.io's conventional default layer (ID `1`). XML order is not used to identify that layer. If the default layer has no eligible vertices and exactly one other visible layer contains layoutable content, the planner may target that single layer and records the fallback in the plan/diagnostics; it refuses to guess when multiple other layers are populated. Other pages, unselected layers, nested group contents, cell styles, labels, wrappers, shapes and unknown XML attributes are not rebuilt or implicitly rearranged.
 
 ### 3. UI and Agent share one typed configuration and layout path
 
