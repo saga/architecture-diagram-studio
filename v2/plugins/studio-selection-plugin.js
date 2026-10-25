@@ -60,6 +60,25 @@
       var id = page && (typeof page.getId === "function" ? page.getId() : page.id);
       return typeof id === "string" && id ? id : null;
     };
+
+    // A failed native transaction must not become an Undo entry or clear an existing Redo stack
+    // when its compensating writes have restored the original state. Draw.io's pinned mxGraphModel
+    // accumulates these changes in currentEdit.changes until the outermost endUpdate().
+    function captureNativeUndoCheckpoint(activeModel) {
+      var edit = activeModel && activeModel.currentEdit;
+      if (!edit || !Array.isArray(edit.changes)) return null;
+      return { model: activeModel, edit: edit, changeCount: edit.changes.length };
+    }
+
+    function discardFailedNativeTransactionFromHistory(activeModel, checkpoint) {
+      if (!checkpoint || checkpoint.model !== activeModel ||
+          activeModel.currentEdit !== checkpoint.edit ||
+          !Array.isArray(checkpoint.edit.changes) ||
+          checkpoint.edit.changes.length < checkpoint.changeCount) return false;
+      checkpoint.edit.changes.splice(checkpoint.changeCount);
+      return checkpoint.edit.changes.length === checkpoint.changeCount;
+    }
+
     var historyState = function () {
       var manager = ui && ui.editor && ui.editor.undoManager;
       var canUndo = false;
@@ -526,6 +545,7 @@
         var cell = liveById[expected.cellId];
         return { cell: cell, geometry: cell.geometry.clone() };
       });
+      var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
       var changedVertices = 0;
       var changedEdges = 0;
       activeModel.beginUpdate();
@@ -554,9 +574,12 @@
           try { activeModel.setGeometry(snapshot.cell, snapshot.geometry); }
           catch (rollbackError) { rollbackErrors.push(rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError)); }
         });
+        if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) {
+          rollbackErrors.push("Native Undo/Redo history could not be restored to its pre-layout checkpoint.");
+        }
         fail("Studio auto layout failed while applying geometry: " +
           (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) +
-          (rollbackErrors.length ? "; geometry rollback was incomplete: " + rollbackErrors.join("; ") : "; prior geometry was restored."),
+          (rollbackErrors.length ? "; geometry/history rollback was incomplete: " + rollbackErrors.join("; ") : "; prior geometry and native history were restored."),
           rollbackErrors.length === 0);
       } finally {
         activeModel.endUpdate();
@@ -670,6 +693,7 @@
         }
         snapshots.push({ cell: liveCell, cellId: change.cellId, style: liveCell.style, nextStyle: change.style });
       }
+      var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
       activeModel.beginUpdate();
       try {
         snapshots.forEach(function (snapshot) {
@@ -684,9 +708,12 @@
               (rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError)));
           }
         });
+        if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) {
+          rollbackErrors.push("Native Undo/Redo history could not be restored to its pre-color checkpoint.");
+        }
         fail("Studio color application failed: " +
           (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) +
-          (rollbackErrors.length ? "; rollback was incomplete: " + rollbackErrors.join("; ") : "; previous styles were restored."),
+          (rollbackErrors.length ? "; style/history rollback was incomplete: " + rollbackErrors.join("; ") : "; previous styles and native history were restored."),
           rollbackErrors.length === 0);
       } finally {
         activeModel.endUpdate();
@@ -810,6 +837,7 @@
         var batchCreatedCells = [];
         var previousBatchCreatedCells = activeBatchCreatedCells;
         activeBatchCreatedCells = batchCreatedCells;
+        var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
         activeModel.beginUpdate();
         try {
           operations.forEach(function (operation, index) {
@@ -933,6 +961,9 @@
           if (!treeRestored) {
             rollbackErrors.push({ cellId: "__active_page__", error: "The native cell tree/order does not match its pre-script snapshot after rollback." });
           }
+          if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) {
+            rollbackErrors.push({ cellId: "__undo_history__", error: "The failed batch rollback could not preserve the native Undo/Redo history stack." });
+          }
           failure.batchResults = batchResults;
           failure.failedIndex = failedIndex;
           failure.rollbackErrors = rollbackErrors;
@@ -978,6 +1009,7 @@
           throw new Error("Align and distribute only support cells in the same layer or group");
         }
         var snapshots = vertices.map(function (item) { return { cell: item, geometry: item.geometry.clone() }; });
+        var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
         activeModel.beginUpdate();
         try {
           if (isAlign) {
@@ -1014,7 +1046,21 @@
             });
           }
         } catch (error) {
-          snapshots.forEach(function (snapshot) { activeModel.setGeometry(snapshot.cell, snapshot.geometry); });
+          var rollbackErrors = [];
+          snapshots.forEach(function (snapshot) {
+            try { activeModel.setGeometry(snapshot.cell, snapshot.geometry); }
+            catch (rollbackError) {
+              rollbackErrors.push(runtimeCellId(snapshot.cell) + ": " +
+                (rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError)));
+            }
+          });
+          if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) {
+            rollbackErrors.push("Native Undo/Redo history could not be restored to its pre-alignment checkpoint.");
+          }
+          if (rollbackErrors.length) {
+            throw new Error("The alignment/distribution operation failed and rollback was incomplete: " +
+              (error && error.message ? String(error.message) : String(error)) + "; " + rollbackErrors.join("; "));
+          }
           throw error;
         } finally { activeModel.endUpdate(); }
         if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);

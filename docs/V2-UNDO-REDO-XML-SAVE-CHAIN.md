@@ -175,3 +175,11 @@ Undo/Redo 的所有权仍属于 Draw.io 原生 `undoManager`。Studio 没有引�
 颜色事务完成后，Studio 通过原生 XML export 获取已序列化的完整文档，并复用现有工作区持久化或独立文件写入路径。Undo/Redo 的持久化通路保持不变：原生模型 CHANGE → Draw.io autosave XML → Studio XML 校验与状态更新 → 250ms 防抖持久化。恢复版本后撤销栈按 Draw.io 原生语义清空，继续浏览旧状态仍应使用 History。
 
 验证清单：颜色预设与已有颜色规则的单元测试、压缩页与多页计划测试、预设一步 Undo/Redo 与快捷键 E2E、自动布局几何一步 Undo，以及现有 typecheck / unit / build / E2E CI。对尚未完成的 CI 不应提前标记通过。
+
+## 2026-10-25 失败事务不得污染原生 Undo/Redo 栈
+
+原生模型事务发生异常后，如果补偿写入已恢复原值，仍不能直接认为撤销历史也保持不变。Draw.io 在最外层 `endUpdate()` 时根据当前 edit 的 changes 集合生成 undoable edit；若把“先改、再补偿改回”的所有 change 一并提交，就可能产生一个实际无效果的 Undo 项，并清空原本可用的 Redo 栈。
+
+当前插件在开始 Studio 原生事务前记录 pinned Draw.io 模型的 `currentEdit.changes` 检查点。仅当颜色预设、自动布局或原子批处理的补偿恢复成功且结构验证通过时，才移除该检查点之后的事务 change，再结束外层事务。这样失败但完整恢复的操作不会进入 Undo 栈，也不会清掉 Redo 栈。若模型检查点不可用、补偿不完整或原生 cell 树验证失败，则不会将该操作伪装为干净回滚；错误回执会显式标记恢复未获确认，保留可供用户恢复的原生状态。
+
+新增 `v2/src/model/native-undo-rollback.test.ts`，通过实际插件消息桥测试“颜色事务中途失败并恢复”与“批编辑第二步失败并恢复”两条路径，断言既有 Undo/Redo 栈与 cell 样式均未变化。它是当前 pinned Draw.io `mxGraphModel.currentEdit.changes` 实现的防回归测试；如果未来升级 Draw.io 并改变事务内部结构，测试需要随升级一起验证。
