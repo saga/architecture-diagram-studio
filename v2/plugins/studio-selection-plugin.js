@@ -184,10 +184,10 @@
         };
       }
     }
-    function collectStyleCells(activeModel) {
+    function collectStyleCells(activeModel, rootOverride) {
       var result = [];
-      var root = activeModel && activeModel.getRoot ? activeModel.getRoot() : null;
-      if (!root) throw new Error("The active Draw.io model has no root cell.");
+      var root = rootOverride || (activeModel && activeModel.getRoot ? activeModel.getRoot() : null);
+      if (!root) throw new Error("The Draw.io page has no root cell.");
       var stack = [root];
       var visited = typeof Set === "function" ? new Set() : null;
       var count = 0;
@@ -195,7 +195,7 @@
         var parent = stack.pop();
         if (!parent || (visited && visited.has(parent))) continue;
         if (visited) visited.add(parent);
-        if (++count > 20000) throw new Error("The active page exceeds the 20,000-cell style operation limit.");
+        if (++count > 20000) throw new Error("A page exceeds the 20,000-cell style operation limit.");
         var childCount = activeModel.getChildCount(parent);
         for (var i = childCount - 1; i >= 0; i--) {
           var cell = activeModel.getChildAt(parent, i);
@@ -224,17 +224,22 @@
       var originalPage = ui.currentPage || null;
       activeModel.beginUpdate();
       try {
-        // One Graph/Model is reused by Draw.io for every page. Switch roots inside the same
-        // model transaction so each page's cell styles join the same native undoable edit.
+        // Draw.io's selectPage operation changes the active root and participates in undo.
+        // Traverse each page's own root directly instead, so no page-switch history entries are
+        // mixed into the one style edit. The model's StyleChange records reference these native
+        // mxCells and the mxfile encoder serializes the updated root for every page.
         var pages = Array.isArray(ui.pages) && ui.pages.length ? ui.pages.slice() : [originalPage];
         for (var pageIndex = 0; pageIndex < pages.length; pageIndex++) {
           var page = pages[pageIndex];
-          if (page && ui.currentPage !== page && typeof ui.selectPage === "function") ui.selectPage(page);
-          activeGraph = currentGraph();
-          activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : activeModel;
-          var cells = collectStyleCells(activeModel);
+          var pageRoot = null;
+          try {
+            pageRoot = page && (page.root || (typeof page.getRoot === "function" ? page.getRoot() : null));
+          } catch (_) {}
+          if (!pageRoot && page === originalPage) pageRoot = activeModel.getRoot();
+          if (!pageRoot) throw new Error("Could not resolve the native root for page index " + pageIndex + "; no style was applied.");
+          var cells = collectStyleCells(activeModel, pageRoot);
           cells.forEach(function (cell) {
-            var previous = String(activeModel.getStyle(cell) || "");
+            var previous = String(cell.style || "");
             var category = classifyStyleCell(cell, previous, activeModel);
             if (!category) return;
             var next = rewriteStyleForCell(previous, category, targetStyle);
@@ -244,7 +249,6 @@
             changed++;
           });
         }
-        if (originalPage && ui.currentPage !== originalPage && typeof ui.selectPage === "function") ui.selectPage(originalPage);
       } catch (error) {
         for (var i = originals.length - 1; i >= 0; i--) {
           try { activeModel.setStyle(originals[i].cell, originals[i].style || null); } catch (_) {}
@@ -253,9 +257,7 @@
         activeDiagramStyleEnabled = previousStyleEnabled;
         throw error;
       } finally {
-        if (originalPage && ui.currentPage !== originalPage && typeof ui.selectPage === "function") {
-          try { ui.selectPage(originalPage); } catch (_) {}
-        }
+        // No page selection change was performed. End the single native model transaction.
         activeModel.endUpdate();
       }
       if (changed > 0) {
