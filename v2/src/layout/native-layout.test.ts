@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   calculateNativeAutoLayout,
@@ -23,8 +24,26 @@ const xml = `<mxfile host="app.diagrams.net">
 </mxfile>`;
 
 const revision = "a".repeat(64);
+const bpmnChoreographyXml = readFileSync(
+  new URL("./fixtures/bpmn-choreography-model.drawio", import.meta.url),
+  "utf8"
+);
 
 describe("Studio-owned native-cell layout", () => {
+  it("lays out the BPMN choreography example when root and layer IDs are generated", async () => {
+    const plan = await calculateNativeAutoLayout(
+      bpmnChoreographyXml,
+      "HCq9DOm8jIu3lRLJQ98l",
+      revision,
+      { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "graphviz", algorithm: "dot" }
+    );
+
+    expect(plan.layoutLayerId).toBe("VR5IMITfkwXBvMDUpB2b-1");
+    expect(plan.layoutLayerFallback).toBe(false);
+    expect(plan.positions).toHaveLength(26);
+    expect(plan.edgeRoutes).toHaveLength(13);
+  });
+
   it("rejects non-layered algorithms for Dagre rather than silently ignoring the selection", async () => {
     await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", algorithm: "radial"

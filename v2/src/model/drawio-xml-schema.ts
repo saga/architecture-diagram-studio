@@ -444,8 +444,26 @@ function addCellInventoryWarnings(root: DrawioXmlElement, warnings: string[], pa
   if (!graphRoot) return;
   const inventory = cellsFromRoot(graphRoot);
   const ids = new Set(inventory.map((entry) => effectiveCellId(entry.wrapper)).filter((id): id is string => Boolean(id)));
-  if (!ids.has("0")) warnings.push(pageLabel + ": missing conventional root cell id 0.");
-  if (!ids.has("1")) warnings.push(pageLabel + ": missing conventional default-layer cell id 1.");
+  const isRootOrLayerCell = (entry: (typeof inventory)[number]) =>
+    entry.cell.attributes.vertex !== "1" &&
+    entry.cell.attributes.edge !== "1" &&
+    !entry.cell.children.some((child) => child.name === "mxGeometry");
+  const rootCell = inventory.find((entry) =>
+    effectiveCellId(entry.wrapper) === "0" &&
+    entry.cell.attributes.parent === undefined &&
+    isRootOrLayerCell(entry)
+  ) ?? inventory.find((entry) =>
+    entry.cell.attributes.parent === undefined && isRootOrLayerCell(entry)
+  );
+  if (!rootCell) {
+    warnings.push(pageLabel + ": missing a root cell (the cell without a parent).");
+  } else {
+    const rootCellId = effectiveCellId(rootCell.wrapper);
+    const hasRootLayer = inventory.some((entry) =>
+      entry.cell.attributes.parent === rootCellId && isRootOrLayerCell(entry)
+    );
+    if (!hasRootLayer) warnings.push(pageLabel + ": missing a root layer under the native root cell.");
+  }
   for (const [index, entry] of inventory.entries()) {
     const id = effectiveCellId(entry.wrapper);
     if (!id) warnings.push(pageLabel + ": cell " + index + " has no id; Draw.io may assign one on open.");

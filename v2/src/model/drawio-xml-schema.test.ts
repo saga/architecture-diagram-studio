@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { deflateSync } from "fflate";
 import {
@@ -23,6 +24,21 @@ function extractModel(xml: string): string {
 }
 
 describe("Zod Draw.io XML schema", () => {
+  it("recognizes generated root/layer IDs in the official BPMN choreography sample", () => {
+    const fixture = readFileSync(
+      new URL("../layout/fixtures/bpmn-choreography-model.drawio", import.meta.url),
+      "utf8"
+    );
+    const result = validateDrawioXmlDocument(fixture);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.warnings.some((warning) =>
+        warning.includes("missing a root cell") || warning.includes("missing a root layer")
+      )).toBe(false);
+    }
+  });
+
   it("accepts mxfile and the legacy bare mxGraphModel root", () => {
     const model = extractModel(XML);
     expect(validateDrawioXmlDocument(XML).success).toBe(true);

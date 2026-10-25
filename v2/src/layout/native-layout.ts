@@ -125,9 +125,9 @@ export interface NativeLayoutExpectedCell {
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
   documentRevision: string;
   pageId: string | null;
-  /** The single visible native layer targeted by this plan. Draw.io's default layer is ID "1". */
+  /** The single visible native layer targeted by this plan, resolved from the native cell tree. */
   layoutLayerId: string | null;
-  /** True when the default layer had no eligible vertices and one other visible layer was unambiguous. */
+  /** True when only an unambiguous populated fallback layer could be selected. */
   layoutLayerFallback: boolean;
   /** Every native cell ID on the source page, used for an optimistic stale-page check. */
   expectedPageCellIds: string[];
@@ -155,6 +155,7 @@ interface NativePageProjection {
   pageId: string | null;
   pageTitle: string | null;
   allCellIds: string[];
+  rootCellId: string | null;
   layoutLayerId: string | null;
   layoutLayerFallback: boolean;
   visibleLayerSummaries: Array<{ id: string; vertexCount: number; edgeCount: number }>;
@@ -274,14 +275,30 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   }
 
   const all = Array.from(byId.values());
-  // Draw.io's conventional default layer is ID "1". Do not infer it from XML order:
-  // other visible layers can legally occur first in the root cell list.
-  const rootLayers = all.filter((cell) =>
-    cell.parentId === "0" && cell.kind === "other" && cell.visible
+
+  // Draw.io commonly uses IDs "0" and "1", but valid files can prefix every cell ID
+  // (for example, after copying a diagram). Resolve the root and layers by parent links,
+  // preferring conventional IDs only when they are actually present in the cell tree.
+  const rootCellCandidates = all.filter((cell) =>
+    cell.parentId === null && cell.kind === "other" && !cell.hasGeometry
   );
+  const rootCell = rootCellCandidates.find((cell) => cell.id === "0") ??
+    (rootCellCandidates.length === 1 ? rootCellCandidates[0] : null);
+  const rootCellId = rootCell?.id ?? null;
+  const rootLayers = rootCellId
+    ? all.filter((cell) =>
+        cell.parentId === rootCellId &&
+        cell.kind === "other" &&
+        !cell.hasGeometry &&
+        cell.visible
+      )
+    : [];
+
+  // Prefer the conventional default layer where present. If IDs are nonstandard, a sole
+  // visible layer is unambiguous; with multiple layers, do not choose based on XML order.
   const canonicalDefaultLayer = rootLayers.find((cell) => cell.id === "1") ?? null;
-  let layoutLayer = canonicalDefaultLayer ?? rootLayers[0] ?? null;
-  let layoutLayerFallback = !canonicalDefaultLayer && layoutLayer !== null;
+  let layoutLayer = canonicalDefaultLayer ?? (rootLayers.length === 1 ? rootLayers[0] : null);
+  let layoutLayerFallback = false;
 
   const eligibleVerticesForLayer = (layerId: string | null): ProjectedCell[] => {
     if (!layerId) return [];
@@ -334,6 +351,7 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     pageId: parsed.pageId,
     pageTitle: parsed.pageTitle,
     allCellIds: Array.from(seenCellIds).sort(),
+    rootCellId,
     layoutLayerId,
     layoutLayerFallback,
     visibleLayerSummaries,
@@ -450,6 +468,7 @@ function describeEmptyLayoutScope(projection: NativePageProjection): string {
     "XML inventory: " + projection.sourceVertexCount + " vertex cells, " +
     projection.sourceVertexWithGeometryCount + " with geometry, " +
     projection.verticesWithNonLayerParents + " with a parent outside visible root layers. " +
+    "Detected root cell: " + (projection.rootCellId ?? "none") + ". " +
     "Visible root layers: " + layers + ". Layout does not guess between multiple populated layers.";
 }
 
