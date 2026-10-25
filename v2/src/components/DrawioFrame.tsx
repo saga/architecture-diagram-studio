@@ -54,6 +54,8 @@ export interface DrawioFrameHandle {
   applyDiagramStyle(style: DrawioDiagramStyle | null): Promise<string>;
   /** Set the style for newly created/pasted cells without mutating existing XML. */
   setActiveDiagramStyle(style: DrawioDiagramStyle | null): Promise<void>;
+  /** Read the exact XML serialized by Draw.io without treating a read as a document edit. */
+  exportCurrentXml(): Promise<string>;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -101,6 +103,11 @@ type PendingDiagramStyle = {
   apply: boolean;
   awaitingExport: boolean;
 };
+type PendingBaselineExport = {
+  resolve: (xml: string) => void;
+  reject: (error: Error) => void;
+  timeoutId: number;
+};
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
@@ -125,6 +132,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
   const pendingAutoLayoutRef = useRef<PendingAutoLayout | null>(null);
   const pendingDiagramStylesRef = useRef(new Map<string, PendingDiagramStyle>());
+  const pendingBaselineExportRef = useRef<PendingBaselineExport | null>(null);
   const diagramStyleSequenceRef = useRef(0);
   const runtimeInspectionSequenceRef = useRef(0);
   const iframeLoadedRef = useRef(false);
@@ -177,6 +185,40 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     else pending.resolve(result.xml ?? null);
   }
 
+  function settleBaselineExport(result: { xml?: string; error?: Error }) {
+    const pending = pendingBaselineExportRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingBaselineExportRef.current = null;
+    if (result.error) pending.reject(result.error);
+    else pending.resolve(result.xml ?? "");
+  }
+
+  function exportCurrentXml(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const target = iframeRef.current?.contentWindow;
+      if (!editorReady || !bridgeReady || !target) {
+        reject(new Error("The native Draw.io editor is not ready to export XML."));
+        return;
+      }
+      if (pendingBaselineExportRef.current || pendingDiagramStylesRef.current.size > 0 ||
+          pendingSaveConfirmationsRef.current.size > 0 || pendingAutoLayoutRef.current) {
+        reject(new Error("Wait for the current native export or edit to finish before reading the current XML."));
+        return;
+      }
+      const timeoutId = window.setTimeout(() => {
+        settleBaselineExport({ error: new Error("Draw.io did not return the current XML within 30 seconds.") });
+      }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
+      pendingBaselineExportRef.current = { resolve, reject, timeoutId };
+      try {
+        target.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
+      } catch (error) {
+        settleBaselineExport({ error: new Error("Could not request current native XML: " +
+          (error instanceof Error ? error.message : String(error))) });
+      }
+    });
+  }
+
   function requestDiagramStyle(style: DrawioDiagramStyle | null, apply: boolean): Promise<string | null> {
     return new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
@@ -215,6 +257,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }
 
   useImperativeHandle(ref, () => ({
+    exportCurrentXml,
     applyDiagramStyle: async (style) => {
       const result = await requestDiagramStyle(style, true);
       if (typeof result !== "string") throw new Error("Draw.io did not return the transformed XML.");
@@ -326,6 +369,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     for (const requestId of Array.from(pendingDiagramStylesRef.current.keys())) {
       settleDiagramStyle(requestId, { error: new Error("Draw.io editor was closed before diagram styling completed.") });
     }
+    settleBaselineExport({ error: new Error("Draw.io editor was closed before the native XML export completed.") });
   }, []);
 
   // The editor's readiness is surfaced in the app's bottom status bar, so the canvas stays flush
@@ -742,8 +786,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
       const pendingDiagramStyle = Array.from(pendingDiagramStylesRef.current.entries()).find((entry) => entry[1].apply && entry[1].awaitingExport);
+      const pendingBaselineExport = pendingBaselineExportRef.current;
+      const baselineExportOnly = data.event === "export" && data.format === "xml" && Boolean(pendingBaselineExport) &&
+        !pendingDiagramStyle && !pendingAutoLayoutRef.current?.awaitingExport && !pendingSerialization;
       const exportSerialization = data.event === "export" && data.format === "xml" &&
-        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || Boolean(pendingDiagramStyle));
+        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || Boolean(pendingDiagramStyle) || Boolean(pendingBaselineExport));
       if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
@@ -754,6 +801,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               rejectPendingAutoLayout(new Error("Draw.io auto layout returned invalid XML; the previous saved source was preserved."));
             }
             if (exportSerialization && pendingDiagramStyle) settleDiagramStyle(pendingDiagramStyle[0], { error: new Error("Draw.io diagram-style operation returned invalid XML; the previous saved source was preserved.") });
+            if (baselineExportOnly && pendingBaselineExport) settleBaselineExport({ error: new Error("Draw.io returned invalid XML while reading the current document.") });
+            return;
+          }
+          if (baselineExportOnly && pendingBaselineExport) {
+            settleBaselineExport({ xml: data.xml });
             return;
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
