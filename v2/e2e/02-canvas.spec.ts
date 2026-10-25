@@ -110,6 +110,61 @@ test.describe("原生画布", () => {
     await expect(page.locator(".status-native")).toHaveAttribute("title", /AI scripts use the live editor API and save through Studio/);
   });
 
+  test("图形主题直接重着色 Draw.io XML，保持应用主题、页面背景和网格", async ({ page, request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
+    const initialXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
+    const documentXml = initialXml.replace('<mxGraphModel dx="1200"', '<mxGraphModel background="#FFFF66" dx="1200"');
+    expect(documentXml).not.toBe(initialXml);
+    const savedFixture = await request.put("/api/workspace/document", {
+      data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
+    });
+    expect(savedFixture.status(), await savedFixture.text()).toBe(200);
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    const inspectCanvas = async () => {
+      const frame = page.frames().find((candidate) => candidate.url().includes("/drawio/index.html"));
+      if (!frame) return null;
+      return frame.evaluate(() => {
+        const page = document.querySelector<HTMLElement>(".geBackgroundPage");
+        return {
+          color: page ? getComputedStyle(page).backgroundColor : null,
+          image: page ? getComputedStyle(page).backgroundImage : null,
+          themeOverlay: Boolean(document.querySelector("#studio-native-theme"))
+        };
+      });
+    };
+    await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
+      color: "rgb(255, 255, 102)",
+      themeOverlay: false
+    });
+    expect((await inspectCanvas())?.image).not.toBe("none");
+
+    await page.locator(".theme-selector .ant-select").click();
+    await page.getByText("Vivid", { exact: true }).click();
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
+    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
+      .toContain("fillColor=#FCE7F3");
+    await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
+      color: "rgb(255, 255, 102)",
+      themeOverlay: false
+    });
+    expect((await inspectCanvas())?.image).not.toBe("none");
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
+    const reloadedCanvas = await inspectCanvas();
+    expect(reloadedCanvas).toMatchObject({ color: "rgb(255, 255, 102)", themeOverlay: false });
+    expect(reloadedCanvas?.image).not.toBe("none");
+    const savedXml = await readWorkspaceXml(workspace);
+    expect(savedXml).toContain('background="#FFFF66"');
+    expect(savedXml).toContain('grid="1"');
+    expect(savedXml).toContain("fillColor=#FCE7F3");
+  });
+
   test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
     const ids = ["client", "api", "worker", "queue", "database"];
     const beforeXml = await readWorkspaceXml(workspace);
