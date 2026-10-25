@@ -31,6 +31,12 @@ jobs:
           cache-dependency-path: v2/package.json
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Export resolved V2 lockfile for reproducible install
+        uses: actions/upload-artifact@v4
+        with:
+          name: resolved-v2-package-lock
+          path: v2/package-lock.json
+          if-no-files-found: error
       - name: Type check
         run: npm run typecheck
       - name: Test native XML, cell operations and persistence
