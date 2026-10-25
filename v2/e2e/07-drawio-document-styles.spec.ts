@@ -59,7 +59,7 @@ async function latestNativeExport(page: import("@playwright/test").Page): Promis
 }
 
 async function chooseDiagramStyle(page: import("@playwright/test").Page, name: string): Promise<void> {
-  await page.getByLabel("Draw.io document style").click();
+  await page.getByRole("combobox", { name: "Draw.io document style" }).click();
   await page.getByRole("option", { name, exact: true }).click();
 }
 
@@ -76,7 +76,7 @@ test.describe("原生 Draw.io 文档风格", () => {
     expect(originalXml).toContain('background="#FFFF66"');
     expect(originalXml).toContain("fillColor=#FF0000");
     expect(originalXml).toContain("fillColor=#00FF00");
-    await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Original");
+    await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Original");
 
     // The style adapter may theme editor chrome, but the original page background and native
     // grid must remain the visible Draw.io-owned layer when a saved file is loaded.
@@ -96,7 +96,7 @@ test.describe("原生 Draw.io 文档风格", () => {
 
     await chooseDiagramStyle(page, "Editorial");
     await expect(page.locator(".status-left")).toContainText("Applied Draw.io document style: Editorial");
-    await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Editorial");
+    await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Editorial");
 
     await expect.poll(async () => latestNativeExport(page), { timeout: 20_000, intervals: [250] }).toContain("fillColor=#E6F0FF");
     const styledExport = await latestNativeExport(page);
@@ -113,12 +113,12 @@ test.describe("原生 Draw.io 文档风格", () => {
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#E6F0FF");
 
     await nativeFrame(page).locator("body").press("Control+z");
-    await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Original", { timeout: 20_000 });
+    await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Original", { timeout: 20_000 });
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#FF0000");
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#00FF00");
 
     await nativeFrame(page).locator("body").press("Control+Shift+z");
-    await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Editorial", { timeout: 20_000 });
+    await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Editorial", { timeout: 20_000 });
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#E3F2E8");
     expect(await readWorkspaceXml(workspace)).toContain('background="#FFFF66"');
   });
@@ -162,7 +162,7 @@ test.describe("原生 Draw.io 文档风格", () => {
 
     page.once("dialog", async (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete style", exact: true }).click();
-    await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Original");
+    await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Original");
     await expect(page.getByRole("option", { name: "E2E Custom", exact: true })).toHaveCount(0);
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#123456");
     expect(await readWorkspaceXml(workspace)).toContain('background="#FFFF66"');
