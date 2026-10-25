@@ -198,6 +198,7 @@ export default function App() {
   diagramStyleLibraryRef.current = diagramStyleLibrary;
   const styleRevisionMapRef = useRef<DrawioStyleRevisionMap>(loadSavedDrawioStyleRevisionMap());
   const pendingDiagramStyleRef = useRef<{ id: string; sourceRevision: string } | null>(null);
+  const nativeXmlChangeSequenceRef = useRef(0);
   const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => loadPanelWidths());
   const [activePage, setActivePage] = useState<WorkspacePage>("diagram");
   const [traceEntries, setTraceEntries] = useState<DiagnosticEntry[]>(() => readDiagnosticEntries());
@@ -1859,8 +1860,12 @@ export default function App() {
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
             onDocumentChange={async (nativeXml) => {
+              const changeSequence = ++nativeXmlChangeSequenceRef.current;
               try {
                 const xmlRevision = await calculateDrawioXmlRevision(nativeXml);
+                // Draw.io may emit multiple XML snapshots close together during Undo/Redo.
+                // Hashing is asynchronous, so an earlier callback must not overwrite a newer one.
+                if (changeSequence !== nativeXmlChangeSequenceRef.current) return;
                 const pendingStyle = pendingDiagramStyleRef.current;
                 let styleId = selectedDiagramStyleIdRef.current;
                 if (pendingStyle && xmlRevision !== pendingStyle.sourceRevision) {
@@ -1878,6 +1883,7 @@ export default function App() {
                   errorMessage: error instanceof Error ? error.message : String(error)
                 }, "warn");
               }
+              if (changeSequence !== nativeXmlChangeSequenceRef.current) return;
               setNativeXmlOverride(nativeXml);
               setRevision((value) => value + 1);
               setLastAction("Synced native Draw.io changes");
