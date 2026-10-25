@@ -8,7 +8,7 @@
 | [0004](./0004-versioned-studio-configuration-jsonl.md) | Versioned Server Configuration in JSONL | Accepted |
 | [0005](./0005-diagram-aware-mcp-intelligence.md) | Internal Copilot Diagram Intelligence and Governed Agent Edits (no external MCP surface) | Superseded by 0011 |
 | [0006](./0006-drawio-xml-single-source-of-truth.md) | Draw.io XML as the Single Source of Truth | Superseded by 0011 |
-| [0007](./0007-unified-theme-adapter-for-native-drawio.md) | Unified Theme Adapter for Native Draw.io | Accepted |
+| [0007](./0007-unified-theme-adapter-for-native-drawio.md) | Unified Theme Adapter for Native Draw.io | Superseded by 0020 |
 | [0008](./0008-native-drawio-is-the-only-diagram-canvas.md) | Native Draw.io as the Only Diagram Canvas | Superseded by 0011 |
 | [0009](./0009-centralized-drawio-xml-processing.md) | Centralized Draw.io XML Processing | Partially superseded by 0011 |
 | [0010](./0010-unified-server-side-copilot-intent-processing.md) | Unified Server-Side Copilot Intent Processing | Superseded where it depends on semantic model |
@@ -21,3 +21,4 @@
 | [0017](./0017-unified-runtime-storage-scope.md) | Unified Runtime Storage Scope for Workspace and Single-File Modes | Accepted |
 | [0018](./0018-ai-first-native-drawio-execution.md) | AI-First Native Draw.io Execution | Accepted |
 | [0019](./0019-additive-native-c4-elements.md) | Additive Native C4 Elements, No In-Place Conversion | Accepted |
+| [0020](./0020-native-drawio-diagram-theme-presets.md) | Native Draw.io Diagram Theme Presets | Accepted |
