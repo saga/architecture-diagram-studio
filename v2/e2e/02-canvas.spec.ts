@@ -68,6 +68,8 @@ function cellX(xml: string, fragment: string): number | null {
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
   const label = nativeFrame(page).getByText(labelText, { exact: true });
   await expect(label, `the ${labelText} node must be rendered before it can be dragged`).toBeVisible();
+  const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
+  expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
   const point = await label.evaluate((element) => {
     let current: Element | null = element;
     let bounds = element.getBoundingClientRect();
@@ -85,9 +87,12 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
       y: bounds.top + bounds.height / 2
     };
   });
-  await page.mouse.move(point.x, point.y);
+  // Element bounds are local to the embedded Draw.io document; mouse input is in the host page.
+  const startX = frameBox!.x + point.x;
+  const startY = frameBox!.y + point.y;
+  await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(point.x + deltaX, point.y + deltaY, { steps: 14 });
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
   await page.mouse.up();
 }
 
