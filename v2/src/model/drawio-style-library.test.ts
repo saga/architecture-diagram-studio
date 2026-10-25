@@ -4,8 +4,7 @@ import {
   parseDrawioStyleImport,
   rewriteDrawioStyleString,
   serializeDrawioStyleExport,
-  validateDrawioDiagramStyle,
-  type DrawioDiagramStyle
+  validateDrawioDiagramStyle
 } from "./drawio-style-library";
 import { DEFAULT_DRAWIO_STYLE_LIBRARY } from "./drawio-style-presets";
 
