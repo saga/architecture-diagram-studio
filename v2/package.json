@@ -37,6 +37,7 @@
     "@hpcc-js/wasm-graphviz": "^1.8.0",
     "@msagl/core": "^1.1.24",
     "cytoscape": "^3.34.4",
+    "cytoscape-fcose": "^2.2.0",
     "d3-force": "^3.0.0",
     "d3-hierarchy": "^3.1.2"
   },
