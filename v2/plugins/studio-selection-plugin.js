@@ -60,6 +60,7 @@
     // Diagram styles are explicit native-document mutations. They never change the parent
     // application's CSS theme or the background/grid of the Draw.io page.
     var activeDiagramStyle = null;
+    var activeDiagramStyleEnabled = false;
     var patchedStyleGraphs = typeof WeakSet === "function" ? new WeakSet() : null;
     var styleColorProperties = ["fillColor", "strokeColor", "fontColor", "gradientColor", "swimlaneFillColor",
       "separatorColor", "indicatorColor", "labelBackgroundColor", "labelBorderColor"];
@@ -141,7 +142,7 @@
       return category ? rewriteStyleForCell(styleText, category, targetStyle) : styleText;
     }
     function installStyleAwareGraphOperations(activeGraph) {
-      if (!activeGraph || !activeDiagramStyle || !patchedStyleGraphs || patchedStyleGraphs.has(activeGraph)) return;
+      if (!activeGraph || !activeDiagramStyleEnabled || !patchedStyleGraphs || patchedStyleGraphs.has(activeGraph)) return;
       patchedStyleGraphs.add(activeGraph);
       if (typeof activeGraph.insertVertex === "function") {
         var nativeInsertVertex = activeGraph.insertVertex;
@@ -211,6 +212,7 @@
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
       var changed = 0;
       activeDiagramStyle = targetStyle;
+      activeDiagramStyleEnabled = true;
       installStyleAwareGraphOperations(activeGraph);
       if (request.apply !== true) {
         publish({ event: "studioDiagramStyleResult", requestId: request.requestId, success: true, applied: false, styleId: targetStyle ? targetStyle.id : "original" });
