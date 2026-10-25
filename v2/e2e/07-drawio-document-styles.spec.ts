@@ -78,6 +78,22 @@ test.describe("原生 Draw.io 文档风格", () => {
     expect(originalXml).toContain("fillColor=#00FF00");
     await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Original");
 
+    // The style adapter may theme editor chrome, but the original page background and native
+    // grid must remain the visible Draw.io-owned layer when a saved file is loaded.
+    const pageBackgroundColor = await nativeFrame(page).locator(".geBackgroundPage").evaluate((element) =>
+      getComputedStyle(element).backgroundColor
+    );
+    expect(pageBackgroundColor).toBe("rgb(255, 255, 102)");
+    const pageGrid = await nativeFrame(page).locator(".geBackgroundPage").evaluate((element) =>
+      getComputedStyle(element).backgroundImage
+    );
+    expect(pageGrid).not.toBe("none");
+    const graphSvgBackground = await nativeFrame(page).locator(".geDiagramContainer svg").evaluate((element) =>
+      getComputedStyle(element).backgroundColor
+    );
+    expect(graphSvgBackground).not.toBe("rgb(243, 245, 249)");
+    expect(graphSvgBackground).not.toBe("rgb(255, 252, 246)");
+
     await chooseDiagramStyle(page, "Editorial");
     await expect(page.locator(".status-left")).toContainText("Applied Draw.io document style: Editorial");
     await expect(page.locator(".diagram-style-controls .ant-select-selection-item")).toHaveText("Editorial");
