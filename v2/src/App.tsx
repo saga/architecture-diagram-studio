@@ -1326,7 +1326,7 @@ export default function App() {
         " connectors; left " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
         " connectors untouched" + layerNotice + ".";
       setLastAction(appliedScope);
-      setLayoutCoverageNotice(appliedScope);
+      setLayoutCoverageNotice(appliedScope + exclusionNotice);
       recordDiagnostic("drawio.layout.ui.completed", "The Studio layout plan was applied and serialized by native Draw.io", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
@@ -1336,6 +1336,7 @@ export default function App() {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      setLayoutCoverageNotice(null);
       setLastAction("Auto layout failed: " + errorMessage);
       recordDiagnostic("drawio.layout.ui.failed", "Studio auto layout failed or could not be confirmed", {
         pageId: selectedNativePageId, errorMessage, engine: options.engine, algorithm: options.algorithm,
