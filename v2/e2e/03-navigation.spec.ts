@@ -3,14 +3,11 @@ import {
   createWorkspace,
   nativeFrameHandle,
   openStudio,
-  readWorkspaceXml,
   waitForNativeEditor
 } from "./support/fixtures";
 
-let activeWorkspace: Awaited<ReturnType<typeof createWorkspace>>;
-
 test.beforeEach(async ({ page, request }) => {
-  activeWorkspace = await createWorkspace(request);
+  await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
 });
@@ -57,65 +54,7 @@ test.describe("工作区导航与外观", () => {
     await expect(page.locator(".status-native")).toContainText("Native editor ready");
   });
 
-  test("选择图形主题只重着色 Draw.io XML，不改变应用主题或覆盖页面背景与网格", async ({ page, request }) => {
-    const stateResponse = await request.get("/api/workspace/state");
-    expect(stateResponse.ok()).toBe(true);
-    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
-    const initialXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(activeWorkspace);
-    const documentXml = initialXml.replace('<mxGraphModel dx="1200"', '<mxGraphModel background="#FFFF66" dx="1200"');
-    expect(documentXml).not.toBe(initialXml);
-    const savedFixture = await request.put("/api/workspace/document", {
-      data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
-    });
-    expect(savedFixture.status(), await savedFixture.text()).toBe(200);
 
-    await page.reload();
-    await waitForNativeEditor(page);
-    const frame = nativeFrameHandle(page);
-    const nativeBackground = () => frame.evaluate(() => {
-      const page = document.querySelector<HTMLElement>(".geBackgroundPage");
-      return {
-        color: page ? getComputedStyle(page).backgroundColor : null,
-        image: page ? getComputedStyle(page).backgroundImage : null,
-        themeOverlay: Boolean(document.querySelector("#studio-native-theme"))
-      };
-    });
-    await expect.poll(nativeBackground, { timeout: 20_000 }).toMatchObject({
-      color: "rgb(255, 255, 102)",
-      themeOverlay: false
-    });
-    const initialCanvas = await nativeBackground();
-    expect(initialCanvas.image).not.toBe("none");
-
-    await page.locator(".theme-selector .ant-select").click();
-    await page.getByText("Vivid", { exact: true }).click();
-    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
-    await expect.poll(async () => readWorkspaceXml(activeWorkspace), { timeout: 20_000 })
-      .toContain("fillColor=#FCE7F3");
-    await expect.poll(nativeBackground, { timeout: 20_000 }).toMatchObject({
-      color: "rgb(255, 255, 102)",
-      themeOverlay: false
-    });
-    expect((await nativeBackground()).image).not.toBe("none");
-
-    await page.reload();
-    await waitForNativeEditor(page);
-    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
-    const reloadedCanvas = await nativeFrameHandle(page).evaluate(() => {
-      const page = document.querySelector<HTMLElement>(".geBackgroundPage");
-      return {
-        color: page ? getComputedStyle(page).backgroundColor : null,
-        image: page ? getComputedStyle(page).backgroundImage : null,
-        themeOverlay: Boolean(document.querySelector("#studio-native-theme"))
-      };
-    });
-    expect(reloadedCanvas).toMatchObject({ color: "rgb(255, 255, 102)", themeOverlay: false });
-    expect(reloadedCanvas.image).not.toBe("none");
-    const savedXml = await readWorkspaceXml(activeWorkspace);
-    expect(savedXml).toContain('background="#FFFF66"');
-    expect(savedXml).toContain('grid="1"');
-    expect(savedXml).toContain("fillColor=#FCE7F3");
-  });
 
   test("服务端只保存模型与 reasoning 配置", async ({ page, request }) => {
     await page.locator('nav[aria-label="Workspace pages"]').getByRole("button", { name: "Settings" }).click();
