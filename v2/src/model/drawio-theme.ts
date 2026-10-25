@@ -128,7 +128,7 @@ function applyThemeToGraphModel(
     if (!isVertex && !isEdge) continue;
 
     const originalStyle = cell.getAttribute("style") ?? "";
-    const values = isEdge
+    const values: Record<string, string> = isEdge
       ? { strokeColor: palette.edgeStroke, fontColor: palette.edgeFont }
       : isTextOnlyVertex(originalStyle)
         ? { fontColor: palette.vertexFont }
