@@ -27,6 +27,8 @@
     var studioParentOrigin = "";
     var activeHistoryModel = null;
     var activeHistoryListener = null;
+    var activeHistoryManager = null;
+    var activeHistoryManagerListeners = [];
     var pendingBridgeReadyMessage = null;
     var bridgeHelloTimer = null;
     var publish = function (message) {
@@ -70,7 +72,25 @@
       var state = historyState();
       publish({ event: "studioHistoryState", canUndo: state.canUndo, canRedo: state.canRedo, pageId: currentPageId() });
     };
+    function bindUndoManagerListeners() {
+      var manager = ui && ui.editor && ui.editor.undoManager;
+      if (!manager || manager === activeHistoryManager) return;
+      if (activeHistoryManager && typeof activeHistoryManager.removeListener === "function") {
+        activeHistoryManagerListeners.forEach(function (listener) {
+          try { activeHistoryManager.removeListener(listener); } catch (_) {}
+        });
+      }
+      activeHistoryManager = manager;
+      activeHistoryManagerListeners = [];
+      if (typeof manager.addListener !== "function") return;
+      ["add", "undo", "redo", "clear"].forEach(function (eventName) {
+        var listener = function () { publishHistoryState(); };
+        manager.addListener(eventName, listener);
+        activeHistoryManagerListeners.push(listener);
+      });
+    }
     var publishSelection = function () {
+      bindUndoManagerListeners();
       var selectedGraph = currentGraph();
       var cells = typeof selectedGraph.getSelectionCells === "function" ? selectedGraph.getSelectionCells() : [];
       var cell = cells && cells.length ? cells[0] : null;
