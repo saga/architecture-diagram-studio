@@ -7,7 +7,7 @@ import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
 export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
 export const NATIVE_AUTO_LAYOUT_ALGORITHMS = [
-  "layered", "mrtree", "radial", "stress", "force", "box", "rectpacking", "random",
+  "layered", "mrtree", "radial", "stress", "force", "box", "rectpacking", "random", "disco", "sporeCompaction", "sporeOverlap",
   "dot", "neato", "fdp", "sfdp", "circo", "twopi",
   "mds", "ipsepcola",
   "breadthfirst", "circle", "concentric", "grid", "cose",
@@ -19,8 +19,10 @@ export const NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE: Record<NativeAutoLayoutEngine, 
   elk: [
     { value: "layered", label: "Layered · flow" }, { value: "mrtree", label: "Mr. Tree" },
     { value: "radial", label: "Radial" }, { value: "stress", label: "Stress · relationships" },
-    { value: "force", label: "Force · organic" }, { value: "box", label: "Box packing" },
-    { value: "rectpacking", label: "Rectangle packing" }, { value: "random", label: "Random placement" }
+    { value: "force", label: "Force · organic" }, { value: "disco", label: "DisCo · connected components" },
+    { value: "box", label: "Box packing" }, { value: "rectpacking", label: "Rectangle packing" },
+    { value: "random", label: "Randomizer" }, { value: "sporeCompaction", label: "SPOrE · compact" },
+    { value: "sporeOverlap", label: "SPOrE · remove overlap" }
   ],
   dagre: [{ value: "layered", label: "Layered · flow" }],
   graphviz: [
@@ -63,7 +65,7 @@ export function nativeLayoutSupportsAlgorithm(engine: NativeAutoLayoutEngine, al
 }
 
 export function nativeLayoutSupportsDirection(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
-  if (engine === "elk") return !["radial", "force", "box", "rectpacking", "random"].includes(algorithm);
+  if (engine === "elk") return ["layered", "mrtree"].includes(algorithm);
   // Non-layered adapters without a native direction setting use the shared coordinate transform.
   return true;
 }
@@ -157,7 +159,11 @@ interface ElkLayoutResult {
   edges?: Array<{ id: string; sections?: Array<{ bendPoints?: Point[] }> }>;
 }
 
-const elk = new ELK();
+// Explicitly register algorithms shipped in the bundled ELK build. Box, Random and Fixed
+// are always included by elkjs; DisCo, Rectpacking and SPOrE are opt-in registrations.
+const elk = new ELK({
+  algorithms: ["layered", "stress", "mrtree", "radial", "force", "disco", "rectpacking", "sporeCompaction", "sporeOverlap"]
+});
 
 function elementChildren(element: Element): Element[] {
   const result: Element[] = [];
@@ -297,7 +303,7 @@ function mapDirection(direction: NativeAutoLayoutDirection): "RIGHT" | "LEFT" | 
 // with no meaningful edge direction, so Stress and Force get a deterministic post-layout
 // orientation emulation: align the dominant spread axis with the requested flow axis and
 // mirror the result until the aggregated edge flow matches the selected direction.
-const ELK_DIRECTION_AWARE_ALGORITHMS: ReadonlySet<NativeAutoLayoutAlgorithm> = new Set(["layered", "mrtree", "radial"]);
+const ELK_DIRECTION_AWARE_ALGORITHMS: ReadonlySet<NativeAutoLayoutAlgorithm> = new Set(["layered", "mrtree"]);
 
 const ANISOTROPY_ROTATION_THRESHOLD = 2.5;
 
@@ -543,10 +549,23 @@ export async function calculateNativeAutoLayout(
         Math.max(options.nodeSpacing, options.layerSpacing) + (maxVertexWidth + maxVertexHeight) / 2
       );
     }
+    if (options.algorithm === "disco") {
+      // DisCo packs components but does not lay out their contents by default. Use Layered
+      // within each component, then let DisCo arrange the component outlines.
+      layoutOptions["elk.disco.componentLayoutAlgorithm"] = "layered";
+      layoutOptions["elk.spacing.componentComponent"] = String(options.layerSpacing);
+    }
+    if (options.algorithm === "sporeCompaction" || options.algorithm === "sporeOverlap") {
+      layoutOptions["elk.spacing.nodeNode"] = String(options.nodeSpacing);
+    }
     const graphInput = {
       id: "studio-native-layout",
       layoutOptions,
-      children: projection.vertices.map((node) => ({ id: node.id, width: node.width, height: node.height })),
+      children: projection.vertices.map((node) => ({
+        id: node.id, width: node.width, height: node.height,
+        // SPOrE is a post-layout optimizer; seed it with the existing native positions.
+        ...(["sporeCompaction", "sporeOverlap"].includes(options.algorithm) ? { x: node.x, y: node.y } : {})
+      })),
       edges: projection.edges
         .filter((edge) => edge.sourceId && edge.targetId)
         .map((edge) => ({ id: edge.id, sources: [edge.sourceId!], targets: [edge.targetId!] }))
@@ -560,7 +579,8 @@ export async function calculateNativeAutoLayout(
       const points = (edge.sections ?? []).flatMap((section) => section.bendPoints ?? []);
       if (projection.edges.some((candidate) => candidate.id === edge.id)) routes.set(edge.id, points);
     }
-    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm) && !["box", "rectpacking", "random"].includes(options.algorithm)) {
+    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm) &&
+        !["box", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(options.algorithm)) {
       emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
     }
   }
