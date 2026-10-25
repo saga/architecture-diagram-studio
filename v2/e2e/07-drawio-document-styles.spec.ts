@@ -94,8 +94,10 @@ test.describe("原生 Draw.io 文档风格", () => {
     expect(graphSvgBackground).not.toBe("rgb(243, 245, 249)");
     expect(graphSvgBackground).not.toBe("rgb(255, 252, 246)");
 
+    const applicationThemeBefore = await page.locator(".app-shell").getAttribute("data-theme");
     await chooseDiagramStyle(page, "Editorial");
     await expect(page.locator(".status-left")).toContainText("Applied Draw.io document style: Editorial");
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", applicationThemeBefore ?? "warm");
     await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Editorial");
 
     await expect.poll(async () => latestNativeExport(page), { timeout: 20_000, intervals: [250] }).toContain("fillColor=#E6F0FF");
@@ -113,9 +115,11 @@ test.describe("原生 Draw.io 文档风格", () => {
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#E6F0FF");
 
     await nativeFrame(page).locator("body").press("Control+z");
+    // Check the actual native XML first. This distinguishes a failed native Undo from a
+    // successful XML revert whose style-selector metadata has not yet been resolved.
+    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 15_000, intervals: [250] }).toContain("fillColor=#FF0000");
+    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 15_000, intervals: [250] }).toContain("fillColor=#00FF00");
     await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Original", { timeout: 20_000 });
-    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#FF0000");
-    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 30_000, intervals: [500] }).toContain("fillColor=#00FF00");
 
     await nativeFrame(page).locator("body").press("Control+Shift+z");
     await expect(page.locator(".diagram-style-controls .ant-select-content")).toHaveText("Editorial", { timeout: 20_000 });
