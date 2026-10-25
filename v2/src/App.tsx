@@ -18,7 +18,7 @@ import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, ge
 import { DEFAULT_DRAWIO_STYLE_LIBRARY } from "./model/drawio-style-presets";
 import {
   DRAWIO_STYLE_LIBRARY_SCHEMA_VERSION, ORIGINAL_DRAWIO_STYLE_ID, parseDrawioStyleImport,
-  serializeDrawioStyleExport, validateDrawioDiagramStyle, type DrawioDiagramStyle, type DrawioStyleLibrary
+  serializeDrawioStyleExport, validateDrawioDiagramStyle, type DrawioStyleLibrary
 } from "./model/drawio-style-library";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
