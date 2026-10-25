@@ -10,6 +10,7 @@ function multiPageStyleFixture(): string {
     '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
     '<mxCell id="' + cell + '" value="' + label + '" style="shape=' + shape + ';whiteSpace=wrap;html=1;fillColor=' + fill +
     ';strokeColor=#990000;fontColor=#111111;strokeWidth=7;rounded=0;vendorFlag=preserve;" vertex="1" parent="1"><mxGeometry x="80" y="90" width="170" height="65" as="geometry"/></mxCell>' +
+    '<mxCell id="container-' + id + '" value="Application boundary" style="shape=swimlane;swimlane=1;fillColor=#FFFF00;strokeColor=#AA0000;fontColor=#111111;strokeWidth=6;vendorContainerFlag=preserve;" vertex="1" parent="1"><mxGeometry x="40" y="300" width="540" height="180" as="geometry"/></mxCell>' +
     '<mxCell id="note-' + id + '" value="Keep non-cell metadata" style="text;html=1;" vertex="1" parent="1"><mxGeometry x="330" y="200" width="140" height="30" as="geometry"/></mxCell>' +
     '<mxCell id="edge-' + id + '" value="uses" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#AA0000;endArrow=block;strokeWidth=4;dashed=1;vendorEdgeFlag=preserve;" edge="1" parent="1" source="' + cell + '" target="note-' + id + '"><mxGeometry relative="1" as="geometry"/></mxCell>' +
     '</root></mxGraphModel></diagram>';
@@ -85,6 +86,7 @@ test.describe("原生 Draw.io 文档风格", () => {
     const styledExport = await latestNativeExport(page);
     expect(styledExport).toContain("fillColor=#E3F2E8");
     expect(styledExport).toContain("fillColor=#F8FAFD");
+    expect(styledExport).toContain("vendorContainerFlag=preserve");
     expect(styledExport).toContain("strokeColor=#7487A0");
     expect(styledExport).toContain("vendorEdgeFlag=preserve");
     expect(styledExport).toContain('background="#FFFF66"');
