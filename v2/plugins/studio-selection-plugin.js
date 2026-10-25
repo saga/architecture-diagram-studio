@@ -86,7 +86,7 @@
     };
     function classifyStyleCell(cell, styleText, activeModel, style) {
       if (cell && cell.edge) {
-        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\\s|;)/.test(styleText)) return "edgeDotted";
+        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\s|;)/.test(styleText)) return "edgeDotted";
         if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) || /(?:^|;)dashPattern=/.test(styleText)) return "edgeDashed";
         return "edge";
       }
@@ -142,7 +142,7 @@
           var tokens = style.matchRules[category];
           if (["service", "database", "user", "external", "container"].indexOf(category) < 0 ||
               !Array.isArray(tokens) || tokens.length > 40 ||
-              tokens.some(function (token) { return typeof token !== "string" || !token.trim() || token.length > 80 || /[;<>\\u0000-\\u001f]/.test(token); })) {
+              tokens.some(function (token) { return typeof token !== "string" || !token.trim() || token.length > 80 || /[;<>\u0000-\u001f]/.test(token); })) {
             throw new Error("Invalid diagram style matching rule for " + category);
           }
         });
