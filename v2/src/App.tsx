@@ -617,11 +617,13 @@ export default function App() {
         if (!currentBinding || currentBinding.fileToken !== binding.fileToken) {
           throw new Error("The active local file changed while the diagram theme was being saved.");
         }
+        // enqueueStandaloneSave resolves only after the browser file write succeeds.
+        // Keep the UI's authoritative XML in sync even if the follow-up revision check fails.
+        standaloneWriteCompleted = true;
         const expectedRevision = await calculateDrawioXmlRevision(nextXml);
         if (currentBinding.revision !== expectedRevision) {
           throw new Error("The selected local file did not confirm the exact themed XML revision.");
         }
-        standaloneWriteCompleted = true;
         standaloneLastSavedXmlRef.current = nextXml;
         setNativeXmlOverride(nextXml);
         setRevision((value) => value + 1);
