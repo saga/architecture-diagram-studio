@@ -248,6 +248,10 @@ async function runCytoscape(
 ): Promise<AdditionalLayoutResult> {
   const cytoscapeModule = await import("cytoscape");
   const cytoscape = cytoscapeModule.default;
+  if (options.algorithm === "fcose") {
+    const fcoseModule = await import("cytoscape-fcose");
+    cytoscape.use(fcoseModule.default);
+  }
   const cy = cytoscape({
     headless: true,
     styleEnabled: true,
