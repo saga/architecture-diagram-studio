@@ -600,9 +600,11 @@ export default function App() {
       const targetStyle = styleId === ORIGINAL_DRAWIO_STYLE_ID
         ? null
         : diagramStyleLibraryRef.current.styles.find((style) => style.id === styleId) ?? null;
-      const sourceRevision = await calculateDrawioXmlRevision(drawioXml);
-      // Preserve the pre-transform style association so native Undo resolves the selector
-      // even when this source revision was loaded before the metadata map was initialized.
+      // Use the XML serialized from the live native editor, not React's possibly older
+      // persistence snapshot. Draw.io may normalize XML on load; Undo returns its serialization.
+      const nativeBeforeXml = await drawioFrameRef.current.exportCurrentXml();
+      const sourceRevision = await calculateDrawioXmlRevision(nativeBeforeXml);
+      // Preserve the exact live source revision so native Undo resolves the prior selector.
       styleRevisionMapRef.current[sourceRevision] = selectedDiagramStyleIdRef.current;
       persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
       pendingDiagramStyleRef.current = { id: styleId, sourceRevision };
