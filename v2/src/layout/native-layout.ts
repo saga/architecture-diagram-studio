@@ -126,12 +126,15 @@ export interface NativeLayoutCoverage {
   sourceVertexCount: number;
   plannedVertexCount: number;
   untouchedVertexCount: number;
-  nestedOrOtherLayerVertexCount: number;
+  nestedVertexCount: number;
+  verticesInOtherLayersCount: number;
+  hiddenVertexCount: number;
   verticesWithoutGeometryCount: number;
   sourceEdgeCount: number;
   plannedEdgeCount: number;
   untouchedEdgeCount: number;
   edgesOutsideLayoutLayerCount: number;
+  hiddenEdgeCount: number;
   edgesWithoutGeometryCount: number;
   edgesMissingTerminalsCount: number;
   edgesWithEndpointsOutsideTargetVerticesCount: number;
@@ -179,9 +182,13 @@ interface NativePageProjection {
   sourceVertexCount: number;
   sourceVertexWithGeometryCount: number;
   verticesWithNonLayerParents: number;
+  nestedVertexCount: number;
+  verticesInOtherLayersCount: number;
+  hiddenVertexCount: number;
   sourceEdgeCount: number;
   sourceEdgeWithGeometryCount: number;
   edgesOutsideLayoutLayerCount: number;
+  hiddenEdgeCount: number;
   edgesMissingTerminalsCount: number;
   edgesWithEndpointsOutsideTargetVerticesCount: number;
   vertices: ProjectedCell[];
@@ -369,6 +376,7 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
 
   const rootLayerIds = new Set(rootLayers.map((layer) => layer.id));
   const sourceVertices = all.filter((cell) => cell.kind === "vertex");
+  const sourceVertexIds = new Set(sourceVertices.map((cell) => cell.id));
   const sourceEdges = all.filter((cell) => cell.kind === "edge");
   return {
     pageId: parsed.pageId,
@@ -381,9 +389,15 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     sourceVertexCount: sourceVertices.length,
     sourceVertexWithGeometryCount: sourceVertices.filter((cell) => cell.hasGeometry).length,
     verticesWithNonLayerParents: sourceVertices.filter((cell) => !rootLayerIds.has(cell.parentId ?? "")).length,
+    nestedVertexCount: sourceVertices.filter((cell) => Boolean(cell.parentId && sourceVertexIds.has(cell.parentId))).length,
+    verticesInOtherLayersCount: sourceVertices.filter((cell) =>
+      rootLayerIds.has(cell.parentId ?? "") && cell.parentId !== layoutLayerId
+    ).length,
+    hiddenVertexCount: sourceVertices.filter((cell) => !cell.visible).length,
     sourceEdgeCount: sourceEdges.length,
     sourceEdgeWithGeometryCount: sourceEdges.filter((cell) => cell.hasGeometry).length,
     edgesOutsideLayoutLayerCount: sourceEdges.filter((cell) => cell.parentId !== layoutLayerId).length,
+    hiddenEdgeCount: sourceEdges.filter((cell) => !cell.visible).length,
     edgesMissingTerminalsCount: sourceEdges.filter((cell) => !cell.sourceId || !cell.targetId).length,
     edgesWithEndpointsOutsideTargetVerticesCount: sourceEdges.filter((cell) =>
       Boolean(cell.sourceId && cell.targetId) &&
@@ -565,12 +579,15 @@ function normalizePlan(
       sourceVertexCount: projection.sourceVertexCount,
       plannedVertexCount: projection.vertices.length,
       untouchedVertexCount: Math.max(0, projection.sourceVertexCount - projection.vertices.length),
-      nestedOrOtherLayerVertexCount: projection.verticesWithNonLayerParents,
+      nestedVertexCount: projection.nestedVertexCount,
+      verticesInOtherLayersCount: projection.verticesInOtherLayersCount,
+      hiddenVertexCount: projection.hiddenVertexCount,
       verticesWithoutGeometryCount: Math.max(0, projection.sourceVertexCount - projection.sourceVertexWithGeometryCount),
       sourceEdgeCount: projection.sourceEdgeCount,
       plannedEdgeCount: projection.edges.length,
       untouchedEdgeCount: Math.max(0, projection.sourceEdgeCount - projection.edges.length),
       edgesOutsideLayoutLayerCount: projection.edgesOutsideLayoutLayerCount,
+      hiddenEdgeCount: projection.hiddenEdgeCount,
       edgesWithoutGeometryCount: Math.max(0, projection.sourceEdgeCount - projection.sourceEdgeWithGeometryCount),
       edgesMissingTerminalsCount: projection.edgesMissingTerminalsCount,
       edgesWithEndpointsOutsideTargetVerticesCount: projection.edgesWithEndpointsOutsideTargetVerticesCount
