@@ -1,76 +1,39 @@
-import { findDrawioElements, parseDrawioXml, serializeDrawioXml } from "./drawio-xml-dom";
-
 /**
- * The application theme is presentation-only. Draw.io XML remains the user's document
- * and is never rewritten just because the Studio chrome theme changed.
+ * Application presentation-only CSS for Draw.io chrome. Diagram XML styling is implemented
+ * separately by the native document style library (see ADR-0019).
  */
 export interface DrawioThemePalette {
+  /** Outer whitespace around the native page; never the document SVG or page itself. */
   canvas: string;
   panel: string;
   text: string;
-  secondary: string;
   muted: string;
   border: string;
   accent: string;
   soft: string;
 }
 
-function safeColor(value: string): string | null {
+function safeColor(value: string, fallback: string): string {
   const color = value.trim();
-  return /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) ? color : null;
+  return /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) ? color : fallback;
 }
 
-function parseXml(xml: string): Document | null {
-  try { return parseDrawioXml(xml); } catch { return null; }
-}
-
-/** Read the saved background without editing or normalizing the authoritative XML. */
-export function readDrawioModelBackground(xml: string): string | null {
-  const parsed = parseXml(xml);
-  if (!parsed) return null;
-  const models = findDrawioElements(parsed, "mxGraphModel");
-  if (!models.length) return null;
-  const background = models[0]?.getAttribute("background");
-  return background && safeColor(background) ? background : null;
-}
-
-/**
- * Compatibility utility for explicit document-background edits only. Uses a real XML DOM;
- * callers must not use it for UI theme changes. Invalid XML/colors are returned untouched.
- */
-export function applyDrawioThemeBackground(xml: string, background: string): string {
-  const color = safeColor(background);
-  const parsed = parseXml(xml);
-  if (!color || !parsed) return xml;
-  const models = parsed.getElementsByTagName("mxGraphModel");
-  if (!models.length) return xml;
-  let changed = false;
-  for (let index = 0; index < models.length; index += 1) {
-    const model = models.item(index);
-    if (model && model.getAttribute("background") !== color) {
-      model.setAttribute("background", color);
-      changed = true;
-    }
-  }
-  return changed ? serializeDrawioXml(parsed) : xml;
-}
-
-/** CSS injected into the same-origin native editor iframe; it does not rewrite cell styles. */
+/** CSS injected into the native editor iframe. Never target the graph SVG or document page. */
 export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
-  const canvas = safeColor(palette.canvas) ?? "#ffffff";
-  const panel = safeColor(palette.panel) ?? "#ffffff";
-  const text = safeColor(palette.text) ?? "#172033";
-  const muted = safeColor(palette.muted) ?? secondary;
-  const border = safeColor(palette.border) ?? "#d0d7e2";
-  const accent = safeColor(palette.accent) ?? "#425bc7";
-  const soft = safeColor(palette.soft) ?? "#e8edff";
+  const canvas = safeColor(palette.canvas, "#ffffff");
+  const panel = safeColor(palette.panel, "#ffffff");
+  const text = safeColor(palette.text, "#172033");
+  const muted = safeColor(palette.muted, "#64748b");
+  const border = safeColor(palette.border, "#d0d7e2");
+  const accent = safeColor(palette.accent, "#425bc7");
+  const soft = safeColor(palette.soft, "#e8edff");
   return `
     html, body, #geInfo, #geMenubar, #geToolbarContainer, #geSidebar,
     #geFooter, .geToolbarContainer, .geSidebar, .geMenubarContainer {
       background-color: ${panel} !important; color: ${text} !important;
     }
-    /* Only the editor's surrounding whitespace follows the Studio canvas token.
-       Never paint the SVG: Draw.io renders the document page and grid beneath it. */
+    /* Draw.io paints the document page and grid beneath the graph SVG. Keep this rule
+       restricted to body whitespace; styling SVG/page surfaces hides user-authored XML. */
     body { background-color: ${canvas} !important; }
     #geMenubar a, #geToolbarContainer button, #geToolbarContainer .geButton,
     #geSidebar button, #geSidebar .geButton, #geFooter, .geToolbarContainer button {
@@ -88,4 +51,3 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
     .geHint, .geToolbarHint { color: ${muted} !important; }
   `;
 }
-
