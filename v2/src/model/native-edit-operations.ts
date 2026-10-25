@@ -1,7 +1,7 @@
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 import { z } from "zod";
-import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_AUTO_LAYOUT_ALGORITHMS, nativeLayoutSupportsAlgorithm, type NativeAutoLayoutEngine, type NativeLayoutPlan } from "../layout/native-layout";
+import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_AUTO_LAYOUT_ALGORITHMS, defaultNativeLayoutAlgorithm, nativeLayoutSupportsAlgorithm, type NativeAutoLayoutEngine, type NativeLayoutPlan } from "../layout/native-layout";
 
 /**
  * Shared contract for native Draw.io cell edits.
@@ -250,7 +250,16 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
   if (containsScript && input.length !== 1) return { ok: false, error: "run_drawio_script must be the only operation in its batch" };
   if (containsLayout && input.length !== 1) return { ok: false, error: "auto_layout must be the only operation in its batch because it recalculates the active page as one transaction" };
 
-  const parsed = NativeEditOperationBatchSchema.safeParse(input);
+  const normalizedInput = input.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const item = raw as Record<string, unknown>;
+    if (item.op !== "auto_layout" || typeof item.algorithm === "string") return raw;
+    const engine = NATIVE_AUTO_LAYOUT_ENGINES.includes(item.engine as NativeAutoLayoutEngine)
+      ? item.engine as NativeAutoLayoutEngine
+      : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine;
+    return { ...item, algorithm: defaultNativeLayoutAlgorithm(engine) };
+  });
+  const parsed = NativeEditOperationBatchSchema.safeParse(normalizedInput);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     const index = typeof issue?.path[0] === "number" ? issue.path[0] + 1 : 1;
@@ -268,6 +277,9 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
       if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
       operations.push(operation);
     } else if (operation.op === "auto_layout") {
+      if (operation.engine === "dagre" && operation.algorithm !== "layered") {
+        return { ok: false, error: `Operation ${index + 1}: Dagre does not support the requested “${operation.algorithm}” algorithm. Select “layered” or use ELK for other algorithms.` };
+      }
       if (!nativeLayoutSupportsAlgorithm(operation.engine, operation.algorithm)) {
         return { ok: false, error: `Operation ${index + 1}: algorithm “${operation.algorithm}” is not supported by “${operation.engine}”.` };
       }
@@ -291,8 +303,13 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
     case "run_drawio_script": return operation.summary;
-    case "auto_layout": return "Auto-layout the active page using " + operation.engine + " " + operation.algorithm +
-      " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
+    case "auto_layout": {
+      const engineLabels: Record<NativeAutoLayoutEngine, string> = {
+        elk: "ELK", dagre: "Dagre", graphviz: "Graphviz", msagl: "MSAGL.js", cytoscape: "Cytoscape.js", d3: "D3"
+      };
+      return "Auto-layout the active page using " + engineLabels[operation.engine] + " " + operation.algorithm +
+        " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
+    }
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
     case "delete": return `Delete “${target}”`;
