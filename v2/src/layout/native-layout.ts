@@ -552,7 +552,7 @@ export async function calculateNativeAutoLayout(
     if (options.algorithm === "disco") {
       // DisCo packs components but does not lay out their contents by default. Use Layered
       // within each component, then let DisCo arrange the component outlines.
-      layoutOptions["elk.disco.componentLayoutAlgorithm"] = "layered";
+      layoutOptions["elk.disco.componentCompaction.componentLayoutAlgorithm"] = "org.eclipse.elk.layered";
       layoutOptions["elk.spacing.componentComponent"] = String(options.layerSpacing);
     }
     if (options.algorithm === "sporeCompaction" || options.algorithm === "sporeOverlap") {
