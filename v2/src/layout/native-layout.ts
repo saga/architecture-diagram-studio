@@ -122,7 +122,24 @@ export interface NativeLayoutExpectedCell {
   targetId: string | null;
 }
 
+export interface NativeLayoutCoverage {
+  sourceVertexCount: number;
+  plannedVertexCount: number;
+  untouchedVertexCount: number;
+  nestedOrOtherLayerVertexCount: number;
+  verticesWithoutGeometryCount: number;
+  sourceEdgeCount: number;
+  plannedEdgeCount: number;
+  untouchedEdgeCount: number;
+  edgesOutsideLayoutLayerCount: number;
+  edgesWithoutGeometryCount: number;
+  edgesMissingTerminalsCount: number;
+  edgesWithEndpointsOutsideTargetVerticesCount: number;
+}
+
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
+  /** Native page scope so the UI can report what will change and what remains untouched. */
+  coverage: NativeLayoutCoverage;
   documentRevision: string;
   pageId: string | null;
   /** The single visible native layer targeted by this plan, resolved from the native cell tree. */
@@ -162,6 +179,11 @@ interface NativePageProjection {
   sourceVertexCount: number;
   sourceVertexWithGeometryCount: number;
   verticesWithNonLayerParents: number;
+  sourceEdgeCount: number;
+  sourceEdgeWithGeometryCount: number;
+  edgesOutsideLayoutLayerCount: number;
+  edgesMissingTerminalsCount: number;
+  edgesWithEndpointsOutsideTargetVerticesCount: number;
   vertices: ProjectedCell[];
   edges: ProjectedCell[];
 }
@@ -347,6 +369,7 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
 
   const rootLayerIds = new Set(rootLayers.map((layer) => layer.id));
   const sourceVertices = all.filter((cell) => cell.kind === "vertex");
+  const sourceEdges = all.filter((cell) => cell.kind === "edge");
   return {
     pageId: parsed.pageId,
     pageTitle: parsed.pageTitle,
@@ -358,6 +381,14 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     sourceVertexCount: sourceVertices.length,
     sourceVertexWithGeometryCount: sourceVertices.filter((cell) => cell.hasGeometry).length,
     verticesWithNonLayerParents: sourceVertices.filter((cell) => !rootLayerIds.has(cell.parentId ?? "")).length,
+    sourceEdgeCount: sourceEdges.length,
+    sourceEdgeWithGeometryCount: sourceEdges.filter((cell) => cell.hasGeometry).length,
+    edgesOutsideLayoutLayerCount: sourceEdges.filter((cell) => cell.parentId !== layoutLayerId).length,
+    edgesMissingTerminalsCount: sourceEdges.filter((cell) => !cell.sourceId || !cell.targetId).length,
+    edgesWithEndpointsOutsideTargetVerticesCount: sourceEdges.filter((cell) =>
+      Boolean(cell.sourceId && cell.targetId) &&
+      (!vertexIds.has(cell.sourceId!) || !vertexIds.has(cell.targetId!))
+    ).length,
     vertices,
     edges
   };
@@ -530,6 +561,20 @@ function normalizePlan(
     pageId: projection.pageId,
     layoutLayerId: projection.layoutLayerId,
     layoutLayerFallback: projection.layoutLayerFallback,
+    coverage: {
+      sourceVertexCount: projection.sourceVertexCount,
+      plannedVertexCount: projection.vertices.length,
+      untouchedVertexCount: Math.max(0, projection.sourceVertexCount - projection.vertices.length),
+      nestedOrOtherLayerVertexCount: projection.verticesWithNonLayerParents,
+      verticesWithoutGeometryCount: Math.max(0, projection.sourceVertexCount - projection.sourceVertexWithGeometryCount),
+      sourceEdgeCount: projection.sourceEdgeCount,
+      plannedEdgeCount: projection.edges.length,
+      untouchedEdgeCount: Math.max(0, projection.sourceEdgeCount - projection.edges.length),
+      edgesOutsideLayoutLayerCount: projection.edgesOutsideLayoutLayerCount,
+      edgesWithoutGeometryCount: Math.max(0, projection.sourceEdgeCount - projection.sourceEdgeWithGeometryCount),
+      edgesMissingTerminalsCount: projection.edgesMissingTerminalsCount,
+      edgesWithEndpointsOutsideTargetVerticesCount: projection.edgesWithEndpointsOutsideTargetVerticesCount
+    },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),
     positions: nativePositions,
