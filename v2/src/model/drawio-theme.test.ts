@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyDrawioCellThemeReversible,
   applyDrawioThemeBackground,
-  applyDrawioThemeBackgroundReversible,
   drawioFrameThemeCss,
   readDrawioModelBackground
 } from "./drawio-theme";
@@ -30,12 +28,6 @@ describe("native Draw.io theme adapter", () => {
     expect(readDrawioModelBackground(malformed)).toBeNull();
   });
 
-  it("makes UI theme adapters no-ops for authoritative diagram XML", () => {
-    const source = '<mxfile><diagram><mxGraphModel background="#fefefe"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n1" value="API" style="fillColor=#ff0000;strokeColor=#990000;fontColor=#111111;" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>';
-    expect(applyDrawioThemeBackgroundReversible(source, "#101a2b", "youth")).toBe(source);
-    expect(applyDrawioCellThemeReversible(source, "youth")).toBe(source);
-  });
-
   it("reads only the graph model's actual background attribute", () => {
     const source = '<mxfile><diagram><mxGraphModel background="#123456"><root><mxCell id="x" value="background=&quot;#abcdef&quot;"/></root></mxGraphModel></diagram></mxfile>';
     expect(readDrawioModelBackground(source)).toBe("#123456");
@@ -47,7 +39,9 @@ describe("native Draw.io theme adapter", () => {
       canvas: "#101a2b", panel: "#172235", text: "#f0f4fc", secondary: "#d1dbeb",
       muted: "#a7b7ce", border: "#35435a", accent: "#91a5ff", soft: "#263555"
     });
-    expect(css).toContain("background-color: #101a2b !important");
+    expect(css).toContain("body { background-color: #101a2b !important; }");
+    expect(css).not.toContain(".geDiagramContainer svg");
+    expect(css).not.toContain("#geDiagramContainer, .geDiagramContainer { color:");
     expect(css).toContain("background-color: #172235 !important");
     expect(css).toContain("outline-color: #91a5ff !important");
   });
