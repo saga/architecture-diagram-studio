@@ -233,7 +233,7 @@ describe("additional native layout engines", () => {
     ["cytoscape", "breadthfirst"], ["cytoscape", "circle"], ["cytoscape", "concentric"],
     ["cytoscape", "grid"], ["cytoscape", "random"], ["cytoscape", "cose"], ["cytoscape", "fcose"],
     ["d3", "tree"], ["d3", "cluster"], ["d3", "force"],
-    ["elk", "random"], ["elk", "disco"], ["elk", "sporeCompaction"], ["elk", "sporeOverlap"]
+    ["elk", "random"], ["elk", "disco"], ["elk", "sporeCompaction"], ["elk", "sporeOverlap"], ["elk", "fixed"]
   ] as const)("calculates native geometry with %s / %s", async (engine, algorithm) => {
     const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
@@ -255,6 +255,15 @@ describe("additional native layout engines", () => {
     expect(plan.positions).toHaveLength(3);
   });
 
+  it("keeps absolute native positions with ELK Fixed", async () => {
+    const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "fixed", margin: 100
+    });
+    expect(plan.positions.find((position) => position.cellId === "api")).toEqual({ cellId: "api", x: 40, y: 40 });
+    expect(plan.positions.find((position) => position.cellId === "worker")).toEqual({ cellId: "worker", x: 260, y: 200 });
+    expect(plan.positions.find((position) => position.cellId === "db")).toEqual({ cellId: "db", x: 500, y: 360 });
+  });
+
   it("rejects ELK packing algorithms for connected diagrams", async () => {
     await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "box"
@@ -267,7 +276,7 @@ describe("additional native layout engines", () => {
   it("exposes algorithm choices only for their matching engines", () => {
     expect(nativeLayoutAlgorithmsForEngine("dagre").map((item) => item.value)).toEqual(["layered"]);
     expect(nativeLayoutAlgorithmsForEngine("elk").map((item) => item.value)).toEqual([
-      "layered", "mrtree", "radial", "stress", "force", "disco", "box", "rectpacking", "random", "sporeCompaction", "sporeOverlap"
+      "layered", "mrtree", "radial", "stress", "force", "disco", "box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"
     ]);
     expect(nativeLayoutAlgorithmsForEngine("graphviz").map((item) => item.value)).toContain("sfdp");
     expect(nativeLayoutAlgorithmsForEngine("msagl").map((item) => item.value)).toContain("mds");
