@@ -40,8 +40,8 @@ describe("Studio-owned native-cell layout", () => {
 
     expect(plan.layoutLayerId).toBe("VR5IMITfkwXBvMDUpB2b-1");
     expect(plan.layoutLayerFallback).toBe(false);
-    expect(plan.positions).toHaveLength(22);
-    expect(plan.edgeRoutes).toHaveLength(8);
+    expect(plan.positions).toHaveLength(26);
+    expect(plan.edgeRoutes).toHaveLength(13);
   });
 
   it("rejects non-layered algorithms for Dagre rather than silently ignoring the selection", async () => {
