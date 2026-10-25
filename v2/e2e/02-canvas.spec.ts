@@ -115,7 +115,7 @@ test.describe("原生画布", () => {
     expect(stateResponse.ok()).toBe(true);
     const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
     const initialXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
-    const documentXml = initialXml.replace(/<mxGraphModel\\b/, '<mxGraphModel background="#FFFF66"');
+    const documentXml = initialXml.replace(/<mxGraphModel\b/, '<mxGraphModel background="#FFFF66"');
     expect(documentXml).not.toBe(initialXml);
     const savedFixture = await request.put("/api/workspace/document", {
       data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
