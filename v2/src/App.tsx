@@ -258,6 +258,11 @@ export default function App() {
   const drawioXml = nativeXmlOverride ?? EMPTY_DRAWIO_XML;
   const latestDiagramStateRef = useRef({ drawioXml, selectedNativeCellId, selectedNativePageId });
   latestDiagramStateRef.current = { drawioXml, selectedNativeCellId, selectedNativePageId };
+  useEffect(() => {
+    // Re-derive the preset from the current page XML after edits, page switches and document loads.
+    // This avoids carrying a stale preset label across load boundaries or native Undo/Redo.
+    setDiagramTheme(detectDrawioDiagramTheme(drawioXml, selectedNativePageId));
+  }, [drawioXml, selectedNativePageId]);
   const bootstrap = useWorkspaceBootstrap({
     projectWorkspace, setNativeXmlOverride, setCopilotSessionId, setMessages,
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
