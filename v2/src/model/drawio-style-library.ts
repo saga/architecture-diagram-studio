@@ -75,7 +75,7 @@ export function validateDrawioDiagramStyle(input: unknown): DrawioDiagramStyle {
       }
       if (!Array.isArray(rawTokens) || rawTokens.length > 40 ||
           rawTokens.some((token) => typeof token !== "string" || !token.trim() || token.length > 80 ||
-            /[;<>\\u0000-\\u001f]/.test(token))) {
+            /[;<>\u0000-\u001f]/.test(token))) {
         throw new Error("Match rules for '" + category + "' must be a list of safe shape-name tokens.");
       }
       matchRules[category as DrawioSemanticCategory] = rawTokens.map((token) => String(token).toLowerCase().trim());
@@ -139,7 +139,7 @@ export function classifyDrawioStyleCell(
   style?: DrawioDiagramStyle | null
 ): DrawioStyleCategory | null {
   if (input.edge) {
-    if (/(?:^|;)dashed=1(?:;|$)/.test(input.style) && /(?:^|;)dashPattern=1(?:\\s|;)/.test(input.style)) return "edgeDotted";
+    if (/(?:^|;)dashed=1(?:;|$)/.test(input.style) && /(?:^|;)dashPattern=1(?:\s|;)/.test(input.style)) return "edgeDotted";
     if (/(?:^|;)dashed=1(?:;|$)/.test(input.style) || /(?:^|;)dashPattern=/.test(input.style)) return "edgeDashed";
     return "edge";
   }
