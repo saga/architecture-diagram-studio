@@ -215,7 +215,14 @@
           var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
           function styleTree(cell) {
             if (!cell) return;
-            if ((cell.vertex || cell.edge) && cell.id !== "0" && cell.id !== "1") {
+            // Draw.io can route both paste/drop and reparent/move through addCells. Only
+            // style genuinely new or cloned objects here; mutating a cell that is already
+            // in the live model would rewrite its style during a geometry-only drag and
+            // bypass the model's undoable StyleChange operation.
+            var existingCell = cell.id != null && typeof activeModel.getCell === "function"
+              ? activeModel.getCell(cell.id) : null;
+            var isExistingLiveCell = existingCell === cell;
+            if (!isExistingLiveCell && (cell.vertex || cell.edge) && cell.id !== "0" && cell.id !== "1") {
               cell.style = styleForNewCell(cell, String(cell.style || ""), activeDiagramStyle, activeModel);
             }
             var children = cell.children || [];
