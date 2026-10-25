@@ -210,16 +210,19 @@ async function runMsagl(
     };
     settings.layerDirection = directionMap[options.direction];
     settings.LayerSeparation = options.layerSpacing;
-    settings.NodeSeparation = options.nodeSpacing;
+    settings.commonSettings.NodeSeparation = options.nodeSpacing;
     geomGraph.layoutSettings = settings;
-    msagl.layoutGraphWithSugiayma(geomGraph, null, true);
+    msagl.layoutGraphWithSugiayma(geomGraph, new msagl.CancelToken(), true);
   } else if (options.algorithm === "mds") {
     const settings = new msagl.MdsLayoutSettings();
     settings.IterationsWithMajorization = Math.min(options.iterations, 100);
     geomGraph.layoutSettings = settings;
-    msagl.layoutGraphWithMds(geomGraph, null);
+    msagl.layoutGraphWithMds(geomGraph, new msagl.CancelToken());
   } else {
-    geomGraph.layoutSettings = new msagl.FastIncrementalLayoutSettings();
+    const settings = new msagl.FastIncrementalLayoutSettings();
+    settings.MaxIterations = options.iterations;
+    settings.NodeSeparation = options.nodeSpacing;
+    geomGraph.layoutSettings = settings;
     msagl.layoutGeomGraph(geomGraph);
   }
 
@@ -379,12 +382,17 @@ async function runD3(
     if (!item.data.id) continue;
     const vertex = vertexById.get(item.data.id);
     if (!vertex) continue;
+    if (typeof item.x !== "number" || typeof item.y !== "number") {
+      throw new Error("D3 hierarchy layout returned a node without coordinates.");
+    }
+    const itemX = item.x;
+    const itemY = item.y;
     let center: LayoutPoint;
     switch (options.direction) {
-      case "RIGHT": center = { x: item.y, y: item.x }; break;
-      case "LEFT": center = { x: -item.y, y: item.x }; break;
-      case "DOWN": center = { x: item.x, y: item.y }; break;
-      case "UP": center = { x: item.x, y: -item.y }; break;
+      case "RIGHT": center = { x: itemY, y: itemX }; break;
+      case "LEFT": center = { x: -itemY, y: itemX }; break;
+      case "DOWN": center = { x: itemX, y: itemY }; break;
+      case "UP": center = { x: itemX, y: -itemY }; break;
     }
     requirePosition(positions, vertex, center);
   }

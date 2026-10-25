@@ -1,6 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { calculateAdditionalNativeLayout } from "./additional-layout-engines";
+import { calculateAdditionalNativeLayout, type AdditionalLayoutEngine } from "./additional-layout-engines";
 import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
@@ -482,7 +482,7 @@ export async function calculateNativeAutoLayout(
       projection.edges.filter((edge) => edge.sourceId && edge.targetId).map((edge) => ({
         id: edge.id, sourceId: edge.sourceId!, targetId: edge.targetId!
       })),
-      options
+      { ...options, engine: options.engine as AdditionalLayoutEngine }
     );
     for (const [id, point] of result.positions) positions.set(id, point);
     for (const [id, points] of result.routes) routes.set(id, points);
