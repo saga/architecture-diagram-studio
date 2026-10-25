@@ -56,6 +56,196 @@
       var id = page && (typeof page.getId === "function" ? page.getId() : page.id);
       return typeof id === "string" && id ? id : null;
     };
+
+    // Diagram styles are explicit native-document mutations. They never change the parent
+    // application's CSS theme or the background/grid of the Draw.io page.
+    var activeDiagramStyle = null;
+    var patchedStyleGraphs = typeof WeakSet === "function" ? new WeakSet() : null;
+    var styleColorProperties = ["fillColor", "strokeColor", "fontColor", "gradientColor", "swimlaneFillColor",
+      "separatorColor", "indicatorColor", "labelBackgroundColor", "labelBorderColor"];
+    var styleManagedProperties = styleColorProperties.concat(["strokeWidth", "dashed", "dashPattern", "startArrow",
+      "endArrow", "rounded", "shadow", "opacity", "fontFamily", "fontSize", "fontStyle", "align",
+      "verticalAlign", "spacing", "glass", "comic"]);
+    var styleCategories = ["node", "service", "database", "user", "external", "container", "edge", "edgeDashed", "edgeDotted"];
+
+    function stylePairs(styleText) {
+      var pairs = [];
+      String(styleText || "").split(";").filter(Boolean).forEach(function (entry) {
+        var at = entry.indexOf("=");
+        pairs.push(at < 0 ? { key: entry, value: "" } : { key: entry.slice(0, at), value: entry.slice(at + 1) });
+      });
+      return pairs;
+    }
+    function classifyStyleCell(cell, styleText, activeModel) {
+      if (cell && cell.edge) {
+        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\\s|;)/.test(styleText)) return "edgeDotted";
+        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) || /(?:^|;)dashPattern=/.test(styleText)) return "edgeDashed";
+        return "edge";
+      }
+      if (!cell || !cell.vertex) return null;
+      var shapeMatch = /(?:^|;)shape=([^;]+)/.exec(styleText);
+      var shape = (shapeMatch && shapeMatch[1] || "").toLowerCase();
+      if (/(database|cylinder|datastore|data[-_]?store|rds|dynamodb|sql)/.test(shape)) return "database";
+      if (/(actor|person|user|human)/.test(shape)) return "user";
+      if (/(external|cloud|internet|outside)/.test(shape)) return "external";
+      if (/(server|service|container|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
+      var children = 0;
+      try { children = activeModel && activeModel.getChildCount ? activeModel.getChildCount(cell) : (cell.children || []).length; } catch (_) {}
+      if (children > 0 || /(swimlane|partialrectangle|boundary|group)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
+      return "node";
+    }
+    function rewriteStyleForCell(styleText, category, targetStyle) {
+      var colorsOnly = !targetStyle;
+      var remove = colorsOnly ? styleColorProperties : styleManagedProperties;
+      var retained = stylePairs(styleText).filter(function (pair) { return remove.indexOf(pair.key) < 0; });
+      if (colorsOnly) return retained.map(function (pair) { return pair.value ? pair.key + "=" + pair.value : pair.key; }).join(";");
+      var generic = category.indexOf("edge") === 0 ? (targetStyle.categories.edge || {}) : (targetStyle.categories.node || {});
+      var specific = targetStyle.categories[category] || {};
+      var resolved = {};
+      Object.keys(generic).forEach(function (key) { resolved[key] = generic[key]; });
+      Object.keys(specific).forEach(function (key) { resolved[key] = specific[key]; });
+      Object.keys(resolved).forEach(function (key) {
+        var at = -1;
+        for (var i = 0; i < retained.length; i++) if (retained[i].key === key) { at = i; break; }
+        if (at >= 0) retained.splice(at, 1);
+        retained.push({ key: key, value: String(resolved[key]) });
+      });
+      return retained.map(function (pair) { return pair.value ? pair.key + "=" + pair.value : pair.key; }).join(";");
+    }
+    function validateDiagramStyle(style) {
+      if (style == null) return null;
+      if (!style || typeof style !== "object" || typeof style.id !== "string" ||
+          !/^[a-z][a-z0-9-]{1,63}$/.test(style.id) || style.id === "original" ||
+          typeof style.name !== "string" || style.name.length > 80 ||
+          style.version !== 1 || !style.categories || typeof style.categories !== "object") {
+        throw new Error("The diagram style definition is invalid.");
+      }
+      var allowed = styleManagedProperties;
+      Object.keys(style.categories).forEach(function (category) {
+        if (styleCategories.indexOf(category) < 0 || !style.categories[category] || typeof style.categories[category] !== "object") {
+          throw new Error("Unsupported diagram style category: " + category);
+        }
+        Object.keys(style.categories[category]).forEach(function (property) {
+          var value = style.categories[category][property];
+          if (allowed.indexOf(property) < 0 || typeof value !== "string" || !value.trim() || value.length > 120 ||
+              /[;<>\\u0000-\\u001f]/.test(value) || /url\\s*\\(|javascript:/i.test(value)) {
+            throw new Error("Invalid diagram style value for " + property);
+          }
+        });
+      });
+      if (!style.categories.node || !style.categories.edge) throw new Error("The diagram style must define node and edge categories.");
+      return style;
+    }
+    function styleForNewCell(cell, styleText, targetStyle, activeModel) {
+      var category = classifyStyleCell(cell, styleText, activeModel);
+      return category ? rewriteStyleForCell(styleText, category, targetStyle) : styleText;
+    }
+    function installStyleAwareGraphOperations(activeGraph) {
+      if (!activeGraph || !activeDiagramStyle || !patchedStyleGraphs || patchedStyleGraphs.has(activeGraph)) return;
+      patchedStyleGraphs.add(activeGraph);
+      if (typeof activeGraph.insertVertex === "function") {
+        var nativeInsertVertex = activeGraph.insertVertex;
+        activeGraph.insertVertex = function () {
+          var args = Array.prototype.slice.call(arguments);
+          var originalStyle = String(args[7] || "");
+          args[7] = styleForNewCell({ vertex: true, edge: false }, originalStyle, activeDiagramStyle,
+            typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model);
+          return nativeInsertVertex.apply(this, args);
+        };
+      }
+      if (typeof activeGraph.insertEdge === "function") {
+        var nativeInsertEdge = activeGraph.insertEdge;
+        activeGraph.insertEdge = function () {
+          var args = Array.prototype.slice.call(arguments);
+          var originalStyle = String(args[5] || "");
+          args[5] = styleForNewCell({ vertex: false, edge: true }, originalStyle, activeDiagramStyle,
+            typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model);
+          return nativeInsertEdge.apply(this, args);
+        };
+      }
+      // Drag/drop and paste commonly go through addCells rather than insertVertex/insertEdge.
+      // Style the cloned cell objects before Draw.io inserts them, keeping creation and styling
+      // inside the same native undoable edit.
+      if (typeof activeGraph.addCells === "function") {
+        var nativeAddCells = activeGraph.addCells;
+        activeGraph.addCells = function (cells) {
+          var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
+          function styleTree(cell) {
+            if (!cell) return;
+            if ((cell.vertex || cell.edge) && cell.id !== "0" && cell.id !== "1") {
+              cell.style = styleForNewCell(cell, String(cell.style || ""), activeDiagramStyle, activeModel);
+            }
+            var children = cell.children || [];
+            for (var index = 0; index < children.length; index++) styleTree(children[index]);
+          }
+          if (Array.isArray(cells)) cells.forEach(styleTree);
+          return nativeAddCells.apply(this, arguments);
+        };
+      }
+    }
+    function collectStyleCells(activeModel) {
+      var result = [];
+      var root = activeModel && activeModel.getRoot ? activeModel.getRoot() : null;
+      if (!root) throw new Error("The active Draw.io model has no root cell.");
+      var stack = [root];
+      var visited = typeof Set === "function" ? new Set() : null;
+      var count = 0;
+      while (stack.length) {
+        var parent = stack.pop();
+        if (!parent || (visited && visited.has(parent))) continue;
+        if (visited) visited.add(parent);
+        if (++count > 20000) throw new Error("The active page exceeds the 20,000-cell style operation limit.");
+        var childCount = activeModel.getChildCount(parent);
+        for (var i = childCount - 1; i >= 0; i--) {
+          var cell = activeModel.getChildAt(parent, i);
+          if (!cell) continue;
+          if (cell.id !== "0" && cell.id !== "1" && (cell.vertex || cell.edge)) result.push(cell);
+          stack.push(cell);
+        }
+      }
+      return result;
+    }
+    function applyDiagramStyleRequest(request) {
+      var targetStyle = validateDiagramStyle(request.style || null);
+      var activeGraph = currentGraph();
+      var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
+      var changed = 0;
+      activeDiagramStyle = targetStyle;
+      installStyleAwareGraphOperations(activeGraph);
+      if (request.apply !== true) {
+        publish({ event: "studioDiagramStyleResult", requestId: request.requestId, success: true, applied: false, styleId: targetStyle ? targetStyle.id : "original" });
+        return;
+      }
+      var originals = [];
+      activeModel.beginUpdate();
+      try {
+        var cells = collectStyleCells(activeModel);
+        cells.forEach(function (cell) {
+          var previous = String(activeModel.getStyle(cell) || "");
+          var category = classifyStyleCell(cell, previous, activeModel);
+          if (!category) return;
+          var next = rewriteStyleForCell(previous, category, targetStyle);
+          if (next === previous) return;
+          originals.push({ cell: cell, style: previous });
+          activeModel.setStyle(cell, next || null);
+          changed++;
+        });
+      } catch (error) {
+        for (var i = originals.length - 1; i >= 0; i--) {
+          try { activeModel.setStyle(originals[i].cell, originals[i].style || null); } catch (_) {}
+        }
+        throw error;
+      } finally {
+        activeModel.endUpdate();
+      }
+      if (changed > 0) {
+        if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+        if (activeGraph && typeof activeGraph.refresh === "function") activeGraph.refresh();
+      }
+      publish({ event: "studioDiagramStyleResult", requestId: request.requestId, success: true,
+        applied: true, styleId: targetStyle ? targetStyle.id : "original", changedCells: changed,
+        pageId: currentPageId() });
+    }
     var publishSelection = function () {
       var selectedGraph = currentGraph();
       var cells = typeof selectedGraph.getSelectionCells === "function" ? selectedGraph.getSelectionCells() : [];
@@ -1064,6 +1254,17 @@
         return;
       }
       if (!studioParentOrigin || event.origin !== studioParentOrigin) return;
+      if (request.event === "studioDiagramStyleRequest") {
+        try {
+          if (typeof request.requestId !== "string" || request.requestId.length > 120) throw new Error("Invalid style request ID.");
+          if (JSON.stringify(request).length > 50_000) throw new Error("The style request exceeds 50 KB.");
+          applyDiagramStyleRequest(request);
+        } catch (styleError) {
+          publish({ event: "studioDiagramStyleResult", requestId: request.requestId, success: false,
+            error: styleError && styleError.message ? String(styleError.message) : String(styleError) });
+        }
+        return;
+      }
       if (request.event === "studioPresentationThemeRequest") {
         if (typeof request.css !== "string" || request.css.length > 50_000) return;
         var themeStyle = document.getElementById("studio-native-theme");
