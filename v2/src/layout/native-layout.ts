@@ -37,7 +37,8 @@ export const NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE: Record<NativeAutoLayoutEngine, 
   cytoscape: [
     { value: "breadthfirst", label: "Breadth-first" }, { value: "circle", label: "Circle" },
     { value: "concentric", label: "Concentric" }, { value: "grid", label: "Grid" },
-    { value: "random", label: "Random" }, { value: "cose", label: "CoSE force-directed" }
+    { value: "random", label: "Random" }, { value: "cose", label: "CoSE force-directed" },
+    { value: "fcose", label: "fCoSE · fast compound force" }
   ],
   d3: [
     { value: "tree", label: "Tree" }, { value: "cluster", label: "Cluster" },
