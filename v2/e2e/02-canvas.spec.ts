@@ -1,6 +1,6 @@
 import { expect, test } from "./support/test";
 import { decodeDrawioPageXml } from "../src/model/drawio-xml-schema";
-import { parseDrawioXml } from "../src/model/drawio-xml-dom";
+import { parseDrawioXml, serializeDrawioXml } from "../src/model/drawio-xml-dom";
 import type { WorkspaceFixture } from "./support/fixtures";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
@@ -115,7 +115,11 @@ test.describe("原生画布", () => {
     expect(stateResponse.ok()).toBe(true);
     const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
     const initialXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
-    const documentXml = initialXml.replace(/<mxGraphModel\b/, '<mxGraphModel background="#FFFF66"');
+    const sourceDocument = parseDrawioXml(initialXml);
+    const models = sourceDocument.getElementsByTagName("mxGraphModel");
+    expect(models.length).toBeGreaterThan(0);
+    models.item(0)?.setAttribute("background", "#FFFF66");
+    const documentXml = serializeDrawioXml(sourceDocument);
     expect(documentXml).not.toBe(initialXml);
     const savedFixture = await request.put("/api/workspace/document", {
       data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
