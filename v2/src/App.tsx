@@ -152,6 +152,7 @@ export default function App() {
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
+  const [layoutCoverageNotice, setLayoutCoverageNotice] = useState<string | null>(null);
   const [nativeLayoutOptions, setNativeLayoutOptions] = useState<NativeAutoLayoutOptions>(() => loadNativeLayoutOptions());
   const [layoutSettingsOpen, setLayoutSettingsOpen] = useState(false);
   useEffect(() => {
@@ -1272,6 +1273,7 @@ export default function App() {
       return;
     }
     setAutoLayoutRunning(true);
+    setLayoutCoverageNotice(null);
     setLastAction("Calculating Studio " + algorithmLabel + "…");
     try {
       const source = latestDiagramStateRef.current;
@@ -1283,10 +1285,18 @@ export default function App() {
       if (latestState.drawioXml !== sourceXml || latestState.selectedNativePageId !== pageId) {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
+      const coverage = nativePlan.coverage;
+      const coverageMessage =
+        "Layout scope: rearrange " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount + " nodes and " +
+        coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors; leave " +
+        coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
+        " connectors untouched (nested groups, other layers, hidden or incomplete cells).";
+      setLayoutCoverageNotice(coverageMessage);
+      setLastAction(coverageMessage);
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
         pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
-        engine: options.engine, algorithm: options.algorithm, direction: options.direction,
+        coverage, engine: options.engine, algorithm: options.algorithm, direction: options.direction,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
         vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length
@@ -1296,11 +1306,16 @@ export default function App() {
       const layerNotice = nativePlan.layoutLayerFallback
         ? " (default layer was empty; used visible layer " + (nativePlan.layoutLayerId || "unknown") + ")"
         : "";
-      setLastAction("Studio auto layout applied" + layerNotice + "; syncing native Draw.io XML");
+      const appliedScope = "Applied layout to " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
+        " nodes and " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount +
+        " connectors; left " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
+        " connectors untouched" + layerNotice + ".";
+      setLastAction(appliedScope);
+      setLayoutCoverageNotice(appliedScope);
       recordDiagnostic("drawio.layout.ui.completed", "The Studio layout plan was applied and serialized by native Draw.io", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
-        engine: options.engine,
+        coverage, engine: options.engine,
         algorithm: options.algorithm, direction: options.direction, vertexCount: nativePlan.positions.length,
         edgeCount: nativePlan.edgeRoutes.length
       });
@@ -1587,6 +1602,16 @@ export default function App() {
             </Button>
           </div>
         </div>
+        {layoutCoverageNotice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            title="Only eligible top-level cells in the selected visible layer are laid out; native XML cells outside this scope remain untouched."
+            style={{ fontSize: 12, lineHeight: 1.5, color: "#65521a", padding: "6px 10px", borderLeft: "3px solid #c9a227", background: "rgba(201, 162, 39, 0.08)", margin: "0 0 8px" }}
+          >
+            {layoutCoverageNotice}
+          </div>
+        ) : null}
 
         <Modal
           title="Layout settings"
