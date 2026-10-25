@@ -177,8 +177,9 @@ test.describe("原生画布", () => {
     const startY = box!.y + box!.height / 2;
     await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(startX + 40, startY + 16, { steps: 8 });
-    await page.mouse.move(startX + 140, startY + 56, { steps: 12 });
+    // Keep this drag gesture aligned with the post-reload drag test; an extra intermediate
+    // drag point can be interpreted as a selection gesture by Draw.io on headless Chrome.
+    await page.mouse.move(startX + 120, startY + 40, { steps: 14 });
     await page.mouse.up();
 
     await expect
