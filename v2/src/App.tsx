@@ -1286,11 +1286,26 @@ export default function App() {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
       const coverage = nativePlan.coverage;
+      const exclusionReasons: string[] = [];
+      if (coverage.nestedVertexCount) exclusionReasons.push(coverage.nestedVertexCount + " nested/group child nodes");
+      if (coverage.verticesInOtherLayersCount) exclusionReasons.push(coverage.verticesInOtherLayersCount + " nodes in other layers");
+      if (coverage.hiddenVertexCount) exclusionReasons.push(coverage.hiddenVertexCount + " hidden nodes");
+      if (coverage.verticesWithoutGeometryCount) exclusionReasons.push(coverage.verticesWithoutGeometryCount + " nodes without geometry");
+      if (coverage.edgesOutsideLayoutLayerCount) exclusionReasons.push(coverage.edgesOutsideLayoutLayerCount + " connectors in other layers");
+      if (coverage.hiddenEdgeCount) exclusionReasons.push(coverage.hiddenEdgeCount + " hidden connectors");
+      if (coverage.edgesWithoutGeometryCount) exclusionReasons.push(coverage.edgesWithoutGeometryCount + " connectors without geometry");
+      if (coverage.edgesMissingTerminalsCount) exclusionReasons.push(coverage.edgesMissingTerminalsCount + " connectors missing endpoints");
+      if (coverage.edgesWithEndpointsOutsideTargetVerticesCount) {
+        exclusionReasons.push(coverage.edgesWithEndpointsOutsideTargetVerticesCount + " connectors attached to out-of-scope nodes");
+      }
+      const exclusionNotice = exclusionReasons.length
+        ? " Exclusion reasons (categories can overlap): " + exclusionReasons.join(", ") + "."
+        : "";
       const coverageMessage =
         "Layout scope: rearrange " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount + " nodes and " +
         coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors; leave " +
         coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
-        " connectors untouched (nested groups, other layers, hidden or incomplete cells).";
+        " connectors untouched." + exclusionNotice;
       setLayoutCoverageNotice(coverageMessage);
       setLastAction(coverageMessage);
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
