@@ -61,7 +61,22 @@
     // application's CSS theme or the background/grid of the Draw.io page.
     var activeDiagramStyle = null;
     var activeDiagramStyleEnabled = false;
+    var styleTouchedPages = new Set();
     var patchedStyleGraphs = typeof WeakSet === "function" ? new WeakSet() : null;
+    // Draw.io caches the XML nodes for inactive pages. When styles are changed on their native
+    // mxCells without selecting those pages, make getXmlFileData serialize those roots on every
+    // subsequent export. This also covers Undo/Redo, after Draw.io cleared page.needsUpdate once.
+    if (typeof ui.getXmlFileData === "function" && !ui.__studioStyleXmlExportWrapped) {
+      var originalGetXmlFileData = ui.getXmlFileData;
+      ui.getXmlFileData = function () {
+        var pages = Array.isArray(ui.pages) ? ui.pages : [];
+        styleTouchedPages.forEach(function (page) {
+          if (page && page !== ui.currentPage && pages.indexOf(page) >= 0) page.needsUpdate = true;
+        });
+        return originalGetXmlFileData.apply(this, arguments);
+      };
+      ui.__studioStyleXmlExportWrapped = true;
+    }
     var styleColorProperties = ["fillColor", "strokeColor", "fontColor", "gradientColor", "swimlaneFillColor",
       "separatorColor", "indicatorColor", "labelBackgroundColor", "labelBorderColor"];
     var styleManagedProperties = styleColorProperties.concat(["strokeWidth", "dashed", "dashPattern", "startArrow",
@@ -254,6 +269,12 @@
         // mixed into the one style edit. The model's StyleChange records reference these native
         // mxCells and the mxfile encoder serializes the updated root for every page.
         var pages = Array.isArray(ui.pages) && ui.pages.length ? ui.pages.slice() : [originalPage];
+        // A newly opened file can replace the DiagramPage objects. Do not retain stale page refs
+        // from the previous document; XML/style history itself remains managed by the host.
+        if (Array.from(styleTouchedPages).some(function (knownPage) { return pages.indexOf(knownPage) < 0; })) {
+          styleTouchedPages = new Set();
+        }
+        var changedPages = [];
         for (var pageIndex = 0; pageIndex < pages.length; pageIndex++) {
           var page = pages[pageIndex];
           var pageRoot = null;
@@ -263,6 +284,7 @@
           if (!pageRoot && page === originalPage) pageRoot = activeModel.getRoot();
           if (!pageRoot) throw new Error("Could not resolve the native root for page index " + pageIndex + "; no style was applied.");
           var cells = collectStyleCells(activeModel, pageRoot);
+          var changedOnPage = 0;
           cells.forEach(function (cell) {
             var previous = String(cell.style || "");
             var category = classifyStyleCell(cell, previous, activeModel, targetStyle);
@@ -272,8 +294,11 @@
             originals.push({ cell: cell, style: previous });
             activeModel.setStyle(cell, next || null);
             changed++;
+            changedOnPage++;
           });
+          if (changedOnPage > 0) changedPages.push(page);
         }
+        changedPages.forEach(function (page) { styleTouchedPages.add(page); });
       } catch (error) {
         for (var i = originals.length - 1; i >= 0; i--) {
           try { activeModel.setStyle(originals[i].cell, originals[i].style || null); } catch (_) {}
