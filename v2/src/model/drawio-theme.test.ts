@@ -1,9 +1,11 @@
 import { deflateSync, inflateSync, strFromU8, strToU8 } from "fflate";
 import { describe, expect, it } from "vitest";
-import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
+import { findDrawioElements, parseDrawioXml, serializeDrawioXml } from "./drawio-xml-dom";
 import {
   applyDrawioDiagramTheme,
   applyDrawioThemeBackground,
+  calculateNativePalettePlan,
+  detectDrawioDiagramTheme,
   readDrawioModelBackground,
   type DrawioDiagramTheme
 } from "./drawio-theme";
@@ -115,6 +117,53 @@ describe("native Draw.io diagram theme presets", () => {
     expect(readDrawioModelBackground(result)).toBe("#101a2b");
     expect(applyDrawioThemeBackground(result, "#101a2b")).toBe(result);
     expect(applyDrawioThemeBackground(source, "var(--theme-canvas)")).toBe(source);
+  });
+
+
+  it("builds a single-page native style plan and detects the current preset", () => {
+    const secondPage = sourceModel.replaceAll('id="plain"', 'id="plain-second"');
+    const source = '<mxfile><diagram id="p1" name="One">' + sourceModel +
+      '</diagram><diagram id="p2" name="Two">' + secondPage + '</diagram></mxfile>';
+    const plan = calculateNativePalettePlan(source, "p2", "a".repeat(64), "youth");
+
+    expect(plan.pageId).toBe("p2");
+    expect(plan.expectedPageCellIds).toContain("plain-second");
+    expect(plan.changes.map((change) => change.cellId)).toContain("plain-second");
+    expect(plan.changes.map((change) => change.cellId)).not.toContain("plain");
+    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#FCE7F3");
+    expect(detectDrawioDiagramTheme(source, "p2")).toBe("");
+    const themed = applyDrawioDiagramTheme(source, "youth");
+    expect(detectDrawioDiagramTheme(themed, "p2")).toBe("youth");
+    expect(detectDrawioDiagramTheme(themed, "p1")).toBe("youth");
+  });
+
+  it("creates plans for compressed pages and rejects stale/missing active pages", () => {
+    const encoded = compressPage(sourceModel);
+    const source = '<mxfile><diagram id="compressed">' + encoded + '</diagram></mxfile>';
+    const plan = calculateNativePalettePlan(source, "compressed", "b".repeat(64), "midnight");
+    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#27364E"))).toBe(true);
+    expect(() => calculateNativePalettePlan(source, "missing", "b".repeat(64), "midnight")).toThrow("active Draw.io page");
+    expect(() => calculateNativePalettePlan(source, "compressed", "not-a-revision", "midnight")).toThrow("exact native Draw.io XML snapshot");
+  });
+
+
+  it("keeps the native palette plan equivalent to the established color rules", () => {
+    const source = '<mxfile host="app.diagrams.net"><diagram id="p1" name="Main">' + sourceModel + '</diagram></mxfile>';
+    const themes: DrawioDiagramTheme[] = ["editorial", "youth", "warm", "midnight"];
+    for (const theme of themes) {
+      const expected = applyDrawioDiagramTheme(source, theme);
+      const plan = calculateNativePalettePlan(source, "p1", "c".repeat(64), theme);
+      const planned = parseDrawioXml(source);
+      for (const change of plan.changes) {
+        const cell = findDrawioElements(planned, "mxCell").find((candidate) => candidate.getAttribute("id") === change.cellId);
+        expect(cell, "planned cell " + change.cellId).toBeTruthy();
+        cell?.setAttribute("style", change.style);
+      }
+      expect(serializeDrawioXml(planned)).toBe(expected);
+      expect(detectDrawioDiagramTheme(expected, "p1")).toBe(theme);
+      const alreadyApplied = calculateNativePalettePlan(expected, "p1", "d".repeat(64), theme);
+      expect(alreadyApplied.changes).toHaveLength(0);
+    }
   });
 
   it("supports each documented diagram preset", () => {

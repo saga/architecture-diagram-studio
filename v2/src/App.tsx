@@ -5,9 +5,9 @@ import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
-import { applyDrawioDiagramTheme, type DrawioDiagramTheme } from "./model/drawio-theme";
+import { calculateNativePalettePlan, detectDrawioDiagramTheme, type DrawioDiagramTheme } from "./model/drawio-theme";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
-import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions } from "./components/DrawioFrame";
+import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions, type NativeHistoryState } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic, setDiagnosticScope } from "./diagnostics";
@@ -129,6 +129,7 @@ export default function App() {
   }, []);
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
+  const [nativeHistoryState, setNativeHistoryState] = useState<NativeHistoryState>({ canUndo: false, canRedo: false });
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
@@ -263,6 +264,28 @@ export default function App() {
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
   const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, setSaveState: setDocumentSaveState, onDiagnostic: recordDiagnostic });
+
+  useEffect(() => {
+    function handleHistoryShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.altKey || (!event.metaKey && !event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      const isUndo = key === "z" && !event.shiftKey;
+      const isRedo = (key === "z" && event.shiftKey) || (key === "y" && event.ctrlKey && !event.metaKey && !event.shiftKey);
+      if (!isUndo && !isRedo) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [role='textbox'], .ant-select-selection-search-input")) return;
+      if (target instanceof HTMLElement && target.isContentEditable) return;
+      if (!nativeEditorReady || !drawioFrameRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Avoid interleaving with a palette/layout transaction, but keep the key away from browser-level undo.
+      if (diagramThemeApplying || autoLayoutRunning || documentSaveState === "conflict") return;
+      if (isRedo) drawioFrameRef.current.redo();
+      else drawioFrameRef.current.undo();
+    }
+    window.addEventListener("keydown", handleHistoryShortcut, true);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut, true);
+  }, [nativeEditorReady, diagramThemeApplying, autoLayoutRunning, documentSaveState]);
 
   // The native Draw.io editor is the only canvas; typed edits preserve unrelated XML cells.
 
@@ -588,100 +611,122 @@ export default function App() {
 
   async function applyDiagramTheme(theme: DrawioDiagramTheme) {
     if (diagramThemeApplying) return;
-    if (!projectWorkspace && !standaloneFileBindingRef.current) {
+    const startingBinding = standaloneFileBindingRef.current;
+    if (!projectWorkspace && !startingBinding) {
       setLastAction("Open or create a Draw.io document before applying a diagram color preset.");
+      return;
+    }
+    if (!nativeEditorReady || !drawioFrameRef.current) {
+      setLastAction("The native Draw.io editor is not ready for diagram colors.");
+      return;
+    }
+    if (documentSaveState === "conflict") {
+      setLastAction("Diagram colors were not changed because saving is paused after a revision conflict. Export or restore the authoritative version first.");
       return;
     }
 
     setDiagramThemeApplying(true);
-    const sourceXml = latestDiagramStateRef.current.drawioXml;
-    const nextXml = applyDrawioDiagramTheme(sourceXml, theme);
+    const source = latestDiagramStateRef.current;
+    const sourceXml = source.drawioXml;
+    const pageId = source.selectedNativePageId;
     const labels: Record<DiagramTheme, string> = {
-      editorial: "Editorial",
-      youth: "Vivid",
-      warm: "Warm",
-      midnight: "Midnight"
+      editorial: "Editorial", youth: "Vivid", warm: "Warm", midnight: "Midnight"
     };
     const presetLabel = labels[theme];
-    const saveLabel = "Apply Draw.io diagram theme: " + presetLabel;
-    let standaloneWriteCompleted = false;
-
-    if (nextXml === sourceXml) {
-      setLastAction("No themeable Draw.io vertices or connectors were found; no changes were made.");
-      recordDiagnostic("drawio.theme.noop", "The selected diagram color preset did not change the native XML", {
-        theme, xmlLength: sourceXml.length
-      });
-      setDiagramThemeApplying(false);
-      return;
-    }
-
-    setDocumentSaveState("saving");
-    setLastAction("Applying Draw.io diagram color preset: " + presetLabel + "…");
+    const saveLabel = "Apply Draw.io diagram colors (" + presetLabel + ", current page)";
+    let applied = false;
+    let appliedXml = sourceXml;
     try {
-      if (standaloneFileBindingRef.current) {
-        const binding = standaloneFileBindingRef.current;
+      const documentRevision = await calculateDrawioXmlRevision(sourceXml);
+      const beforeApply = latestDiagramStateRef.current;
+      if (beforeApply.drawioXml !== sourceXml || beforeApply.selectedNativePageId !== pageId) {
+        throw new Error("The diagram or active page changed while colors were being prepared. Nothing was applied; select the preset again.");
+      }
+      const plan = calculateNativePalettePlan(sourceXml, pageId, documentRevision, theme);
+      if (plan.changes.length === 0) {
+        setDiagramTheme(detectDrawioDiagramTheme(sourceXml, pageId));
+        setLastAction("The active page already matches " + presetLabel + ", or contains no colorable cells. No changes were made.");
+        recordDiagnostic("drawio.palette.noop", "The active-page color preset produced no native style changes", {
+          theme, pageId, xmlLength: sourceXml.length
+        });
+        return;
+      }
+      if (startingBinding) {
         const requestId = ++cellEditRequestSequenceRef.current;
-        await archiveStandaloneHistory("Before diagram theme: " + presetLabel, requestId);
-        await enqueueStandaloneSave(nextXml, binding.fileToken);
-        const currentBinding = standaloneFileBindingRef.current;
-        if (!currentBinding || currentBinding.fileToken !== binding.fileToken) {
-          throw new Error("The active local file changed while the diagram theme was being saved.");
+        await archiveStandaloneHistory("Before diagram colors: " + presetLabel, requestId);
+      }
+      const currentBeforeMutation = latestDiagramStateRef.current;
+      if (currentBeforeMutation.drawioXml !== sourceXml || currentBeforeMutation.selectedNativePageId !== pageId) {
+        throw new Error("The diagram or active page changed before colors could be applied. No changes were made; retry.");
+      }
+
+      setLastAction("Applying " + presetLabel + " colors to the current page…");
+      const serializedXml = await drawioFrameRef.current.applyPalette(plan);
+      if (!isDrawioXmlDocument(serializedXml)) {
+        throw new Error("Draw.io did not return valid XML after applying the color preset.");
+      }
+      applied = true;
+      appliedXml = serializedXml;
+      // The native autosave event normally updates this first. These assignments also make the
+      // authoritative state explicit if the export response arrives before the autosave event.
+      setNativeXmlOverride(serializedXml);
+      setRevision((value) => value + 1);
+      setDiagramTheme(detectDrawioDiagramTheme(serializedXml, pageId));
+
+      if (startingBinding) {
+        const activeBinding = standaloneFileBindingRef.current;
+        if (!activeBinding || activeBinding.fileToken !== startingBinding.fileToken) {
+          throw new Error("The active local file changed after the color transaction. The change remains in the editor, but saving was not confirmed.");
         }
-        // enqueueStandaloneSave resolves only after the browser file write succeeds.
-        // Keep the UI's authoritative XML in sync even if the follow-up revision check fails.
-        standaloneWriteCompleted = true;
-        const expectedRevision = await calculateDrawioXmlRevision(nextXml);
-        if (currentBinding.revision !== expectedRevision) {
-          throw new Error("The selected local file did not confirm the exact themed XML revision.");
+        await enqueueStandaloneSave(serializedXml, activeBinding.fileToken);
+        const savedBinding = standaloneFileBindingRef.current;
+        const expectedRevision = await calculateDrawioXmlRevision(serializedXml);
+        if (!savedBinding || savedBinding.fileToken !== activeBinding.fileToken || savedBinding.revision !== expectedRevision) {
+          throw new Error("The local file did not confirm the exact XML revision after applying diagram colors.");
         }
-        standaloneLastSavedXmlRef.current = nextXml;
-        setNativeXmlOverride(nextXml);
-        setRevision((value) => value + 1);
-        setDiagramTheme(theme);
         setDocumentSaveState("saved");
         try {
-          await synchronizeStandaloneSnapshot(nextXml, currentBinding.fileToken, saveLabel);
-          setLastAction("Applied the " + presetLabel + " diagram theme and saved the Draw.io file.");
+          await synchronizeStandaloneSnapshot(serializedXml, savedBinding.fileToken, saveLabel);
+          setLastAction("Applied " + presetLabel + " colors to the current page and saved the Draw.io file.");
         } catch (historyError) {
           const message = historyError instanceof Error ? historyError.message : String(historyError);
-          setLastAction("Applied the " + presetLabel + " diagram theme and saved the file, but history sync failed: " + message);
-          recordDiagnostic("drawio.theme.history-sync.failed", "The themed standalone file was saved but its history snapshot could not be synchronized", {
-            theme, fileName: currentBinding.name, errorMessage: message, xmlLength: nextXml.length
+          setLastAction("Applied " + presetLabel + " colors and saved the file, but local history sync failed: " + message);
+          recordDiagnostic("drawio.palette.history-sync.failed", "The native color transaction was saved but standalone history synchronization failed", {
+            theme, pageId, fileName: savedBinding.name, errorMessage: message, xmlLength: serializedXml.length
           }, "warn");
         }
       } else if (projectWorkspace && workspaceContentReady) {
-        const saved = await persistDocumentNow(nextXml, saveLabel);
+        const saved = await persistDocumentNow(serializedXml, saveLabel);
         if (typeof saved.workspaceRevision !== "string" || typeof saved.version?.id !== "string") {
-          throw new Error(saved.error || "The workspace did not confirm the saved themed XML revision and version.");
+          throw new Error(saved.error || "The workspace did not confirm the color change's saved XML revision and version.");
         }
-        setNativeXmlOverride(nextXml);
-        setRevision((value) => value + 1);
-        setDiagramTheme(theme);
         setDocumentSaveState("saved");
-        setLastAction("Applied the " + presetLabel + " diagram theme and saved a new Draw.io version.");
+        setLastAction("Applied " + presetLabel + " colors to the current page and saved a new Draw.io version.");
       } else {
         throw new Error("The active Draw.io document is not ready for a versioned save.");
       }
 
-      recordDiagnostic("drawio.theme.applied", "Applied a named color preset to native Draw.io vertex and edge styles", {
-        theme, sourceXmlLength: sourceXml.length, themedXmlLength: nextXml.length,
-        persistence: standaloneWriteCompleted ? "standalone-file" : "workspace"
+      recordDiagnostic("drawio.palette.applied", "Applied an active-page color preset through one native Draw.io model transaction", {
+        theme, pageId, sourceXmlLength: sourceXml.length, themedXmlLength: serializedXml.length,
+        changedCells: plan.changes.length, persistence: startingBinding ? "standalone-file" : "workspace"
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (standaloneWriteCompleted) {
-        setLastAction("The Draw.io file was themed and saved, but follow-up processing failed: " + message);
-        setDocumentSaveState("saved");
-        setDiagramTheme(theme);
-        setNativeXmlOverride(nextXml);
+      if (applied) {
+        setNativeXmlOverride(appliedXml);
+        setDiagramTheme(detectDrawioDiagramTheme(appliedXml, pageId));
+        const likelyConflict = /conflict|revision|another editor|stale|changed outside/i.test(message);
+        setDocumentSaveState(likelyConflict ? "conflict" : "failed");
+        setLastAction("Applied " + presetLabel + " colors in the editor, but saving was not confirmed: " + message);
+        recordDiagnostic("drawio.palette.persist.failed", "The native color transaction was applied, but the persistence step could not be confirmed", {
+          theme, pageId, errorMessage: message, sourceXmlLength: sourceXml.length, appliedXmlLength: appliedXml.length
+        }, "error");
       } else {
-        setDocumentSaveState("failed");
-        setLastAction("Could not apply the Draw.io diagram theme; the document was not changed: " + message);
+        setLastAction("Could not apply " + presetLabel + " colors: " + message);
+        recordDiagnostic("drawio.palette.rejected", "The native color transaction was not confirmed as applied", {
+          theme, pageId, errorMessage: message, sourceXmlLength: sourceXml.length
+        }, "error");
       }
-      recordDiagnostic("drawio.theme.failed", "Could not complete the native Draw.io diagram theme operation", {
-        theme, errorMessage: message, sourceXmlLength: sourceXml.length, themedXmlLength: nextXml.length,
-        sourceWasWritten: standaloneWriteCompleted
-      }, "error");
     } finally {
       setDiagramThemeApplying(false);
     }
@@ -1402,13 +1447,13 @@ export default function App() {
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
-        <label className="theme-selector" title="Apply a color preset to Draw.io elements and connectors">
+        <label className="theme-selector" title="Apply a color preset to elements and connectors on the active Draw.io page. The change is one native Undo/Redo step.">
           <span aria-hidden="true">◐</span>
-          <UiSelect value={diagramTheme} disabled={diagramThemeApplying} aria-label="Draw.io diagram color theme" popupMatchSelectWidth={false} onChange={(event) => {
+          <UiSelect value={diagramTheme} disabled={diagramThemeApplying || !nativeEditorReady || documentSaveState === "conflict"} aria-label="Draw.io diagram color theme for current page" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as DiagramTheme;
             if (nextTheme) void applyDiagramTheme(nextTheme);
           }}>
-            <option value="" disabled>Diagram colors</option>
+            <option value="" disabled>Diagram colors (this page)</option>
             <option value="editorial">Editorial</option>
             <option value="youth">Vivid</option>
             <option value="warm">Warm</option>
@@ -1440,7 +1485,21 @@ export default function App() {
         <>
       <main className="main-panel">
         <div className="canvas-toolbar">
-          <div className="canvas-toolbar-actions" role="group" aria-label="Layout controls">
+          <div className="canvas-toolbar-actions" role="group" aria-label="Undo, redo and layout controls">
+            <Button
+              className="history-toolbar-button"
+              disabled={!nativeEditorReady || !nativeHistoryState.canUndo || autoLayoutRunning || diagramThemeApplying || documentSaveState === "conflict"}
+              title="Undo the last native canvas edit (Cmd/Ctrl+Z)"
+              aria-label="Undo"
+              onClick={() => drawioFrameRef.current?.undo()}
+            >Undo</Button>
+            <Button
+              className="history-toolbar-button"
+              disabled={!nativeEditorReady || !nativeHistoryState.canRedo || autoLayoutRunning || diagramThemeApplying || documentSaveState === "conflict"}
+              title="Redo the last native canvas edit (Cmd/Ctrl+Shift+Z; Ctrl+Y on Windows/Linux)"
+              aria-label="Redo"
+              onClick={() => drawioFrameRef.current?.redo()}
+            >Redo</Button>
             <label className="native-layout-field">
               <span>Layout engine</span>
               <Select<NativeAutoLayoutOptions["engine"]>
@@ -1759,9 +1818,20 @@ export default function App() {
                 batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
-            onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
+            onSelectionChange={(cellId, pageId) => {
+              setSelectedNativeCellId(cellId);
+              setSelectedNativePageId(pageId);
+              setDiagramTheme(detectDrawioDiagramTheme(latestDiagramStateRef.current.drawioXml, pageId));
+            }}
+            onHistoryStateChange={setNativeHistoryState}
+            cellEdit={cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
-            onDocumentChange={(nativeXml) => { setNativeXmlOverride(nativeXml); setRevision((value) => value + 1); setLastAction("Synced native Draw.io changes"); }} />
+            onDocumentChange={(nativeXml) => {
+              setNativeXmlOverride(nativeXml);
+              setRevision((value) => value + 1);
+              setDiagramTheme(detectDrawioDiagramTheme(nativeXml, latestDiagramStateRef.current.selectedNativePageId));
+              setLastAction("Synced native Draw.io changes");
+            }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
           <span className="status-drawio" title="Local Draw.io bundle on a dedicated sandboxed origin; CSP blocks network connections">Sandboxed Draw.io {DRAWIO_VERSION}</span>

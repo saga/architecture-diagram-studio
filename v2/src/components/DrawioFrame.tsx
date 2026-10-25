@@ -4,6 +4,7 @@ import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
+import type { NativePalettePlan } from "../model/drawio-theme";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
@@ -38,11 +39,18 @@ export const DRAWIO_EDITOR_CONFIG = {
 const NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS = 30_000;
 const RUNTIME_INSPECTION_TIMEOUT_MS = 5_000;
 const AUTO_LAYOUT_TIMEOUT_MS = 30_000;
+const NATIVE_PALETTE_TIMEOUT_MS = 30_000;
 
 export { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
 export type { NativeAutoLayoutOptions, NativeLayoutPlan };
 
+export interface NativeHistoryState { canUndo: boolean; canRedo: boolean; }
+
 export interface DrawioFrameHandle {
+  undo(): void;
+  redo(): void;
+  /** Applies an active-page color plan in one native Draw.io model transaction. */
+  applyPalette(plan: NativePalettePlan): Promise<string>;
   inspectRuntime(input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }): Promise<DrawioRuntimeInspection>;
   /** Applies a revision/page-bound Studio layout geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
@@ -88,33 +96,46 @@ type PendingAutoLayout = {
   requestId: string;
   plan: NativeLayoutPlan;
 };
+type PendingNativePalette = {
+  resolve: (xml: string) => void;
+  reject: (error: Error) => void;
+  timeoutId: number;
+  startedAt: number;
+  awaitingExport: boolean;
+  requestId: string;
+  plan: NativePalettePlan;
+};
 interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
   onDocumentChange: (nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
+  onHistoryStateChange?: (state: NativeHistoryState) => void;
   cellEdit: CellPropertyEdit | null;
   /** Reports the embed handshake state so the app's single status bar can show it. */
   onEditorStatusChange?: (ready: boolean) => void;
 }
 
-const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onNativeEditResult, cellEdit, onEditorStatusChange }: Props, ref) {
+const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ xml, onDocumentChange, onSelectionChange, onHistoryStateChange, onNativeEditResult, cellEdit, onEditorStatusChange }: Props, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const xmlRef = useRef(xml);
   xmlRef.current = xml;
   const onDocumentChangeRef = useRef(onDocumentChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
+  const onHistoryStateChangeRef = useRef(onHistoryStateChange);
   const onNativeEditResultRef = useRef(onNativeEditResult);
   const lastHandledCellEditRequestRef = useRef<number | null>(null);
   const pendingNativeEditsRef = useRef(new Map<number, PendingNativeEdit>());
   const pendingSaveConfirmationsRef = useRef(new Map<number, PendingSaveConfirmation>());
   const pendingRuntimeInspectionsRef = useRef(new Map<string, PendingRuntimeInspection>());
   const pendingAutoLayoutRef = useRef<PendingAutoLayout | null>(null);
+  const pendingNativePaletteRef = useRef<PendingNativePalette | null>(null);
   const runtimeInspectionSequenceRef = useRef(0);
   const iframeLoadedRef = useRef(false);
   const nativeDocumentLoadedRef = useRef(false);
   onDocumentChangeRef.current = onDocumentChange;
   onSelectionChangeRef.current = onSelectionChange;
+  onHistoryStateChangeRef.current = onHistoryStateChange;
   onNativeEditResultRef.current = onNativeEditResult;
   const lastSent = useRef("");
   const seenEvents = useRef(new Set<string>());
@@ -152,7 +173,83 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pending.reject(error);
   }
 
+  function finishPendingNativePalette(xml: string) {
+    const pending = pendingNativePaletteRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingNativePaletteRef.current = null;
+    recordDiagnostic("drawio.palette.completed", "Native Draw.io applied a color preset, serialized the active page, and retained native history", {
+      durationMs: Date.now() - pending.startedAt, xmlLength: xml.length,
+      theme: pending.plan.theme, pageId: pending.plan.pageId, changeCount: pending.plan.changes.length,
+      documentRevision: pending.plan.documentRevision
+    });
+    pending.resolve(xml);
+  }
+
+  function rejectPendingNativePalette(error: Error) {
+    const pending = pendingNativePaletteRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingNativePaletteRef.current = null;
+    recordDiagnostic("drawio.palette.rejected", "Native Draw.io could not confirm an active-page color transaction", {
+      durationMs: Date.now() - pending.startedAt, errorMessage: error.message,
+      theme: pending.plan.theme, pageId: pending.plan.pageId, documentRevision: pending.plan.documentRevision
+    }, "error");
+    pending.reject(error);
+  }
+
   useImperativeHandle(ref, () => ({
+    undo: () => {
+      const target = iframeRef.current?.contentWindow;
+      if (!editorReady || !bridgeReady || !target) return;
+      target.postMessage(JSON.stringify({ event: "studioHistoryCommand", action: "undo" }), DRAWIO_ORIGIN);
+    },
+    redo: () => {
+      const target = iframeRef.current?.contentWindow;
+      if (!editorReady || !bridgeReady || !target) return;
+      target.postMessage(JSON.stringify({ event: "studioHistoryCommand", action: "redo" }), DRAWIO_ORIGIN);
+    },
+    applyPalette: async (plan) => {
+      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
+      if (currentRevision !== plan.documentRevision) {
+        throw new Error("The native Draw.io XML changed after the color preset was calculated. No colors were applied; select the preset again.");
+      }
+      return await new Promise<string>((resolve, reject) => {
+        const target = iframeRef.current?.contentWindow;
+        if (!editorReady || !bridgeReady || !target) {
+          reject(new Error("The native Draw.io editor is not ready for diagram colors."));
+          return;
+        }
+        if (pendingNativePaletteRef.current || pendingAutoLayoutRef.current) {
+          reject(new Error("Wait for the current canvas transaction to finish before applying diagram colors."));
+          return;
+        }
+        if (pendingNativeEditsRef.current.size > 0 || pendingSaveConfirmationsRef.current.size > 0) {
+          reject(new Error("Wait for the current native edit to finish saving before applying diagram colors."));
+          return;
+        }
+        if (!plan.changes.length || plan.changes.length > 10000 ||
+            !plan.expectedPageCellIds.length || plan.expectedPageCellIds.length > 20000) {
+          reject(new Error("The color plan is empty or exceeds native editor limits."));
+          return;
+        }
+        const requestId = "palette-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9);
+        const timeoutId = window.setTimeout(() => {
+          rejectPendingNativePalette(new Error("Draw.io did not confirm the color transaction and XML serialization within 30 seconds."));
+        }, NATIVE_PALETTE_TIMEOUT_MS);
+        pendingNativePaletteRef.current = { resolve, reject, timeoutId, startedAt: Date.now(), awaitingExport: false, requestId, plan };
+        try {
+          target.postMessage(JSON.stringify({ event: "studioNativePaletteRequest", requestId, plan }), DRAWIO_ORIGIN);
+          recordDiagnostic("drawio.palette.requested", "Sent a revision- and active-page-bound palette plan to the native Draw.io editor", {
+            requestId, theme: plan.theme, pageId: plan.pageId, documentRevision: plan.documentRevision,
+            expectedCellCount: plan.expectedPageCellIds.length, changeCount: plan.changes.length
+          });
+        } catch (error) {
+          rejectPendingNativePalette(new Error("Could not send the color plan to Draw.io: " +
+            (error instanceof Error ? error.message : String(error))));
+        }
+      });
+    },
     applyAutoLayout: async (plan) => {
       const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
       if (currentRevision !== plan.documentRevision) {
@@ -248,6 +345,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pendingSaveConfirmationsRef.current.clear();
     pendingNativeEditsRef.current.clear();
     rejectPendingAutoLayout(new Error("Draw.io editor closed before auto layout completed."));
+    rejectPendingNativePalette(new Error("Draw.io editor closed before the color transaction completed."));
     for (const pending of pendingRuntimeInspectionsRef.current.values()) {
       window.clearTimeout(pending.timeoutId);
       pending.reject(new Error("Draw.io editor was closed before runtime inspection completed."));
@@ -418,6 +516,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       if (data.event === "studioBridgeReady") {
         setBridgeReady(true);
+        onHistoryStateChangeRef.current?.({ canUndo: false, canRedo: false });
         const advertisedVersion = typeof data.drawioVersion === "string" ? data.drawioVersion : null;
         const manifest = data.capabilityManifest && typeof data.capabilityManifest === "object"
           ? data.capabilityManifest as { scriptSupported?: unknown; missing?: Record<string, unknown> }
@@ -438,6 +537,15 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
         const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
         onSelectionChangeRef.current(cellId, pageId);
+      }
+      if (data.event === "studioHistoryState") {
+        onHistoryStateChangeRef.current?.({ canUndo: data.canUndo === true, canRedo: data.canRedo === true });
+      }
+      if (data.event === "studioHistoryCommandResult" && data.success !== true) {
+        recordDiagnostic("drawio.history.command.rejected", "The native Draw.io history manager rejected the host Undo/Redo command", {
+          action: typeof data.action === "string" ? data.action : null,
+          errorMessage: typeof data.error === "string" ? data.error : "No additional error details"
+        }, "warn");
       }
       if (data.event === "studioPropertyEditResult") {
         const requestId = typeof data.requestId === "number" ? data.requestId : null;
@@ -570,6 +678,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       if (data.event === "load") {
         nativeDocumentLoadedRef.current = true;
+        // A document load is a native history boundary. Ordinary page navigation is not.
+        onHistoryStateChangeRef.current?.({ canUndo: false, canRedo: false });
         // Theme is presentation-only; do not modify Draw.io graph background on init.
       }
       if (data.event === "init") {
@@ -610,15 +720,40 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           }
         }
       }
+      if (data.event === "studioNativePaletteResult") {
+        const pending = pendingNativePaletteRef.current;
+        if (!pending || data.requestId !== pending.requestId) {
+          recordDiagnostic("drawio.palette.acknowledgement.unmatched", "Ignored a native palette result without a matching request", {
+            requestId: typeof data.requestId === "string" ? data.requestId : null
+          }, "warn");
+        } else if (data.success !== true) {
+          const message = typeof data.error === "string" ? data.error.slice(0, 500) : "The native editor rejected the color plan.";
+          rejectPendingNativePalette(new Error(message + (data.rollbackConfirmed === true ? " Previous styles were restored." : "")));
+        } else if (!pending.awaitingExport) {
+          pending.awaitingExport = true;
+          recordDiagnostic("drawio.palette.acknowledged", "Draw.io applied the color transaction; requesting the serialized native XML", {
+            requestId: pending.requestId, theme: pending.plan.theme, pageId: pending.plan.pageId,
+            changedCells: typeof data.changedCells === "number" ? data.changedCells : null,
+            documentRevision: pending.plan.documentRevision
+          });
+          try {
+            iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ action: "export", format: "xml" }), DRAWIO_ORIGIN);
+          } catch (error) {
+            rejectPendingNativePalette(new Error("Draw.io applied the colors but the updated XML could not be requested: " +
+              (error instanceof Error ? error.message : String(error))));
+          }
+        }
+      }
       if (data.event === "error") {
         const message = typeof data.message === "string" ? data.message.slice(0, 300) : "Draw.io returned an unspecified error.";
         setStartupError("Draw.io error: " + message);
         recordDiagnostic("drawio.editor.error", "The Draw.io editor reported an error", { message }, "error");
         rejectPendingAutoLayout(new Error("Draw.io reported an error during auto layout: " + message));
+        rejectPendingNativePalette(new Error("Draw.io reported an error during diagram color application: " + message));
       }
       const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
       const exportSerialization = data.event === "export" && data.format === "xml" &&
-        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true);
+        (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || pendingNativePaletteRef.current?.awaitingExport === true);
       if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
@@ -627,6 +762,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             recordDiagnostic("drawio.document.xml.invalid", "Rejected a malformed native Draw.io XML payload", { event: data.event, xmlLength: data.xml.length }, "error");
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) {
               rejectPendingAutoLayout(new Error("Draw.io auto layout returned invalid XML; the previous saved source was preserved."));
+            }
+            if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) {
+              rejectPendingNativePalette(new Error("Draw.io returned invalid XML after applying diagram colors; the previous saved source was preserved."));
             }
             return;
           }
@@ -682,6 +820,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           if (duplicateXml) {
             for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
+            if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) finishPendingNativePalette(data.xml);
             return;
           }
           lastSent.current = data.xml;
@@ -691,6 +830,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           onDocumentChangeRef.current(data.xml);
           for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
           if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
+          if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) finishPendingNativePalette(data.xml);
         } catch (error) {
           recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
             { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");

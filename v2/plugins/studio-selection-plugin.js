@@ -25,6 +25,8 @@
     // Cells created during an atomic batch are tracked for rollback.
     var activeBatchCreatedCells = null;
     var studioParentOrigin = "";
+    var activeHistoryModel = null;
+    var activeHistoryListener = null;
     var pendingBridgeReadyMessage = null;
     var bridgeHelloTimer = null;
     var publish = function (message) {
@@ -56,6 +58,18 @@
       var id = page && (typeof page.getId === "function" ? page.getId() : page.id);
       return typeof id === "string" && id ? id : null;
     };
+    var historyState = function () {
+      var manager = ui && ui.editor && ui.editor.undoManager;
+      var canUndo = false;
+      var canRedo = false;
+      try { canUndo = !!manager && typeof manager.canUndo === "function" && manager.canUndo(); } catch (_) {}
+      try { canRedo = !!manager && typeof manager.canRedo === "function" && manager.canRedo(); } catch (_) {}
+      return { canUndo: canUndo, canRedo: canRedo };
+    };
+    var publishHistoryState = function () {
+      var state = historyState();
+      publish({ event: "studioHistoryState", canUndo: state.canUndo, canRedo: state.canRedo, pageId: currentPageId() });
+    };
     var publishSelection = function () {
       var selectedGraph = currentGraph();
       var cells = typeof selectedGraph.getSelectionCells === "function" ? selectedGraph.getSelectionCells() : [];
@@ -66,7 +80,19 @@
         cellId: typeof id === "string" && id ? id : null,
         pageId: currentPageId()
       });
+      publishHistoryState();
     };
+    function bindHistoryModelListener() {
+      var selectedGraph = currentGraph();
+      var selectedModel = selectedGraph && typeof selectedGraph.getModel === "function" ? selectedGraph.getModel() : model;
+      if (!selectedModel || selectedModel === activeHistoryModel) return;
+      if (activeHistoryModel && activeHistoryListener && typeof activeHistoryModel.removeListener === "function") {
+        try { activeHistoryModel.removeListener(activeHistoryListener); } catch (_) {}
+      }
+      activeHistoryModel = selectedModel;
+      activeHistoryListener = typeof activeHistoryModel.addListener === "function" ? publishSelection : null;
+      if (activeHistoryListener) activeHistoryModel.addListener("change", activeHistoryListener);
+    }
 
     function runtimeMethods(target, preferred) {
       if (!target) return [];
@@ -518,6 +544,136 @@
       if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
       if (typeof activeGraph.refresh === "function") activeGraph.refresh();
       return { changedVertices: changedVertices, changedEdges: changedEdges, engine: plan.engine, algorithm: plan.algorithm };
+    }
+
+    function applyNativePalettePlan(plan, activeGraph, activeModel) {
+      function fail(message, rollbackConfirmed) {
+        var error = new Error(message);
+        error.rollbackConfirmed = rollbackConfirmed === true;
+        throw error;
+      }
+      if (!plan || typeof plan !== "object" || !Array.isArray(plan.expectedPageCellIds) ||
+          !Array.isArray(plan.changes) || ["editorial", "youth", "warm", "midnight"].indexOf(plan.theme) < 0) {
+        fail("The Studio color plan is malformed; nothing was changed.", true);
+      }
+      if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) {
+        fail("The Studio color plan is not bound to a valid native XML revision.", true);
+      }
+      if (plan.expectedPageCellIds.length < 1 || plan.expectedPageCellIds.length > 20000 ||
+          plan.changes.length < 1 || plan.changes.length > 10000) {
+        fail("The Studio color plan is empty or exceeds native editor limits.", true);
+      }
+      if (!activeModel || typeof activeModel.getRoot !== "function" ||
+          typeof activeModel.getChildCount !== "function" || typeof activeModel.getChildAt !== "function" ||
+          typeof activeModel.getStyle !== "function" || typeof activeModel.setStyle !== "function" ||
+          typeof activeModel.beginUpdate !== "function" || typeof activeModel.endUpdate !== "function") {
+        fail("The active Draw.io model does not expose the required native style transaction API.", true);
+      }
+      if ((plan.pageId || null) !== (currentPageId() || null)) {
+        fail("The active Draw.io page changed after color calculation. Select the preset again.", true);
+      }
+      var uniqueExpectedIds = new Set();
+      for (var e = 0; e < plan.expectedPageCellIds.length; e++) {
+        var expectedId = plan.expectedPageCellIds[e];
+        if (typeof expectedId !== "string" || !expectedId || expectedId.length > 500 || uniqueExpectedIds.has(expectedId)) {
+          fail("The Studio color plan contains invalid or duplicate native cell IDs.", true);
+        }
+        uniqueExpectedIds.add(expectedId);
+      }
+
+      var root = activeModel && typeof activeModel.getRoot === "function" ? activeModel.getRoot() : null;
+      if (!root) fail("The active Draw.io model is unavailable.", true);
+      var allCells = [];
+      var liveById = Object.create(null);
+      var seenObjects = new Set();
+      var stack = [root];
+      while (stack.length) {
+        var cell = stack.pop();
+        if (!cell || seenObjects.has(cell)) continue;
+        seenObjects.add(cell);
+        var cellId = runtimeCellId(cell);
+        if (!cellId || Object.prototype.hasOwnProperty.call(liveById, cellId)) {
+          fail("The active Draw.io model has missing or duplicate cell IDs.", true);
+        }
+        liveById[cellId] = cell;
+        allCells.push(cell);
+        if (allCells.length > 20000) fail("The active Draw.io page exceeds the color-plan cell limit.", true);
+        var childCount = typeof activeModel.getChildCount === "function" ? activeModel.getChildCount(cell) : 0;
+        for (var childIndex = childCount - 1; childIndex >= 0; childIndex--) {
+          var child = activeModel.getChildAt(cell, childIndex);
+          if (child && !seenObjects.has(child)) stack.push(child);
+        }
+      }
+      var liveIds = allCells.map(runtimeCellId).sort();
+      var expectedIds = plan.expectedPageCellIds.slice().sort();
+      if (liveIds.length !== expectedIds.length || liveIds.some(function (id, index) { return id !== expectedIds[index]; })) {
+        fail("The active Draw.io page changed after color calculation. No colors were applied; select the preset again.", true);
+      }
+
+      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true };
+      function normalizedStyle(cell) {
+        var style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style;
+        return typeof style === "string" ? style : "";
+      }
+      function nonColorStyleSegments(style) {
+        return String(style || "").split(";").filter(function (part) {
+          var trimmed = part.trim();
+          if (!trimmed) return false;
+          var equalsAt = trimmed.indexOf("=");
+          var key = equalsAt > 0 ? trimmed.slice(0, equalsAt).trim() : "";
+          return !Object.prototype.hasOwnProperty.call(allowedCellStyles, key);
+        });
+      }
+      var changeIds = new Set();
+      var snapshots = [];
+      for (var c = 0; c < plan.changes.length; c++) {
+        var change = plan.changes[c];
+        if (!change || typeof change.cellId !== "string" || !uniqueExpectedIds.has(change.cellId) ||
+            changeIds.has(change.cellId) || (change.kind !== "vertex" && change.kind !== "edge") ||
+            typeof change.expectedStyle !== "string" || change.expectedStyle.length > 20000 ||
+            typeof change.style !== "string" || change.style.length > 20000) {
+          fail("The Studio color plan contains an invalid style change.", true);
+        }
+        changeIds.add(change.cellId);
+        var liveCell = liveById[change.cellId];
+        if (!liveCell || (change.kind === "vertex" ? !liveCell.vertex : !liveCell.edge)) {
+          fail("A target cell is no longer the expected vertex or connector: " + change.cellId, true);
+        }
+        if (normalizedStyle(liveCell) !== change.expectedStyle) {
+          fail("A target cell's style changed after color calculation: " + change.cellId + ". No colors were applied.", true);
+        }
+        var beforeNonColors = nonColorStyleSegments(change.expectedStyle);
+        var afterNonColors = nonColorStyleSegments(change.style);
+        if (beforeNonColors.length !== afterNonColors.length ||
+            beforeNonColors.some(function (part, index) { return part !== afterNonColors[index]; })) {
+          fail("The color plan attempts to change a non-color style property.", true);
+        }
+        snapshots.push({ cell: liveCell, cellId: change.cellId, style: liveCell.style, nextStyle: change.style });
+      }
+      activeModel.beginUpdate();
+      try {
+        snapshots.forEach(function (snapshot) {
+          activeModel.setStyle(snapshot.cell, snapshot.nextStyle);
+        });
+      } catch (mutationError) {
+        var rollbackErrors = [];
+        snapshots.slice().reverse().forEach(function (snapshot) {
+          try { activeModel.setStyle(snapshot.cell, snapshot.style); }
+          catch (rollbackError) {
+            rollbackErrors.push(snapshot.cellId + ": " +
+              (rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError)));
+          }
+        });
+        fail("Studio color application failed: " +
+          (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) +
+          (rollbackErrors.length ? "; rollback was incomplete: " + rollbackErrors.join("; ") : "; previous styles were restored."),
+          rollbackErrors.length === 0);
+      } finally {
+        activeModel.endUpdate();
+      }
+      if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+      if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+      return { changedCells: snapshots.length };
     }
 
     function editCell(request) {
@@ -1065,7 +1221,47 @@
         return;
       }
       if (!studioParentOrigin || event.origin !== studioParentOrigin) return;
-      if (request.event === "studioNativeLayoutRequest") {
+      if (request.event === "studioHistoryCommand") {
+        var historyAction = request.action;
+        var undoManager = ui && ui.editor && ui.editor.undoManager;
+        try {
+          if (historyAction !== "undo" && historyAction !== "redo") throw new Error("Unsupported history command.");
+          var available = historyState();
+          if (historyAction === "undo" && !available.canUndo) throw new Error("There is no native edit to undo.");
+          if (historyAction === "redo" && !available.canRedo) throw new Error("There is no native edit to redo.");
+          if (!undoManager || typeof undoManager[historyAction] !== "function") throw new Error("The native Draw.io history manager is unavailable.");
+          // Keep Draw.io's own inline-text-edit handling. In normal canvas mode this reaches
+          // the same undo manager; if a native text editor is active, Draw.io can undo text first.
+          if (historyAction === "undo" && typeof ui.undo === "function") ui.undo();
+          else if (historyAction === "redo" && typeof ui.redo === "function") ui.redo();
+          else undoManager[historyAction]();
+          bindHistoryModelListener();
+          publishSelection();
+          publish({ event: "studioHistoryCommandResult", action: historyAction, success: true });
+        } catch (historyError) {
+          publishHistoryState();
+          publish({ event: "studioHistoryCommandResult", action: historyAction, success: false,
+            error: historyError && historyError.message ? String(historyError.message) : String(historyError) });
+        }
+      } else if (request.event === "studioNativePaletteRequest") {
+        try {
+          var paletteGraph = currentGraph();
+          var paletteModel = typeof paletteGraph.getModel === "function" ? paletteGraph.getModel() : model;
+          var paletteResult = applyNativePalettePlan(request.plan, paletteGraph, paletteModel);
+          bindHistoryModelListener();
+          publishSelection();
+          publish({
+            event: "studioNativePaletteResult", requestId: request.requestId, success: true,
+            changedCells: paletteResult.changedCells
+          });
+        } catch (paletteError) {
+          publish({
+            event: "studioNativePaletteResult", requestId: request.requestId, success: false,
+            error: paletteError && paletteError.message ? String(paletteError.message) : String(paletteError),
+            rollbackConfirmed: Boolean(paletteError && paletteError.rollbackConfirmed)
+          });
+        }
+      } else if (request.event === "studioNativeLayoutRequest") {
         try {
           var layoutGraph = currentGraph();
           var layoutModel = typeof layoutGraph.getModel === "function" ? layoutGraph.getModel() : model;
@@ -1129,8 +1325,11 @@
     });
 
     graph.getSelectionModel().addListener("change", publishSelection);
-    if (typeof ui.addListener === "function") ui.addListener("pageSelected", publishSelection);
-    if (typeof model.addListener === "function") model.addListener("change", publishSelection);
+    if (typeof ui.addListener === "function") ui.addListener("pageSelected", function () {
+      bindHistoryModelListener();
+      publishSelection();
+    });
+    bindHistoryModelListener();
     var bridgeGraph = currentGraph();
     var bridgeModel = typeof bridgeGraph.getModel === "function" ? bridgeGraph.getModel() : model;
     var bridgeCapabilities = {

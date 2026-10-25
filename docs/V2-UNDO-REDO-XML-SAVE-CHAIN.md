@@ -164,3 +164,14 @@
 ### 验证状态
 
 本次代码改动新增 native-edit-confirmation.test.ts，覆盖核心内容匹配规则。还需通过仓库自身的 npm test、npm run typecheck、npm run build 与原生 Draw.io E2E 验证；源码提交本身不等于这些命令已通过。
+
+
+## 2026-10-25 统一 Undo/Redo 接入说明
+
+Undo/Redo 的所有权仍属于 Draw.io 原生 `undoManager`。Studio 没有引入第二个快照撤销栈：画布工具栏、宿主级键盘快捷键和插件中的可用态，都代理原生历史入口。按钮可用态根据当前原生 undo/redo 状态更新；命令执行时插件会再次检查，防止延迟状态导致空栈操作。键盘代理不会拦截 Studio 的输入框、文本域或 contenteditable 文本编辑。
+
+颜色预设之前直接改写整份 XML 并通过 `setNativeXmlOverride` 重载文档，这会清除原生撤销栈。现在颜色预设先由 TypeScript 根据当前页计算 revision-bound plan，再由 Draw.io 插件在活动页用单个模型事务应用。该事务与手工编辑、Copilot 批次和自动布局使用同一 native history / autosave 机制。颜色预设仅应用于当前页；多页文档的页面切换本身不当作文档边界，只有 open/load/import/restore 建立新的历史基线。
+
+颜色事务完成后，Studio 通过原生 XML export 获取已序列化的完整文档，并复用现有工作区持久化或独立文件写入路径。Undo/Redo 的持久化通路保持不变：原生模型 CHANGE → Draw.io autosave XML → Studio XML 校验与状态更新 → 250ms 防抖持久化。恢复版本后撤销栈按 Draw.io 原生语义清空，继续浏览旧状态仍应使用 History。
+
+验证清单：颜色预设与已有颜色规则的单元测试、压缩页与多页计划测试、预设一步 Undo/Redo 与快捷键 E2E、自动布局几何一步 Undo，以及现有 typecheck / unit / build / E2E CI。对尚未完成的 CI 不应提前标记通过。

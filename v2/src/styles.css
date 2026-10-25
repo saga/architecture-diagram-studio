@@ -85,6 +85,8 @@ button:disabled { opacity: .58; cursor: wait; }
 .native-layout-select { width: 132px; flex: 0 0 auto; font-size: 11px; }
 .native-layout-algorithm.ant-select { width: 168px; }
 .native-layout-direction.ant-select { width: 136px; }
+.history-toolbar-button.ant-btn { box-shadow: none; font-size: 11px; padding-inline: 10px; color: #506075; }
+.history-toolbar-button.ant-btn:hover { border-color: #bec9ef; color: #334ab4; }
 .layout-direction-button.ant-btn, .layout-settings-button.ant-btn { box-shadow: none; font-size: 11px; padding-inline: 10px; }
 .layout-direction-button.ant-btn { color: #506075; }
 .layout-direction-button.ant-btn:hover, .layout-settings-button.ant-btn:hover { border-color: #bec9ef; color: #334ab4; }
