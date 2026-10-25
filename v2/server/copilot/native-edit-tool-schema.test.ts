@@ -66,7 +66,7 @@ describe("native edit tool parameter schema", () => {
     expect(styleBranch?.properties.color?.pattern).not.toContain("red");
     expect(branches.some((candidate) => candidate.properties.op.enum.includes("run_drawio_script"))).toBe(false);
     const layoutBranch = branches.find((candidate) => candidate.properties.op.enum.includes("auto_layout"));
-    expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre"], default: "elk" });
+    expect(layoutBranch?.properties.engine).toMatchObject({ enum: ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"], default: "elk" });
     expect(layoutBranch?.properties.iterations).toMatchObject({ type: "integer", minimum: 20, maximum: 3000, default: 300 });
   });
 });

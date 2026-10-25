@@ -1,10 +1,77 @@
 import dagre from "@dagrejs/dagre";
 import ELK from "elkjs/lib/elk.bundled.js";
+import { calculateAdditionalNativeLayout, type AdditionalLayoutEngine } from "./additional-layout-engines";
 import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
-export type NativeAutoLayoutEngine = "elk" | "dagre";
-export type NativeAutoLayoutAlgorithm = "layered" | "mrtree" | "radial" | "stress" | "force";
+export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
+export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
+export const NATIVE_AUTO_LAYOUT_ALGORITHMS = [
+  "layered", "mrtree", "radial", "stress", "force", "box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap",
+  "dot", "neato", "fdp", "sfdp", "circo", "twopi",
+  "mds", "ipsepcola",
+  "breadthfirst", "circle", "concentric", "grid", "cose", "fcose",
+  "tree", "cluster"
+] as const;
+export type NativeAutoLayoutAlgorithm = (typeof NATIVE_AUTO_LAYOUT_ALGORITHMS)[number];
+
+export const NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE: Record<NativeAutoLayoutEngine, Array<{ value: NativeAutoLayoutAlgorithm; label: string }>> = {
+  elk: [
+    { value: "layered", label: "Layered · flow" }, { value: "mrtree", label: "Mr. Tree" },
+    { value: "radial", label: "Radial" }, { value: "stress", label: "Stress · relationships" },
+    { value: "force", label: "Force · organic" },
+    { value: "box", label: "Box packing" }, { value: "fixed", label: "Fixed · retain node positions" },
+    { value: "rectpacking", label: "Rectangle packing" },
+    { value: "random", label: "Randomizer" },
+    { value: "sporeCompaction", label: "SPOrE · compact" },
+    { value: "sporeOverlap", label: "SPOrE · remove overlap" }
+  ],
+  dagre: [{ value: "layered", label: "Layered · flow" }],
+  graphviz: [
+    { value: "dot", label: "dot · hierarchical" }, { value: "neato", label: "neato · spring model" },
+    { value: "fdp", label: "fdp · force-directed" }, { value: "sfdp", label: "sfdp · large graphs" },
+    { value: "circo", label: "circo · circular" }, { value: "twopi", label: "twopi · radial" }
+  ],
+  msagl: [
+    { value: "layered", label: "Sugiyama · layered" }, { value: "mds", label: "MDS · distance-based" },
+    { value: "ipsepcola", label: "IPSepCola · separation" }
+  ],
+  cytoscape: [
+    { value: "breadthfirst", label: "Breadth-first" }, { value: "circle", label: "Circle" },
+    { value: "concentric", label: "Concentric" }, { value: "grid", label: "Grid" },
+    { value: "random", label: "Random" }, { value: "cose", label: "CoSE force-directed" },
+    { value: "fcose", label: "fCoSE · fast compound force" }
+  ],
+  d3: [
+    { value: "tree", label: "Tree" }, { value: "cluster", label: "Cluster" },
+    { value: "force", label: "Force simulation" }
+  ]
+};
+
+export function nativeLayoutAlgorithmsForEngine(engine: NativeAutoLayoutEngine) {
+  return NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE[engine];
+}
+
+export function defaultNativeLayoutAlgorithm(engine: NativeAutoLayoutEngine): NativeAutoLayoutAlgorithm {
+  switch (engine) {
+    case "dagre": return "layered";
+    case "graphviz": return "dot";
+    case "msagl": return "layered";
+    case "cytoscape": return "breadthfirst";
+    case "d3": return "tree";
+    case "elk": return "layered";
+  }
+}
+
+export function nativeLayoutSupportsAlgorithm(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
+  return NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE[engine].some((item) => item.value === algorithm);
+}
+
+export function nativeLayoutSupportsDirection(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
+  if (engine === "elk") return !["box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(algorithm);
+  // Non-layered adapters without a native direction setting use the shared coordinate transform.
+  return true;
+}
 export type NativeAutoLayoutDirection = "RIGHT" | "LEFT" | "DOWN" | "UP";
 export type NativeAutoLayoutEdgeRouting = "ORTHOGONAL" | "POLYLINE" | "SPLINES";
 
@@ -95,7 +162,11 @@ interface ElkLayoutResult {
   edges?: Array<{ id: string; sections?: Array<{ bendPoints?: Point[] }> }>;
 }
 
-const elk = new ELK();
+// Explicitly register optional algorithms verified in the bundled elkjs build.
+// Box, Fixed and Random are always included; SPOrE and Rectangle Packing require registration.
+const elk = new ELK({
+  algorithms: ["layered", "stress", "mrtree", "radial", "force", "rectpacking", "sporeCompaction", "sporeOverlap"]
+});
 
 function elementChildren(element: Element): Element[] {
   const result: Element[] = [];
@@ -235,7 +306,7 @@ function mapDirection(direction: NativeAutoLayoutDirection): "RIGHT" | "LEFT" | 
 // with no meaningful edge direction, so Stress and Force get a deterministic post-layout
 // orientation emulation: align the dominant spread axis with the requested flow axis and
 // mirror the result until the aggregated edge flow matches the selected direction.
-const ELK_DIRECTION_AWARE_ALGORITHMS: ReadonlySet<NativeAutoLayoutAlgorithm> = new Set(["layered", "mrtree", "radial"]);
+const ELK_DIRECTION_AWARE_ALGORITHMS: ReadonlySet<NativeAutoLayoutAlgorithm> = new Set(["layered", "mrtree"]);
 
 const ANISOTROPY_ROTATION_THRESHOLD = 2.5;
 
@@ -338,8 +409,9 @@ function normalizePlan(
 
   const minX = Math.min(...projection.vertices.map((cell) => positions.get(cell.id)!.x));
   const minY = Math.min(...projection.vertices.map((cell) => positions.get(cell.id)!.y));
-  const dx = options.margin - minX;
-  const dy = options.margin - minY;
+  const preserveNativePositions = options.engine === "elk" && options.algorithm === "fixed";
+  const dx = preserveNativePositions ? 0 : options.margin - minX;
+  const dy = preserveNativePositions ? 0 : options.margin - minY;
   const finiteCoordinate = (value: number) => Number.isFinite(value) && Math.abs(value) <= 1_000_000;
   const nativePositions = projection.vertices.map((cell) => {
     const point = positions.get(cell.id)!;
@@ -398,16 +470,39 @@ export async function calculateNativeAutoLayout(
   if (options.engine === "dagre" && options.algorithm !== "layered") {
     throw new Error(`Dagre supports only the layered algorithm; “${options.algorithm}” is not available for this engine. Choose ELK for other algorithms.`);
   }
+  if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
+    throw new Error("The selected algorithm is not supported by the chosen layout engine.");
+  }
   const projection = projectNativePage(xml, pageId);
   if (projection.vertices.length === 0) {
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page.");
+  }
+
+  if (options.engine === "elk" && (options.algorithm === "box" || options.algorithm === "rectpacking") && projection.edges.length > 0) {
+    throw new Error("ELK Box and Rectangle packing are intended for unconnected nodes. Choose a graph layout algorithm for diagrams with connectors.");
   }
 
   const nodeById = new Map(projection.vertices.map((node) => [node.id, node] as const));
   const positions = new Map<string, Point>();
   const routes = new Map<string, Point[]>();
 
-  if (options.engine === "dagre") {
+  if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {
+    const result = await calculateAdditionalNativeLayout(
+      projection.vertices,
+      projection.edges.filter((edge) => edge.sourceId && edge.targetId).map((edge) => ({
+        id: edge.id, sourceId: edge.sourceId!, targetId: edge.targetId!
+      })),
+      { ...options, engine: options.engine as AdditionalLayoutEngine }
+    );
+    for (const [id, point] of result.positions) positions.set(id, point);
+    for (const [id, points] of result.routes) routes.set(id, points);
+    if (options.engine === "cytoscape" ||
+        (options.engine === "graphviz" && options.algorithm !== "dot") ||
+        (options.engine === "d3" && options.algorithm === "force") ||
+        (options.engine === "msagl" && options.algorithm !== "layered")) {
+      emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
+    }
+  } else if (options.engine === "dagre") {
     const graph = new dagre.graphlib.Graph({ multigraph: true });
     graph.setDefaultEdgeLabel(() => ({}));
     const rankdir: Record<NativeAutoLayoutDirection, "LR" | "RL" | "TB" | "BT"> = {
@@ -458,24 +553,54 @@ export async function calculateNativeAutoLayout(
         Math.max(options.nodeSpacing, options.layerSpacing) + (maxVertexWidth + maxVertexHeight) / 2
       );
     }
+    if (options.algorithm === "sporeCompaction" || options.algorithm === "sporeOverlap") {
+      layoutOptions["elk.spacing.nodeNode"] = String(options.nodeSpacing);
+    }
     const graphInput = {
       id: "studio-native-layout",
       layoutOptions,
-      children: projection.vertices.map((node) => ({ id: node.id, width: node.width, height: node.height })),
+      children: projection.vertices.map((node) => ({
+        id: node.id, width: node.width, height: node.height,
+        // Fixed retains source coordinates. SPOrE optimizers also need current coordinates
+        // as their seed rather than receiving an all-origin graph.
+        ...(["fixed", "sporeCompaction", "sporeOverlap"].includes(options.algorithm) ? { x: node.x, y: node.y } : {})
+      })),
       edges: projection.edges
         .filter((edge) => edge.sourceId && edge.targetId)
-        .map((edge) => ({ id: edge.id, sources: [edge.sourceId!], targets: [edge.targetId!] }))
+        .map((edge) => {
+          const resultEdge = { id: edge.id, sources: [edge.sourceId!], targets: [edge.targetId!] };
+          if (options.algorithm !== "fixed") return resultEdge;
+          // ELK Fixed requires an existing section for each edge. These temporary center-to-center
+          // sections satisfy that input contract; no such routes are persisted, and native Draw.io
+          // recalculates the actual routes after applying the unchanged node coordinates.
+          const source = projection.vertices.find((vertex) => vertex.id === edge.sourceId)!;
+          const target = projection.vertices.find((vertex) => vertex.id === edge.targetId)!;
+          return {
+            ...resultEdge,
+            sections: [{
+              id: `${edge.id}-layout-section`,
+              startPoint: { x: source.x + source.width / 2, y: source.y + source.height / 2 },
+              endPoint: { x: target.x + target.width / 2, y: target.y + target.height / 2 },
+              bendPoints: []
+            }]
+          };
+        })
     };
     const result = await elk.layout(graphInput as never) as unknown as ElkLayoutResult;
     for (const node of result.children ?? []) {
       if (!nodeById.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
       positions.set(node.id, { x: Number(node.x), y: Number(node.y) });
     }
+    if (options.algorithm === "fixed") {
+      // Fixed is explicitly position-preserving. Keep exact coordinates from the native snapshot.
+      for (const node of projection.vertices) positions.set(node.id, { x: node.x, y: node.y });
+    }
     for (const edge of result.edges ?? []) {
       const points = (edge.sections ?? []).flatMap((section) => section.bendPoints ?? []);
       if (projection.edges.some((candidate) => candidate.id === edge.id)) routes.set(edge.id, points);
     }
-    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm)) {
+    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm) &&
+        !["box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(options.algorithm)) {
       emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
     }
   }

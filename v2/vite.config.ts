@@ -109,6 +109,8 @@ const apiProxy = { "/api/copilot": apiTarget, "/api/workspace": apiTarget, "/api
 
 export default defineConfig({
   plugins: [react(), terminalDiagnostics()],
+  // MSAGL ships extensionless ESM imports; bundle it in SSR/Vitest instead of Node-externalizing it.
+  ssr: { noExternal: ["@msagl/core"] },
   cacheDir,
   server: { host: "0.0.0.0", port: webPort, strictPort: Boolean(process.env.STUDIO_WEB_PORT), proxy: apiProxy },
   preview: { host: "0.0.0.0", port: previewPort, strictPort: Boolean(process.env.STUDIO_PREVIEW_PORT), proxy: apiProxy },

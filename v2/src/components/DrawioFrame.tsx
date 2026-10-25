@@ -44,7 +44,7 @@ export type { NativeAutoLayoutOptions, NativeLayoutPlan };
 
 export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }): Promise<DrawioRuntimeInspection>;
-  /** Applies a revision/page-bound Dagre or ELK geometry plan to native Draw.io cells. */
+  /** Applies a revision/page-bound Studio layout geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
   /** Reloads the editor from the latest XML retained by Studio after a synchronous script hangs. */
   recoverFromLastSavedXml(): void;
@@ -192,7 +192,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           requestId,
           plan
         }), DRAWIO_ORIGIN);
-        recordDiagnostic("drawio.layout.requested", "Sent a revision-bound Dagre/ELK plan to the native Draw.io editor", {
+        recordDiagnostic("drawio.layout.requested", "Sent a revision-bound Studio layout plan to the native Draw.io editor", {
           drawioVersion: DRAWIO_VERSION, engine: plan.engine, algorithm: plan.algorithm,
           direction: plan.direction, positionCount: plan.positions.length,
           edgeRouteCount: plan.edgeRoutes.length, expectedCellCount: plan.expectedCells.length,

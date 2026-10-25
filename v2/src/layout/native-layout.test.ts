@@ -3,6 +3,7 @@ import {
   calculateNativeAutoLayout,
   DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
   emulateEmbeddedFlowDirection,
+  nativeLayoutAlgorithmsForEngine,
   type NativeAutoLayoutOptions
 } from "./native-layout";
 
@@ -221,5 +222,65 @@ describe("emulateEmbeddedFlowDirection", () => {
     expect(Array.from(positions, ([, point]) => point.y + 20)[0] - Array.from(positions, ([, point]) => point.y + 20)[1])
       .toBeGreaterThan(0);
     expect(Math.max(...centerYs) - Math.min(...centerYs)).toBeGreaterThanOrEqual(200);
+  });
+});
+
+describe("additional native layout engines", () => {
+  it.each([
+    ["graphviz", "dot"], ["graphviz", "neato"], ["graphviz", "fdp"],
+    ["graphviz", "sfdp"], ["graphviz", "circo"], ["graphviz", "twopi"],
+    ["msagl", "layered"], ["msagl", "mds"], ["msagl", "ipsepcola"],
+    ["cytoscape", "breadthfirst"], ["cytoscape", "circle"], ["cytoscape", "concentric"],
+    ["cytoscape", "grid"], ["cytoscape", "random"], ["cytoscape", "cose"], ["cytoscape", "fcose"],
+    ["d3", "tree"], ["d3", "cluster"], ["d3", "force"],
+    ["elk", "random"], ["elk", "sporeCompaction"], ["elk", "sporeOverlap"], ["elk", "fixed"]
+  ] as const)("calculates native geometry with %s / %s", async (engine, algorithm) => {
+    const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine,
+      algorithm,
+      direction: "RIGHT"
+    } as NativeAutoLayoutOptions);
+    expect(plan.engine).toBe(engine);
+    expect(plan.algorithm).toBe(algorithm);
+    expect(plan.positions).toHaveLength(3);
+    expect(plan.positions.every((item) => Number.isFinite(item.x) && Number.isFinite(item.y))).toBe(true);
+  });
+
+  it.each(["box", "rectpacking"] as const)("supports ELK %s for unconnected native cells", async (algorithm) => {
+    const disconnectedXml = xml.replace(/<object id="edge-api-worker"[\s\S]*?<\/object>\s*<object id="edge-worker-db"[\s\S]*?<\/object>/, "");
+    const plan = await calculateNativeAutoLayout(disconnectedXml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm
+    });
+    expect(plan.positions).toHaveLength(3);
+  });
+
+  it("keeps absolute native positions with ELK Fixed", async () => {
+    const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "fixed", margin: 100
+    });
+    expect(plan.positions.find((position) => position.cellId === "api")).toEqual({ cellId: "api", x: 40, y: 40 });
+    expect(plan.positions.find((position) => position.cellId === "worker")).toEqual({ cellId: "worker", x: 260, y: 200 });
+    expect(plan.positions.find((position) => position.cellId === "db")).toEqual({ cellId: "db", x: 500, y: 360 });
+  });
+
+  it("rejects ELK packing algorithms for connected diagrams", async () => {
+    await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "box"
+    })).rejects.toThrow(/unconnected nodes/i);
+    await expect(calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "rectpacking"
+    })).rejects.toThrow(/unconnected nodes/i);
+  });
+
+  it("exposes algorithm choices only for their matching engines", () => {
+    expect(nativeLayoutAlgorithmsForEngine("dagre").map((item) => item.value)).toEqual(["layered"]);
+    expect(nativeLayoutAlgorithmsForEngine("elk").map((item) => item.value)).toEqual([
+      "layered", "mrtree", "radial", "stress", "force", "box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"
+    ]);
+    expect(nativeLayoutAlgorithmsForEngine("graphviz").map((item) => item.value)).toContain("sfdp");
+    expect(nativeLayoutAlgorithmsForEngine("msagl").map((item) => item.value)).toContain("mds");
+    expect(nativeLayoutAlgorithmsForEngine("cytoscape").map((item) => item.value)).toEqual(["breadthfirst", "circle", "concentric", "grid", "random", "cose", "fcose"]);
+    expect(nativeLayoutAlgorithmsForEngine("d3").map((item) => item.value)).toContain("tree");
   });
 });

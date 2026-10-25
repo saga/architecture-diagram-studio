@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateNativeAutoLayout, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS } from "../layout/native-layout";
+import { calculateNativeAutoLayout, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, defaultNativeLayoutAlgorithm } from "../layout/native-layout";
 import {
   describeNativeEditOperation,
   extractNativeEditTargets,
@@ -152,6 +152,15 @@ describe("parseNativeEditOperations", () => {
       { op: "auto_layout", target: "active_page", engine: "dagre" },
       { op: "select", target: "db" }
     ])).toMatchObject({ ok: false, error: expect.stringContaining("only operation") });
+  });
+
+  it.each([
+    ["elk", "layered"], ["dagre", "layered"], ["graphviz", "dot"],
+    ["msagl", "layered"], ["cytoscape", "breadthfirst"], ["d3", "tree"]
+  ] as const)("chooses an engine-specific default algorithm for %s when omitted", (engine, algorithm) => {
+    const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine }]);
+    expect(parsed).toMatchObject({ ok: true, operations: [{ engine, algorithm }] });
+    expect(defaultNativeLayoutAlgorithm(engine)).toBe(algorithm);
   });
 
   it("rejects an unsupported Dagre algorithm rather than silently mapping it to layered", () => {

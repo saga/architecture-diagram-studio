@@ -368,10 +368,11 @@
           !Array.isArray(plan.expectedCells) || !Array.isArray(plan.positions) || !Array.isArray(plan.edgeRoutes)) {
         fail("The Studio layout plan is malformed; nothing was changed.", true);
       }
-      if (plan.engine !== "elk" && plan.engine !== "dagre") fail("Unsupported Studio layout engine.", true);
-      if (!["layered", "mrtree", "radial", "stress", "force"].includes(plan.algorithm) ||
+      var supportedAlgorithms = { elk: ["layered", "mrtree", "radial", "stress", "force", "box", "rectpacking", "random"], dagre: ["layered"], graphviz: ["dot", "neato", "fdp", "sfdp", "circo", "twopi"], msagl: ["layered", "mds", "ipsepcola"], cytoscape: ["breadthfirst", "circle", "concentric", "grid", "random", "cose"], d3: ["tree", "cluster", "force"] };
+      if (!Object.prototype.hasOwnProperty.call(supportedAlgorithms, plan.engine)) fail("Unsupported Studio layout engine.", true);
+      if (!supportedAlgorithms[plan.engine].includes(plan.algorithm) ||
           !["RIGHT", "LEFT", "DOWN", "UP"].includes(plan.direction) ||
-          (plan.engine === "dagre" && plan.algorithm !== "layered")) {
+          ((plan.algorithm === "box" || plan.algorithm === "rectpacking") && plan.edgeRoutes.length > 0)) {
         fail("Unsupported Studio layout algorithm or direction.", true);
       }
       function boundedPlanNumber(value, min, max) {
