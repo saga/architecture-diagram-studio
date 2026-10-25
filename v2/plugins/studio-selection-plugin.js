@@ -79,7 +79,7 @@
     }
     function classifyStyleCell(cell, styleText, activeModel) {
       if (cell && cell.edge) {
-        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\\s|;)/.test(styleText)) return "edgeDotted";
+        if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) && /(?:^|;)dashPattern=1(?:\s|;)/.test(styleText)) return "edgeDotted";
         if (/(?:^|;)dashed=1(?:;|$)/.test(styleText) || /(?:^|;)dashPattern=/.test(styleText)) return "edgeDashed";
         return "edge";
       }
@@ -91,7 +91,7 @@
       if (/(external|cloud|internet|outside)/.test(shape)) return "external";
       var children = 0;
       try { children = activeModel && activeModel.getChildCount ? activeModel.getChildCount(cell) : (cell.children || []).length; } catch (_) {}
-      if (children > 0 || /(swimlane|partialrectangle|boundary|group|c4\\.container)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
+      if (children > 0 || /(swimlane|partialrectangle|boundary|group|c4\.container)/.test(shape) || /(?:^|;)swimlane=1(?:;|$)/.test(styleText)) return "container";
       if (/(server|service|microservice|compute|lambda|ec2|ecs|application)/.test(shape)) return "service";
       return "node";
     }
@@ -129,7 +129,7 @@
         Object.keys(style.categories[category]).forEach(function (property) {
           var value = style.categories[category][property];
           if (allowed.indexOf(property) < 0 || typeof value !== "string" || !value.trim() || value.length > 120 ||
-              /[;<>\\u0000-\\u001f]/.test(value) || /url\\s*\\(|javascript:/i.test(value)) {
+              /[;<>\u0000-\u001f]/.test(value) || /url\s*\\(|javascript:/i.test(value)) {
             throw new Error("Invalid diagram style value for " + property);
           }
         });
