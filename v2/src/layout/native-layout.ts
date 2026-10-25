@@ -457,11 +457,11 @@ export async function calculateNativeAutoLayout(
   if (!documentRevision || !/^[a-f0-9]{64}$/i.test(documentRevision)) {
     throw new Error("Auto layout requires the revision of the exact native Draw.io XML snapshot.");
   }
-  if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
-    throw new Error("The selected algorithm is not supported by the chosen layout engine.");
-  }
   if (options.engine === "dagre" && options.algorithm !== "layered") {
     throw new Error(`Dagre supports only the layered algorithm; “${options.algorithm}” is not available for this engine. Choose ELK for other algorithms.`);
+  }
+  if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
+    throw new Error("The selected algorithm is not supported by the chosen layout engine.");
   }
   const projection = projectNativePage(xml, pageId);
   if (projection.vertices.length === 0) {
@@ -560,7 +560,7 @@ export async function calculateNativeAutoLayout(
       const points = (edge.sections ?? []).flatMap((section) => section.bendPoints ?? []);
       if (projection.edges.some((candidate) => candidate.id === edge.id)) routes.set(edge.id, points);
     }
-    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm)) {
+    if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm) && !["box", "rectpacking", "random"].includes(options.algorithm)) {
       emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
     }
   }

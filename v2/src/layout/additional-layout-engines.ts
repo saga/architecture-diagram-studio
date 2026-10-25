@@ -275,7 +275,7 @@ async function runCytoscape(
       nodeRepulsion: () => spacing * spacing * 4,
       idealEdgeLength: () => spacing + Math.max(...vertices.map((vertex) => Math.max(vertex.width, vertex.height))),
       numIter: options.iterations,
-      roots: cy.nodes().filter((node) => !edges.some((edge) => edge.targetId === node.id()))
+      roots: (() => { const candidates = cy.nodes().filter((node) => !edges.some((edge) => edge.targetId === node.id())); return candidates.length ? candidates : cy.nodes().first(); })()
     } as unknown as cytoscape.LayoutOptions;
     cy.layout(layoutOptions as never).run();
 
