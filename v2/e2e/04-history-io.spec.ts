@@ -43,7 +43,7 @@ test.describe("版本历史与文件交换", () => {
 
   test("导出使用浏览器原生保存选择器写入 Draw.io XML", async ({ page }) => {
     await installFileSystemAccessMock(page, workspace.rootPath, []);
-    await page.getByRole("button", { name: /Export/ }).click();
+    await page.locator('button[title="Export a .drawio file"]').click();
 
     const exportedPath = path.join(workspace.rootPath, "architecture-export.drawio");
     await expect.poll(async () => readFile(exportedPath, "utf8").catch(() => ""), { timeout: 15_000 }).toContain("<mxfile");
@@ -62,7 +62,7 @@ test.describe("版本历史与文件交换", () => {
       { name: "incoming.drawio", path: importPath, content: renamed }
     ]);
 
-    await page.getByRole("button", { name: /Import/ }).click();
+    await page.locator('button[title="Import a .drawio file"]').click();
 
     await expect(nativeFrame(page).getByText("Edge Gateway", { exact: true })).toBeVisible();
     await expect
@@ -87,7 +87,7 @@ test.describe("版本历史与文件交换", () => {
     await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
 
     await setNextBrowserFile(page, "standalone-update.drawio");
-    await page.getByRole("button", { name: /Import/ }).click();
+    await page.locator('button[title="Import a .drawio file"]').click();
 
     await expect(nativeFrame(page).getByText("Browser Handle Save", { exact: true })).toBeVisible();
     await expect.poll(async () => (await readFile(primaryPath, "utf8")).includes("Browser Handle Save"), {
