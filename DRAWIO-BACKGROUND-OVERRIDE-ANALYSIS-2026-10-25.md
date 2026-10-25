@@ -1,5 +1,7 @@
 # Draw.io 文档背景与网格被 Studio 主题色覆盖 — Root Cause 分析
 
+**修复状态：已按 [ADR-0020](docs/adr/0020-native-drawio-diagram-theme-presets.md) 实施。** 已移除 Studio 向 iframe 注入画布背景 CSS 的消息链路；顶部选择器现在直接修改原生 Draw.io XML 的节点/连线颜色，页面背景和网格仍由 Draw.io 渲染。下文保留原始根因证据，供回归检查使用。
+
 日期：2026-10-25
 范围：`v2/src/model/drawio-theme.ts`、`v2/src/components/DrawioFrame.tsx`、`v2/plugins/studio-selection-plugin.js`、`v2/public/drawio/js/grapheditor/Editor.js`
 样例文件：`~/Downloads/investment-research-platform.drawio`
@@ -110,21 +112,21 @@ row300 → [["243,245,249", 1061], ["255,255,255", 204], ...]
 3. 深色主题下 `light-dark()` 的暗色分支同样被覆盖，暗色文档背景也失效；
 4. **不损坏数据**：保存、导出、版本历史里的 XML 都是正确的；问题只在嵌入编辑器的呈现层。
 
-## 7. 修复方向（未实施）
+## 7. 修复实现与回归检查
 
-原则：主题只影响"画布以外的留白"，不覆盖"文档自己的页面"。
+已实施的修复以 ADR-0020 为准：
 
-| 方案 | 做法 | 说明 |
-|---|---|---|
-| A（推荐） | 从 `drawio-theme.ts:73` 的选择器里去掉 `.geDiagramContainer svg`（必要时连 `#geDiagramContainer` 一起去掉），只保留 `body` | 留白区仍跟随主题，文档背景/网格由 drawio 自己绘制 |
-| B | 保留选择器但改 `background-color: transparent` | 语义更明确，但容器透出 body 色，视觉结果与 A 接近 |
-| C | 文档存在 `background` 时（`readDrawioModelBackground` 已实现）不注入该条规则 | 需要把"文档是否自带背景"传给 CSS 生成函数，逻辑更复杂 |
+- 删除 DrawioFrame 中发送 studioPresentationThemeRequest 的 effect，插件不再创建或更新 studio-native-theme 样式表。
+- 不再对 SVG、图形容器或页面元素注入不透明主题背景；背景色和网格继续使用 Draw.io 原生页面配置。
+- 颜色预设直接更新原生 XML 中顶点的 fillColor / strokeColor / fontColor 与连线的 strokeColor / fontColor，适用于压缩和未压缩页面。
+- 选择预设不切换 Studio 应用主题，不改 mxGraphModel 的 background、grid 或 gridSize；变更按文档编辑路径保存并进入版本历史。
 
-改完需要回归：
-- 有自定义背景的文档 → 背景与网格保留；
-- 无背景的文档 → 画布仍为主题色（不出现刺眼白块）；
-- 四个主题（editorial / youth / warm / midnight）都不出现颜色断层；
-- 导出 XML 与改前逐字节一致（本修复不应触碰文档）。
+回归检查：
+
+- 带自定义背景的文档：页面背景保持原色，网格仍可见。
+- 无显式 background 的文档：画布留白仍由 Draw.io 默认行为绘制，不被全局主题 CSS 覆盖。
+- 应用主题保持不变；节点/连线颜色写入 XML，重新打开后仍存在。
+- 导出 XML 中 background、grid、gridSize、几何、标签和非颜色样式不因预设而改变。
 
 ## 8. 复现脚本（可选）
 
