@@ -9,13 +9,16 @@ export type DrawioStyleCategory = typeof DRAWIO_STYLE_CATEGORIES[number];
 
 export const DRAWIO_COLOR_PROPERTIES = [
   "fillColor", "strokeColor", "fontColor", "gradientColor", "swimlaneFillColor",
-  "separatorColor", "indicatorColor", "labelBackgroundColor", "labelBorderColor"
+  "separatorColor", "indicatorColor", "indicatorGradientColor", "indicatorStrokeColor",
+  "labelBackgroundColor", "labelBorderColor"
 ] as const;
 
 export const DRAWIO_MANAGED_STYLE_PROPERTIES = [
-  ...DRAWIO_COLOR_PROPERTIES, "strokeWidth", "dashed", "dashPattern", "startArrow",
-  "endArrow", "rounded", "shadow", "opacity", "fontFamily", "fontSize", "fontStyle",
-  "align", "verticalAlign", "spacing", "glass", "comic"
+  ...DRAWIO_COLOR_PROPERTIES, "strokeWidth", "strokeOpacity", "fillOpacity", "textOpacity",
+  "dashed", "dashPattern", "startArrow", "endArrow", "startFill", "endFill", "startSize", "endSize",
+  "strokeLinecap", "strokeLinejoin", "rounded", "arcSize", "absoluteArcSize", "shadow", "opacity",
+  "fontFamily", "fontSize", "fontStyle", "align", "verticalAlign", "spacing", "spacingTop",
+  "spacingBottom", "spacingLeft", "spacingRight", "gradientDirection", "glass", "comic"
 ] as const;
 
 export type DrawioStyleProperties = Partial<Record<typeof DRAWIO_MANAGED_STYLE_PROPERTIES[number], string>>;
