@@ -61,6 +61,48 @@ describe("Studio-owned native-cell layout", () => {
     }
   );
 
+  it("prefers Draw.io's conventional default layer ID 1 even when another layer appears first in XML", async () => {
+    const reorderedLayers = xml.replace(
+      '<mxCell id="0"/>',
+      '<mxCell id="0"/><mxCell id="overlay" value="Overlay" parent="0"/>'
+    );
+    const plan = await calculateNativeAutoLayout(reorderedLayers, "page-1", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
+
+    expect(plan.layoutLayerId).toBe("1");
+    expect(plan.layoutLayerFallback).toBe(false);
+    expect(plan.positions.map((item) => item.cellId).sort()).toEqual(["api", "db", "worker"]);
+  });
+
+  it("uses a sole populated visible layer when the default layer is empty", async () => {
+    const pageOneEnd = xml.indexOf('  <diagram id="page-2"');
+    const pageOne = xml.slice(0, pageOneEnd)
+      .replace(
+        '<mxCell id="1" parent="0"/>',
+        '<mxCell id="1" parent="0"/><mxCell id="content-layer" value="Content" parent="0"/>'
+      )
+      .replaceAll('parent="1"', 'parent="content-layer"');
+    const nonDefaultContent = pageOne + xml.slice(pageOneEnd);
+    const plan = await calculateNativeAutoLayout(nonDefaultContent, "page-1", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
+
+    expect(plan.layoutLayerId).toBe("content-layer");
+    expect(plan.layoutLayerFallback).toBe(true);
+    expect(plan.positions.map((item) => item.cellId).sort()).toEqual(["api", "db", "worker"]);
+    expect(plan.edgeRoutes).toHaveLength(2);
+  });
+
+  it("reports per-layer counts rather than hiding why a diagram has no unambiguous layout scope", async () => {
+    const emptyDefault = xml
+      .replace(
+        '<mxCell id="1" parent="0"/>',
+        '<mxCell id="1" parent="0"/><mxCell id="content-layer" parent="0"/><mxCell id="overlay-layer" parent="0"/>'
+      )
+      .replace('parent="1" style="rounded=1;fillColor=#ffffff;"', 'parent="content-layer" style="rounded=1;fillColor=#ffffff;"')
+      .replace('<mxCell vertex="1" parent="1"><mxGeometry x="260"', '<mxCell vertex="1" parent="content-layer"><mxGeometry x="260"')
+      .replace('<mxCell vertex="1" parent="1"><mxGeometry x="500"', '<mxCell vertex="1" parent="overlay-layer"><mxGeometry x="500"');
+    await expect(calculateNativeAutoLayout(emptyDefault, "page-1", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS))
+      .rejects.toThrow(/Visible root layers:.*content-layer.*overlay-layer/);
+  });
+
   it("only lays out the selected page's default layer and leaves a second page outside the plan", async () => {
     const plan = await calculateNativeAutoLayout(xml, "page-1", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
     expect(plan.pageId).toBe("page-1");
