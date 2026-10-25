@@ -1,5 +1,6 @@
-import { deflateSync, inflateSync, strFromU8, strToU8 } from "fflate";
+import { deflateSync, strToU8 } from "fflate";
 import { findDrawioElements, parseDrawioXml, serializeDrawioXml, type DrawioDomDocument, type DrawioDomElement } from "./drawio-xml-dom";
+import { decodeDrawioPageXml } from "./drawio-xml-schema";
 
 export type DrawioDiagramTheme = "editorial" | "youth" | "warm" | "midnight";
 
@@ -142,31 +143,12 @@ function applyThemeToGraphModel(
   return changed;
 }
 
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value.replace(/\s+/g, ""));
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
-function encodeBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
-}
-
-/** Draw.io compressed pages use base64(raw-deflate(UTF-8(encodeURIComponent(xml)))). */
+/** Decode through the shared bounded Draw.io page decoder used by XML validation. */
 function decodeCompressedPage(page: DrawioDomElement): DrawioDomDocument | null {
   const payload = page.textContent?.trim() ?? "";
   if (!payload) return null;
   try {
-    const encodedXml = strFromU8(inflateSync(decodeBase64(payload)));
-    const xml = decodeURIComponent(encodedXml);
-    const document = parseDrawioXml(xml);
+    const document = parseDrawioXml(decodeDrawioPageXml(payload));
     return document.documentElement?.nodeName === "mxGraphModel" ? document : null;
   } catch {
     return null;
