@@ -282,6 +282,13 @@
           var pageRoot = null;
           try {
             pageRoot = page && (page.root || (typeof page.getRoot === "function" ? page.getRoot() : null));
+            // Draw.io lazily decodes inactive pages. A page can be present in ui.pages while
+            // its native mxCell root is still null; updatePageRoot decodes the original XML
+            // without selecting the page or adding a page-switch entry to the undo history.
+            if (!pageRoot && page && typeof ui.updatePageRoot === "function") {
+              ui.updatePageRoot(page);
+              pageRoot = page.root || (typeof page.getRoot === "function" ? page.getRoot() : null);
+            }
           } catch (_) {}
           if (!pageRoot && page === originalPage) pageRoot = activeModel.getRoot();
           if (!pageRoot) throw new Error("Could not resolve the native root for page index " + pageIndex + "; no style was applied.");
