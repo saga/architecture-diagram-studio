@@ -165,6 +165,34 @@ test.describe("原生画布", () => {
     expect(savedXml).toContain("fillColor=#FCE7F3");
   });
 
+  test("原生 Undo/Redo 工具栏、宿主快捷键和颜色预设共用同一历史栈", async ({ page }) => {
+    const undo = page.getByRole("button", { name: "Undo", exact: true });
+    const redo = page.getByRole("button", { name: "Redo", exact: true });
+    await expect(undo).toBeDisabled();
+    await expect(redo).toBeDisabled();
+
+    await page.locator(".theme-selector .ant-select").click();
+    await page.getByText("Vivid", { exact: true }).click();
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(true);
+    await expect(undo).toBeEnabled();
+
+    // The palette transaction is one native model edit: one Undo restores the prior styles.
+    await undo.click();
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(false);
+    await expect(redo).toBeEnabled();
+    await expect(undo).toBeDisabled();
+
+    // Host-level shortcuts still reach Draw.io after focus moved to Studio controls.
+    await page.keyboard.press("Control+Shift+Z");
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(true);
+    await expect(page.locator(".theme-selector")).toContainText("Vivid");
+    await expect(undo).toBeEnabled();
+    await page.keyboard.press("Control+Z");
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(false);
+    await expect(redo).toBeEnabled();
+    await expect(page.locator(".theme-selector")).toContainText("Diagram colors (this page)");
+  });
+
   test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
     const ids = ["client", "api", "worker", "queue", "database"];
     const beforeXml = await readWorkspaceXml(workspace);
@@ -190,6 +218,17 @@ test.describe("原生画布", () => {
     for (const label of ["Client", "API Service", "Background Worker", "Message Queue", "Database"]) {
       await expect(frame.getByText(label, { exact: true })).toBeVisible();
     }
+    await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect.poll(async () => {
+      const xmlAfterUndo = await readWorkspaceXml(workspace);
+      const afterUndo = ids.map((id) => cellPosition(xmlAfterUndo, id));
+      return afterUndo.every((position, index) => {
+        const before = beforePositions[index];
+        return position !== null && before !== null && position.x === before.x && position.y === before.y;
+      });
+    }, { timeout: 20_000, intervals: [500] }).toBe(true);
+    await expect(page.getByRole("button", { name: "Redo", exact: true })).toBeEnabled();
   });
 
   test("布局工具栏恢复引擎和方向下拉设置，以及横向纵向快捷布局", async ({ page }) => {

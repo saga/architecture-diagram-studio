@@ -306,4 +306,17 @@ this.addAction('undo', function() { ui.undo(); }, null, '', Editor.ctrlKey + '+Z
 
 ## 十一、一句话答复"app 级 undo 有没有必要"
 
-**没有必要再建一套 app 级 undo 栈，但有必要让 app 级操作落进 draw.io 那一个栈。** 今天的缺口只有一个操作（theme preset），把它从"XML 重写"改成"模型事务"，再补一个宿主级快捷键代理，就能用一套历史覆盖全部内容级修改；文档边界操作继续归 History。这比恢复快照栈更省代码，也更符合 ADR-0008/0011 已经写下的所有权约定。
+**不要再建第二套 app 级 undo 栈。** 统一设计的唯一操作历史仍是 Draw.io 原生 `undoManager`；Studio 只负责键盘代理、按钮与可用态。所有内容级修改（手工编辑、Copilot、自动布局、颜色预设）都应进入原生模型事务；打开/导入/恢复版本等文档边界仍由 History 管理。
+
+
+## 十二、统一历史栈实施记录（2026-10-25）
+
+本次实现采用第七节 A 方案，不恢复快照式 App Undo 栈，也不通过重新加载 XML 来撤销单个编辑。
+
+- `DrawioFrame` 对外提供 `undo()` / `redo()`；Studio 工具栏按钮和 Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z（Windows/Linux 也支持 Ctrl+Y）都通过同源插件桥接到 Draw.io 的原生历史入口。请求时再次检查原生可用态，避免按钮状态延迟时误操作。宿主输入框、textarea 和 contenteditable 保留各自文本撤销。
+- 插件在当前原生模型的 CHANGE 事件、选择变化和页面切换时发布 `canUndo` / `canRedo`。切换 mxfile 内的页面不主动清空栈；真正的文档 load、打开/导入/恢复仍以 Draw.io 清栈后的状态为新基线。
+- 颜色预设按当前活动页生成 revision-bound plan，插件校验活动页、单元 ID 集合、目标单元类型与原始样式，然后用一个 `beginUpdate/endUpdate` 事务修改原生样式。空计划不进入事务；计划不再引发 XML 属性覆盖或触发 Draw.io load，因此保持缩放、选择和原生 Undo/Redo。
+- 颜色预设仅作用于当前页，控件文案已明确标记这一语义。选择器从当前页 XML 反推匹配的预设；Undo/Redo 之后若当前配色是自定义或混合状态，选择器回到占位态。
+- 颜色事务复用 native autosave、显式 XML export、`persistDocumentNow` / `enqueueStandaloneSave` 的现有保存链，不另建文档栈或保存通道。保存失败时会明确提示“编辑器已变更、但保存未确认”，不会把它误报成“未修改”。
+
+新增的单元与 E2E 覆盖：native palette plan 和既有颜色规则的等价性、多页活动页计划、压缩页 plan、预设的一步撤销/重做、宿主焦点下的快捷键、自动布局几何的一步撤销。插件事务的异常路径仍以运行时校验与原生事务内回滚为防线。实际验证状态以本次分支 / PR 的 CI 结果为准；代码落地本身不代表测试已经通过。

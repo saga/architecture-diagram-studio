@@ -3,6 +3,23 @@ import { findDrawioElements, parseDrawioXml, serializeDrawioXml, type DrawioDomD
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 
 export type DrawioDiagramTheme = "editorial" | "youth" | "warm" | "midnight";
+export interface NativePaletteChange {
+  cellId: string;
+  kind: "vertex" | "edge";
+  expectedStyle: string;
+  style: string;
+}
+
+/** A revision- and active-page-bound style transaction for the live Draw.io model. */
+export interface NativePalettePlan {
+  theme: DrawioDiagramTheme;
+  documentRevision: string;
+  pageId: string | null;
+  /** Complete sorted cell-ID set, used by the iframe to reject stale or cross-page plans. */
+  expectedPageCellIds: string[];
+  changes: NativePaletteChange[];
+}
+
 
 interface DiagramThemePalette {
   vertexFill: string;
@@ -152,6 +169,101 @@ function decodeCompressedPage(page: DrawioDomElement): DrawioDomDocument | null 
     return document.documentElement?.nodeName === "mxGraphModel" ? document : null;
   } catch {
     return null;
+  }
+}
+
+
+function nativeXmlCellId(cell: DrawioDomElement): string {
+  // Draw.io can encode a cell's ID on an outer <object>/<UserObject> wrapper, leaving mxCell.id absent.
+  const wrapper = cell.parentElement as DrawioDomElement | null;
+  const wrapperId = wrapper && (wrapper.nodeName === "object" || wrapper.nodeName === "UserObject")
+    ? wrapper.getAttribute("id")
+    : null;
+  return wrapperId || cell.getAttribute("id") || "";
+}
+
+function parseNativePageModel(xml: string, pageId: string | null): { model: DrawioDomElement; pageId: string | null } {
+  const parsed = parseXml(xml);
+  const root = parsed?.documentElement;
+  if (!root) throw new Error("The Draw.io XML has no document element.");
+  if (root.nodeName === "mxGraphModel") return { model: root as DrawioDomElement, pageId: null };
+  if (root.nodeName !== "mxfile") throw new Error("Color presets only support native Draw.io mxfile or mxGraphModel documents.");
+
+  const pages = findDrawioElements(parsed as DrawioDomDocument, "diagram");
+  const page = pageId ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : pages[0];
+  if (!page) throw new Error(pageId
+    ? "The active Draw.io page no longer exists. Select the page again before applying colors."
+    : "The Draw.io document does not contain a page to color.");
+  const inlineModels = Array.from(page.getElementsByTagName("mxGraphModel")) as DrawioDomElement[];
+  const model = inlineModels[0] ?? decodeCompressedPage(page)?.documentElement as DrawioDomElement | undefined;
+  if (!model || model.nodeName !== "mxGraphModel") {
+    throw new Error("The active Draw.io page could not be decoded safely. No colors were changed.");
+  }
+  return { model, pageId: page.getAttribute("id") || null };
+}
+
+function themeStyleValues(style: string, kind: "vertex" | "edge", palette: DiagramThemePalette): Record<string, string> {
+  if (kind === "edge") return { strokeColor: palette.edgeStroke, fontColor: palette.edgeFont };
+  return isTextOnlyVertex(style)
+    ? { fillColor: "none", strokeColor: "none", fontColor: palette.vertexFont }
+    : { fillColor: palette.vertexFill, strokeColor: palette.vertexStroke, fontColor: palette.vertexFont };
+}
+
+/**
+ * Build a plan for the active page. This function only projects XML: live mutation is performed
+ * by the Draw.io plugin in one native model transaction so the operation shares native Undo/Redo.
+ */
+export function calculateNativePalettePlan(
+  xml: string,
+  pageId: string | null,
+  documentRevision: string,
+  theme: DrawioDiagramTheme
+): NativePalettePlan {
+  if (!/^[a-f0-9]{64}$/i.test(documentRevision)) {
+    throw new Error("Diagram colors require the revision of the exact native Draw.io XML snapshot.");
+  }
+  const palette = DRAWIO_DIAGRAM_THEMES[theme];
+  if (!palette) throw new Error("Unsupported Draw.io diagram color preset.");
+  const parsed = parseNativePageModel(xml, pageId);
+  const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as DrawioDomElement[];
+  const ids = cells.map(nativeXmlCellId);
+  if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
+    throw new Error("The active page has missing or duplicate cell IDs; no color changes were planned.");
+  }
+  const changes: NativePaletteChange[] = [];
+  for (const cell of cells) {
+    const kind = cell.getAttribute("vertex") === "1" ? "vertex"
+      : cell.getAttribute("edge") === "1" ? "edge" : null;
+    if (!kind) continue;
+    const cellId = nativeXmlCellId(cell);
+    const expectedStyle = cell.getAttribute("style") ?? "";
+    const style = updateStyleProperties(expectedStyle, themeStyleValues(expectedStyle, kind, palette));
+    if (style !== expectedStyle) changes.push({ cellId, kind, expectedStyle, style });
+  }
+  return { theme, documentRevision, pageId: parsed.pageId, expectedPageCellIds: ids.sort(), changes };
+}
+
+/** Return a named preset only when every colorable cell on the selected page matches it. */
+export function detectDrawioDiagramTheme(xml: string, pageId: string | null): DrawioDiagramTheme | "" {
+  try {
+    const { model } = parseNativePageModel(xml, pageId);
+    const cells = (Array.from(model.getElementsByTagName("mxCell")) as DrawioDomElement[])
+      .map((cell) => ({
+        kind: cell.getAttribute("vertex") === "1" ? "vertex" as const
+          : cell.getAttribute("edge") === "1" ? "edge" as const : null,
+        style: cell.getAttribute("style") ?? ""
+      }))
+      .filter((cell): cell is { kind: "vertex" | "edge"; style: string } => cell.kind !== null);
+    if (cells.length === 0) return "";
+    for (const theme of Object.keys(DRAWIO_DIAGRAM_THEMES) as DrawioDiagramTheme[]) {
+      const palette = DRAWIO_DIAGRAM_THEMES[theme];
+      if (cells.every((cell) =>
+        updateStyleProperties(cell.style, themeStyleValues(cell.style, cell.kind, palette)) === cell.style
+      )) return theme;
+    }
+    return "";
+  } catch {
+    return "";
   }
 }
 
