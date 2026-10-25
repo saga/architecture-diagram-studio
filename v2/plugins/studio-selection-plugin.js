@@ -78,10 +78,12 @@
       ui.__studioStyleXmlExportWrapped = true;
     }
     var styleColorProperties = ["fillColor", "strokeColor", "fontColor", "gradientColor", "swimlaneFillColor",
-      "separatorColor", "indicatorColor", "labelBackgroundColor", "labelBorderColor"];
-    var styleManagedProperties = styleColorProperties.concat(["strokeWidth", "dashed", "dashPattern", "startArrow",
-      "endArrow", "rounded", "shadow", "opacity", "fontFamily", "fontSize", "fontStyle", "align",
-      "verticalAlign", "spacing", "glass", "comic"]);
+      "separatorColor", "indicatorColor", "indicatorGradientColor", "indicatorStrokeColor", "labelBackgroundColor", "labelBorderColor"];
+    var styleManagedProperties = styleColorProperties.concat(["strokeWidth", "strokeOpacity", "fillOpacity", "textOpacity",
+      "dashed", "dashPattern", "startArrow", "endArrow", "startFill", "endFill", "startSize", "endSize",
+      "strokeLinecap", "strokeLinejoin", "rounded", "arcSize", "absoluteArcSize", "shadow", "opacity",
+      "fontFamily", "fontSize", "fontStyle", "align", "verticalAlign", "spacing", "spacingTop",
+      "spacingBottom", "spacingLeft", "spacingRight", "gradientDirection", "glass", "comic"]);
     var styleCategories = ["node", "service", "database", "user", "external", "container", "edge", "edgeDashed", "edgeDotted"];
 
     function stylePairs(styleText) {
