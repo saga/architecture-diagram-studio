@@ -4,7 +4,6 @@ import { isDrawioXmlDocument } from "../model/drawio-xml-source";
 import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
-import { drawioFrameThemeCss, type DrawioThemePalette } from "../model/drawio-theme";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type NativeAutoLayoutOptions, type NativeLayoutPlan } from "../layout/native-layout";
 
 export const DRAWIO_VERSION = PINNED_DRAWIO_VERSION;
@@ -95,7 +94,6 @@ interface Props {
   onDocumentChange: (nativeXml: string) => void;
   onSelectionChange: (cellId: string | null, pageId: string | null) => void;
   cellEdit: CellPropertyEdit | null;
-  theme: string;
   /** Reports the embed handshake state so the app's single status bar can show it. */
   onEditorStatusChange?: (ready: boolean) => void;
 }
@@ -300,35 +298,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     }, 20_000);
     return () => window.clearTimeout(timeout);
   }, [available, editorReady, iframeLoaded]);
-
-  // The isolated Draw.io frame is styled through the exact-origin bridge.
-  useEffect(() => {
-    if (!bridgeReady || !iframeRef.current?.contentWindow) return;
-    const appShell = document.querySelector<HTMLElement>(".app-shell");
-    if (!appShell) return;
-    const computed = window.getComputedStyle(appShell);
-    const token = (name: string, fallback: string) => computed.getPropertyValue(name).trim() || fallback;
-    const palette: DrawioThemePalette = {
-      canvas: token("--theme-canvas", "#ffffff"),
-      panel: token("--theme-panel", "#ffffff"),
-      text: token("--theme-text", "#172033"),
-      secondary: token("--theme-secondary", "#334155"),
-      muted: token("--theme-muted", "#64748b"),
-      border: token("--theme-border", "#d0d7e2"),
-      accent: token("--theme-accent", "#425bc7"),
-      soft: token("--theme-soft", "#e8edff")
-    };
-    const css = drawioFrameThemeCss(palette);
-    iframeRef.current.contentWindow.postMessage(JSON.stringify({
-      event: "studioPresentationThemeRequest",
-      css,
-      theme
-    }), DRAWIO_ORIGIN);
-    recordDiagnostic("drawio.presentation-theme.requested", "Sent presentation-only theme CSS over the isolated Draw.io bridge", {
-      theme, cssLength: css.length
-    });
-  }, [theme, editorReady, iframeLoaded, bridgeReady]);
-
 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
