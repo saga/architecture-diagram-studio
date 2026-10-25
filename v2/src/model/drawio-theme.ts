@@ -106,10 +106,19 @@ function isTextOnlyVertex(cell: DrawioDomElement, style: string): boolean {
   return style.split(";").some((part) => part.trim() === "text");
 }
 
-function applyThemeToGraphModel(document: DrawioDomDocument, palette: DiagramThemePalette): number {
-  if (document.documentElement?.nodeName !== "mxGraphModel") return 0;
+function applyThemeToGraphModel(
+  documentOrModel: DrawioDomDocument | DrawioDomElement,
+  palette: DiagramThemePalette
+): number {
+  const model = documentOrModel.nodeType === 9
+    ? (documentOrModel as DrawioDomDocument).documentElement
+    : documentOrModel as DrawioDomElement;
+  if (!model || model.nodeName !== "mxGraphModel") return 0;
   let changed = 0;
-  for (const cell of findDrawioElements(document, "mxCell")) {
+  const cells = model.getElementsByTagName("mxCell");
+  for (let index = 0; index < cells.length; index += 1) {
+    const cell = cells.item(index) as DrawioDomElement | null;
+    if (!cell) continue;
     const isVertex = cell.getAttribute("vertex") === "1";
     const isEdge = cell.getAttribute("edge") === "1";
     if (!isVertex && !isEdge) continue;
@@ -182,7 +191,7 @@ export function applyDrawioDiagramTheme(xml: string, theme: DrawioDiagramTheme):
   } else if (rootName === "mxfile") {
     // Ordinary (uncompressed) pages are already native mxGraphModel elements in the document.
     changed += findDrawioElements(parsed, "mxGraphModel")
-      .reduce((count, model) => count + applyThemeToGraphModel(model.ownerDocument as DrawioDomDocument, palette), 0);
+      .reduce((count, model) => count + applyThemeToGraphModel(model, palette), 0);
 
     // A compressed page has no mxGraphModel child until decoded. Ignore unsupported payloads
     // rather than replacing them with a partial reconstruction.
