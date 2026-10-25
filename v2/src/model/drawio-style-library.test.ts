@@ -20,13 +20,19 @@ describe("Draw.io document style library", () => {
     }
   });
 
-  it("classifies by native style/type and not by labels", () => {
+  it("classifies by native style/type and configured matching rules, never labels or IDs", () => {
     expect(classifyDrawioStyleCell({ edge: false, vertex: true, style: "shape=cylinder;fillColor=#fff" })).toBe("database");
     expect(classifyDrawioStyleCell({ edge: false, vertex: true, style: "shape=mxgraph.c4.person" })).toBe("user");
     expect(classifyDrawioStyleCell({ edge: false, vertex: true, style: "rounded=1", hasChildren: true })).toBe("container");
     expect(classifyDrawioStyleCell({ edge: true, vertex: false, style: "dashed=1;dashPattern=1 4" })).toBe("edgeDotted");
     expect(classifyDrawioStyleCell({ edge: false, vertex: true, style: "rounded=1" })).toBe("node");
     expect(classifyDrawioStyleCell({ edge: false, vertex: false, style: "" })).toBeNull();
+    const custom = validateDrawioDiagramStyle({
+      ...DEFAULT_DRAWIO_STYLE_LIBRARY.styles[0],
+      matchRules: { database: ["vendor-special-store"] }
+    });
+    expect(classifyDrawioStyleCell({ edge: false, vertex: true, style: "shape=vendor-special-store" }, custom)).toBe("database");
+    expect(classifyDrawioStyleCell({ edge: false, vertex: true, style: "shape=vendor-special-store" })).toBe("node");
   });
 
   it("Original removes explicit colors but preserves other visual and structural keys", () => {
