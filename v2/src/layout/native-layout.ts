@@ -7,7 +7,7 @@ import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
 export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
 export const NATIVE_AUTO_LAYOUT_ALGORITHMS = [
-  "layered", "mrtree", "radial", "stress", "force", "box", "rectpacking", "random", "sporeCompaction", "sporeOverlap",
+  "layered", "mrtree", "radial", "stress", "force", "box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap",
   "dot", "neato", "fdp", "sfdp", "circo", "twopi",
   "mds", "ipsepcola",
   "breadthfirst", "circle", "concentric", "grid", "cose", "fcose",
@@ -20,7 +20,8 @@ export const NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE: Record<NativeAutoLayoutEngine, 
     { value: "layered", label: "Layered · flow" }, { value: "mrtree", label: "Mr. Tree" },
     { value: "radial", label: "Radial" }, { value: "stress", label: "Stress · relationships" },
     { value: "force", label: "Force · organic" },
-    { value: "box", label: "Box packing" }, { value: "rectpacking", label: "Rectangle packing" },
+    { value: "box", label: "Box packing" }, { value: "fixed", label: "Fixed · retain node positions" },
+    { value: "rectpacking", label: "Rectangle packing" },
     { value: "random", label: "Randomizer" },
     { value: "sporeCompaction", label: "SPOrE · compact" },
     { value: "sporeOverlap", label: "SPOrE · remove overlap" }
@@ -67,7 +68,7 @@ export function nativeLayoutSupportsAlgorithm(engine: NativeAutoLayoutEngine, al
 }
 
 export function nativeLayoutSupportsDirection(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
-  if (engine === "elk") return !["box", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(algorithm);
+  if (engine === "elk") return !["box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(algorithm);
   // Non-layered adapters without a native direction setting use the shared coordinate transform.
   return true;
 }
@@ -162,7 +163,7 @@ interface ElkLayoutResult {
 }
 
 // Explicitly register optional algorithms verified in the bundled elkjs build.
-// Box and Random are always included; SPOrE and Rectangle Packing require registration.
+// Box, Fixed and Random are always included; SPOrE and Rectangle Packing require registration.
 const elk = new ELK({
   algorithms: ["layered", "stress", "mrtree", "radial", "force", "rectpacking", "sporeCompaction", "sporeOverlap"]
 });
@@ -408,8 +409,9 @@ function normalizePlan(
 
   const minX = Math.min(...projection.vertices.map((cell) => positions.get(cell.id)!.x));
   const minY = Math.min(...projection.vertices.map((cell) => positions.get(cell.id)!.y));
-  const dx = options.margin - minX;
-  const dy = options.margin - minY;
+  const preserveNativePositions = options.engine === "elk" && options.algorithm === "fixed";
+  const dx = preserveNativePositions ? 0 : options.margin - minX;
+  const dy = preserveNativePositions ? 0 : options.margin - minY;
   const finiteCoordinate = (value: number) => Number.isFinite(value) && Math.abs(value) <= 1_000_000;
   const nativePositions = projection.vertices.map((cell) => {
     const point = positions.get(cell.id)!;
@@ -559,25 +561,46 @@ export async function calculateNativeAutoLayout(
       layoutOptions,
       children: projection.vertices.map((node) => ({
         id: node.id, width: node.width, height: node.height,
-        // SPOrE optimizers need current coordinates as their seed rather than receiving
-        // an all-origin graph.
-        ...(["sporeCompaction", "sporeOverlap"].includes(options.algorithm) ? { x: node.x, y: node.y } : {})
+        // Fixed retains source coordinates. SPOrE optimizers also need current coordinates
+        // as their seed rather than receiving an all-origin graph.
+        ...(["fixed", "sporeCompaction", "sporeOverlap"].includes(options.algorithm) ? { x: node.x, y: node.y } : {})
       })),
       edges: projection.edges
         .filter((edge) => edge.sourceId && edge.targetId)
-        .map((edge) => ({ id: edge.id, sources: [edge.sourceId!], targets: [edge.targetId!] }))
+        .map((edge) => {
+          const resultEdge = { id: edge.id, sources: [edge.sourceId!], targets: [edge.targetId!] };
+          if (options.algorithm !== "fixed") return resultEdge;
+          // ELK Fixed requires an existing section for each edge. These temporary center-to-center
+          // sections satisfy that input contract; no such routes are persisted, and native Draw.io
+          // recalculates the actual routes after applying the unchanged node coordinates.
+          const source = projection.vertices.find((vertex) => vertex.id === edge.sourceId)!;
+          const target = projection.vertices.find((vertex) => vertex.id === edge.targetId)!;
+          return {
+            ...resultEdge,
+            sections: [{
+              id: `${edge.id}-layout-section`,
+              startPoint: { x: source.x + source.width / 2, y: source.y + source.height / 2 },
+              endPoint: { x: target.x + target.width / 2, y: target.y + target.height / 2 },
+              bendPoints: []
+            }]
+          };
+        })
     };
     const result = await elk.layout(graphInput as never) as unknown as ElkLayoutResult;
     for (const node of result.children ?? []) {
       if (!nodeById.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
       positions.set(node.id, { x: Number(node.x), y: Number(node.y) });
     }
+    if (options.algorithm === "fixed") {
+      // Fixed is explicitly position-preserving. Keep exact coordinates from the native snapshot.
+      for (const node of projection.vertices) positions.set(node.id, { x: node.x, y: node.y });
+    }
     for (const edge of result.edges ?? []) {
       const points = (edge.sections ?? []).flatMap((section) => section.bendPoints ?? []);
       if (projection.edges.some((candidate) => candidate.id === edge.id)) routes.set(edge.id, points);
     }
     if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm) &&
-        !["box", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(options.algorithm)) {
+        !["box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(options.algorithm)) {
       emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
     }
   }
