@@ -60,7 +60,6 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
   const canvas = safeColor(palette.canvas) ?? "#ffffff";
   const panel = safeColor(palette.panel) ?? "#ffffff";
   const text = safeColor(palette.text) ?? "#172033";
-  const secondary = safeColor(palette.secondary) ?? text;
   const muted = safeColor(palette.muted) ?? secondary;
   const border = safeColor(palette.border) ?? "#d0d7e2";
   const accent = safeColor(palette.accent) ?? "#425bc7";
@@ -70,9 +69,9 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
     #geFooter, .geToolbarContainer, .geSidebar, .geMenubarContainer {
       background-color: ${panel} !important; color: ${text} !important;
     }
-    body, #geDiagramContainer, .geDiagramContainer, .geDiagramContainer svg {
-      background-color: ${canvas} !important;
-    }
+    /* Only the editor's surrounding whitespace follows the Studio canvas token.
+       Never paint the SVG: Draw.io renders the document page and grid beneath it. */
+    body { background-color: ${canvas} !important; }
     #geMenubar a, #geToolbarContainer button, #geToolbarContainer .geButton,
     #geSidebar button, #geSidebar .geButton, #geFooter, .geToolbarContainer button {
       color: ${text} !important;
@@ -86,17 +85,7 @@ export function drawioFrameThemeCss(palette: DrawioThemePalette): string {
     #geToolbarContainer button:focus-visible, #geToolbarContainer .geButton:focus-visible {
       outline-color: ${accent} !important;
     }
-    #geDiagramContainer, .geDiagramContainer { color: ${secondary} !important; }
     .geHint, .geToolbarHint { color: ${muted} !important; }
   `;
 }
 
-/** Kept as a no-op compatibility export: diagram colors are user-authored XML data. */
-export function applyDrawioCellThemeReversible(xml: string, _theme: "editorial" | "youth" | "warm" | "midnight"): string {
-  return xml;
-}
-
-/** Kept as a no-op compatibility export: UI themes must never mutate the source document. */
-export function applyDrawioThemeBackgroundReversible(xml: string, _background: string, _theme: "editorial" | "youth" | "warm" | "midnight"): string {
-  return xml;
-}
