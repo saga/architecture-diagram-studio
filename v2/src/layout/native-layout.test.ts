@@ -49,6 +49,7 @@ describe("Studio-owned native-cell layout", () => {
       <mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Overlay" parent="0"/>
       <mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="100" y="0" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="overlay-node" value="Other layer node" vertex="1" parent="2"><mxGeometry x="200" y="0" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="group" value="Group" vertex="1" parent="1"><mxGeometry x="0" y="100" width="120" height="80" as="geometry"/></mxCell>
       <mxCell id="nested" value="Nested child" vertex="1" parent="group"><mxGeometry x="10" y="10" width="40" height="20" as="geometry"/></mxCell>
       <mxCell id="legacy" value="No geometry" vertex="1" parent="1"/>
@@ -65,15 +66,18 @@ describe("Studio-owned native-cell layout", () => {
     });
 
     expect(plan.coverage).toEqual({
-      sourceVertexCount: 6,
+      sourceVertexCount: 7,
       plannedVertexCount: 3,
-      untouchedVertexCount: 3,
-      nestedOrOtherLayerVertexCount: 1,
+      untouchedVertexCount: 4,
+      nestedVertexCount: 1,
+      verticesInOtherLayersCount: 1,
+      hiddenVertexCount: 1,
       verticesWithoutGeometryCount: 1,
       sourceEdgeCount: 5,
       plannedEdgeCount: 1,
       untouchedEdgeCount: 4,
       edgesOutsideLayoutLayerCount: 1,
+      hiddenEdgeCount: 0,
       edgesWithoutGeometryCount: 1,
       edgesMissingTerminalsCount: 1,
       edgesWithEndpointsOutsideTargetVerticesCount: 1
