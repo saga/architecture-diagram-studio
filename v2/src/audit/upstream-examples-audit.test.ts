@@ -72,6 +72,10 @@ interface FileAudit {
   pages?: PageAudit[];
 }
 
+interface PageAuditRow extends PageAudit {
+  name: string;
+}
+
 describe("temporary upstream Draw.io examples audit", () => {
   it("validates all upstream samples and inventories every page's native layout scope", async () => {
     const response = await fetch(API, { headers: { Accept: "application/vnd.github+json" } });
@@ -140,10 +144,10 @@ describe("temporary upstream Draw.io examples audit", () => {
       }
     });
     const invalid = results.filter((row) => !row.valid);
-    const pageRows = results.filter(row => row.valid).flatMap(row =>
-      (row.pages as Array<Record<string, unknown>>).map(page => ({ name: row.name, ...page }))
-    );
-    const layoutFailures = pageRows.filter((row) => (row.layout as Record<string, unknown>).status !== "planned");
+    const pageRows: PageAuditRow[] = results
+      .filter(row => row.valid && row.pages !== undefined)
+      .flatMap(row => (row.pages ?? []).map(page => ({ name: row.name, ...page })));
+    const layoutFailures = pageRows.filter((row) => row.layout.status !== "planned");
     const coverageCandidates = pageRows.filter(row => Number(row.sourceVertices) >= 12 &&
       (Number(row.plannedVertices) < Number(row.sourceVertices) * 0.5 ||
        (Number(row.sourceEdges) >= 5 && Number(row.plannedEdges) === 0)));
