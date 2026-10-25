@@ -17,6 +17,10 @@ The original native Draw.io `mxfile` XML is the only diagram model. The embedded
 
 Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. V2 never rebuilds a document from a reduced model. Supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
 
+## Draw.io diagram color presets
+
+The top-bar Diagram colors selector applies a named palette directly to native Draw.io XML. Vertices receive fill, stroke and font colors; connectors receive stroke and font colors. Existing colors are intentionally overwritten when a preset is chosen, while non-color style properties, labels, geometry, edges, page backgrounds and grid settings remain unchanged. Compressed and uncompressed pages are supported. The selector does not switch Studio's own UI theme, and Draw.io remains responsible for rendering its native page background and grid. Preset changes use the same workspace or standalone-file save and history path as other document edits; see [ADR-0020](../docs/adr/0020-native-drawio-diagram-theme-presets.md).
+
 ## Runtime storage scope
 
 V2 resolves all runtime persistence paths through `v2/server/storage-layout.ts`. Workspace state, version history, application/agent logs and Copilot SDK state live under `~/.architecture-diagram-studio/workspaces/<workspace-key>/`; single-file mode uses `~/.architecture-diagram-studio/{data,logs,copilot}/`. Switching scope invalidates in-memory state/version caches and resets the SDK client before the next operation. The workspace registry and model/settings revision history remain global under `~/.architecture-diagram-studio/data/`.
