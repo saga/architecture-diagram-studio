@@ -10,7 +10,7 @@ export const NATIVE_AUTO_LAYOUT_ALGORITHMS = [
   "layered", "mrtree", "radial", "stress", "force", "box", "rectpacking", "random", "disco", "sporeCompaction", "sporeOverlap",
   "dot", "neato", "fdp", "sfdp", "circo", "twopi",
   "mds", "ipsepcola",
-  "breadthfirst", "circle", "concentric", "grid", "cose",
+  "breadthfirst", "circle", "concentric", "grid", "cose", "fcose",
   "tree", "cluster"
 ] as const;
 export type NativeAutoLayoutAlgorithm = (typeof NATIVE_AUTO_LAYOUT_ALGORITHMS)[number];
