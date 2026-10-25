@@ -6,6 +6,7 @@ import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as 
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
+import { parseDrawioXml, serializeDrawioXml } from "./model/drawio-xml-dom";
 import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
@@ -118,6 +119,20 @@ function persistDrawioStyleRevisionMap(map: DrawioStyleRevisionMap): void {
     const entries = Object.entries(map).slice(-2500);
     window.localStorage.setItem(DRAWIO_STYLE_REVISION_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch { /* Style history is a convenience; the native XML remains authoritative. */ }
+}
+
+/**
+ * A Draw.io style identity must survive file metadata refreshes between export, save, Undo and Redo.
+ * This is deliberately separate from the exact XML revision used by persistence/concurrency checks.
+ */
+async function calculateDiagramStyleRevision(xml: string): Promise<string> {
+  const document = parseDrawioXml(xml);
+  const root = document.documentElement;
+  if ((root.localName || root.tagName).toLowerCase() === "mxfile") {
+    // Draw.io refreshes these file-level values while saving even when Undo restores the same cells.
+    ["modified", "agent", "etag"].forEach((name) => root.removeAttribute(name));
+  }
+  return calculateDrawioXmlRevision(serializeDrawioXml(document));
 }
 function loadSavedTheme(): UiTheme {
   try {
@@ -563,7 +578,7 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    void calculateDrawioXmlRevision(drawioXml).then((xmlRevision) => {
+    void calculateDiagramStyleRevision(drawioXml).then((xmlRevision) => {
       if (!active) return;
       const savedStyleId = styleRevisionMapRef.current[xmlRevision];
       const known = savedStyleId === ORIGINAL_DRAWIO_STYLE_ID ||
@@ -578,7 +593,7 @@ export default function App() {
   }, [drawioXml, diagramStyleLibrary]);
 
   useEffect(() => {
-    if (!nativeEditorReady || !drawioFrameRef.current) return;
+    if (!nativeEditorReady || !drawioFrameRef.current || diagramStyleBusy) return;
     const style = selectedDiagramStyleId === ORIGINAL_DRAWIO_STYLE_ID
       ? null
       : diagramStyleLibrary.styles.find((candidate) => candidate.id === selectedDiagramStyleId) ?? null;
@@ -588,7 +603,7 @@ export default function App() {
         styleId: selectedDiagramStyleId, errorMessage: error instanceof Error ? error.message : String(error)
       }, "warn");
     });
-  }, [nativeEditorReady, selectedDiagramStyleId, diagramStyleLibrary]);
+  }, [nativeEditorReady, selectedDiagramStyleId, diagramStyleLibrary, diagramStyleBusy]);
 
   async function applySelectedDiagramStyle(styleId: string): Promise<void> {
     if (styleId !== ORIGINAL_DRAWIO_STYLE_ID && !diagramStyleLibraryRef.current.styles.some((style) => style.id === styleId)) {
@@ -604,13 +619,13 @@ export default function App() {
       // Use the XML serialized from the live native editor, not React's possibly older
       // persistence snapshot. Draw.io may normalize XML on load; Undo returns its serialization.
       const nativeBeforeXml = await drawioFrameRef.current.exportCurrentXml();
-      const sourceRevision = await calculateDrawioXmlRevision(nativeBeforeXml);
+      const sourceRevision = await calculateDiagramStyleRevision(nativeBeforeXml);
       // Preserve the exact live source revision so native Undo resolves the prior selector.
       styleRevisionMapRef.current[sourceRevision] = selectedDiagramStyleIdRef.current;
       persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
       pendingDiagramStyleRef.current = { id: styleId, sourceRevision };
       const transformedXml = await drawioFrameRef.current.applyDiagramStyle(targetStyle);
-      const transformedRevision = await calculateDrawioXmlRevision(transformedXml);
+      const transformedRevision = await calculateDiagramStyleRevision(transformedXml);
       styleRevisionMapRef.current[transformedRevision] = styleId;
       persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
       setSelectedDiagramStyleId(styleId);
@@ -676,7 +691,7 @@ export default function App() {
       if (styleId === selectedDiagramStyleIdRef.current) {
         await drawioFrameRef.current?.setActiveDiagramStyle(null);
         setSelectedDiagramStyleId(ORIGINAL_DRAWIO_STYLE_ID);
-        const currentRevision = await calculateDrawioXmlRevision(drawioXml);
+        const currentRevision = await calculateDiagramStyleRevision(drawioXml);
         styleRevisionMapRef.current[currentRevision] = ORIGINAL_DRAWIO_STYLE_ID;
         persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
       }
@@ -1859,36 +1874,34 @@ export default function App() {
             }}
             onSelectionChange={(cellId, pageId) => { setSelectedNativeCellId(cellId); setSelectedNativePageId(pageId); }} cellEdit={cellEditRequest}
             onEditorStatusChange={setNativeEditorReady}
-            onDocumentChange={async (nativeXml) => {
+            onDocumentChange={(nativeXml) => {
               const changeSequence = ++nativeXmlChangeSequenceRef.current;
-              // Capture the pending operation before hashing: the style request may resolve and
-              // clear its ref before WebCrypto finishes this callback.
+              // Native document persistence must not wait for WebCrypto or style-metadata work.
+              // Commit the latest serialized XML immediately; compute the selector identity separately.
               const pendingStyleAtChange = pendingDiagramStyleRef.current;
-              try {
-                const xmlRevision = await calculateDrawioXmlRevision(nativeXml);
-                // Draw.io may emit multiple XML snapshots close together during Undo/Redo.
-                // Hashing is asynchronous, so an earlier callback must not overwrite a newer one.
-                if (changeSequence !== nativeXmlChangeSequenceRef.current) return;
-                let styleId = selectedDiagramStyleIdRef.current;
-                if (pendingStyleAtChange && xmlRevision !== pendingStyleAtChange.sourceRevision) {
-                  styleId = pendingStyleAtChange.id;
-                } else {
-                  const mapped = styleRevisionMapRef.current[xmlRevision];
-                  const known = mapped === ORIGINAL_DRAWIO_STYLE_ID || diagramStyleLibraryRef.current.styles.some((style) => style.id === mapped);
-                  if (known && mapped) styleId = mapped;
-                }
-                styleRevisionMapRef.current[xmlRevision] = styleId;
-                persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
-                setSelectedDiagramStyleId(styleId);
-              } catch (error) {
-                recordDiagnostic("drawio.style-revision.write.failed", "Could not map serialized XML to a diagram style for Undo/Redo restoration", {
-                  errorMessage: error instanceof Error ? error.message : String(error)
-                }, "warn");
-              }
-              if (changeSequence !== nativeXmlChangeSequenceRef.current) return;
               setNativeXmlOverride(nativeXml);
               setRevision((value) => value + 1);
               setLastAction("Synced native Draw.io changes");
+              void calculateDiagramStyleRevision(nativeXml).then((styleRevision) => {
+                // Hashing is asynchronous; an older XML notification must not overwrite the latest selector state.
+                if (changeSequence !== nativeXmlChangeSequenceRef.current) return;
+                let styleId = selectedDiagramStyleIdRef.current;
+                if (pendingStyleAtChange) {
+                  styleId = pendingStyleAtChange.id;
+                } else {
+                  const mapped = styleRevisionMapRef.current[styleRevision];
+                  const known = mapped === ORIGINAL_DRAWIO_STYLE_ID ||
+                    diagramStyleLibraryRef.current.styles.some((style) => style.id === mapped);
+                  if (known && mapped) styleId = mapped;
+                }
+                styleRevisionMapRef.current[styleRevision] = styleId;
+                persistDrawioStyleRevisionMap(styleRevisionMapRef.current);
+                if (styleId !== selectedDiagramStyleIdRef.current) setSelectedDiagramStyleId(styleId);
+              }).catch((error: unknown) => {
+                recordDiagnostic("drawio.style-revision.write.failed", "Could not map serialized XML to a diagram style for Undo/Redo restoration", {
+                  errorMessage: error instanceof Error ? error.message : String(error)
+                }, "warn");
+              });
             }} />
         </div>
         <div className="bottom-status"><div className="status-left"><span className="status-pulse" />{lastAction}</div><div className="status-right">
