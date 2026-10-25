@@ -58,12 +58,12 @@ test.describe("工作区导航与外观", () => {
   });
 
   test("选择图形主题只重着色 Draw.io XML，不改变应用主题或覆盖页面背景与网格", async ({ page, request }) => {
-    const initialXml = await readWorkspaceXml(activeWorkspace);
-    const documentXml = initialXml.replace('<mxGraphModel dx="1200"', '<mxGraphModel background="#FFFF66" dx="1200"');
-    expect(documentXml).not.toBe(initialXml);
     const stateResponse = await request.get("/api/workspace/state");
     expect(stateResponse.ok()).toBe(true);
-    const state = await stateResponse.json() as { workspaceRevision?: string | null };
+    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
+    const initialXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(activeWorkspace);
+    const documentXml = initialXml.replace('<mxGraphModel dx="1200"', '<mxGraphModel background="#FFFF66" dx="1200"');
+    expect(documentXml).not.toBe(initialXml);
     const savedFixture = await request.put("/api/workspace/document", {
       data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
     });
