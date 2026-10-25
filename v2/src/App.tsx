@@ -1285,6 +1285,7 @@ export default function App() {
       }
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
         pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
+        layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
         engine: options.engine, algorithm: options.algorithm, direction: options.direction,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
@@ -1292,9 +1293,14 @@ export default function App() {
       });
       const serializedXml = await frame.applyAutoLayout(nativePlan);
       if (!isDrawioXmlDocument(serializedXml)) throw new Error("Draw.io did not return a valid serialized XML document.");
-      setLastAction("Studio auto layout applied; syncing native Draw.io XML");
+      const layerNotice = nativePlan.layoutLayerFallback
+        ? " (default layer was empty; used visible layer " + (nativePlan.layoutLayerId || "unknown") + ")"
+        : "";
+      setLastAction("Studio auto layout applied" + layerNotice + "; syncing native Draw.io XML");
       recordDiagnostic("drawio.layout.ui.completed", "The Studio layout plan was applied and serialized by native Draw.io", {
-        xmlLength: serializedXml.length, pageId: nativePlan.pageId, engine: options.engine,
+        xmlLength: serializedXml.length, pageId: nativePlan.pageId,
+        layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
+        engine: options.engine,
         algorithm: options.algorithm, direction: options.direction, vertexCount: nativePlan.positions.length,
         edgeCount: nativePlan.edgeRoutes.length
       });
