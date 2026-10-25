@@ -17,6 +17,17 @@ The original native Draw.io `mxfile` XML is the only diagram model. The embedded
 
 Opening, importing, versioning, restoring and exporting keep native Draw.io XML as the source of truth. V2 never rebuilds a document from a reduced model. Supported edits must preserve unrelated pages, cells, relationships, wrappers, custom shapes, HTML labels and vendor-specific attributes.
 
+## Native Draw.io document styles
+
+The top-bar **Draw.io document style** dropdown edits the native diagram XML; it is not an application UI theme switch. A new or unrecognised document starts with `Original` selected, and opening a file never applies styles implicitly. Explicitly choosing a style updates native cell styles through the Draw.io model and follows the normal serialization, save and version-history path.
+
+- `Original` clears explicit color overrides from native nodes and edges while keeping other visual properties and document structure.
+- The bundled Editorial, Vivid, Warm paper and Midnight styles are editable presets, not a hard-coded list. Each style contains rules for generic and classified nodes, containers, databases, services, users, external systems and solid/dashed/dotted edges.
+- Use **Import style** and **Export style** to manage one versioned JSON style definition at a time. **Delete style** removes a definition from the library, not styles already written into an open diagram. The built-in Original style cannot be deleted.
+- New and pasted cells use the selected document style. The style selector follows native XML revisions to restore the previous selection on Undo/Redo. If its optional browser-local metadata is missing, the document itself remains correct and the selector falls back to Original.
+- Application chrome appearance is independent. UI theme CSS must never cover Draw.io's SVG, page background or grid. See [ADR-0019](../docs/adr/0019-native-drawio-document-style-library.md); ADR-0007's former UI/document-theme coupling is superseded.
+
+
 ## Runtime storage scope
 
 V2 resolves all runtime persistence paths through `v2/server/storage-layout.ts`. Workspace state, version history, application/agent logs and Copilot SDK state live under `~/.architecture-diagram-studio/workspaces/<workspace-key>/`; single-file mode uses `~/.architecture-diagram-studio/{data,logs,copilot}/`. Switching scope invalidates in-memory state/version caches and resets the SDK client before the next operation. The workspace registry and model/settings revision history remain global under `~/.architecture-diagram-studio/data/`.
