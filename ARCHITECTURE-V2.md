@@ -19,7 +19,7 @@ Responsibilities are deliberately small:
 
 ## Studio-owned automatic layout
 
-The toolbar exposes ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 through one typed layout contract. Algorithm menus are engine-specific: ELK layered/Mr. Tree/radial/stress/force/DisCo/box/rectangle-packing/random/SPOrE overlap/SPOrE compaction; Dagre layered; Graphviz dot/neato/fdp/sfdp/circo/twopi; MSAGL layered/MDS/IPSepCola; Cytoscape breadth-first/circle/concentric/grid/random/CoSE/fCoSE; D3 tree/cluster/force. Box and rectangle packing are restricted to unconnected cells. Engines calculate against a disposable projection only; cell geometry and optional routes are applied to native Draw.io with revision checks, serialization acknowledgement and normal versioned persistence.
+The toolbar exposes ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 through one typed layout contract. Algorithm menus are engine-specific: ELK layered/Mr. Tree/radial/stress/force/DisCo/box/Fixed/rectangle-packing/random/SPOrE overlap/SPOrE compaction; Dagre layered; Graphviz dot/neato/fdp/sfdp/circo/twopi; MSAGL layered/MDS/IPSepCola; Cytoscape breadth-first/circle/concentric/grid/random/CoSE/fCoSE; D3 tree/cluster/force. Box and rectangle packing are restricted to unconnected cells. Engines calculate against a disposable projection only; cell geometry and optional routes are applied to native Draw.io with revision checks, serialization acknowledgement and normal versioned persistence.
 
 ## Supported native operations
 
