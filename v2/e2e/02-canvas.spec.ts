@@ -64,6 +64,33 @@ function cellX(xml: string, fragment: string): number | null {
   return cellPosition(xml, fragment)?.x ?? null;
 }
 
+/** Drag a blank part of the native node rather than its text label. */
+async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
+  const label = nativeFrame(page).getByText(labelText, { exact: true });
+  await expect(label, `the ${labelText} node must be rendered before it can be dragged`).toBeVisible();
+  const point = await label.evaluate((element) => {
+    let current: Element | null = element;
+    let bounds = element.getBoundingClientRect();
+    while (current && current !== document.body) {
+      const rect = current.getBoundingClientRect();
+      if (rect.width >= 100 && rect.height >= 50 && rect.width < 800 && rect.height < 500) {
+        bounds = rect;
+        break;
+      }
+      current = current.parentElement;
+    }
+    if (bounds.width < 30 || bounds.height < 10) throw new Error("Could not locate the rendered native node bounds");
+    return {
+      x: bounds.left + Math.max(12, Math.min(bounds.width - 12, bounds.width * 0.82)),
+      y: bounds.top + bounds.height / 2
+    };
+  });
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + deltaX, point.y + deltaY, { steps: 14 });
+  await page.mouse.up();
+}
+
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
 function edgeStyles(xml: string): string[] {
   try {
@@ -263,17 +290,7 @@ test.describe("原生画布", () => {
     const beforeX = cellX(before, "client");
     expect(beforeX).not.toBeNull();
 
-    const label = nativeFrame(page).getByText("Client", { exact: true });
-    const box = await label.boundingBox();
-    expect(box, "the Client node must be rendered before it can be dragged").not.toBeNull();
-
-    const startX = box!.x + box!.width / 2;
-    const startY = box!.y + box!.height / 2;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    // Use the same direct drag trajectory as the neighboring reload-after-drag test.
-    await page.mouse.move(startX + 120, startY + 40, { steps: 14 });
-    await page.mouse.up();
+    await dragNativeNode(page, "Client", 120, 40);
 
     await expect
       .poll(async () => cellX(await readWorkspaceXml(workspace), "client"), { timeout: 30_000, intervals: [500] })
@@ -282,18 +299,14 @@ test.describe("原生画布", () => {
   });
 
   test("刷新页面后画布恢复到拖动后的版本", async ({ page }) => {
-    const label = nativeFrame(page).getByText("Client", { exact: true });
-    const box = await label.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box!.x + box!.width / 2 + 120, box!.y + box!.height / 2 + 40, { steps: 14 });
-    await page.mouse.up();
+    const beforeDragXml = await readWorkspaceXml(workspace);
+    const beforeDragX = cellX(beforeDragXml, "client");
+    expect(beforeDragX).not.toBeNull();
+    await dragNativeNode(page, "Client", 120, 40);
 
-    const beforeReload = await readWorkspaceXml(workspace);
     await expect
-      .poll(async () => (await readWorkspaceXml(workspace)) !== beforeReload, { timeout: 30_000, intervals: [500] })
-      .toBe(true);
+      .poll(async () => cellX(await readWorkspaceXml(workspace), "client"), { timeout: 30_000, intervals: [500] })
+      .not.toBe(beforeDragX);
     const draggedX = cellX(await readWorkspaceXml(workspace), "client");
 
     await page.reload();
