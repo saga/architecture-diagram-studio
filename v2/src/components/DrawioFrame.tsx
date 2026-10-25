@@ -427,7 +427,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       canvas: token("--theme-canvas", "#ffffff"),
       panel: token("--theme-panel", "#ffffff"),
       text: token("--theme-text", "#172033"),
-      secondary: token("--theme-secondary", "#334155"),
       muted: token("--theme-muted", "#64748b"),
       border: token("--theme-border", "#d0d7e2"),
       accent: token("--theme-accent", "#425bc7"),
