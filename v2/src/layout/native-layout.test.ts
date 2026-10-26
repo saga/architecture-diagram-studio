@@ -187,6 +187,9 @@ describe("Studio-owned native-cell layout", () => {
         <mxCell id="internal-edge" edge="1" parent="1" source="switch" target="server">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="245" y="170"/><mxPoint x="245" y="200"/></Array></mxGeometry>
         </mxCell>
+        <mxCell id="internal-edge-no-waypoints" edge="1" parent="1" source="server" target="plc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
         <mxCell id="cross-edge" edge="1" parent="1" source="plc" target="outside">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
@@ -199,6 +202,8 @@ describe("Studio-owned native-cell layout", () => {
       expect(region).toBeDefined();
       expect(plan.coverage.spatialRegionCount).toBe(1);
       expect(plan.coverage.spatialRegionMemberCount).toBe(4);
+      expect(plan.coverage.spatialRegionInternalEdgeCount).toBe(2);
+      expect(plan.coverage.spatialRegionInternalEdgesTranslatedCount).toBe(1);
       expect(positions.size).toBe(6);
 
       const originalPositions = new Map([
@@ -220,6 +225,7 @@ describe("Studio-owned native-cell layout", () => {
         { x: 245 + delta.x, y: 170 + delta.y },
         { x: 245 + delta.x, y: 200 + delta.y }
       ]);
+      expect(plan.edgeRoutes.some((route) => route.cellId === "internal-edge-no-waypoints")).toBe(false);
       const crossRoute = plan.edgeRoutes.find((route) => route.cellId === "cross-edge");
       expect(crossRoute).toBeDefined();
       expect(crossRoute!.points.some((point) =>
