@@ -1,7 +1,7 @@
 # Architecture Diagram Studio V2
 
-- **Status:** Current architecture as of 2026-10-25.
-- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md); [ADR-0013 — Studio-Owned Layout Is a Core Feature](docs/adr/0013-studio-owned-layout-engines.md); [ADR-0021 — Expanded Native Layout Engines](docs/adr/0021-expanded-native-layout-engines.md).
+- **Status:** Current architecture as of 2026-10-27.
+- **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md); [ADR-0013 — Studio-Owned Layout Is a Core Feature](docs/adr/0013-studio-owned-layout-engines.md); [ADR-0020 — Native Script Assertion Contracts and Accurate Edit Outcomes](docs/adr/0020-native-script-assertion-contract-and-outcome-reporting.md); [ADR-0021 — Expanded Native Layout Engines](docs/adr/0021-expanded-native-layout-engines.md); [ADR-0022 — Atomic Spatial Region Layout](docs/adr/0022-atomic-spatial-region-layout.md); [ADR-0023 — Native Script Runtime Boundaries and Late Outcomes](docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md).
 - **Reference implementation:** v2/.
 - **Capability and contract review:** [Native Copilot / Draw.io Capability Audit](docs/NATIVE-COPILOT-CAPABILITY-AUDIT.md).
 - **Legacy:** V1 is read-only reference material.
