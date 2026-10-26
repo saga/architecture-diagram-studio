@@ -386,20 +386,23 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           }, "error");
-          const failureMessage = execution.failureStage === "persistence"
-            ? "The native editor applied and serialized the change, but the workspace save was not confirmed: " + reason + ". Reload the authoritative workspace before continuing."
-            : execution.applicationState === "changed-unverified"
-              ? "The diagram has changed and may already be saved, but the requested edit was not verified: " + reason +
+          const failureMessage =
+            execution.applicationState === "changed-unverified"
+              ? "The diagram has changed, but the requested edit was not verified: " + reason +
+                (execution.failureStage === "persistence" ? " Saving the resulting XML also failed." : "") +
                 "\n\nDo not retry this edit yet; inspect the current diagram and History first to avoid duplicating a message or other element."
               : execution.applicationState === "unknown"
                 ? "The native edit outcome is unknown: " + reason +
+                  (execution.failureStage === "persistence" ? " Saving the available XML also failed." : "") +
                   "\n\nDo not retry this edit yet; inspect the current diagram and History first."
-                : execution.applicationState === "not-applied"
-                  ? "No document change was detected for this edit: " + reason +
-                    (execution.rolledBack ? " The batch was rolled back." : " Inspect the current diagram before retrying.")
-                  : execution.rolledBack
-                    ? "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). The batch was rolled back."
-                    : "The native edit failed (" + reason + "), and rollback was not confirmed. The current diagram may contain partial changes; inspect it and History before retrying.";
+                : execution.failureStage === "persistence"
+                  ? "The native editor applied and serialized the change, but the workspace save was not confirmed: " + reason + ". Reload the authoritative workspace before continuing."
+                  : execution.applicationState === "not-applied"
+                    ? "No document change was detected for this edit: " + reason +
+                      (execution.rolledBack ? " The batch was rolled back." : " Inspect the current diagram before retrying.")
+                    : execution.rolledBack
+                      ? "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). The batch was rolled back."
+                      : "The native edit failed (" + reason + "), and rollback was not confirmed. The current diagram may contain partial changes; inspect it and History before retrying.";
           setMessages((items) => [...items, {
             role: "assistant",
             id: Date.now() + 1,
