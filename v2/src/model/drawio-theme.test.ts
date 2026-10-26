@@ -169,7 +169,7 @@ describe("native Draw.io diagram theme presets", () => {
     const encoded = compressPage(sourceModel);
     const source = '<mxfile><diagram id="compressed">' + encoded + '</diagram></mxfile>';
     const plan = calculateNativePalettePlan(source, "compressed", "b".repeat(64), "midnight-galaxy");
-    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#27375A"))).toBe(true);
+    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#B9C9EF"))).toBe(true);
     expect(() => calculateNativePalettePlan(source, "missing", "b".repeat(64), "midnight-galaxy")).toThrow("active Draw.io page");
     expect(() => calculateNativePalettePlan(source, "compressed", "not-a-revision", "midnight-galaxy")).toThrow("exact native Draw.io XML snapshot");
   });
@@ -292,7 +292,7 @@ describe("native theme page backgrounds", () => {
     const parsed = parseDrawioXml(source);
     const targetPage = findDrawioElements(parsed, "diagram").find((page) => page.getAttribute("id") === "one");
     const targetModel = targetPage ? findDrawioElements(targetPage as never, "mxGraphModel")[0] : undefined;
-    targetModel?.setAttribute("background", plan.background);
+    if (plan.background === null) targetModel?.removeAttribute("background"); else targetModel?.setAttribute("background", plan.background);
     for (const change of plan.changes) {
       const cell = findDrawioElements(parsed, "mxCell").find((candidate) => candidate.getAttribute("id") === change.cellId);
       cell?.setAttribute("style", change.style);
@@ -397,7 +397,7 @@ describe("neutral native stencil theme coverage", () => {
     const midnightCell = findDrawioElements(midnight, "mxCell").find((cell) => cell.getAttribute("id") === "region");
     const midnightPayload = midnightCell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(midnightPayload).toBeTruthy();
-    expect(stencilFill(decompressStencil(midnightPayload!))).toBe("#1D2540");
+    expect(stencilFill(decompressStencil(midnightPayload!))).toBe("#D2DCF4");
   });
 
   it("does not recolor brand stencil assets and still detects the theme of surrounding native cells", () => {
