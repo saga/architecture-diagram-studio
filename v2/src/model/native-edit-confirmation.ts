@@ -495,9 +495,13 @@ export function validateNativeScriptResultAgainstXml(
     }
 
     const models = cellsForXml(xml);
+    if (!hasValidScriptScope(xml, models, pageId)) {
+      fail({ index: null, field: "document", reason: "The serialized XML does not contain a structurally valid native model for the requested page.", expected: pageId });
+      return finish();
+    }
     const scoped = scopedModels(models, pageId);
-    if (scoped.length === 0) {
-      fail({ index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId });
+    if (scoped.length !== 1) {
+      fail({ index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
       return finish();
     }
     const allowedFields = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
