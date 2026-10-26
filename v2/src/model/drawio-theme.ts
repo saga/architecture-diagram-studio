@@ -1,4 +1,4 @@
-import { deflateRawSync, deflateSync, inflateRawSync, inflateSync, strFromU8, strToU8 } from "fflate";
+import { deflateSync, inflateSync, strFromU8, strToU8 } from "fflate";
 import { findDrawioElements, parseDrawioXml, serializeDrawioXml, type DrawioDomDocument, type DrawioDomElement } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 
@@ -67,7 +67,7 @@ function decodeStencilXml(payload: string): string | null {
   try {
     const binary = atob(payload);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const inflated = strFromU8(inflateRawSync(bytes));
+    const inflated = strFromU8(inflateSync(bytes));
     return decodeURIComponent(inflated);
   } catch {
     return null;
@@ -135,7 +135,7 @@ function themedNeutralStencilShape(
     return prefix + targetFill + suffix;
   });
   if (!changed || recolorableFills === 0) return null;
-  return "stencil(" + encodeBase64(deflateRawSync(strToU8(encodeURIComponent(nextXml)))) + ")";
+  return "stencil(" + encodeBase64(deflateSync(strToU8(encodeURIComponent(nextXml)))) + ")";
 }
 function safeColor(value: string): string | null { const color = value.trim(); return /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) ? color : null; }
 function parseXml(xml: string): DrawioDomDocument | null { try { return parseDrawioXml(xml); } catch { return null; } }
