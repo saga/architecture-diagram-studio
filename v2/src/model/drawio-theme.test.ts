@@ -211,6 +211,42 @@ describe("native Draw.io diagram theme presets", () => {
     }
   });
 
+  it("keeps outline-only region geometry unfilled across theme switches", () => {
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="outline" value="Region" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#123456;"/>' +
+      '<mxCell id="filled" value="Service" vertex="1" parent="1" style="rounded=1;fillColor=#ABCDEF;strokeColor=#123456;"/>' +
+      '</root></mxGraphModel>';
+    const first = applyDrawioDiagramTheme(source, "ocean-depths");
+    const outlineFirst = cellById(first, "outline")?.getAttribute("style") ?? "";
+    expect(outlineFirst).toContain("fillColor=none");
+    expect(outlineFirst).toContain("studioColorRole=category-1");
+    expect(outlineFirst).toContain("strokeColor=#0369A1");
+
+    const second = applyDrawioDiagramTheme(first, "sunset-boulevard");
+    const outlineSecond = cellById(second, "outline")?.getAttribute("style") ?? "";
+    expect(outlineSecond).toContain("fillColor=none");
+    expect(outlineSecond).toContain("studioColorRole=category-1");
+    expect(outlineSecond).toContain("strokeColor=#C2410C");
+    expect(cellById(second, "filled")?.getAttribute("style")).toContain("studioColorRole=category-2");
+  });
+
+  it("fails closed instead of merging more than eight distinct source color categories", () => {
+    const vertices = Array.from({ length: 9 }, (_, index) =>
+      '<mxCell id="category-' + index + '" value="Category ' + index +
+      '" vertex="1" parent="1" style="fillColor=#' + (0x100000 + index).toString(16).toUpperCase() +
+      ';strokeColor=#000000;"/>'
+    ).join("");
+    const source = '<mxfile><diagram id="oversize"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' + vertices +
+      '</root></mxGraphModel></diagram></mxfile>';
+    expect(() => calculateNativePalettePlan(source, "oversize", "a".repeat(64), "ocean-depths"))
+      .toThrow(/more than 8 distinct original color categories/i);
+    expect(() => applyDrawioDiagramTheme(source, "ocean-depths"))
+      .toThrow(/more than 8 distinct original color categories/i);
+    // String input is immutable: neither planner nor helper can partially write the source.
+    expect(source).not.toContain("studioColorRole");
+  });
+
   it("supports each documented diagram preset", () => {
     const themes: DrawioDiagramTheme[] = ["ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist", "golden-hour", "arctic-frost", "desert-rose", "tech-innovation", "botanical-garden", "midnight-galaxy"];
     for (const theme of themes) {
