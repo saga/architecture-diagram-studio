@@ -102,3 +102,51 @@ if (scriptResult && typeof scriptResult.then === "function") {
 - P1-2、P1-3、P1-4 是从当前执行顺序推导出的未封闭边界，需要新增针对真实插件/超时路径的回归测试。
 - P2-1 是待使用 pinned Draw.io bundle 复现的验证器风险。
 - 本报告不声称 V2 已通过构建或测试。
+
+---
+
+## 实施记录（2026-10-27）
+
+以下代码已提交到 `main`。本节更新的是当前实现状态；上文各发现保留为审查时的历史上下文。
+
+### P1-1：已修正提示词测试冲突
+
+`v2/server/copilot/native-diagram-instructions.test.ts` 现在验证提示词明确说明 `model.getChildCount` 只统计直接子节点，而不是反向禁止提示词提到该 API。更新后的核心提示词运行时长度经静态解码为 2436 字符，仍小于测试的 2500 字符上限。
+
+### P1-2：已增加原生脚本同步执行护栏
+
+`v2/plugins/studio-selection-plugin.js` 增加了字符串、注释和模板插值感知的源码扫描，并在执行期间临时拦截常见定时器、Promise callback、网络、事件回调、动态求值及 parent/global 执行上下文访问。新增插件测试覆盖定时器、通过计算属性引用的 timer/Promise callback、template interpolation 中的 async/await，以及不含真实可执行调用的字符串/注释。
+
+这不是安全沙箱，也不能打断无限循环；报告与 API 契约明确保留这一限制。应继续验证被实际 Draw.io API 间接触发的行为，避免护栏影响合法的同步图操作。
+
+### P1-3：已修正 watchdog 与迟到回执处理
+
+`v2/src/App.tsx` 现在在 DrawioFrame 返回结果时先清除 App watchdog，避免 watchdog 在 workspace/standalone 持久化或服务端回执尚未结束时再次宣告超时。脚本批次的 App 等待窗口包含 DrawioFrame 的 XML 导出确认窗口和缓冲时间。
+
+如果 App watchdog 先到：
+- 不再向服务器提交一个可能与后续实际结果冲突的终态 failed acknowledgement；
+- 保留 acknowledgement context，登记待对账请求，并阻止继续派发新的 Copilot 原生编辑；
+- 不再自动从最后保存版本重载编辑器，因为这可能与仍在进行的操作竞争；
+- 收到带序列化 XML 或明确回滚/未变更证据的迟到结果时，继续执行正常保存和回执处理，更新用户可见消息，并解除待对账状态；
+- 迟到回执没有最终 XML 或明确回滚证据时，不伪装成已对账，保持锁定并提示检查当前图、History，必要时重新加载文档。
+
+这一状态机已完成源码修改，但仍需运行真实 Draw.io iframe / workspace / standalone 的端到端测试验证超时竞态。若待对账结果永久不回来，当前设计选择要求检查并重新加载文档后再继续，而不是自动猜测结果。
+
+### P1-4：已增加模型事务配对检查
+
+脚本执行期间，插件会包装模型的 `beginUpdate`/`endUpdate`：不允许脚本关闭桥接层拥有的外层事务或替换事务方法；允许平衡的嵌套事务；脚本未配对时先尝试有界地回收脚本打开的嵌套层级，再将本次批次判为失败，走现有原生回滚。清理失败会保留在错误信息里。插件测试覆盖平衡、不平衡和试图关闭外层事务的行为。
+
+### P2-1：已按最后一个重复键修正 style 验证
+
+`native-edit-confirmation.ts` 的 style matcher 不再接受任意一个同名键值，而是比较序列化样式里最后一次出现的值。新增测试验证 `endArrow=block;endArrow=none;` 不会错误满足对 `endArrow=block` 的断言，但会匹配 `endArrow=none`。该结论基于 mxGraph 常规样式解析语义；仍应在项目的 pinned Draw.io 版本中运行该测试确认。
+
+### 决策和文档同步
+
+- 新增 [ADR-0023 — Native Script Runtime Boundaries and Late Outcomes](./docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md)。
+- 更新 [Draw.io Agent API Contract](./docs/DRAWIO-AGENT-API-CONTRACT.md) 说明同步执行护栏与其限制。
+- 更新 [ARCHITECTURE-V2.md](./ARCHITECTURE-V2.md) 的 ADR 索引。
+- 本次对原生脚本失败报告的此前实现记录仍有效；本报告记录更广泛 V2 复查项的完成情况。
+
+### 验证状态
+
+此环境仍无法解析 `github.com`，因此不能克隆仓库执行 `npm test`、`npm run typecheck`、`npm run build` 或 Playwright。GitHub combined commit status 查询也没有返回检查项。所有新增测试是已提交的回归用例，不应报告为已运行或通过。合并前必须在仓库可执行环境中运行完整 V2 测试、类型检查、构建和相关 Playwright 场景。
