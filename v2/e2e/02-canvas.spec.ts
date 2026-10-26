@@ -66,52 +66,24 @@ function cellX(xml: string, fragment: string): number | null {
 
 /** Drag a blank part of the native node rather than its text label. */
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
-  const label = nativeFrame(page).getByText(labelText, { exact: true });
-  await expect(label, `the ${labelText} node must be rendered before it can be dragged`).toBeVisible();
-  const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
-  expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
-  const probe = await label.evaluate((element) => {
-    const rectJson = (rect: DOMRect) => ({
-      x: Math.round(rect.x), y: Math.round(rect.y),
-      width: Math.round(rect.width), height: Math.round(rect.height)
-    });
-    let current: Element | null = element;
-    let bounds = element.getBoundingClientRect();
-    const ancestors: Array<{ tag: string; className: string; rect: ReturnType<typeof rectJson>; html: string }> = [];
-    while (current && current !== document.body && ancestors.length < 8) {
-      const rect = current.getBoundingClientRect();
-      ancestors.push({
-        tag: current.tagName, className: typeof current.className === "string" ? current.className : "",
-        rect: rectJson(rect), html: current.outerHTML.slice(0, 260)
-      });
-      if (rect.width >= 100 && rect.height >= 50 && rect.width < 800 && rect.height < 500) bounds = rect;
-      current = current.parentElement;
-    }
-    const x = bounds.left + Math.max(12, Math.min(bounds.width - 12, bounds.width * 0.82));
-    const y = bounds.top + bounds.height / 2;
-    const hit = document.elementFromPoint(x, y);
-    const canvas = document.querySelector(".geDiagramContainer");
-    return {
-      x, y, selectedBounds: rectJson(bounds), labelBounds: rectJson(element.getBoundingClientRect()),
-      pointHit: hit ? { tag: hit.tagName, className: typeof hit.className === "string" ? hit.className : "", html: hit.outerHTML.slice(0, 400) } : null,
-      ancestors,
-      canvasRect: canvas ? rectJson(canvas.getBoundingClientRect()) : null,
-      svgLabels: Array.from(document.querySelectorAll("svg text")).filter((node) => node.textContent?.trim() === "Client")
-        .slice(0, 3).map((node) => ({ text: node.textContent, html: node.parentElement?.outerHTML.slice(0, 500) }))
-    };
-  });
-  console.log("[drag-native-node-probe]", JSON.stringify({ labelText, frameBox, ...probe }));
-  // Element bounds are local to the embedded Draw.io document; mouse input is in the host page.
-  const startX = frameBox!.x + probe.x;
-  const startY = frameBox!.y + probe.y;
-  const beforeLabelBox = await label.boundingBox();
+  // The Draw.io sidebar may contain shape names that duplicate diagram labels (for example,
+  // "Client"). Scope to the active canvas so the drag never starts on a palette item.
+  const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
+  await expect(label, `the ${labelText} canvas node must be rendered before it can be dragged`).toBeVisible();
+  const bounds = await label.boundingBox();
+  expect(bounds, `the ${labelText} canvas label must have visible bounds`).not.toBeNull();
+
+  // Playwright's boundingBox for an iframe locator is already in host-page coordinates.
+  // Draw.io labels live in SVG foreignObject layers whose hit testing passes through to the
+  // vertex shape beneath them, so dragging the actual canvas label moves the native mxCell.
+  const startX = bounds!.x + bounds!.width / 2;
+  const startY = bounds!.y + bounds!.height / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
   await page.mouse.up();
-  await page.waitForTimeout(250);
-  const afterLabelBox = await label.boundingBox();
-  console.log("[drag-native-node-result]", JSON.stringify({ labelText, beforeLabelBox, afterLabelBox }));
+  await expect.poll(() => label.boundingBox(), { timeout: 5_000, intervals: [100] })
+    .not.toEqual(bounds);
 }
 
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
