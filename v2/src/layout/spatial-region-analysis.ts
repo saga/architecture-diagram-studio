@@ -371,7 +371,6 @@ function detectRegions(xml: string, pageId: string | null): NativeDiagramFinding
     }
   }
 
-  const regionsById = new Map(regions.map((region) => [region.cell.id, region] as const));
   for (const region of regions) {
     const ownAndNearbyLabel = region.ownLabel || region.nearBoundaryLabels[0]?.label || "";
     if (region.overlapsRegionCellIds.length) region.confidence = "low";
