@@ -691,7 +691,8 @@ describe("native layout identity resolution", () => {
       .replaceAll('id="edge-a-b"', 'id="second-edge-a-b"')
       .replaceAll('source="node-a"', 'source="second-node-a"')
       .replaceAll('target="node-b"', 'target="second-node-b"');
-    const multipage = noncanonicalIdsXml.replace("</mxfile>", secondPage.replace(/^<mxfile>|<\\/mxfile>$/g, "") + "</mxfile>");
+    const secondPageContents = secondPage.slice("<mxfile>".length, -"</mxfile>".length);
+    const multipage = noncanonicalIdsXml.replace("</mxfile>", secondPageContents + "</mxfile>");
     await expect(calculateNativeAutoLayout(multipage, null, revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS))
       .rejects.toThrow(/multiple pages but no active page ID/i);
   });
