@@ -308,7 +308,7 @@ test("Copilot executes a direct native Draw.io script in a multi-page file with 
       "var created = graph.insertVertex(parent, null, '" + scriptMarker + "', 120, 180, 160, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
       "graph.refresh();",
       "var result = { cellId: created.id, label: graph.convertValueToString(created) };",
-      "return { ok: result.label === '" + scriptMarker + "', postconditions: { createdVertexExists: model.getCell(result.cellId) === created, createdLabelMatches: result.label === '" + scriptMarker + "' }, created: result };"
+      "return { ok: result.label === '" + scriptMarker + "', postconditions: { createdVertexExists: model.getCell(result.cellId) === created, createdLabelMatches: result.label === '" + scriptMarker + "' }, xmlAssertions: [{ cellId: result.cellId, exists: true, kind: 'vertex', label: '" + scriptMarker + "' }], created: result };"
     ].join("\n");
     await route.fulfill({
       status: 200,
