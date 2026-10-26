@@ -423,7 +423,7 @@ function detectRegionsCore(xml: string, pageId: string | null): { findings: Nati
     findings.push({
       ruleId: "spatial-region.candidate",
       severity: region.confidence === "low" ? "warning" : "info",
-      message: `Detected a ${region.confidence}-confidence spatial region candidate (“${label}”) with ${directMembers.length} direct member(s). This is a read-only finding; the layout engine will not preserve the region as a unit yet.`,
+      message: `Detected a ${region.confidence}-confidence spatial region candidate (“${label}”) with ${directMembers.length} direct member(s). This finding is read-only; the layout planner uses only unambiguous candidates whose members are all in the active layout layer.`,
       pageId,
       cellIds: uniqueRelatedIds.slice(0, MAX_FINDING_CELL_IDS),
       details: {
