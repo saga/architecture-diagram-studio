@@ -243,3 +243,21 @@ cd /Users/saga/code-repos/architecture-diagram-studio/v2
 本次通过仓库文件接口完成源码和文档提交，但当前执行环境没有可运行的本地仓库副本，因此**尚未实际运行 Vitest、TypeScript build 或 Playwright**。以上测试目前是新增的回归用例，不应误报为已通过。接下来仍需在项目运行环境执行 `npm test` / 对应 Vitest 测试与 `npm run build`，确认类型推断、断言诊断和脚本回执链路完整。
 
 重要操作约束未改变：如果序列化结果为 `changed-unverified`，先检查当前画布、实际文件和 History，再决定如何修正；不要盲目重放插入操作。
+---
+
+## 10. V2 同类问题复查后的补充实施（2026-10-27）
+
+在前述断言契约修复之外，对整个 V2 的脚本执行和保存回执链路做了进一步加固。设计决策记录见 [ADR-0023：Native Script Runtime Boundaries and Late Outcomes](./docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md)，完整审查见 [V2-REPEATED-ERROR-AUDIT-2026-10-27.md](./V2-REPEATED-ERROR-AUDIT-2026-10-27.md)。
+
+1. **脚本不再只靠返回值判断同步性。** 原生脚本插件增加字符串、注释和模板插值感知的源码扫描，并在执行期阻止常见 timer、Promise callback、网络/事件 callback、动态求值和 parent/global 访问模式。插件测试新增真实桥接测试，覆盖定时器、动态取名的定时器与 Promise 方法、模板插值中的 async/await，以及普通字符串/注释不应误报。
+2. **保护桥接层拥有的事务。** 脚本不能关闭外层 beginUpdate/endUpdate 事务或替换这两个方法。允许成对的嵌套调用；遗漏 endUpdate() 时，会尝试有界回收脚本打开的嵌套层级，再让本次批次进入失败回滚。清理错误会保留在错误信息中。
+3. **Watchdog 超时不再冒充最终失败。** App 在编辑器回执进入时立即取消自己的 watchdog，不让持久化或服务端回执阶段被旧 timer 再次判超时。脚本批次等待窗口为 DrawioFrame 的 XML 确认窗口留出额外缓冲。若 watchdog 先触发，则保留请求回执上下文、登记待对账请求、阻止发起下一笔 Copilot 原生编辑，不再提前向服务器提交终态 failed ack，也不再自动从最后保存 XML 重载编辑器。
+4. **迟到结果要求有可核实证据。** 迟到回执包含序列化 XML 或明确回滚/未变更证据时，会继续走保存与服务端回执链，并补发用户可见结果；若仍无最终 XML 或回滚证据，保持“结果未知”，不解除锁，也不鼓励重试。这样避免用户因为提前看到失败而重复插入相同消息。
+5. **style 重复键校验已收敛到有效值。** 验证器现比较重复键最后一次出现的值，并补充相应单测，避免旧值碰巧相等就让断言通过。
+6. **提示词回归已同步。** 测试现在要求核心提示词明确说明 model.getChildCount 只数直接子节点，不再与提示词文字互相矛盾。
+
+这些 guard 是对常见误用的**正确性护栏，不是安全沙箱**；同线程脚本仍无法被宿主的普通 timeout 中断，任意 JavaScript 的隔离与硬中断仍需要独立的跨源/隔离运行时设计。
+
+### 验证状态
+
+以上代码和回归测试已提交到 main，但本次会话环境无法解析 GitHub 域名，未能克隆本地仓库运行 npm test、npm run typecheck、npm run build 或 Playwright；GitHub commit status 查询也未返回 checks。新增测试还没有经过执行验证，不能宣称通过。下一步必须在可运行项目依赖的环境中完成全套 V2 测试，重点看脚本护栏是否与 pinned Draw.io v32.0.2 的内部同步调用兼容，以及迟到回执场景的集成行为。
