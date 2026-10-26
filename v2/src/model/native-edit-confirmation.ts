@@ -366,7 +366,8 @@ function hasValidScriptScope(xml: string, models: ModelRecords[], pageId?: strin
   const pages = elementChildren(root).filter((child) => child.nodeName === "diagram");
   if (pages.length === 0) return false;
 
-  if (pageId != null && pageId !== "") {
+  if (pageId === "") return false;
+  if (pageId != null) {
     const targetPage = pages.find((page) => page.getAttribute("id") === pageId);
     if (!targetPage) return false;
     const targetModel = models.find((model) => model.pageId === pageId);
