@@ -376,6 +376,10 @@ test.describe("原生画布", () => {
     for (const label of ["Client", "API Service", "Background Worker", "Message Queue", "Database"]) {
       await expect(frame.getByText(label, { exact: true })).toBeVisible();
     }
+    const layoutSummary = page.getByRole("status").filter({ has: page.getByRole("button", { name: "Close layout summary" }) });
+    await expect(layoutSummary).toBeVisible();
+    await layoutSummary.getByRole("button", { name: "Close layout summary" }).click();
+    await expect(layoutSummary).toBeHidden();
     await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect.poll(async () => {
