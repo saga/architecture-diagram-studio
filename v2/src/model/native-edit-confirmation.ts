@@ -512,7 +512,8 @@ export function validateNativeScriptResultAgainstXml(
 
     value.xmlAssertions.forEach((raw, assertionIndex) => {
       const invalid = (field: string, reason: string, expected?: unknown, actual?: unknown) => {
-        fail({ index: assertionIndex, field, reason, ...(expected !== undefined ? { expected } : {}), ...(actual !== undefined ? { actual } : {}) });
+        fail({ index: assertionIndex, ...(cellId ? { cellId } : {}), field, reason,
+          ...(expected !== undefined ? { expected } : {}), ...(actual !== undefined ? { actual } : {}) });
       };
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         invalid("assertion", "Each assertion must be a JSON object.", "object", raw);
