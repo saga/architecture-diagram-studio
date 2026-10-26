@@ -254,3 +254,16 @@ describe("native Draw.io diagram theme presets", () => {
     }
   });
 });
+
+
+describe("native theme page identity", () => {
+  it("requires an explicit page ID when multiple pages exist and rejects an empty ID", () => {
+    const multipage = '<mxfile><diagram id="p1">' + sourceModel +
+      '</diagram><diagram id="p2">' + sourceModel + '</diagram></mxfile>';
+    expect(() => calculateNativePalettePlan(multipage, null, "a".repeat(64), "ocean-depths"))
+      .toThrow(/multiple pages.*active page ID/i);
+    expect(calculateNativePalettePlan(multipage, "p2", "a".repeat(64), "ocean-depths").pageId).toBe("p2");
+    expect(() => calculateNativePalettePlan(multipage, "", "a".repeat(64), "ocean-depths"))
+      .toThrow(/active Draw\.io page no longer exists/i);
+  });
+});
