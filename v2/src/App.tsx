@@ -23,7 +23,7 @@ type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
 type UiTheme = "editorial" | "youth" | "warm" | "midnight";
-type DiagramTheme = "editorial" | "youth" | "warm" | "midnight";
+type DiagramTheme = DrawioDiagramTheme;
 
 const NATIVE_LAYOUT_STORAGE_KEY = "architecture-diagram-studio:v2:native-layout-options";
 const NATIVE_LAYOUT_ENGINE_LABELS: Record<NativeAutoLayoutOptions["engine"], string> = {
@@ -637,7 +637,16 @@ export default function App() {
     const sourceXml = source.drawioXml;
     const pageId = source.selectedNativePageId;
     const labels: Record<DiagramTheme, string> = {
-      editorial: "Editorial", youth: "Vivid", warm: "Warm", midnight: "Midnight"
+      "ocean-depths": "Ocean Depths",
+      "sunset-boulevard": "Sunset Boulevard",
+      "forest-canopy": "Forest Canopy",
+      "modern-minimalist": "Modern Minimalist",
+      "golden-hour": "Golden Hour",
+      "arctic-frost": "Arctic Frost",
+      "desert-rose": "Desert Rose",
+      "tech-innovation": "Tech Innovation",
+      "botanical-garden": "Botanical Garden",
+      "midnight-galaxy": "Midnight Galaxy"
     };
     const presetLabel = labels[theme];
     const saveLabel = "Apply Draw.io diagram colors (" + presetLabel + ", current page)";
@@ -1541,10 +1550,16 @@ export default function App() {
             if (nextTheme) void applyDiagramTheme(nextTheme);
           }}>
             <option value="" disabled>Diagram colors (this page)</option>
-            <option value="editorial">Editorial</option>
-            <option value="youth">Vivid</option>
-            <option value="warm">Warm</option>
-            <option value="midnight">Midnight</option>
+            <option value="ocean-depths">Ocean Depths — calm, professional</option>
+            <option value="sunset-boulevard">Sunset Boulevard — warm, expressive</option>
+            <option value="forest-canopy">Forest Canopy — grounded, organic</option>
+            <option value="modern-minimalist">Modern Minimalist — restrained, neutral</option>
+            <option value="golden-hour">Golden Hour — warm, nuanced</option>
+            <option value="arctic-frost">Arctic Frost — cool, crisp</option>
+            <option value="desert-rose">Desert Rose — muted, sophisticated</option>
+            <option value="tech-innovation">Tech Innovation — crisp, energetic</option>
+            <option value="botanical-garden">Botanical Garden — fresh, balanced</option>
+            <option value="midnight-galaxy">Midnight Galaxy — dark, dramatic</option>
           </UiSelect>
         </label>
         <UiButton type="button" className="button button-secondary" onClick={() => void openLocalFileDialog("open")}>Open Draw.io</UiButton>
