@@ -21,7 +21,7 @@ A modifying script returns a JSON-safe object with `ok: true`, non-empty `postco
 
 Each assertion includes a non-empty `cellId` and concrete, typed facts. Supported fields are `exists`, `kind`, `label`, `parentId`, `sourceId`, `targetId`, `style`, and `geometry`. Unknown fields, invalid field types, empty style maps, and empty geometry maps are invalid assertions. `style` is a non-empty key/value map, for example `{ "endArrow": "block" }`; it is not a full `mxCell.style` string. Geometry expectations must explicitly identify at least one supported field.
 
-Assertion-shape failures and actual XML mismatches are distinct outcomes. Validation diagnostics carry the assertion index, cell ID, field, reason, expected value, and actual value when available. The existing boolean helper remains as a compatibility wrapper; code needing a useful receipt uses the detailed validator.
+Assertion-shape failures and actual XML mismatches are distinct outcomes, using the stable diagnostic kinds `invalid-result`, `invalid-assertion`, `invalid-document`, and `mismatch`. Diagnostics carry the assertion index, cell ID, field, reason, expected value, and actual value when available. The existing boolean helper remains as a compatibility wrapper; code needing a useful receipt uses the detailed validator.
 
 ### 2. Make the native API guidance executable and concrete
 
