@@ -218,6 +218,18 @@ describe("native edit XML confirmation", () => {
     expect(nativeScriptResultMatchesXml(result, serialized, "p1")).toBe(false);
   });
 
+  it("reports non-object assertion rows without masking the schema error", () => {
+    const result = {
+      available: true,
+      value: { ok: true, postconditions: { checked: true }, xmlAssertions: [null] }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, before, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      index: 0, field: "assertion", reason: expect.stringContaining("JSON object")
+    }));
+  });
+
   it("rejects empty style and geometry assertions because they prove no property", () => {
     const serialized = labelEdited.replace("</root>",
       '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">' +
