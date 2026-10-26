@@ -9,16 +9,16 @@ import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
 export const SPATIAL_REGION_ANALYSIS_ID = "quality.spatial-region-boundaries";
 
-export const spatialRegionAnalysisProvider: NativeDiagramAnalysisProvider = {
+export const spatialRegionAnalysisProvider = {
   descriptor: {
     id: SPATIAL_REGION_ANALYSIS_ID,
-    apiVersion: 1,
-    kind: "quality",
+    apiVersion: 1 as const,
+    kind: "quality" as const,
     title: "Detect geometry-only regions",
     description: "Read-only detection of large rectangular boundaries, likely members, boundary nodes and ambiguous overlaps."
   },
   analyze
-};
+} satisfies NativeDiagramAnalysisProvider;
 
 interface CellBounds {
   x: number;
