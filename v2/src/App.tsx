@@ -144,6 +144,7 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const lateNativeEditRequestsRef = useRef(new Set<number>());
+  const nativeEditWatchdogsRef = useRef(new Map<number, number>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [diagramTheme, setDiagramTheme] = useState<DiagramTheme | "">("");
@@ -568,7 +569,9 @@ export default function App() {
       const requestId = ++cellEditRequestSequenceRef.current;
       await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
       const containsScript = edits.some((edit) => edit.path === "cell:execute-script");
-      const watchdogTimeoutMs = containsScript ? nativeScriptWatchdogTimeoutMs : 30_000;
+      // DrawioFrame starts its XML-export confirmation window after the editor ACK.
+      // Give that window plus a small scheduling buffer time to finish before the App watchdog.
+      const watchdogTimeoutMs = containsScript ? nativeScriptWatchdogTimeoutMs + 40_000 : 30_000;
       return new Promise((resolve) => {
         nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
@@ -589,7 +592,8 @@ export default function App() {
           requestId, editCount: edits.length, edits, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
         });
         setCellEditRequest({ cellId: "__batch__", pageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
-        window.setTimeout(() => {
+        const watchdogTimerId = window.setTimeout(() => {
+          nativeEditWatchdogsRef.current.delete(requestId);
           const pending = nativeEditResolversRef.current.get(requestId);
           if (!pending) return;
           nativeEditResolversRef.current.delete(requestId);
@@ -609,6 +613,7 @@ export default function App() {
             steps: []
           });
         }, watchdogTimeoutMs);
+        nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
       });
     }
   });
@@ -1783,7 +1788,14 @@ export default function App() {
                       <DrawioFrame ref={drawioFrameRef} xml={drawioXml}
             onNativeEditResult={async (result) => {
               const requestId = result.requestId;
+              const watchdogTimerId = requestId === null ? undefined : nativeEditWatchdogsRef.current.get(requestId);
+              if (requestId !== null && watchdogTimerId !== undefined) {
+                window.clearTimeout(watchdogTimerId);
+                nativeEditWatchdogsRef.current.delete(requestId);
+              }
               const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
+              const isLateNativeBatch = result.path === "cell:batch" && requestId !== null &&
+                !resolver && lateNativeEditRequestsRef.current.has(requestId);
               const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
               let finalResult = result;
               let serializedXmlRevision: string | null = null;
