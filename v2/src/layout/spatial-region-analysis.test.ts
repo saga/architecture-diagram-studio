@@ -164,6 +164,7 @@ describe("read-only spatial region analysis", () => {
     const xml = page(regionCells);
     expect(spatialRegionAnalysisProvider.analyze(context(xml), null).status).toBe("invalid");
     expect(spatialRegionAnalysisProvider.analyze(context(xml), { pageId: "page-1" }).status).toBe("invalid");
+    expect(spatialRegionAnalysisProvider.analyze(context(xml, null), request(null)).status).toBe("invalid");
     expect(spatialRegionAnalysisProvider.analyze(context(xml), request("page-1", "stale")).status).toBe("stale");
     expect(spatialRegionAnalysisProvider.analyze(context(xml), request("page-2")).status).toBe("stale");
   });
