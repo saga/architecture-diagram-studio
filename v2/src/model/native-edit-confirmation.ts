@@ -112,13 +112,15 @@ function cellsForXml(xml: string): ModelRecords[] {
   });
 }
 
+function scopedModels(models: ModelRecords[], pageId?: string | null): ModelRecords[] {
+  if (pageId != null && pageId !== "") return models.filter((model) => model.pageId === pageId);
+  return models.length === 1 ? models : [];
+}
+
 function findCell(models: ModelRecords[], cellId: string, pageId?: string | null): CellRecord | null {
-  for (const model of models) {
-    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
-    const cell = model.cells.find((item) => item.id === cellId);
-    if (cell) return cell;
-  }
-  return null;
+  const candidates = scopedModels(models, pageId)
+    .flatMap((model) => model.cells.filter((item) => item.id === cellId));
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 function findText(record: CellRecord): string {
@@ -194,11 +196,10 @@ function hasAddedNodeAfter(before: ModelRecords[], after: ModelRecords[], operat
   const targetBefore = findCell(before, operation.cellId, pageId);
   const targetAfter = findCell(after, operation.cellId, pageId);
   if (!targetBefore || !targetAfter) return false;
-  for (const model of after) {
-    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
+  for (const model of scopedModels(after, pageId)) {
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" || !labelMatches(candidate, payload.label.trim())) continue;
-      const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
+      const existedBefore = scopedModels(before, pageId).some((oldModel) => oldModel.cells.some((oldCell) =>
         oldCell.id === candidate.id && labelMatches(oldCell, expectedLabel)
       ));
       if (existedBefore) continue;
@@ -224,8 +225,7 @@ function hasAddedNodeBelow(before: ModelRecords[], after: ModelRecords[], operat
   const targetWidth = numericAttribute(targetAfter.geometry, "width");
   const targetHeight = numericAttribute(targetAfter.geometry, "height");
   if (targetX === null || targetY === null || targetWidth === null || targetHeight === null) return false;
-  for (const model of after) {
-    if (pageId != null && model.pageId !== null && model.pageId !== pageId) continue;
+  for (const model of scopedModels(after, pageId)) {
     for (const candidate of model.cells) {
       if (candidate.id === operation.cellId || candidate.cell.getAttribute("vertex") !== "1" ||
           !labelMatches(candidate, expectedLabel) || !candidate.geometry) continue;
@@ -235,7 +235,7 @@ function hasAddedNodeBelow(before: ModelRecords[], after: ModelRecords[], operat
       if (candidateX === null || candidateY === null || candidateWidth === null ||
           candidateY < targetY + targetHeight + 1 ||
           Math.abs((candidateX + candidateWidth / 2) - (targetX + targetWidth / 2)) > 1) continue;
-      const existedBefore = before.some((oldModel) => oldModel.cells.some((oldCell) =>
+      const existedBefore = scopedModels(before, pageId).some((oldModel) => oldModel.cells.some((oldCell) =>
         oldCell.id === candidate.id && labelMatches(oldCell, expectedLabel)
       ));
       if (existedBefore) continue;
@@ -630,8 +630,8 @@ export function summarizeNativeDiagramXmlDiff(
     addedAll.sort(sortCell);
     removedAll.sort(sortCell);
     changedAll.sort(sortCell);
-    const pageOrderChanged = beforePages.map((page) => page.id ?? "__single__").join("\\u0000") !==
-      afterPages.map((page) => page.id ?? "__single__").join("\\u0000");
+    const pageOrderChanged = beforePages.map((page) => page.id ?? "__single__").join("\u0000") !==
+      afterPages.map((page) => page.id ?? "__single__").join("\u0000");
     const changed = pageOrderChanged || pagesAddedAll.length > 0 || pagesRemovedAll.length > 0 ||
       pagesRenamedAll.length > 0 || changedPageIdsAll.length > 0 || addedAll.length > 0 || removedAll.length > 0 || changedAll.length > 0;
     return {
