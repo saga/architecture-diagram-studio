@@ -702,6 +702,15 @@
         function validColorRole(value) {
           return value === "base" || value === "text" || /^category-[1-8]$/.test(String(value || ""));
         }
+        function isTextStyle(style) {
+          return String(style || "").split(";").some(function (part) {
+            var trimmed = part.trim();
+            if (trimmed === "text") return true;
+            var equalsAt = trimmed.indexOf("=");
+            return equalsAt > 0 && trimmed.slice(0, equalsAt).trim() === "shape" &&
+              trimmed.slice(equalsAt + 1).trim() === "text";
+          });
+        }
         var beforeRole = stylePropertyValue(change.expectedStyle, "studioColorRole");
         var afterRole = stylePropertyValue(change.style, "studioColorRole");
         if (!validColorRole(afterRole) || (beforeRole !== null && beforeRole !== afterRole)) {
