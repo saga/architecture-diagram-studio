@@ -371,9 +371,12 @@ describe("theme color coverage and contrast", () => {
       // Keep fills distinct from the white/default canvas without reducing label readability.
       expect(contrastRatio("#FFFFFF", palette.baseFill), name + " base fill should be visible on the canvas").toBeGreaterThanOrEqual(1.25);
       expect(contrastRatio(palette.ink, palette.baseFill), name + " base labels should remain readable").toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(palette.baseStroke, "#FFFFFF"), name + " base outlines should remain visible on the canvas").toBeGreaterThanOrEqual(3);
       expect(contrastRatio(palette.edgeStroke, "#FFFFFF"), name + " connectors should remain visible on the canvas").toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(palette.edgeFont, "#FFFFFF"), name + " connector labels should remain readable on the canvas").toBeGreaterThanOrEqual(4.5);
       for (const color of palette.categories) {
         expect(contrastRatio("#FFFFFF", color.fill), name + " category fill should be distinct from the canvas").toBeGreaterThanOrEqual(1.25);
+        expect(contrastRatio(color.stroke, "#FFFFFF"), name + " category outlines should remain visible on the canvas").toBeGreaterThanOrEqual(3);
         expect(contrastRatio(color.stroke, color.fill), name + " category border should distinguish the block").toBeGreaterThanOrEqual(3);
         expect(contrastRatio(palette.ink, color.fill), name + " category labels should remain readable").toBeGreaterThanOrEqual(4.5);
       }
