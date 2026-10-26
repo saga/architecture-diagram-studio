@@ -1,6 +1,6 @@
 # Draw.io 文档背景与网格被 Studio 主题色覆盖 — Root Cause 分析
 
-**原始 CSS 覆盖 bug 已修复；后续产品规则由 ADR-0023 更新。** Studio 仍不向 iframe 注入会遮住网格的不透明背景 CSS。Diagram colors 预设现在通过原生 Draw.io 模型事务修改当前页的 background 属性以及节点/连线颜色；网格继续由 Draw.io 原生渲染，其他页面不受影响。下文保留原始根因证据，供回归检查使用。
+**原始 CSS 覆盖 bug 已修复；当前配色规则见 ADR-0023。** Studio 不向 iframe 注入会遮住网格的不透明背景 CSS。主题预设通过原生 Draw.io 模型事务修改节点/连线颜色，并清除当前页显式设置的 `background` 属性，回到 Draw.io 默认画布；网格继续由 Draw.io 原生渲染，其他页面不受影响。留白是有意的可读性选择，不再为十套配色强加浅色背景。下文保留原始根因证据，供回归检查使用。
 
 日期：2026-10-25
 范围：`v2/src/model/drawio-theme.ts`、`v2/src/components/DrawioFrame.tsx`、`v2/plugins/studio-selection-plugin.js`、`v2/public/drawio/js/grapheditor/Editor.js`
@@ -119,14 +119,14 @@ row300 → [["243,245,249", 1061], ["255,255,255", 204], ...]
 - 删除 DrawioFrame 中发送 studioPresentationThemeRequest 的 effect，插件不再创建或更新 studio-native-theme 样式表。
 - 不再对 SVG、图形容器或页面元素注入不透明主题背景；背景色和网格继续使用 Draw.io 原生页面配置。
 - 颜色预设直接更新原生 XML 中顶点的 fillColor / strokeColor / fontColor 与连线的 strokeColor / fontColor，适用于压缩和未压缩页面。
-- 选择预设不切换 Studio 应用主题；背景色按 ADR-0023 作为当前页的原生 mxGraphModel background 属性保存，grid/gridSize 保持不变。变更进入原生 Undo/Redo、保存和版本历史路径。
+- 选择预设不切换 Studio 应用主题；按照 ADR-0023，主题清除当前页的 `mxGraphModel background` 属性而不是写入另一种浅色底，grid/gridSize 保持不变。清除背景和节点/连线颜色进入同一个原生 Undo/Redo、保存和版本历史路径；Undo 精确恢复此前显式背景。
 
 回归检查：
 
-- 带自定义背景的文档：页面背景保持原色，网格仍可见。
+- 带自定义背景的文档：选择配色预设会清除当前页的显式背景；Undo 恢复原色，网格始终由 Draw.io 原生绘制。
 - 无显式 background 的文档：画布留白仍由 Draw.io 默认行为绘制，不被全局主题 CSS 覆盖。
 - 应用主题保持不变；节点/连线颜色写入 XML，重新打开后仍存在。
-- 导出 XML 中 background、grid、gridSize、几何、标签和非颜色样式不因预设而改变。
+- 导出 XML 中当前页不再保留旧的主题/自定义 `background` 属性；`grid`、`gridSize`、几何、标签和非颜色样式不变。
 
 ## 8. 复现脚本（可选）
 
