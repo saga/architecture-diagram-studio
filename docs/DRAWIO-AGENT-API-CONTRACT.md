@@ -36,11 +36,18 @@ A catalogue miss is inconclusive. Do not invent style IDs or silently substitute
 A successful API call or changed XML revision is not proof of the requested outcome. Verify the native model state and, when visual appearance matters, the rendered state.
 
 For C4 additions, verify that the requested native C4 element and intended connectors exist in the serialized XML, and that the original cells, labels, geometry and unrelated relationships remain present. Do not force a fixed size or rewrite a label merely to satisfy a Studio-owned C4 preset. For every modifying script, return a JSON-safe object with `ok: true`, a non-empty `postconditions` object whose values are all `true` booleans, and a non-empty `xmlAssertions` array. Postconditions are checked against the live model; `xmlAssertions` must provide concrete cell evidence for host verification after serialization. Each assertion uses `cellId` and may include `exists`, `kind`, `label`, `parentId`, `sourceId`, `targetId`, `style` key/value expectations and `geometry` coordinates/dimensions. Include the message edge's source/target/label and the affected lifeline/activation/destroy geometry when relevant. Put IDs and diagnostics in separate fields. If a check fails, throw or return `ok: false`; do not claim success. The bridge returns results from statement-body scripts and IIFE expressions. A script result alone is not proof: the host verifies the declared assertions against serialized native XML and then waits for persistence/version acknowledgement. If XML changed but assertions are missing or fail, Studio preserves the serialized document and reports it as changed-but-unverified; do not retry blindly.
+
+## Native structure and page identity
+
+Cell IDs are opaque native identifiers. Never require a particular ID for the root, default layer, page, vertex or edge. The native root is identified structurally as the model root; a layer is identified from its relationship to that root and its native layer semantics. If several structurally valid candidates exist and the runtime does not provide an unambiguous identity, fail closed instead of choosing by ID or position.
+
+Page IDs are also opaque. When an explicit page ID is supplied, every XML/runtime lookup must stay within that page. A page without an ID is not a wildcard match for a requested page ID. When no page identity is supplied, do not silently choose the first page in a multi-page document; require an unambiguous single-page document or an explicit active-page identity from the live runtime.
+
 ## Recipes
 
 ### Enumerate all cells, including group descendants
 
-Do not only enumerate the default layer if the request applies to the whole page. Recurse from the native model root:
+Do not only enumerate the default layer if the request applies to the whole page. Recurse from the native model root and enumerate cells by their native role rather than filtering out literal IDs:
 
 ```js
 var cells = [];
@@ -48,7 +55,7 @@ function collect(parent) {
   var count = model.getChildCount(parent);
   for (var i = 0; i < count; i++) {
     var child = model.getChildAt(parent, i);
-    if (child && child.id !== "0" && child.id !== "1") cells.push(child);
+    if (child && (child.vertex || child.edge)) cells.push(child);
     collect(child);
   }
 }
