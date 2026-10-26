@@ -1117,8 +1117,20 @@
         var script = String(request.value || "");
         if (!script.trim()) throw new Error("The native Draw.io script is empty");
         if (script.length > 50000) throw new Error("The native Draw.io script exceeds 50000 characters");
-        // This intentionally executes inside the local Draw.io iframe with the full native editor API.
-        var executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script);
+        // Scripts commonly arrive as an IIFE expression ending in a semicolon. Compile that
+        // form as a return expression first so its object result survives the bridge. If parsing
+        // fails, compile the source as a statement body (which supports declarations and explicit
+        // return). Compilation is separate from execution: a runtime SyntaxError must never cause
+        // the script to execute a second time.
+        var executeNativeScript;
+        var expressionSource = script.replace(/;\s*$/, "");
+        try {
+          executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime",
+            '"use strict";\nreturn (\n' + expressionSource + '\n);');
+        } catch (compileError) {
+          if (!compileError || compileError.name !== "SyntaxError") throw compileError;
+          executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script);
+        }
         var scriptResult = executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
           return inspectDrawioRuntime(ui, activeGraph, activeModel, options);
         });
