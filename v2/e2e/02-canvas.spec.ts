@@ -155,6 +155,14 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
     const x = r.left + r.width * 0.8;
     const y = r.top + r.height * 0.78;
     const hit = document.elementFromPoint(x, y);
+    if (hit && hit.closest(".geItem")) {
+      return {
+        error: "The native canvas node is occluded by the Draw.io shape palette",
+        labelText: element.textContent,
+        x, y,
+        hit: { tag: hit.tagName, className: typeof hit.className === "string" ? hit.className : "" }
+      };
+    }
     return {
       x, y,
       shapeBounds: { x: r.x, y: r.y, width: r.width, height: r.height },
@@ -429,33 +437,34 @@ test.describe("原生画布", () => {
 
   test("拖动节点会把新的几何信息写回工作区文件", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
-    const beforeX = cellX(before, "client");
+    const beforeX = cellX(before, "database");
     expect(beforeX).not.toBeNull();
 
-    await dragNativeNode(page, "Client", 120, 40);
+    // The Client fixture starts under Draw.io's left palette; use an unobscured canvas node.
+    await dragNativeNode(page, "Database", 120, 40);
 
     await expect
-      .poll(async () => cellX(await readWorkspaceXml(workspace), "client"), { timeout: 30_000, intervals: [500] })
+      .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
       .not.toBe(beforeX);
     await expect(page.locator(".status-left")).toContainText("Synced native Draw.io changes");
   });
 
   test("刷新页面后画布恢复到拖动后的版本", async ({ page }) => {
     const beforeDragXml = await readWorkspaceXml(workspace);
-    const beforeDragX = cellX(beforeDragXml, "client");
+    const beforeDragX = cellX(beforeDragXml, "database");
     expect(beforeDragX).not.toBeNull();
-    await dragNativeNode(page, "Client", 120, 40);
+    await dragNativeNode(page, "Database", 120, 40);
 
     await expect
-      .poll(async () => cellX(await readWorkspaceXml(workspace), "client"), { timeout: 30_000, intervals: [500] })
+      .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
       .not.toBe(beforeDragX);
-    const draggedX = cellX(await readWorkspaceXml(workspace), "client");
+    const draggedX = cellX(await readWorkspaceXml(workspace), "database");
 
     await page.reload();
     await waitForNativeEditor(page);
-    await expect(nativeFrame(page).getByText("Client", { exact: true })).toBeVisible();
+    await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
     // The reload must not roll the file back to the pre-drag geometry.
-    expect(cellX(await readWorkspaceXml(workspace), "client")).toBe(draggedX);
+    expect(cellX(await readWorkspaceXml(workspace), "database")).toBe(draggedX);
   });
 
   test("选中画布元素后可以查看并编辑原生 Draw.io 属性", async ({ page }) => {
