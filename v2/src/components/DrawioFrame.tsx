@@ -77,9 +77,44 @@ type NativeEditResult = {
   auditWarning?: string;
   /** Bounded JSON-safe value returned by a native script after its own postcondition checks. */
   scriptResult?: unknown;
+  applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
 type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; scriptResult?: unknown; timeoutId?: number; captureOnFailure?: boolean };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isScriptBatchValue(value: string): boolean {
+  try {
+    const operations = JSON.parse(value) as Array<{ path?: unknown }>;
+    return Array.isArray(operations) && operations.some((operation) => operation?.path === "cell:execute-script");
+  } catch {
+    return false;
+  }
+}
+
+function allPostconditionsTrue(value: unknown): boolean {
+  if (value === true) return true;
+  if (Array.isArray(value)) return value.length > 0 && value.every(allPostconditionsTrue);
+  if (!isRecord(value)) return false;
+  const entries = Object.values(value);
+  return entries.length > 0 && entries.every(allPostconditionsTrue);
+}
+
+/** Script execution is verified only when the returned JSON explicitly records passing postconditions. */
+function hasVerifiedScriptPostconditions(scriptResult: unknown): boolean {
+  if (!isRecord(scriptResult) || scriptResult.available !== true || !isRecord(scriptResult.value)) return false;
+  const value = scriptResult.value;
+  return value.ok === true && allPostconditionsTrue(value.postconditions);
+}
+
+function classifyUnverifiedSnapshot(beforeXml: string, xml: string): "changed-unverified" | "not-applied" | "unknown" {
+  const diff = summarizeNativeDiagramXmlDiff(beforeXml, xml);
+  if (!diff.available || typeof diff.changed !== "boolean") return "unknown";
+  return diff.changed ? "changed-unverified" : "not-applied";
+}
 type PendingRuntimeInspection = {
   resolve: (inspection: DrawioRuntimeInspection) => void;
   reject: (error: Error) => void;
@@ -571,24 +606,39 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
               const originalError = confirmation.deferredBatchAck?.error;
+              const latestXml = lastSent.current;
+              const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
               const errorMessage = confirmation.captureOnFailure
                 ? "The failed script's resulting XML could not be serialized within 30 seconds; the last saved XML was preserved." +
                   (originalError ? " Original script error: " + originalError : "")
-                : "Draw.io acknowledged the native edit but did not serialize XML within 30 seconds.";
+                : latestChanged
+                  ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
+                  : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
                 confirmation.captureOnFailure
                   ? "Timed out while capturing the native XML state after a failed script"
-                  : "Timed out waiting for a serialized XML snapshot after a native property edit",
+                  : latestChanged
+                    ? "The document changed but the native edit confirmation timed out"
+                    : "Timed out waiting for a matching serialized XML snapshot",
                 { requestId, cellId: confirmation.cellId, property: confirmation.path, captureOnFailure: confirmation.captureOnFailure === true,
-                  timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS,
+                  latestChanged, timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS,
                   durationMs: Date.now() - confirmation.startedAt }, "warn");
               if (confirmation.deferredBatchAck) {
+                const applicationState = confirmation.captureOnFailure
+                  ? "unknown"
+                  : latestChanged
+                    ? "changed-unverified"
+                    : "unknown";
                 onNativeEditResultRef.current?.({
                   ...confirmation.deferredBatchAck,
                   success: false,
+                  applicationState,
+                  ...(latestChanged ? { serializedXml: latestXml } : {}),
                   error: errorMessage,
                   failureStage: "editor",
-                  auditWarning: "The edit was not confirmed by a serialized document; verify the canvas before retrying."
+                  auditWarning: latestChanged
+                    ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
+                    : "The edit state is unknown. Inspect the current diagram and History before retrying."
                 });
               }
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
@@ -777,10 +827,37 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             });
             if (!reflected) {
               recordDiagnostic("drawio.selection.property.save-confirmation.unmatched",
-                "Ignored a serialized XML snapshot that did not reflect the requested native edit",
+                "Received valid serialized XML, but it did not satisfy the native edit confirmation rule",
                 { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path,
                   durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length,
                   xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
+              // Do not wait 30 seconds when an exported snapshot has already proved that a script
+              // changed the document but failed confirmation. Preserve that exact XML and report
+              // an explicit unverified state so the Agent cannot automatically retry an insertion.
+              if (pending.deferredBatchAck?.success && isScriptBatchValue(pending.value)) {
+                const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
+                if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+                pendingSaveConfirmationsRef.current.delete(requestId);
+                deferredBatchAcks.push({
+                  ...pending.deferredBatchAck,
+                  success: false,
+                  applicationState,
+                  serializedXml: data.xml,
+                  error: applicationState === "changed-unverified"
+                    ? "The document changed, but the exported XML did not pass the script confirmation checks."
+                    : applicationState === "not-applied"
+                      ? "The script result was not confirmed and the serialized document appears unchanged."
+                      : "The serialized document could not be compared with the pre-edit snapshot.",
+                  auditWarning: applicationState === "changed-unverified"
+                    ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
+                    : applicationState === "unknown"
+                      ? "The edit state is unknown. Inspect the current diagram and History before retrying."
+                      : "No document change was detected in the serialized snapshot."
+                });
+                recordDiagnostic("drawio.script.postcondition.unverified",
+                  "Native script XML was captured without a passing confirmation result",
+                  { requestId, applicationState, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
+              }
               continue;
             }
             const nativeDiff = pending.captureOnFailure
@@ -803,6 +880,29 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     rollbackErrors: [...(acknowledgement.rollbackErrors || []), { cellId: "__document__", error: reason }]
                   };
                 }
+              } else if (acknowledgement.success && isScriptBatchValue(pending.value)) {
+                if (hasVerifiedScriptPostconditions(pending.scriptResult ?? acknowledgement.scriptResult)) {
+                  acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
+                } else {
+                  const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
+                  acknowledgement = {
+                    ...acknowledgement,
+                    success: false,
+                    applicationState,
+                    error: applicationState === "changed-unverified"
+                      ? "The document changed, but the script did not return passing, verifiable postconditions."
+                      : applicationState === "not-applied"
+                        ? "The script did not confirm its requested postconditions and the document appears unchanged."
+                        : "The script result could not be verified against the serialized document.",
+                    auditWarning: applicationState === "changed-unverified"
+                      ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
+                      : applicationState === "unknown"
+                        ? "The edit state is unknown. Inspect the current diagram and History before retrying."
+                        : "No document change was detected in the serialized snapshot."
+                  };
+                }
+              } else if (acknowledgement.success) {
+                acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
               }
               deferredBatchAcks.push(acknowledgement);
             }
