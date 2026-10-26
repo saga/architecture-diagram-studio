@@ -362,6 +362,56 @@ describe("native Draw.io script bridge", () => {
     expect(harness.service.connectable).toBeUndefined();
   });
 
+  it("rejects timer-based deferred edits before they can escape the native transaction", () => {
+    const harness = createHarness();
+    const beforeStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "window.setTimeout(function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }, 1); return { ok: true };"
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(String(result.error)).toMatch(/synchronous|asynchronous|deferred/i);
+    expect(harness.rootEdge.style).toBe(beforeStyle);
+    expect(harness.graphRefreshCalls).toBeUndefined();
+  });
+
+  it("rejects async/await continuations before running script code", () => {
+    const harness = createHarness();
+    const beforeStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "var changeLater = async function () { await Promise.resolve(); graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }; changeLater(); return { ok: true };"
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(String(result.error)).toContain("async functions and await");
+    expect(harness.rootEdge.style).toBe(beforeStyle);
+  });
+
+  it("rejects unbalanced nested model transactions and unwinds them for rollback", () => {
+    const harness = createHarness();
+    const beforeStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "model.beginUpdate(); graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); return { ok: true };"
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(String(result.error)).toContain("left 1 nested beginUpdate call(s) unbalanced");
+    expect(harness.rootEdge.style).toBe(beforeStyle);
+  });
+
+  it("does not let a script close the bridge-owned outer model transaction", () => {
+    const harness = createHarness();
+    const result = harness.runScript("model.endUpdate(); return { ok: true };");
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(String(result.error)).toContain("must not close the bridge-owned outer model transaction");
+  });
+
+  it("allows a script to use a balanced nested native transaction", () => {
+    const harness = createHarness();
+    const result = harness.runScript(
+      "model.beginUpdate(); try { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); } finally { model.endUpdate(); } return { ok: true, postconditions: { updated: true }, xmlAssertions: [{ cellId: 'edge-root', exists: true, kind: 'edge', style: { curved: '1' } }] };"
+    );
+    expect(result).toMatchObject({ success: true });
+    expect(harness.rootEdge.style).toContain("curved=1");
+  });
+
   it("inspects native runtime capabilities and cells recursively, including edges inside groups", () => {
     const harness = createHarness();
     const result = harness.runRuntimeInspect();
