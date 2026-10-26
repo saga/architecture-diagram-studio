@@ -371,7 +371,7 @@ describe("native Draw.io script bridge", () => {
     expect(result).toMatchObject({ success: false, batchRolledBack: true });
     expect(String(result.error)).toMatch(/synchronous|asynchronous|deferred/i);
     expect(harness.rootEdge.style).toBe(beforeStyle);
-    expect(harness.graphRefreshCalls).toBeUndefined();
+    expect(harness.getGraphRefreshCalls()).toBe(0);
   });
 
   it("rejects async/await continuations before running script code", () => {
