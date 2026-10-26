@@ -43,6 +43,20 @@ function decompressStencil(encoded: string): string {
   return decodeURIComponent(strFromU8(inflateSync(bytes)));
 }
 
+function relativeLuminance(hex: string): number {
+  const channels = hex.slice(1).match(/.{2}/g)?.map((channel) => Number.parseInt(channel, 16) / 255);
+  if (!channels || channels.length !== 3) throw new Error("Expected a six-digit hex color: " + hex);
+  const linear = channels.map((channel) => channel <= 0.04045
+    ? channel / 12.92
+    : Math.pow((channel + 0.055) / 1.055, 2.4));
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrastRatio(first: string, second: string): number {
+  const luminances = [relativeLuminance(first), relativeLuminance(second)].sort((a, b) => b - a);
+  return (luminances[0] + 0.05) / (luminances[1] + 0.05);
+}
+
 const sourceModel = '<mxGraphModel background="light-dark(#FFFF66,#121212)" grid="1" gridSize="4" page="1" customModelAttribute="keep-me"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="plain" value="Plain" vertex="1" parent="1"/><mxCell id="colored" value="Colored" style="shape=rectangle;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;rounded=1;html=1;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell><mxCell id="text" value="Text only" style="text;html=1;align=center;fillColor=#ffffff;strokeColor=#000000;whiteSpace=wrap;" vertex="1" parent="1"/><mxCell id="edge" edge="1" parent="1" source="colored" target="plain" style="endArrow=block;strokeColor=#111111;fontColor=#222222;rounded=0;"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="40" y="50"/></Array></mxGeometry></mxCell></root></mxGraphModel>';
 
 describe("native Draw.io diagram theme presets", () => {
@@ -354,7 +368,15 @@ describe("theme color coverage and contrast", () => {
       expect(new Set(palette.categories.map((color) => color.fill)).size, name + " should have eight distinct fills").toBe(8);
       expect(new Set(palette.categories.map((color) => color.stroke)).size, name + " should have eight distinct strokes").toBe(8);
       expect(palette.background, name + " should use the native default canvas rather than painting the page").toBeNull();
-      expect(palette.baseFill).not.toBe("#FFFFFF");
+      // Keep fills distinct from the white/default canvas without reducing label readability.
+      expect(contrastRatio("#FFFFFF", palette.baseFill), name + " base fill should be visible on the canvas").toBeGreaterThanOrEqual(1.25);
+      expect(contrastRatio(palette.ink, palette.baseFill), name + " base labels should remain readable").toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(palette.edgeStroke, "#FFFFFF"), name + " connectors should remain visible on the canvas").toBeGreaterThanOrEqual(4.5);
+      for (const color of palette.categories) {
+        expect(contrastRatio("#FFFFFF", color.fill), name + " category fill should be distinct from the canvas").toBeGreaterThanOrEqual(1.25);
+        expect(contrastRatio(color.stroke, color.fill), name + " category border should distinguish the block").toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(palette.ink, color.fill), name + " category labels should remain readable").toBeGreaterThanOrEqual(4.5);
+      }
     }
     expect(entries.every(([, palette]) => palette.background === null)).toBe(true);
     expect(DRAWIO_DIAGRAM_THEMES["forest-canopy"].baseFill).not.toBe(DRAWIO_DIAGRAM_THEMES["modern-minimalist"].baseFill);
