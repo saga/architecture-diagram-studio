@@ -852,7 +852,8 @@
       }
       if (unbalancedUpdateDepth > 0) {
         throw new Error("Native Draw.io script left " + unbalancedUpdateDepth +
-          " nested beginUpdate call(s) unbalanced; the script transaction was unwound and the batch will roll back");
+          " nested beginUpdate call(s) unbalanced; the script transaction was unwound and the batch will roll back" +
+          (cleanupErrors.length ? "; cleanup also failed: " + cleanupErrors.join("; ") : ""));
       }
       if (cleanupErrors.length) throw new Error("Native script cleanup was incomplete: " + cleanupErrors.join("; "));
       return result;
