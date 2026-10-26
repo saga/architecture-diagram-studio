@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
+import { nativeEditIsReflectedInXml, nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import type { NativePalettePlan } from "../model/drawio-theme";
@@ -881,7 +881,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   };
                 }
               } else if (acknowledgement.success && isScriptBatchValue(pending.value)) {
-                if (hasVerifiedScriptPostconditions(pending.scriptResult ?? acknowledgement.scriptResult)) {
+                const scriptResult = pending.scriptResult ?? acknowledgement.scriptResult;
+                const scriptChecksPassed = hasVerifiedScriptPostconditions(scriptResult);
+                const serializedAssertionsPassed = scriptChecksPassed &&
+                  nativeScriptResultMatchesXml(scriptResult, data.xml, pending.pageId);
+                if (serializedAssertionsPassed) {
                   acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
                 } else {
                   const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
@@ -890,7 +894,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     success: false,
                     applicationState,
                     error: applicationState === "changed-unverified"
-                      ? "The document changed, but the script did not return passing, verifiable postconditions."
+                      ? scriptChecksPassed
+                        ? "The document changed, but the script's declared native-cell assertions did not match the serialized XML."
+                        : "The document changed, but the script did not return passing, verifiable postconditions."
                       : applicationState === "not-applied"
                         ? "The script did not confirm its requested postconditions and the document appears unchanged."
                         : "The script result could not be verified against the serialized document.",
@@ -900,6 +906,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                         ? "The edit state is unknown. Inspect the current diagram and History before retrying."
                         : "No document change was detected in the serialized snapshot."
                   };
+                  recordDiagnostic("drawio.script.postcondition.xml-mismatch",
+                    "The script's structured result did not match the serialized native XML",
+                    { requestId, applicationState, booleanPostconditionsPassed: scriptChecksPassed,
+                      serializedAssertionsPassed, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
                 }
               } else if (acknowledgement.success) {
                 acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
