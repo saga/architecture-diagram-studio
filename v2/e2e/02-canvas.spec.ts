@@ -112,24 +112,68 @@ function nativeCellSnapshot(xml: string, cellId: string) {
 
 /** Drag the native SVG shape instead of the foreignObject label. */
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
-  // Scope to the rendered canvas label. An unscoped text locator can match the Draw.io palette.
+  // Scope to the rendered canvas label; the sidebar can contain duplicate palette labels.
   const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
   await expect(label, `the ${labelText} canvas node must be rendered before it can be dragged`).toBeVisible();
+  const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
   const bounds = await label.boundingBox();
+  expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
   expect(bounds, `the ${labelText} canvas label must have visible bounds`).not.toBeNull();
 
-  // boundingBox() for a locator in the Draw.io iframe is already relative to the host page.
-  // Start on the actual label so Draw.io's mxGraph gesture handler receives the native drag;
-  // moving a small number of pixels and then continuing avoids triggering inline text editing.
-  const startX = bounds!.x + bounds!.width / 2;
-  const startY = bounds!.y + bounds!.height / 2;
+  // Find the mxGraph SVG shape that actually contains the HTML label. This avoids both the
+  // palette duplicate and label-only hit targets that do not initiate the native vertex drag.
+  const shapePoint = await label.evaluate((element) => {
+    const labelBounds = element.getBoundingClientRect();
+    const center = {
+      x: labelBounds.left + labelBounds.width / 2,
+      y: labelBounds.top + labelBounds.height / 2
+    };
+    const candidates = Array.from(document.querySelectorAll(".geDiagramContainer rect[pointer-events='all']"))
+      .map((rect) => {
+        const r = rect.getBoundingClientRect();
+        return { rect, bounds: r, area: r.width * r.height };
+      })
+      .filter(({ bounds: r }) =>
+        r.width > 0 && r.height > 0 &&
+        center.x >= r.left && center.x <= r.right &&
+        center.y >= r.top && center.y <= r.bottom
+      )
+      .sort((a, b) => a.area - b.area);
+    const shape = candidates[0];
+    if (!shape) {
+      return {
+        error: "No native SVG vertex rect contains the rendered label",
+        labelBounds: { x: labelBounds.x, y: labelBounds.y, width: labelBounds.width, height: labelBounds.height },
+        visibleRects: Array.from(document.querySelectorAll(".geDiagramContainer rect[pointer-events='all']"))
+          .slice(0, 20).map((rect) => {
+            const r = rect.getBoundingClientRect();
+            return { x: r.x, y: r.y, width: r.width, height: r.height };
+          })
+      };
+    }
+    const r = shape.bounds;
+    const x = r.left + r.width * 0.8;
+    const y = r.top + r.height * 0.78;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      x, y,
+      shapeBounds: { x: r.x, y: r.y, width: r.width, height: r.height },
+      hit: hit ? { tag: hit.tagName, className: typeof hit.className === "string" ? hit.className : "" } : null
+    };
+  });
+  if ("error" in shapePoint) throw new Error(JSON.stringify(shapePoint));
+
+  // Frame-local DOM coordinates become host-page coordinates after adding the iframe offset.
+  const startX = frameBox!.x + shapePoint.x;
+  const startY = frameBox!.y + shapePoint.y;
+  const before = await label.boundingBox();
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
   await page.mouse.up();
 
   await expect.poll(() => label.boundingBox(), { timeout: 5_000, intervals: [100] })
-    .not.toEqual(bounds);
+    .not.toEqual(before);
 }
 
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
