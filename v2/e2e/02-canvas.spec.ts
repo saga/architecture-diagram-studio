@@ -167,10 +167,17 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
   const startX = frameBox!.x + shapePoint.x;
   const startY = frameBox!.y + shapePoint.y;
   const before = await label.boundingBox();
+  console.log("[native-drag-probe]", JSON.stringify({
+    labelText, frameBox, labelBounds: bounds, shapePoint,
+    hostStart: { x: startX, y: startY },
+    frameLocalStart: { x: startX - frameBox!.x, y: startY - frameBox!.y }
+  }));
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
   await page.mouse.up();
+  const after = await label.boundingBox();
+  console.log("[native-drag-result]", JSON.stringify({ labelText, before, after }));
 
   await expect.poll(() => label.boundingBox(), { timeout: 5_000, intervals: [100] })
     .not.toEqual(before);
