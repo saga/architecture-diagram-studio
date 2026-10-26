@@ -39,7 +39,7 @@ Palette selection must also be deterministic. Color roles should not be synthesi
 | Desert Rose | Muted rose, clay, sand and sage |
 | Tech Innovation | Crisp blue/cyan with violet, green, pink and amber category accents |
 | Botanical Garden | Leaf, sage and mint colors balanced with soil and sky tones |
-| Midnight Galaxy | Dark navy-based surfaces, differentiated luminous outlines and light text |
+| Midnight Galaxy | Moonlit indigo, blue and muted teal fills with dark strokes on a neutral canvas |
 
 The palettes take inspiration from the curated-theme workflow in [Anthropic's theme-factory](https://github.com/anthropics/skills/tree/main/skills/theme-factory), hand-picked palette collections in [Color Hunt](https://colorhunt.co/), and the perceptual/accessibility guidance in [meodai/skill.color-expert](https://github.com/meodai/skill.color-expert). These are design references, not runtime dependencies. The actual hex values are declared and versioned in `v2/src/model/drawio-theme.ts`.
 
