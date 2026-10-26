@@ -1321,13 +1321,13 @@ export default function App() {
       const layerNotice = nativePlan.layoutLayerFallback
         ? " (default layer was empty; used visible layer " + (nativePlan.layoutLayerId || "unknown") + ")"
         : "";
-      const appliedScope = "Applied layout to " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
+      const appliedScope = "Draw.io serialized layout for " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes and " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount +
-        " connectors; left " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
-        " connectors untouched" + layerNotice + ".";
+        " connectors; " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
+        " connectors remain untouched" + layerNotice + ". Workspace save acknowledgement is tracked in the save status.";
       setLastAction(appliedScope);
       setLayoutCoverageNotice(appliedScope + exclusionNotice);
-      recordDiagnostic("drawio.layout.ui.completed", "The Studio layout plan was applied and serialized by native Draw.io", {
+      recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
         coverage, engine: options.engine,
