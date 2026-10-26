@@ -72,8 +72,8 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
   const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
   expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
 
-  // Draw.io renders the label in a foreignObject and the shape as a sibling SVG rect.
-  // Drag the painted shape interior, away from both the label and resize handles.
+  // Draw.io renders the label in a foreignObject and its painted shape as a sibling SVG rect.
+  // Use the shape's rendered bounds, not the tiny HTML label bounds, to initiate a real move.
   const point = await label.evaluate((element) => {
     let current: Element | null = element;
     let shape: SVGRectElement | null = null;
@@ -89,17 +89,13 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
       }
       current = current.parentElement;
     }
-    if (!shape) throw new Error(`Could not resolve the SVG shape for canvas node ${element.textContent}`);
+    if (!shape) throw new Error(`Could not resolve SVG shape for canvas node ${element.textContent}`);
     const bounds = shape.getBoundingClientRect();
     const x = bounds.left + bounds.width * 0.82;
     const y = bounds.top + bounds.height * 0.78;
     const hit = document.elementFromPoint(x, y);
-    if (!hit || !shape.contains(hit) && !hit.contains(shape)) {
-      // A nested SVG hit target can be a child of the shape's group rather than the rect.
-      if (!hit || !shape.parentElement?.contains(hit)) {
-        throw new Error("The chosen drag point does not hit the native vertex shape: " +
-          (hit ? hit.tagName + "." + String(hit.getAttribute("class") || "") : "no element"));
-      }
+    if (!hit || (!shape.parentElement?.contains(hit) && hit !== shape)) {
+      throw new Error("The chosen drag point does not hit the native vertex shape");
     }
     return { x, y, shapeBounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } };
   });
