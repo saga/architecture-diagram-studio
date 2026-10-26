@@ -447,7 +447,7 @@ describe("native Draw.io palette bridge", () => {
     const originalStyle = "shape=rect;rounded=1;fillColor=#ffffff;gradientColor=#eeeeee;labelBackgroundColor=#ffffff;labelBorderColor=#000000;swimlaneFillColor=#ffffff;indicatorColor=#000000;indicatorGradientColor=#eeeeee;separatorColor=#000000;dashed=1;";
     harness.service.style = originalStyle;
     const expectedIds = ["0", "1", "service", "database", "edge-root", "group", "nested-service", "edge-nested"].sort();
-    const nextStyle = "shape=rect;rounded=1;fillColor=#B7DDEB;gradientColor=#B7DDEB;labelBackgroundColor=#D9EDF6;labelBorderColor=#176B85;swimlaneFillColor=#B7DDEB;indicatorColor=#176B85;indicatorGradientColor=#B7DDEB;separatorColor=#176B85;dashed=1;strokeColor=#176B85;fontColor=#153548;studioColorRole=category-1;";
+    const nextStyle = "shape=rect;rounded=1;fillColor=#B7DDEB;gradientColor=#B7DDEB;labelBackgroundColor=#C6E0EB;labelBorderColor=#176B85;swimlaneFillColor=#B7DDEB;indicatorColor=#176B85;indicatorGradientColor=#B7DDEB;separatorColor=#176B85;dashed=1;strokeColor=#176B85;fontColor=#153548;studioColorRole=category-1;";
     const result = harness.runPalette({
       theme: "ocean-depths", documentRevision: "a".repeat(64), pageId: null,
       expectedBackground: "#C5DDE7", background: null,
@@ -456,7 +456,7 @@ describe("native Draw.io palette bridge", () => {
     });
     expect(result).toMatchObject({ event: "studioNativePaletteResult", success: true, changedCells: 1 });
     expect(harness.service.style).toContain("gradientColor=#B7DDEB");
-    expect(harness.service.style).toContain("labelBackgroundColor=#D9EDF6");
+    expect(harness.service.style).toContain("labelBackgroundColor=#C6E0EB");
     expect(harness.service.style).toContain("labelBorderColor=#176B85");
     expect(harness.service.style).toContain("dashed=1");
     expect(harness.service.style).toContain("studioColorRole=category-1");
