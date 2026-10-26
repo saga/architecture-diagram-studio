@@ -288,6 +288,22 @@ describe("native edit XML confirmation", () => {
     })).toBe(true);
   });
 
+  it("does not let a missing page pass an assertion for an absent cell", () => {
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { removed: true },
+        xmlAssertions: [{ cellId: "removed-cell", exists: false }]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, before, "missing-page");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "invalid-document", field: "document"
+    }));
+  });
+
   it("validates the intended edit inside a compressed native Draw.io page", () => {
     const model = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
       '<mxCell id="api" value="After" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell>' +
