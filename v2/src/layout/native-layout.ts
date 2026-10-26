@@ -563,6 +563,7 @@ function describeEmptyLayoutScope(projection: NativePageProjection): string {
     "XML inventory: " + projection.sourceVertexCount + " vertex cells, " +
     projection.sourceVertexWithGeometryCount + " with geometry, " +
     projection.verticesWithNonLayerParents + " with a parent outside visible root layers. " +
+    "Nested Group children remain fixed relative to their parent and are not flattened into the outer layout. " +
     "Detected root cell: " + (projection.rootCellId ?? "none") + ". " +
     "Visible root layers: " + layers + ". Layout does not guess between multiple populated layers.";
 }
@@ -647,14 +648,17 @@ function normalizePlan(
     // An empty route explicitly clears stale waypoints left by a prior manual/automatic layout.
     const translated = (routes.get(edge.id) ?? []).map((point) => ({ x: point.x + dx, y: point.y + dy }));
     // Route the outer graph to the containing Group as a single node, while keeping native
-    // edge source/target IDs pointed at the original children.
-    if (edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId) {
-      const exit = groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId);
-      if (exit) translated.unshift(exit);
-    }
-    if (edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId) {
-      const exit = groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId);
-      if (exit) translated.push(exit);
+    // edge source/target IDs pointed at the original children. ELK Fixed preserves positions
+    // and lets Draw.io recalculate routes, so it must not add these proxy-boundary waypoints.
+    if (!(options.engine === "elk" && options.algorithm === "fixed")) {
+      if (edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId) {
+        const exit = groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId);
+        if (exit) translated.unshift(exit);
+      }
+      if (edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId) {
+        const exit = groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId);
+        if (exit) translated.push(exit);
+      }
     }
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid connector route.");
