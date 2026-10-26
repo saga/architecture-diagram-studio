@@ -193,7 +193,7 @@ describe("Studio-owned native-cell layout", () => {
       </root></mxGraphModel></diagram></mxfile>`;
       const plan = await calculateNativeAutoLayout(regionXml, "engine-matrix", revision, {
         ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine, algorithm, direction: "RIGHT"
-      });
+      } as NativeAutoLayoutOptions);
       const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
       const region = positions.get("region");
       expect(region).toBeDefined();
