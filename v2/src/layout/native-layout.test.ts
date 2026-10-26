@@ -172,7 +172,7 @@ describe("Studio-owned native-cell layout", () => {
   ] as const)(
     "shares atomic spatial-region projection across all supported layout engines (%s / %s)",
     async (engine, algorithm) => {
-      const regionXml = \`<mxfile host="test"><diagram id="engine-matrix" name="Engine matrix"><mxGraphModel><root>
+      const regionXml = `<mxfile host="test"><diagram id="engine-matrix" name="Engine matrix"><mxGraphModel><root>
         <mxCell id="0"/><mxCell id="1" parent="0"/>
         <mxCell id="region" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
           <mxGeometry x="100" y="100" width="500" height="400" as="geometry"/>
@@ -190,7 +190,7 @@ describe("Studio-owned native-cell layout", () => {
         <mxCell id="cross-edge" edge="1" parent="1" source="plc" target="outside">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-      </root></mxGraphModel></diagram></mxfile>\`;
+      </root></mxGraphModel></diagram></mxfile>`;
       const plan = await calculateNativeAutoLayout(regionXml, "engine-matrix", revision, {
         ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine, algorithm, direction: "RIGHT"
       });
