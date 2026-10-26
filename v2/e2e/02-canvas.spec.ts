@@ -271,10 +271,9 @@ test.describe("原生画布", () => {
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
       .toContain("fillColor=#B7DDEB");
     await expect.poll(firstPageBackground, { timeout: 20_000 }).toBeNull();
-    await expect.poll(inspectCanvas, { timeout: 20_000 }).not.toMatchObject({
-      color: "rgb(197, 221, 231)",
-      themeOverlay: true
-    });
+    await expect.poll(async () => (await inspectCanvas())?.color, { timeout: 20_000 })
+      .not.toBe("rgb(197, 221, 231)");
+    await expect.poll(async () => (await inspectCanvas())?.themeOverlay, { timeout: 20_000 }).toBe(false);
     expect((await inspectCanvas())?.image).not.toBe("none");
 
     await page.locator(".theme-selector .ant-select").click();
