@@ -667,6 +667,17 @@ describe("native layout identity resolution", () => {
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["node-a", "node-b"]);
   });
 
+  it("does not select root ID 0 when the native root structure is ambiguous", async () => {
+    const ambiguousRoot = `<mxfile><diagram id="custom-page"><mxGraphModel><root>
+      <mxCell id="0"/>
+      <mxCell id="additional-root"/>
+      <mxCell id="1" parent="0"/>
+      <mxCell id="node" value="Node" vertex="1" parent="1"><mxGeometry x="10" y="10" width="80" height="40" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    await expect(calculateNativeAutoLayout(ambiguousRoot, "custom-page", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS))
+      .rejects.toThrow(/no top-level native Draw\.io vertices/i);
+  });
+
   it("does not prefer a layer because its ID is 1 when multiple populated layers exist", async () => {
     const ambiguous = `<mxfile><diagram id="custom-page"><mxGraphModel><root>
       <mxCell id="graph-root"/>
