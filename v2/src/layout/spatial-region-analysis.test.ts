@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { NativeDiagramCapabilityContext } from "../model/native-diagram-capabilities";
 import {
   SPATIAL_REGION_ANALYSIS_ID,
-  spatialRegionAnalysisProvider
+  spatialRegionAnalysisProvider,
+  detectSpatialRegionsForLayout
 } from "./spatial-region-analysis";
 
 const revision = "r".repeat(64);
@@ -146,6 +147,55 @@ describe("read-only spatial region analysis", () => {
       expect(overlap?.cellIds).toContain("region-a");
       expect(overlap?.cellIds).toContain("region-b");
     }
+  });
+
+  it("does not auto-group overlapping region candidates", () => {
+    const xml = page([
+      '<mxCell id="region-a" value="Area A" vertex="1" parent="1" style="shape=rect;fillColor=none;"><mxGeometry x="0" y="0" width="500" height="400" as="geometry"/></mxCell>',
+      '<mxCell id="region-b" value="Area B" vertex="1" parent="1" style="shape=rect;fillColor=none;"><mxGeometry x="350" y="100" width="500" height="400" as="geometry"/></mxCell>',
+      '<mxCell id="a1" value="A1" vertex="1" parent="1"><mxGeometry x="40" y="50" width="40" height="30" as="geometry"/></mxCell>',
+      '<mxCell id="a2" value="A2" vertex="1" parent="1"><mxGeometry x="140" y="50" width="40" height="30" as="geometry"/></mxCell>',
+      '<mxCell id="a3" value="A3" vertex="1" parent="1"><mxGeometry x="240" y="50" width="40" height="30" as="geometry"/></mxCell>',
+      '<mxCell id="b1" value="B1" vertex="1" parent="1"><mxGeometry x="620" y="150" width="40" height="30" as="geometry"/></mxCell>',
+      '<mxCell id="b2" value="B2" vertex="1" parent="1"><mxGeometry x="680" y="230" width="40" height="30" as="geometry"/></mxCell>',
+      '<mxCell id="b3" value="B3" vertex="1" parent="1"><mxGeometry x="740" y="310" width="40" height="30" as="geometry"/></mxCell>'
+    ].join(""));
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const candidates = detection.candidates.filter((candidate) =>
+      candidate.regionCellId === "region-a" || candidate.regionCellId === "region-b"
+    );
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates.every((candidate) =>
+      !candidate.eligible && candidate.skipReason === "low-confidence-or-overlap"
+    )).toBe(true);
+    expect(detection.eligibleCandidates).toHaveLength(0);
+    expect(detection.skippedCandidateCount).toBe(2);
+  });
+
+  it("reports nested region candidates as skipped by the atomic layout projection", () => {
+    const xml = page([
+      '<mxCell id="outer-region" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;"><mxGeometry x="0" y="0" width="800" height="650" as="geometry"/></mxCell>',
+      '<mxCell id="outer-title" value="OT Network" vertex="1" parent="1" style="shape=text;html=1;strokeColor=none;fillColor=none;"><mxGeometry x="20" y="8" width="130" height="24" as="geometry"/></mxCell>',
+      '<mxCell id="inner-region" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;"><mxGeometry x="180" y="140" width="400" height="300" as="geometry"/></mxCell>',
+      '<mxCell id="inner-title" value="IT Network" vertex="1" parent="1" style="shape=text;html=1;strokeColor=none;fillColor=none;"><mxGeometry x="195" y="145" width="130" height="24" as="geometry"/></mxCell>',
+      '<mxCell id="inner-a" value="A" vertex="1" parent="1"><mxGeometry x="220" y="210" width="80" height="40" as="geometry"/></mxCell>',
+      '<mxCell id="inner-b" value="B" vertex="1" parent="1"><mxGeometry x="340" y="220" width="80" height="40" as="geometry"/></mxCell>',
+      '<mxCell id="inner-c" value="C" vertex="1" parent="1"><mxGeometry x="460" y="320" width="80" height="40" as="geometry"/></mxCell>',
+      '<mxCell id="outer-a" value="D" vertex="1" parent="1"><mxGeometry x="50" y="470" width="80" height="40" as="geometry"/></mxCell>',
+      '<mxCell id="outer-b" value="E" vertex="1" parent="1"><mxGeometry x="170" y="530" width="80" height="40" as="geometry"/></mxCell>',
+      '<mxCell id="outer-c" value="F" vertex="1" parent="1"><mxGeometry x="660" y="480" width="80" height="40" as="geometry"/></mxCell>'
+    ].join(""));
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const candidates = detection.candidates.filter((candidate) =>
+      candidate.regionCellId === "outer-region" || candidate.regionCellId === "inner-region"
+    );
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates.every((candidate) =>
+      !candidate.eligible && candidate.skipReason === "nested-region"
+    )).toBe(true);
+    expect(detection.eligibleCandidates).toHaveLength(0);
   });
 
   it("only analyzes the requested active page", () => {
