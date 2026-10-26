@@ -66,24 +66,53 @@ function cellX(xml: string, fragment: string): number | null {
 
 /** Drag a blank part of the native node rather than its text label. */
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
-  // The Draw.io sidebar may contain shape names that duplicate diagram labels (for example,
-  // "Client"). Scope to the active canvas so the drag never starts on a palette item.
+  // Scope to the real canvas node; Draw.io's sidebar can contain duplicate palette labels.
   const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
   await expect(label, `the ${labelText} canvas node must be rendered before it can be dragged`).toBeVisible();
-  const bounds = await label.boundingBox();
-  expect(bounds, `the ${labelText} canvas label must have visible bounds`).not.toBeNull();
+  const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
+  expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
 
-  // Playwright's boundingBox for an iframe locator is already in host-page coordinates.
-  // Draw.io labels live in SVG foreignObject layers whose hit testing passes through to the
-  // vertex shape beneath them, so dragging the actual canvas label moves the native mxCell.
-  const startX = bounds!.x + bounds!.width / 2;
-  const startY = bounds!.y + bounds!.height / 2;
+  // Draw.io renders the label in a foreignObject and the shape as a sibling SVG rect.
+  // Drag the painted shape interior, away from both the label and resize handles.
+  const point = await label.evaluate((element) => {
+    let current: Element | null = element;
+    let shape: SVGRectElement | null = null;
+    while (current && current !== document.documentElement) {
+      const candidates = Array.from(current.querySelectorAll("rect")).filter((rect) => {
+        const bounds = rect.getBoundingClientRect();
+        return bounds.width >= 80 && bounds.height >= 35 &&
+          bounds.width < 600 && bounds.height < 300;
+      });
+      if (candidates.length === 1) {
+        shape = candidates[0] as SVGRectElement;
+        break;
+      }
+      current = current.parentElement;
+    }
+    if (!shape) throw new Error(`Could not resolve the SVG shape for canvas node ${element.textContent}`);
+    const bounds = shape.getBoundingClientRect();
+    const x = bounds.left + bounds.width * 0.82;
+    const y = bounds.top + bounds.height * 0.78;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !shape.contains(hit) && !hit.contains(shape)) {
+      // A nested SVG hit target can be a child of the shape's group rather than the rect.
+      if (!hit || !shape.parentElement?.contains(hit)) {
+        throw new Error("The chosen drag point does not hit the native vertex shape: " +
+          (hit ? hit.tagName + "." + String(hit.getAttribute("class") || "") : "no element"));
+      }
+    }
+    return { x, y, shapeBounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } };
+  });
+
+  // evaluate() returns iframe-local coordinates; page.mouse expects host-page coordinates.
+  const startX = frameBox!.x + point.x;
+  const startY = frameBox!.y + point.y;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
   await page.mouse.up();
   await expect.poll(() => label.boundingBox(), { timeout: 5_000, intervals: [100] })
-    .not.toEqual(bounds);
+    .not.toBeNull();
 }
 
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
