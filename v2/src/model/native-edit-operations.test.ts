@@ -49,6 +49,19 @@ describe("extractNativeEditTargets", () => {
     expect(extractNativeEditTargets(XML).map((target) => target.id)).toEqual(["db"]);
   });
 
+  it("does not reserve cell IDs 0 and 1 for root/layer roles", () => {
+    const noncanonicalRootAndLayer = `<mxfile><diagram id="custom-page"><mxGraphModel><root>
+      <mxCell id="root-cell"/>
+      <mxCell id="layer-cell" parent="root-cell"/>
+      <mxCell id="0" value="Node zero" vertex="1" parent="layer-cell"><mxGeometry x="10" y="10" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="1" value="Node one" vertex="1" parent="layer-cell"><mxGeometry x="120" y="10" width="80" height="40" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    expect(extractNativeEditTargets(noncanonicalRootAndLayer, "custom-page")).toEqual([
+      { id: "0", name: "Node zero", cellType: "vertex" },
+      { id: "1", name: "Node one", cellType: "vertex" }
+    ]);
+  });
+
   it("keeps an empty visible label empty instead of substituting the native cell id", () => {
     const xml = '<mxfile><diagram id="p1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="TwsH19o86vvnPf4LDGem-1" value="" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>';
     expect(extractNativeEditTargets(xml)).toEqual([{ id: "TwsH19o86vvnPf4LDGem-1", name: "", cellType: "vertex" }]);
