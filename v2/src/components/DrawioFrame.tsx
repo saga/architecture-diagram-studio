@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml } from "../model/native-edit-confirmation";
+import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml, type NativeScriptXmlValidationResult } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import type { NativePalettePlan } from "../model/drawio-theme";
@@ -884,7 +884,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               } else if (acknowledgement.success && isScriptBatchValue(pending.value)) {
                 const scriptResult = pending.scriptResult ?? acknowledgement.scriptResult;
                 const scriptChecksPassed = hasVerifiedScriptPostconditions(scriptResult);
-                const assertionValidation = scriptChecksPassed
+                const assertionValidation: NativeScriptXmlValidationResult = scriptChecksPassed
                   ? validateNativeScriptResultAgainstXml(scriptResult, data.xml, pending.pageId)
                   : { ok: false, failures: [{
                     index: null, field: "postconditions",
