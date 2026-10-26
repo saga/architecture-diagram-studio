@@ -320,11 +320,58 @@ function operationIsReflected(
   return false;
 }
 
+function isNativeRootOrLayerCell(record: CellRecord): boolean {
+  return record.cell.getAttribute("vertex") !== "1" &&
+    record.cell.getAttribute("edge") !== "1" &&
+    record.geometry === null;
+}
+
+/**
+ * Draw.io cell IDs are not semantic roles: duplicated/imported pages may prefix both the root
+ * and layer IDs. Validate the relationship graph instead of assuming literal IDs "0" and "1".
+ */
+function hasValidNativeModelStructure(model: ModelRecords): boolean {
+  const roots = model.cells.filter((record) =>
+    !record.cell.hasAttribute("parent") && isNativeRootOrLayerCell(record)
+  );
+  if (roots.length !== 1) return false;
+  const rootId = roots[0].id;
+  return model.cells.some((record) =>
+    record.cell.getAttribute("parent") === rootId && isNativeRootOrLayerCell(record)
+  );
+}
+
+/**
+ * A script addressed to __active_page__ is scoped to that page, not every page in the file.
+ * A missing target page is a hard failure; never fall back to checking unrelated pages.
+ * Bare mxGraphModel XML has no page envelope, so its single model is the active model.
+ */
+function hasValidScriptScope(xml: string, models: ModelRecords[], pageId?: string | null): boolean {
+  const document = parseDrawioXml(xml);
+  const root = document.documentElement;
+  if (root.nodeName === "mxGraphModel") {
+    return models.length === 1 && hasValidNativeModelStructure(models[0]);
+  }
+  if (root.nodeName !== "mxfile") return false;
+  const pages = elementChildren(root).filter((child) => child.nodeName === "diagram");
+  if (pages.length === 0) return false;
+
+  if (pageId != null && pageId !== "") {
+    const targetPage = pages.find((page) => page.getAttribute("id") === pageId);
+    if (!targetPage) return false;
+    const targetModel = models.find((model) => model.pageId === pageId);
+    return Boolean(targetModel && hasValidNativeModelStructure(targetModel));
+  }
+
+  // Without an explicit page ID, preserve whole-document validation semantics.
+  return models.length === pages.length && models.every(hasValidNativeModelStructure);
+}
+
 /**
  * Typed operations are confirmed against their requested native XML postconditions.
- * Direct scripts have an intentionally broader contract: a non-throwing script may mutate any
- * native editor structure, so its acknowledgement requires a valid serialized Draw.io document
- * rather than a predeclared cell-level postcondition allowlist.
+ * Direct scripts use relationship-based native structure validation, scoped to the requested
+ * active page. Script-specific business postconditions are handled by the caller using the
+ * bounded JSON result and the serialized XML; structural validity alone is not proof of intent.
  */
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
@@ -349,13 +396,7 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
       return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
     }
     if (documentOperations.length === 1 && documentOperations[0].path === "cell:execute-script") {
-      // The bridge has already confirmed that the script returned without throwing. At this point
-      // the host has serialized and validated native Draw.io XML. Do not constrain what the script
-      // may change to a predeclared cell-level postcondition: scripts may edit routing, groups,
-      // custom attributes, layers, page metadata, or other native structures.
-      return after.length > 0 && after.every((page) =>
-        page.cells.some((cell) => cell.id === "0") && page.cells.some((cell) => cell.id === "1")
-      );
+      return hasValidScriptScope(input.xml, after, input.pageId);
     }
     return documentOperations.every((operation) =>
       operationIsReflected(before, after, operation, input.pageId)
