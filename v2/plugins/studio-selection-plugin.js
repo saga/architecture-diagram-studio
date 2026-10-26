@@ -596,7 +596,7 @@
         throw error;
       }
       if (!plan || typeof plan !== "object" || !Array.isArray(plan.expectedPageCellIds) ||
-          !Array.isArray(plan.changes) || ["editorial", "youth", "warm", "midnight"].indexOf(plan.theme) < 0) {
+          !Array.isArray(plan.changes) || ["ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist", "golden-hour", "arctic-frost", "desert-rose", "tech-innovation", "botanical-garden", "midnight-galaxy"].indexOf(plan.theme) < 0) {
         fail("The Studio color plan is malformed; nothing was changed.", true);
       }
       if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) {
@@ -653,7 +653,7 @@
         fail("The active Draw.io page changed after color calculation. No colors were applied; select the preset again.", true);
       }
 
-      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true };
+      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true, studioColorRole: true };
       function normalizedStyle(cell) {
         var style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style;
         return typeof style === "string" ? style : "";
@@ -690,6 +690,25 @@
         if (beforeNonColors.length !== afterNonColors.length ||
             beforeNonColors.some(function (part, index) { return part !== afterNonColors[index]; })) {
           fail("The color plan attempts to change a non-color style property.", true);
+        }
+        function stylePropertyValue(style, key) {
+          var found = null;
+          String(style || "").split(";").forEach(function (part) {
+            var equalsAt = part.indexOf("=");
+            if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) found = part.slice(equalsAt + 1).trim();
+          });
+          return found;
+        }
+        function validColorRole(value) {
+          return value === "base" || value === "text" || /^category-[1-8]$/.test(String(value || ""));
+        }
+        var beforeRole = stylePropertyValue(change.expectedStyle, "studioColorRole");
+        var afterRole = stylePropertyValue(change.style, "studioColorRole");
+        if (!validColorRole(afterRole) || (beforeRole !== null && beforeRole !== afterRole)) {
+          fail("The color plan contains an invalid or unstable category-role marker.", true);
+        }
+        if (change.kind === "vertex" && isTextStyle(normalizedStyle(liveCell)) && afterRole !== "text") {
+          fail("Text-only cells must retain the text color role.", true);
         }
         snapshots.push({ cell: liveCell, cellId: change.cellId, style: liveCell.style, nextStyle: change.style });
       }
