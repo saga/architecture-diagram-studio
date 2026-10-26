@@ -152,7 +152,7 @@ describe("native Draw.io diagram theme presets", () => {
     const encoded = compressPage(sourceModel);
     const source = '<mxfile><diagram id="compressed">' + encoded + '</diagram></mxfile>';
     const plan = calculateNativePalettePlan(source, "compressed", "b".repeat(64), "midnight-galaxy");
-    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#253B53"))).toBe(true);
+    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#27375A"))).toBe(true);
     expect(() => calculateNativePalettePlan(source, "missing", "b".repeat(64), "midnight-galaxy")).toThrow("active Draw.io page");
     expect(() => calculateNativePalettePlan(source, "compressed", "not-a-revision", "midnight-galaxy")).toThrow("exact native Draw.io XML snapshot");
   });
