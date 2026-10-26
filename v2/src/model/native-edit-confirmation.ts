@@ -436,7 +436,6 @@ export function nativeScriptResultMatchesXml(
     const value = outer.value as Record<string, unknown>;
     if (value.ok !== true || !Array.isArray(value.xmlAssertions) || value.xmlAssertions.length === 0) return false;
     const models = cellsForXml(xml);
-    const seen = new Set<string>();
 
     const attributeMatches = (cell: Element, key: "parent" | "source" | "target", expected: unknown): boolean => {
       if (expected !== null && typeof expected !== "string") return false;
@@ -462,8 +461,6 @@ export function nativeScriptResultMatchesXml(
       const assertion = raw as Record<string, unknown>;
       if (typeof assertion.cellId !== "string" || !assertion.cellId.trim()) return false;
       const cellId = assertion.cellId.trim();
-      if (seen.has(cellId)) return false;
-      seen.add(cellId);
       const expectedExists = assertion.exists === undefined ? true : assertion.exists;
       if (typeof expectedExists !== "boolean") return false;
       const record = findCell(models, cellId, pageId);
