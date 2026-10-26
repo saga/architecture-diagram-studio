@@ -114,7 +114,7 @@ row300 → [["243,245,249", 1061], ["255,255,255", 204], ...]
 
 ## 7. 修复实现与回归检查
 
-已实施的修复以 ADR-0020 为准：
+原始 CSS 覆盖修复以 ADR-0020 为准，当前配色背景规则以 ADR-0023 为准：
 
 - 删除 DrawioFrame 中发送 studioPresentationThemeRequest 的 effect，插件不再创建或更新 studio-native-theme 样式表。
 - 不再对 SVG、图形容器或页面元素注入不透明主题背景；背景色和网格继续使用 Draw.io 原生页面配置。
