@@ -716,8 +716,9 @@
         if (!validColorRole(afterRole) || (beforeRole !== null && beforeRole !== afterRole)) {
           fail("The color plan contains an invalid or unstable category-role marker.", true);
         }
-        if (change.kind === "vertex" && isTextStyle(normalizedStyle(liveCell)) && afterRole !== "text") {
-          fail("Text-only cells must retain the text color role.", true);
+        var textOnlyVertex = change.kind === "vertex" && isTextStyle(normalizedStyle(liveCell));
+        if ((textOnlyVertex && afterRole !== "text") || (!textOnlyVertex && afterRole === "text")) {
+          fail("The Studio color plan contains a text role that conflicts with the native cell type.", true);
         }
         snapshots.push({ cell: liveCell, cellId: change.cellId, style: liveCell.style, nextStyle: change.style });
       }
