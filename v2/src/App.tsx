@@ -143,6 +143,7 @@ export default function App() {
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
+  const lateNativeEditRequestsRef = useRef(new Set<number>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme] = useState<UiTheme>(() => loadSavedTheme());
   const [diagramTheme, setDiagramTheme] = useState<DiagramTheme | "">("");
@@ -553,6 +554,16 @@ export default function App() {
       setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
     },
     applyNativeCellEdits: async (edits, pageId, acknowledgement) => {
+      if (lateNativeEditRequestsRef.current.size > 0) {
+        return Promise.resolve({
+          ok: false,
+          error: "A previous native edit is still awaiting a final editor result. No new edit was dispatched.",
+          rolledBack: false,
+          applicationState: "unknown",
+          auditWarning: "Inspect the current diagram and History. If no late result arrives, reload the document before submitting another edit.",
+          steps: []
+        });
+      }
       if (!edits.length) return Promise.resolve({ ok: false, error: "No native edits were supplied", rolledBack: false, steps: [] });
       const requestId = ++cellEditRequestSequenceRef.current;
       await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
@@ -581,37 +592,22 @@ export default function App() {
         window.setTimeout(() => {
           const pending = nativeEditResolversRef.current.get(requestId);
           if (!pending) return;
-          const ackContext = nativeEditAckContextsRef.current.get(requestId);
           nativeEditResolversRef.current.delete(requestId);
-          nativeEditAckContextsRef.current.delete(requestId);
+          // Keep the acknowledgement context so a late serialized result can still be persisted
+          // and reconciled with the server. A wait timeout is not proof of failure or rollback.
+          lateNativeEditRequestsRef.current.add(requestId);
           setCellEditRequest((current) => current?.requestId === requestId ? null : current);
-          const timeoutError = "The native Draw.io editor did not acknowledge the batch within " + Math.round(watchdogTimeoutMs / 1000) + " seconds.";
-          recordDiagnostic("copilot.native-edits.timeout", "The native Draw.io editor did not acknowledge a Copilot batch", {
-            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs
-          }, "error");
-          resolve({ ok: false, error: timeoutError, rolledBack: false, steps: [] });
-          if (ackContext) {
-            void fetch("/api/copilot/intent/ack", {
-              method: "POST", headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                requestId: ackContext.requestId, sessionId: ackContext.sessionId,
-                standalone: ackContext.standalone, documentRevision: ackContext.documentRevision,
-                outcome: "failed", editorAcknowledged: false, serializedXmlRevision: null,
-                persistenceStatus: "not_attempted", persistedRevision: null, versionId: null,
-                failureStage: "editor", error: timeoutError
-              })
-            }).then(async (response) => {
-              const receipt = await response.json().catch(() => null);
-              recordDiagnostic("copilot.native-edits.watchdog-receipt", "Recorded the native editor watchdog failure with the Copilot server", {
-                requestId: ackContext.requestId, httpStatus: response.status, receipt
-              }, response.ok ? "warn" : "error");
-            }).catch((error) => {
-              recordDiagnostic("copilot.native-edits.watchdog-receipt-failed", "Could not record the native editor watchdog failure", {
-                requestId: ackContext.requestId, error: error instanceof Error ? error.message : String(error)
-              }, "error");
-            });
-          }
-          if (containsScript) drawioFrameRef.current?.recoverFromLastSavedXml();
+          const timeoutError = "The native Draw.io editor has not returned a final serialized result within " +
+            Math.round(watchdogTimeoutMs / 1000) + " seconds. The edit outcome is still unknown.";
+          recordDiagnostic("copilot.native-edits.timeout", "Stopped waiting for a native edit without declaring its final outcome", {
+            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs,
+            reconciliationPending: true
+          }, "warn");
+          resolve({
+            ok: false, error: timeoutError, rolledBack: false, applicationState: "unknown",
+            auditWarning: "This is a wait timeout, not a confirmed rollback. Do not retry; the request remains pending reconciliation.",
+            steps: []
+          });
         }, watchdogTimeoutMs);
       });
     }
@@ -1921,8 +1917,10 @@ export default function App() {
                 nativeEditResolversRef.current.delete(requestId);
                 resolver(finalResult);
               }
-              if (result.path === "cell:batch" && !resolver) {
-                recordDiagnostic("copilot.native-edit.acknowledgement.unobserved", "A native edit completed after the caller stopped waiting", { requestId, success: finalResult.success }, "warn");
+              const wasLateNativeEdit = result.path === "cell:batch" && !resolver &&
+                requestId !== null && lateNativeEditRequestsRef.current.delete(requestId);
+              if (result.path === "cell:batch" && !resolver && !wasLateNativeEdit) {
+                recordDiagnostic("copilot.native-edit.acknowledgement.unobserved", "A native edit completed without an active waiter or a registered timeout to reconcile", { requestId, success: finalResult.success }, "warn");
                 return;
               }
               const status = (finalResult.success
@@ -1945,6 +1943,15 @@ export default function App() {
                         : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error")) +
                 (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
+              if (wasLateNativeEdit) {
+                const reconciledText = "A native edit returned after the waiting period. " + status +
+                  " Its final result has now been reconciled; do not repeat the operation.";
+                setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: reconciledText }].slice(-300));
+                recordDiagnostic("copilot.native-edit.acknowledgement.late-reconciled",
+                  "Reconciled the user-visible outcome after a native edit returned past its wait timeout",
+                  { requestId, success: finalResult.success, applicationState: finalResult.applicationState ?? null,
+                    failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null }, "warn");
+              }
               if (finalResult.batchResults?.length) {
                 for (const step of finalResult.batchResults) {
                   const stepEvent = finalResult.success
