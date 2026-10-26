@@ -164,13 +164,12 @@ function parseNativePage(xml: string, requestedPageId: string | null): { model: 
     throw new Error("Spatial region analysis only supports native Draw.io mxfile or mxGraphModel documents.");
   }
   const pages = Array.from(document.getElementsByTagName("diagram"));
-  const page = requestedPageId === null
-    ? pages[0]
-    : pages.find((candidate) => candidate.getAttribute("id") === requestedPageId);
+  if (requestedPageId === null) {
+    throw new Error("An mxfile analysis request must specify the active diagram page ID; null is reserved for a bare mxGraphModel.");
+  }
+  const page = pages.find((candidate) => candidate.getAttribute("id") === requestedPageId);
   if (!page) {
-    throw new Error(requestedPageId === null
-      ? "The Draw.io document has no pages to analyze."
-      : "The requested Draw.io page was not found; refusing to analyze a different page.");
+    throw new Error("The requested Draw.io page was not found; refusing to analyze a different page.");
   }
   const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
   if (inlineModel) return { model: inlineModel as unknown as Document, actualPageId: page.getAttribute("id") || null };
