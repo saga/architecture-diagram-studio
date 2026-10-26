@@ -1,5 +1,10 @@
 # Sequence Diagram 编辑失败分析：Customer → :ResultList
 
+> **已被 `SEQUENCE-DIAGRAM-FAILURE-ROOT-CAUSE-2026-10-26.md` 取代。**
+> 本报告写作时缺少完整脚本、before/after XML 与落盘证据，只能列出三个候选触发条件。
+> 后续报告补齐了这三样证据，确认唯一根因是确认器对根 cell id `"0"/"1"` 的硬编码，
+> 并纠正了本报告"脚本返回 undefined"的判断（实为 `new Function` wrapper 丢弃了返回值）。
+
 - 日期：2026-10-26
 - 严重程度：P1（编辑结果状态不确定；需先核实当前文件/恢复点）
 - 范围：仅分析本次失败和相关确认/序列化链路，不在本报告中修改业务代码。
