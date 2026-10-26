@@ -532,7 +532,10 @@
     function stencilFillFingerprint(xml) {
       return String(xml || "").replace(/(<fillcolor\b[^>]*?\bcolor=")[^"]*(")/gi, "$1__STUDIO_FILL__$2");
     }
-    function paletteStencilMutationIsSafe(beforeStyle, afterStyle) {
+    function paletteStencilMutationIsSafe(beforeStyle, afterStyle, cell) {
+      if (!cell || !cell.vertex || !cell.geometry) return false;
+      var width = Number(cell.geometry.width); var height = Number(cell.geometry.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width * height < 20000) return false;
       var beforePayload = stencilPayloadFromStyle(beforeStyle);
       var afterPayload = stencilPayloadFromStyle(afterStyle);
       if (!beforePayload || !afterPayload) return false;
@@ -597,7 +600,7 @@
         if (!liveCell || (change.kind === "vertex" ? !liveCell.vertex : !liveCell.edge)) fail("A target cell is no longer the expected vertex or connector: " + change.cellId, true);
         if (normalizedStyle(liveCell) !== change.expectedStyle) fail("A target cell's style changed after color calculation: " + change.cellId + ". No colors were applied.", true);
         var beforeShape = paletteStyleValue(change.expectedStyle, "shape"); var afterShape = paletteStyleValue(change.style, "shape");
-        if (beforeShape !== afterShape && !paletteStencilMutationIsSafe(change.expectedStyle, change.style)) fail("The color plan attempts to alter stencil geometry or recolor a non-neutral stencil asset.", true);
+        if (beforeShape !== afterShape && !paletteStencilMutationIsSafe(change.expectedStyle, change.style, liveCell)) fail("The color plan attempts to alter stencil geometry or recolor a non-neutral stencil asset.", true);
         var beforeNonColors = nonColorStyleSegments(change.expectedStyle); var afterNonColors = nonColorStyleSegments(change.style);
         if (beforeNonColors.length !== afterNonColors.length || beforeNonColors.some(function (part, index) { return part !== afterNonColors[index]; })) fail("The color plan attempts to change a non-color style property.", true);
         function stylePropertyValue(style, key) { var found = null; String(style || "").split(";").forEach(function (part) { var equalsAt = part.indexOf("="); if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) found = part.slice(equalsAt + 1).trim(); }); return found; }

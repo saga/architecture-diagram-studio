@@ -490,6 +490,18 @@ describe("native Draw.io palette bridge stencil safety", () => {
     expect(harness.service.style).toContain("studioColorRole=base");
   });
 
+  it("rejects theme recoloring for a small stencil even when its XML contains only neutral colors", () => {
+    const harness = createHarness();
+    const before = stencilXml("#e6e7e8");
+    const after = stencilXml("#D9EDF6");
+    const plan = makePlan(harness, before, after);
+    harness.service.geometry = mockGeometry(0, 0, 100, 100);
+    const originalStyle = harness.service.style;
+    const result = harness.runPalette(plan);
+    expect(result).toMatchObject({ event: "studioNativePaletteResult", success: false, rollbackConfirmed: true });
+    expect(harness.service.style).toBe(originalStyle);
+  });
+
   it("rejects stencil mutations that touch a chromatic brand asset", () => {
     const harness = createHarness();
     const before = stencilXml("#e6e7e8", '<strokecolor color="#4286c5"/>');
