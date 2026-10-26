@@ -288,6 +288,27 @@ describe("native Draw.io script bridge", () => {
     expect(edge.style).not.toContain("edgeStyle=");
   });
 
+  it("returns values from IIFE expression scripts to the host", () => {
+    const harness = createHarness();
+    const result = harness.runScript('(function () { return { ok: true, postconditions: { edgePresent: true } }; })();');
+
+    expect(result).toMatchObject({
+      success: true,
+      scriptResult: {
+        available: true,
+        value: { ok: true, postconditions: { edgePresent: true } }
+      }
+    });
+  });
+
+  it("does not execute a script twice when execution itself throws SyntaxError", () => {
+    const harness = createHarness();
+    const result = harness.runScript('(function () { graph.insertVertex(graph.getDefaultParent(), null, "Created once", 1, 2, 30, 20); throw new SyntaxError("runtime syntax error"); })();');
+
+    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
+    expect(harness.getCreatedCells()).toHaveLength(0);
+  });
+
   it("executes whole-page curved-edge changes including connectors inside groups", () => {
     const harness = createHarness();
     const result = harness.runScript(curveAllConnectorsScript);
