@@ -726,7 +726,8 @@
       if (/\b(?:async|await)\b/.test(executable)) {
         throw new Error("Native Draw.io scripts must be synchronous; async functions and await are not supported");
       }
-      if (/\b(?:setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback|queueMicrotask|fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|BroadcastChannel|importScripts|addEventListener|attachEvent)\b/.test(executable) ||
+      if (/\b(?:setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback|queueMicrotask|fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|BroadcastChannel|MutationObserver|IntersectionObserver|ResizeObserver|importScripts|addEventListener|attachEvent|postMessage|eval|Function|setImmediate)\b/.test(executable) ||
+          /\bimport\s*\(/.test(executable) ||
           /\.(?:\s*)(?:then|catch|finally|addListener|addEventListener)\s*\(/.test(executable) ||
           /\bglobalThis\b|\b(?:window|self)\s*\.\s*(?:parent|top)\b/.test(executable)) {
         throw new Error("Native Draw.io scripts cannot schedule asynchronous work, register deferred callbacks, or access parent/global execution contexts");
@@ -781,7 +782,8 @@
           "setTimeout", "setInterval", "clearTimeout", "clearInterval", "requestAnimationFrame",
           "cancelAnimationFrame", "requestIdleCallback", "cancelIdleCallback", "queueMicrotask",
           "fetch", "XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker",
-          "BroadcastChannel", "importScripts", "addEventListener", "attachEvent"
+          "BroadcastChannel", "MutationObserver", "IntersectionObserver", "ResizeObserver",
+          "importScripts", "addEventListener", "attachEvent", "postMessage", "eval", "Function", "setImmediate"
         ].forEach(function (name) {
           install(window, name, function () {
             throw new Error("Asynchronous or deferred work is not supported in native Draw.io scripts");
