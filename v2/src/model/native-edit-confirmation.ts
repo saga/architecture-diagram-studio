@@ -435,7 +435,10 @@ export interface NativeScriptXmlCellAssertion {
  * Boolean postconditions express what the script checked in the live editor; xmlAssertions
  * carry the concrete cell facts the host can verify after serialization.
  */
+export type NativeScriptXmlAssertionFailureKind = "invalid-result" | "invalid-assertion" | "invalid-document" | "mismatch";
+
 export interface NativeScriptXmlAssertionFailure {
+  kind: NativeScriptXmlAssertionFailureKind;
   index: number | null;
   cellId?: string;
   field: string;
@@ -477,31 +480,31 @@ export function validateNativeScriptResultAgainstXml(
 
   try {
     if (!scriptResult || typeof scriptResult !== "object" || Array.isArray(scriptResult)) {
-      fail({ index: null, field: "scriptResult", reason: "Script result must be a JSON object.", actual: scriptResult });
+      fail({ kind: "invalid-result", index: null, field: "scriptResult", reason: "Script result must be a JSON object.", actual: scriptResult });
       return finish();
     }
     const outer = scriptResult as Record<string, unknown>;
     if (outer.available !== true || !outer.value || typeof outer.value !== "object" || Array.isArray(outer.value)) {
-      fail({ index: null, field: "scriptResult.value", reason: "Script result does not contain an available JSON value.", actual: outer.available });
+      fail({ kind: "invalid-result", index: null, field: "scriptResult.value", reason: "Script result does not contain an available JSON value.", actual: outer.available });
       return finish();
     }
     const value = outer.value as Record<string, unknown>;
     if (value.ok !== true) {
-      fail({ index: null, field: "ok", reason: "Script result must declare ok: true.", expected: true, actual: value.ok });
+      fail({ kind: "invalid-result", index: null, field: "ok", reason: "Script result must declare ok: true.", expected: true, actual: value.ok });
     }
     if (!Array.isArray(value.xmlAssertions) || value.xmlAssertions.length === 0) {
-      fail({ index: null, field: "xmlAssertions", reason: "At least one native-cell assertion is required.", expected: "non-empty array", actual: value.xmlAssertions });
+      fail({ kind: "invalid-result", index: null, field: "xmlAssertions", reason: "At least one native-cell assertion is required.", expected: "non-empty array", actual: value.xmlAssertions });
       return finish();
     }
 
     const models = cellsForXml(xml);
     if (!hasValidScriptScope(xml, models, pageId)) {
-      fail({ index: null, field: "document", reason: "The serialized XML does not contain a structurally valid native model for the requested page.", expected: pageId });
+      fail({ kind: "invalid-document", index: null, field: "document", reason: "The serialized XML does not contain a structurally valid native model for the requested page.", expected: pageId });
       return finish();
     }
     const scoped = scopedModels(models, pageId);
     if (scoped.length !== 1) {
-      fail({ index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
+      fail({ kind: "invalid-document", index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
       return finish();
     }
     const allowedFields = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
@@ -521,8 +524,9 @@ export function validateNativeScriptResultAgainstXml(
 
     value.xmlAssertions.forEach((raw, assertionIndex) => {
       let cellId = "";
-      const invalid = (field: string, reason: string, expected?: unknown, actual?: unknown) => {
-        fail({ index: assertionIndex, ...(cellId ? { cellId } : {}), field, reason,
+      const invalid = (field: string, reason: string, expected?: unknown, actual?: unknown,
+        kind: NativeScriptXmlAssertionFailureKind = "invalid-assertion") => {
+        fail({ kind, index: assertionIndex, ...(cellId ? { cellId } : {}), field, reason,
           ...(expected !== undefined ? { expected } : {}), ...(actual !== undefined ? { actual } : {}) });
       };
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -620,44 +624,44 @@ export function validateNativeScriptResultAgainstXml(
 
       const candidates = scoped.flatMap((model) => model.cells.filter((item) => item.id === cellId));
       if (expectedExists === false) {
-        if (candidates.length > 0) invalid("exists", "The cell exists in the serialized XML but was declared absent.", false, true);
+        if (candidates.length > 0) invalid("exists", "The cell exists in the serialized XML but was declared absent.", false, true, "mismatch");
         return;
       }
       if (candidates.length !== 1) {
         invalid("cellId", candidates.length === 0
           ? "The cell was not found on the requested page."
-          : "The cell ID is ambiguous on the requested page.", cellId, candidates.length);
+          : "The cell ID is ambiguous on the requested page.", cellId, candidates.length, "mismatch");
         return;
       }
       const record = candidates[0];
 
       if (assertion.kind !== undefined && record.cell.getAttribute(assertion.kind) !== "1") {
-        invalid("kind", "Serialized cell kind did not match.", assertion.kind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell");
+        invalid("kind", "Serialized cell kind did not match.", assertion.kind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell", "mismatch");
       }
       if (assertion.label !== undefined) {
         const actual = findText(record);
         if (!(actual === assertion.label || normalizeLabel(actual) === normalizeLabel(assertion.label))) {
-          invalid("label", "Serialized label did not match.", assertion.label, actual);
+          invalid("label", "Serialized label did not match.", assertion.label, actual, "mismatch");
         }
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
         if (assertion[key] === undefined) continue;
         const attribute = key === "parentId" ? "parent" : key === "sourceId" ? "source" : "target";
         if (!attributeMatches(record.cell, attribute, assertion[key])) {
-          invalid(key, "Serialized cell relationship did not match.", assertion[key], record.cell.hasAttribute(attribute) ? record.cell.getAttribute(attribute) : null);
+          invalid(key, "Serialized cell relationship did not match.", assertion[key], record.cell.hasAttribute(attribute) ? record.cell.getAttribute(attribute) : null, "mismatch");
         }
       }
       if (assertion.style !== undefined) {
         const style = record.cell.getAttribute("style") || "";
         for (const [key, expected] of Object.entries(assertion.style as Record<string, string | null>)) {
           if (!styleMatches(style, key, expected)) {
-            invalid("style." + key, "Serialized style key did not match.", expected, nativeAssertionStyleValue(style, key));
+            invalid("style." + key, "Serialized style key did not match.", expected, nativeAssertionStyleValue(style, key), "mismatch");
           }
         }
       }
       if (assertion.geometry !== undefined) {
         if (!record.geometry) {
-          invalid("geometry", "The serialized cell has no geometry element.", assertion.geometry, null);
+          invalid("geometry", "The serialized cell has no geometry element.", assertion.geometry, null, "mismatch");
         } else {
           const geometry = assertion.geometry as Record<string, number | boolean | null>;
           for (const key of ["x", "y", "width", "height"] as const) {
@@ -666,14 +670,14 @@ export function validateNativeScriptResultAgainstXml(
             const actualRaw = record.geometry.getAttribute(key);
             const actual = actualRaw === null || !Number.isFinite(Number(actualRaw)) ? null : Number(actualRaw);
             if (expected === null ? actualRaw !== null : actual === null || Math.abs(actual - (expected as number)) > 0.01) {
-              invalid("geometry." + key, "Serialized geometry value did not match.", expected, actual);
+              invalid("geometry." + key, "Serialized geometry value did not match.", expected, actual, "mismatch");
             }
           }
           if ("relative" in geometry) {
             const expected = geometry.relative;
             const actualRaw = record.geometry.getAttribute("relative");
             if (expected === null ? actualRaw !== null : (actualRaw === "1") !== expected) {
-              invalid("geometry.relative", "Serialized relative flag did not match.", expected, actualRaw === null ? null : actualRaw === "1");
+              invalid("geometry.relative", "Serialized relative flag did not match.", expected, actualRaw === null ? null : actualRaw === "1", "mismatch");
             }
           }
         }
@@ -681,11 +685,12 @@ export function validateNativeScriptResultAgainstXml(
     });
 
     if (value.ok !== true && failures.length === 0) {
-      fail({ index: null, field: "ok", reason: "Script result must declare ok: true.", expected: true, actual: value.ok });
+      fail({ kind: "invalid-result", index: null, field: "ok", reason: "Script result must declare ok: true.", expected: true, actual: value.ok });
     }
     return finish();
   } catch (error) {
     fail({
+      kind: "invalid-document",
       index: null,
       field: "xml",
       reason: "Unable to validate assertions against serialized Draw.io XML.",
