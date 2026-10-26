@@ -52,6 +52,8 @@ describe("Studio-owned native-cell layout", () => {
       <mxCell id="overlay-node" value="Other layer node" vertex="1" parent="2"><mxGeometry x="200" y="0" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="group" value="Group" vertex="1" parent="1"><mxGeometry x="0" y="100" width="120" height="80" as="geometry"/></mxCell>
       <mxCell id="nested" value="Nested child" vertex="1" parent="group"><mxGeometry x="10" y="10" width="40" height="20" as="geometry"/></mxCell>
+      <mxCell id="nested-2" value="Nested child 2" vertex="1" parent="group"><mxGeometry x="65" y="10" width="40" height="20" as="geometry"/></mxCell>
+      <mxCell id="edge-inside-group" edge="1" parent="group" source="nested" target="nested-2"><mxGeometry relative="1" as="geometry"/></mxCell>
       <mxCell id="legacy" value="No geometry" vertex="1" parent="1"/>
       <mxCell id="hidden" value="Hidden" vertex="1" parent="1" visible="0"><mxGeometry x="0" y="200" width="40" height="20" as="geometry"/></mxCell>
       <mxCell id="edge-ab" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell>
@@ -66,29 +68,31 @@ describe("Studio-owned native-cell layout", () => {
     });
 
     expect(plan.coverage).toEqual({
-      sourceVertexCount: 7,
+      sourceVertexCount: 8,
       plannedVertexCount: 3,
-      untouchedVertexCount: 4,
-      nestedVertexCount: 1,
+      untouchedVertexCount: 5,
+      nestedVertexCount: 2,
       verticesInOtherLayersCount: 1,
       hiddenVertexCount: 1,
       verticesWithoutGeometryCount: 1,
-      sourceEdgeCount: 5,
+      sourceEdgeCount: 6,
       plannedEdgeCount: 2,
-      untouchedEdgeCount: 3,
-      edgesOutsideLayoutLayerCount: 1,
+      untouchedEdgeCount: 4,
+      edgesOutsideLayoutLayerCount: 2,
       hiddenEdgeCount: 0,
       edgesWithoutGeometryCount: 1,
       edgesMissingTerminalsCount: 1,
       edgesWithEndpointsOutsideTargetVerticesCount: 0,
       connectorsAttachedToNestedChildrenCount: 1,
-      edgesWithinSameGroupUntouchedCount: 0
+      edgesWithinSameGroupUntouchedCount: 1
     });
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
     expect(plan.edgeRoutes.map((route) => route.cellId).sort()).toEqual(["edge-ab", "edge-nested-target"]);
     expect(plan.edgeRoutes.find((route) => route.cellId === "edge-nested-target")?.points.length).toBeGreaterThan(0);
+    expect(plan.edgeRoutes.some((route) => route.cellId === "edge-inside-group")).toBe(false);
     // Layout calculation is read-only: neither child-local geometry nor the native edge terminal is rewritten.
     expect(scopedXml).toContain('id="nested" value="Nested child" vertex="1" parent="group"');
+    expect(scopedXml).toContain('id="edge-inside-group" edge="1" parent="group" source="nested" target="nested-2"');
     expect(scopedXml).toContain('id="edge-nested-target" edge="1" parent="1" source="a" target="nested"');
   });
 
