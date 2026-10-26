@@ -211,7 +211,7 @@ describe("native edit XML confirmation", () => {
     const validation = validateNativeScriptResultAgainstXml(result, serialized, "p1");
     expect(validation.ok).toBe(false);
     expect(validation.failures).toContainEqual(expect.objectContaining({
-      cellId: undefined,
+      cellId: "read-results",
       field: "style",
       reason: expect.stringContaining("non-empty object")
     }));
