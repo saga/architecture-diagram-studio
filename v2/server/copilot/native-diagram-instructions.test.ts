@@ -9,6 +9,8 @@ describe("native diagram always-on instructions", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("search_drawio_shapes");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("get_drawio_reference");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("serialized the resulting XML");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("mxCell has no getSource/getTarget");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("style must be a non-empty key/value object");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("curveGeometry");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("model.getChildCount(parent)");
   });
