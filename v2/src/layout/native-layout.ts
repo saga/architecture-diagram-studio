@@ -138,6 +138,8 @@ export interface NativeLayoutCoverage {
   edgesWithoutGeometryCount: number;
   edgesMissingTerminalsCount: number;
   edgesWithEndpointsOutsideTargetVerticesCount: number;
+  connectorsAttachedToNestedChildrenCount: number;
+  edgesWithinSameGroupUntouchedCount: number;
 }
 
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
@@ -162,6 +164,9 @@ interface ProjectedCell {
   parentId: string | null;
   sourceId: string | null;
   targetId: string | null;
+  /** Layout-only terminal proxies; sourceId/targetId always retain native XML terminals. */
+  layoutSourceId?: string | null;
+  layoutTargetId?: string | null;
   kind: "vertex" | "edge" | "other";
   x: number;
   y: number;
@@ -192,7 +197,11 @@ interface NativePageProjection {
   edgesMissingTerminalsCount: number;
   edgesWithEndpointsOutsideTargetVerticesCount: number;
   vertices: ProjectedCell[];
+  /** All source cells are transient input used to resolve nested terminal coordinates. */
+  allCells: ProjectedCell[];
   edges: ProjectedCell[];
+  connectorsAttachedToNestedChildrenCount: number;
+  edgesWithinSameGroupUntouchedCount: number;
 }
 
 interface Point { x: number; y: number }
@@ -363,21 +372,53 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
 
   const layoutLayerId = layoutLayer?.id ?? null;
   const vertexIds = new Set(vertices.map((cell) => cell.id));
-  const edges = all.filter((cell) =>
-    cell.kind === "edge" &&
-    cell.hasGeometry &&
-    cell.parentId === layoutLayerId &&
-    cell.visible &&
-    cell.sourceId &&
-    cell.targetId &&
-    vertexIds.has(cell.sourceId) &&
-    vertexIds.has(cell.targetId)
-  );
+  const allById = new Map(all.map((cell) => [cell.id, cell] as const));
+  const layoutOwnerForTerminal = (terminalId: string | null): string | null => {
+    if (!terminalId) return null;
+    let current = allById.get(terminalId);
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      if (!current.visible) return null;
+      if (vertexIds.has(current.id)) return current.id;
+      if (current.kind !== "vertex" || !current.hasGeometry || current.width <= 0 || current.height <= 0) return null;
+      current = current.parentId ? allById.get(current.parentId) : undefined;
+    }
+    return null;
+  };
 
   const rootLayerIds = new Set(rootLayers.map((layer) => layer.id));
   const sourceVertices = all.filter((cell) => cell.kind === "vertex");
   const sourceVertexIds = new Set(sourceVertices.map((cell) => cell.id));
   const sourceEdges = all.filter((cell) => cell.kind === "edge");
+  const candidateEdges = sourceEdges.filter((cell) =>
+    cell.hasGeometry &&
+    cell.parentId === layoutLayerId &&
+    cell.visible &&
+    Boolean(cell.sourceId && cell.targetId)
+  ).map((cell) => ({
+    cell,
+    layoutSourceId: layoutOwnerForTerminal(cell.sourceId),
+    layoutTargetId: layoutOwnerForTerminal(cell.targetId)
+  }));
+  const edgesWithinSameGroup = candidateEdges.filter(({ cell, layoutSourceId, layoutTargetId }) =>
+    Boolean(layoutSourceId && layoutTargetId && layoutSourceId === layoutTargetId) &&
+    (cell.sourceId !== layoutSourceId || cell.targetId !== layoutTargetId)
+  );
+  const edges: ProjectedCell[] = candidateEdges
+    .filter(({ layoutSourceId, layoutTargetId, cell }) =>
+      Boolean(layoutSourceId && layoutTargetId) &&
+      !(layoutSourceId === layoutTargetId &&
+        (cell.sourceId !== layoutSourceId || cell.targetId !== layoutTargetId))
+    )
+    .map(({ cell, layoutSourceId, layoutTargetId }) => ({
+      ...cell,
+      layoutSourceId,
+      layoutTargetId
+    }));
+  const connectorsAttachedToNestedChildrenCount = edges.filter((edge) =>
+    edge.sourceId !== edge.layoutSourceId || edge.targetId !== edge.layoutTargetId
+  ).length;
   return {
     pageId: parsed.pageId,
     pageTitle: parsed.pageTitle,
@@ -399,12 +440,16 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     edgesOutsideLayoutLayerCount: sourceEdges.filter((cell) => cell.parentId !== layoutLayerId).length,
     hiddenEdgeCount: sourceEdges.filter((cell) => !cell.visible).length,
     edgesMissingTerminalsCount: sourceEdges.filter((cell) => !cell.sourceId || !cell.targetId).length,
-    edgesWithEndpointsOutsideTargetVerticesCount: sourceEdges.filter((cell) =>
-      Boolean(cell.sourceId && cell.targetId) &&
-      (!vertexIds.has(cell.sourceId!) || !vertexIds.has(cell.targetId!))
-    ).length,
+    edgesWithEndpointsOutsideTargetVerticesCount: sourceEdges.filter((cell) => {
+      if (!cell.sourceId || !cell.targetId) return false;
+      if (cell.parentId !== layoutLayerId || !cell.visible || !cell.hasGeometry) return false;
+      return !layoutOwnerForTerminal(cell.sourceId) || !layoutOwnerForTerminal(cell.targetId);
+    }).length,
     vertices,
-    edges
+    allCells: all,
+    edges,
+    connectorsAttachedToNestedChildrenCount,
+    edgesWithinSameGroupUntouchedCount: edgesWithinSameGroup.length
   };
 }
 
@@ -473,8 +518,10 @@ export function emulateEmbeddedFlowDirection(
   let flowX = 0;
   let flowY = 0;
   for (const edge of edges) {
-    const source = edge.sourceId ? centers.get(edge.sourceId) : undefined;
-    const target = edge.targetId ? centers.get(edge.targetId) : undefined;
+    const sourceId = edge.layoutSourceId ?? edge.sourceId;
+    const targetId = edge.layoutTargetId ?? edge.targetId;
+    const source = sourceId ? centers.get(sourceId) : undefined;
+    const target = targetId ? centers.get(targetId) : undefined;
     if (!source || !target) continue;
     const rotatedSource = rotateOnly(relOf(source));
     const rotatedTarget = rotateOnly(relOf(target));
@@ -545,11 +592,67 @@ function normalizePlan(
     if (!finiteCoordinate(x) || !finiteCoordinate(y)) throw new Error("The layout engine returned an invalid node coordinate.");
     return { cellId: cell.id, x, y };
   });
+  const finalPositionById = new Map(nativePositions.map((position) => [
+    position.cellId, { x: position.x, y: position.y }
+  ] as const));
+  const cellsById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
+  const absoluteBoundsForCell = (cellId: string): { x: number; y: number; width: number; height: number } | null => {
+    let current = cellsById.get(cellId);
+    if (!current || current.kind !== "vertex" || !current.hasGeometry) return null;
+    const width = current.width;
+    const height = current.height;
+    let x = 0;
+    let y = 0;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      const finalPosition = finalPositionById.get(current.id);
+      x += finalPosition?.x ?? current.x;
+      y += finalPosition?.y ?? current.y;
+      if (current.parentId === projection.layoutLayerId) return { x, y, width, height };
+      current = current.parentId ? cellsById.get(current.parentId) : undefined;
+    }
+    return null;
+  };
+  const groupBoundaryPoint = (nestedTerminalId: string, ownerId: string, oppositeTerminalId: string): Point | null => {
+    const owner = absoluteBoundsForCell(ownerId);
+    const nested = absoluteBoundsForCell(nestedTerminalId);
+    const opposite = absoluteBoundsForCell(oppositeTerminalId);
+    if (!owner || !nested || !opposite) return null;
+    const ownerCenter = { x: owner.x + owner.width / 2, y: owner.y + owner.height / 2 };
+    const nestedCenter = { x: nested.x + nested.width / 2, y: nested.y + nested.height / 2 };
+    const oppositeCenter = { x: opposite.x + opposite.width / 2, y: opposite.y + opposite.height / 2 };
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+    const dx = oppositeCenter.x - ownerCenter.x;
+    const dy = oppositeCenter.y - ownerCenter.y;
+    // Exit through the group's side facing the opposite endpoint, aligned with the nested
+    // terminal as far as the group bounds allow. The child keeps its local geometry unchanged.
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return {
+        x: dx >= 0 ? owner.x + owner.width : owner.x,
+        y: clamp(nestedCenter.y, owner.y + Math.min(8, owner.height / 2), owner.y + owner.height - Math.min(8, owner.height / 2))
+      };
+    }
+    return {
+      x: clamp(nestedCenter.x, owner.x + Math.min(8, owner.width / 2), owner.x + owner.width - Math.min(8, owner.width / 2)),
+      y: dy >= 0 ? owner.y + owner.height : owner.y
+    };
+  };
+
   const nativeRoutes: NativeLayoutEdgeRoute[] = [];
   for (const edge of projection.edges) {
     // An empty route explicitly clears stale waypoints left by a prior manual/automatic layout.
-    const points = routes.get(edge.id) ?? [];
-    const translated = points.map((point) => ({ x: point.x + dx, y: point.y + dy }));
+    const translated = (routes.get(edge.id) ?? []).map((point) => ({ x: point.x + dx, y: point.y + dy }));
+    // Route the outer graph to the containing Group as a single node, while keeping native
+    // edge source/target IDs pointed at the original children.
+    if (edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId) {
+      const exit = groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId);
+      if (exit) translated.unshift(exit);
+    }
+    if (edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId) {
+      const exit = groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId);
+      if (exit) translated.push(exit);
+    }
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid connector route.");
     }
@@ -590,7 +693,9 @@ function normalizePlan(
       hiddenEdgeCount: projection.hiddenEdgeCount,
       edgesWithoutGeometryCount: Math.max(0, projection.sourceEdgeCount - projection.sourceEdgeWithGeometryCount),
       edgesMissingTerminalsCount: projection.edgesMissingTerminalsCount,
-      edgesWithEndpointsOutsideTargetVerticesCount: projection.edgesWithEndpointsOutsideTargetVerticesCount
+      edgesWithEndpointsOutsideTargetVerticesCount: projection.edgesWithEndpointsOutsideTargetVerticesCount,
+      connectorsAttachedToNestedChildrenCount: projection.connectorsAttachedToNestedChildrenCount,
+      edgesWithinSameGroupUntouchedCount: projection.edgesWithinSameGroupUntouchedCount
     },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),
@@ -633,8 +738,10 @@ export async function calculateNativeAutoLayout(
   if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {
     const result = await calculateAdditionalNativeLayout(
       projection.vertices,
-      projection.edges.filter((edge) => edge.sourceId && edge.targetId).map((edge) => ({
-        id: edge.id, sourceId: edge.sourceId!, targetId: edge.targetId!
+      projection.edges.filter((edge) => (edge.layoutSourceId ?? edge.sourceId) && (edge.layoutTargetId ?? edge.targetId)).map((edge) => ({
+        id: edge.id,
+        sourceId: (edge.layoutSourceId ?? edge.sourceId)!,
+        targetId: (edge.layoutTargetId ?? edge.targetId)!
       })),
       { ...options, engine: options.engine as AdditionalLayoutEngine }
     );
@@ -661,7 +768,9 @@ export async function calculateNativeAutoLayout(
     });
     for (const node of projection.vertices) graph.setNode(node.id, { width: node.width, height: node.height });
     for (const edge of projection.edges) {
-      if (edge.sourceId && edge.targetId) graph.setEdge(edge.sourceId, edge.targetId, {}, edge.id);
+      const sourceId = edge.layoutSourceId ?? edge.sourceId;
+      const targetId = edge.layoutTargetId ?? edge.targetId;
+      if (sourceId && targetId) graph.setEdge(sourceId, targetId, {}, edge.id);
     }
     dagre.layout(graph);
     for (const node of projection.vertices) {
@@ -670,8 +779,10 @@ export async function calculateNativeAutoLayout(
       positions.set(node.id, { x: point.x - node.width / 2, y: point.y - node.height / 2 });
     }
     for (const edge of projection.edges) {
-      if (!edge.sourceId || !edge.targetId) continue;
-      const result = graph.edge({ v: edge.sourceId, w: edge.targetId, name: edge.id }) as { points?: Point[] } | undefined;
+      const sourceId = edge.layoutSourceId ?? edge.sourceId;
+      const targetId = edge.layoutTargetId ?? edge.targetId;
+      if (!sourceId || !targetId) continue;
+      const result = graph.edge({ v: sourceId, w: targetId, name: edge.id }) as { points?: Point[] } | undefined;
       // mxGeometry.points contains intermediate routing points; the terminals are represented
       // by Draw.io's source/target cells, not duplicated in the control-point list.
       routes.set(edge.id, (result?.points ?? []).slice(1, -1));
@@ -710,15 +821,17 @@ export async function calculateNativeAutoLayout(
         ...(["fixed", "sporeCompaction", "sporeOverlap"].includes(options.algorithm) ? { x: node.x, y: node.y } : {})
       })),
       edges: projection.edges
-        .filter((edge) => edge.sourceId && edge.targetId)
+        .filter((edge) => (edge.layoutSourceId ?? edge.sourceId) && (edge.layoutTargetId ?? edge.targetId))
         .map((edge) => {
-          const resultEdge = { id: edge.id, sources: [edge.sourceId!], targets: [edge.targetId!] };
+          const sourceId = (edge.layoutSourceId ?? edge.sourceId)!;
+          const targetId = (edge.layoutTargetId ?? edge.targetId)!;
+          const resultEdge = { id: edge.id, sources: [sourceId], targets: [targetId] };
           if (options.algorithm !== "fixed") return resultEdge;
           // ELK Fixed requires an existing section for each edge. These temporary center-to-center
           // sections satisfy that input contract; no such routes are persisted, and native Draw.io
           // recalculates the actual routes after applying the unchanged node coordinates.
-          const source = projection.vertices.find((vertex) => vertex.id === edge.sourceId)!;
-          const target = projection.vertices.find((vertex) => vertex.id === edge.targetId)!;
+          const source = projection.vertices.find((vertex) => vertex.id === sourceId)!;
+          const target = projection.vertices.find((vertex) => vertex.id === targetId)!;
           return {
             ...resultEdge,
             sections: [{
