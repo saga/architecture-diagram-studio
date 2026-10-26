@@ -385,6 +385,28 @@ describe("native Draw.io script bridge", () => {
     expect(harness.rootEdge.style).toBe(beforeStyle);
   });
 
+  it("blocks computed timer references at runtime even when static scanning cannot see the API name", () => {
+    const harness = createHarness();
+    const beforeStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "var schedulerName = ['set', 'Timeout'].join(''); window[schedulerName](function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }, 1); return { ok: true };"
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(String(result.error)).toContain("Asynchronous or deferred work");
+    expect(harness.rootEdge.style).toBe(beforeStyle);
+  });
+
+  it("blocks computed Promise continuation references at runtime", () => {
+    const harness = createHarness();
+    const beforeStyle = harness.rootEdge.style;
+    const result = harness.runScript(
+      "var callbackName = ['the', 'n'].join(''); Promise.resolve()[callbackName](function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }); return { ok: true };"
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(String(result.error)).toContain("Promise callbacks are not supported");
+    expect(harness.rootEdge.style).toBe(beforeStyle);
+  });
+
   it("rejects async/await hidden inside template interpolation", () => {
     const harness = createHarness();
     const result = harness.runScript(
