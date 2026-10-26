@@ -401,10 +401,13 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     layoutSourceId: layoutOwnerForTerminal(cell.sourceId),
     layoutTargetId: layoutOwnerForTerminal(cell.targetId)
   }));
-  const edgesWithinSameGroup = candidateEdges.filter(({ cell, layoutSourceId, layoutTargetId }) =>
-    Boolean(layoutSourceId && layoutTargetId && layoutSourceId === layoutTargetId) &&
-    (cell.sourceId !== layoutSourceId || cell.targetId !== layoutTargetId)
-  );
+  const edgesWithinSameGroup = sourceEdges.filter((cell) => {
+    if (!cell.sourceId || !cell.targetId) return false;
+    const sourceOwner = layoutOwnerForTerminal(cell.sourceId);
+    const targetOwner = layoutOwnerForTerminal(cell.targetId);
+    return Boolean(sourceOwner && targetOwner && sourceOwner === targetOwner) &&
+      (cell.sourceId !== sourceOwner || cell.targetId !== targetOwner);
+  });
   const edges: ProjectedCell[] = candidateEdges
     .filter(({ layoutSourceId, layoutTargetId, cell }) =>
       Boolean(layoutSourceId && layoutTargetId) &&
