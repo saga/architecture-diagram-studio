@@ -1,0 +1,55 @@
+# ADR-0020: Native Script Assertion Contracts and Accurate Edit Outcomes
+
+- **Status:** Accepted
+- **Date:** 2026-10-27
+- **Scope:** V2 Copilot native Draw.io script execution, XML verification, and user-facing outcomes
+- **Related:** [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0015 — Tool-Guided Copilot Instructions and Draw.io Shape Discovery](./0015-tool-guided-copilot-shape-discovery.md), [ADR-0018 — AI-First Native Draw.io Execution](./0018-ai-first-native-drawio-execution.md)
+
+## Context
+
+The 2026-10-27 sequence-diagram edit requested a single `a → b` call labelled `启动`. The first script used `mxCell.getSource()`, which does not exist in the bundled JavaScript mxGraph runtime, and included an invalid whole-diagram cell-count assumption. The native bridge reported the script exception and confirmed rollback.
+
+The automatic correction then changed the native diagram, but supplied `xmlAssertions[].style` as the complete style string. The host contract requires a map of expected style keys to values. The assertion validator returned only `false`, so a malformed assertion was indistinguishable from a genuine mismatch between the expected and serialized diagram. The host preserved and serialized the changed document, while the chat result described the operation as failed with rollback status unknown. The root-level incident report `SEQUENCE-QIDONG-SCRIPT-FAILURE-2026-10-27.md` records the file-level evidence and reproductions.
+
+This exposed four contract gaps: API guidance lacked signatures for common cell methods; the script tool description omitted the precise assertion shape; validation diagnostics lost the failing field and reason; and user-facing error text treated “changed but unverified” like an unknown rollback.
+
+## Decision
+
+### 1. Define an explicit, strict assertion format
+
+A modifying script returns a JSON-safe object with `ok: true`, non-empty `postconditions` containing only checked true booleans, and a non-empty `xmlAssertions` array.
+
+Each assertion includes a non-empty `cellId` and concrete, typed facts. Supported fields are `exists`, `kind`, `label`, `parentId`, `sourceId`, `targetId`, `style`, and `geometry`. Unknown fields, invalid field types, empty style maps, and empty geometry maps are invalid assertions. `style` is a non-empty key/value map, for example `{ "endArrow": "block" }`; it is not a full `mxCell.style` string. Geometry expectations must explicitly identify at least one supported field.
+
+Assertion-shape failures and actual XML mismatches are distinct outcomes. Validation diagnostics carry the assertion index, cell ID, field, reason, expected value, and actual value when available. The existing boolean helper remains as a compatibility wrapper; code needing a useful receipt uses the detailed validator.
+
+### 2. Make the native API guidance executable and concrete
+
+The local contract, on-demand reference, tool description, and always-on prompt must agree on common method signatures. For an edge, use `edge.getTerminal(true/false)` or `model.getTerminal(edge, true/false)`; do not invent `getSource()` or `getTarget()`. `model.getChildCount(parent)` counts direct children only. Scripts that need a recursive count must traverse the tree and should not assert a guessed total number of cells for a local edit.
+
+### 3. Preserve the distinction between execution, verification, and persistence
+
+A script may execute and serialize a document without satisfying its declared assertions. The states remain distinct:
+
+- `applied-and-verified`: declared assertions match the serialized XML.
+- `changed-unverified`: the serialized document changed, but its requested outcome was not verified.
+- `not-applied`: the serialized document appears unchanged.
+- `unknown`: the available snapshot cannot reliably establish whether it changed.
+
+A `changed-unverified` result is **not evidence of rollback**. The product must preserve the resulting XML for inspection and must not tell the user that nothing was applied, that rollback is unknown without qualification, or that they should restore an earlier version automatically. It should identify the changed-but-unverified state and tell the user to inspect the current diagram and persistence/history evidence before any corrective action.
+
+### 4. Do not blindly retry a mutation that may already have applied
+
+Automatic script repair after a thrown runtime error is permitted only when rollback is explicitly confirmed and the pre-edit document/page/selection still match. If execution reached mutation and the serialized outcome is `changed-unverified`, do not rerun the original insertion automatically: the operation could be duplicated. Surface actionable assertion diagnostics instead. Any future recovery that continues after a changed document must first inspect the current XML and derive a new, revision-bound correction from the actual state.
+
+## Consequences
+
+- Assertion validation failures are diagnosable without guessing which field failed.
+- Agent instructions explicitly state object shape and common API signatures, while rare recipes remain on demand.
+- Empty assertion objects cannot act as vacuous evidence.
+- A correct native edit is not represented as a confirmed rollback merely because verification failed.
+- Native XML remains the sole saved diagram model; this ADR adds no shadow graph, new confirmation gate, or script allowlist.
+
+## Verification requirements
+
+Regression tests must cover: valid style/geometry assertions; full-style-string rejection; empty style/geometry rejection; mismatched source/target and expected/actual diagnostics; unknown-page and ambiguous-cell rejection; and preservation of the existing boolean validator contract. End-to-end coverage should prove that a changed-but-unverified mutation is surfaced as such and is not automatically replayed.
