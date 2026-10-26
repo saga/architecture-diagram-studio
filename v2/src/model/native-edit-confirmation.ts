@@ -516,8 +516,11 @@ export function validateNativeScriptResultAgainstXml(
     };
     const styleMatches = (style: string, key: string, expected: unknown): boolean => {
       if (expected !== null && typeof expected !== "string") return false;
-      const actual = nativeAssertionStyleValue(style, key);
-      return expected === null ? actual === null : Boolean(actual?.some((entry) => entry === expected));
+      const occurrences = nativeAssertionStyleValue(style, key);
+      // mxGraph style parsing applies the last occurrence of a duplicated key.
+      // Match that effective value instead of accepting any stale earlier occurrence.
+      const effectiveValue = occurrences && occurrences.length > 0 ? occurrences[occurrences.length - 1] : undefined;
+      return expected === null ? effectiveValue === undefined : effectiveValue === expected;
     };
 
     value.xmlAssertions.forEach((raw, assertionIndex) => {
