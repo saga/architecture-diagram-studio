@@ -650,3 +650,49 @@ describe("additional native layout engines", () => {
     expect(nativeLayoutAlgorithmsForEngine("d3").map((item) => item.value)).toContain("tree");
   });
 });
+
+
+describe("native layout identity resolution", () => {
+  const noncanonicalIdsXml = `<mxfile><diagram id="custom-page" name="Custom IDs"><mxGraphModel><root>
+    <mxCell id="graph-root"/>
+    <mxCell id="main-layer" parent="graph-root"/>
+    <mxCell id="node-a" value="A" vertex="1" parent="main-layer"><mxGeometry x="20" y="30" width="100" height="40" as="geometry"/></mxCell>
+    <mxCell id="node-b" value="B" vertex="1" parent="main-layer"><mxGeometry x="220" y="30" width="100" height="40" as="geometry"/></mxCell>
+    <mxCell id="edge-a-b" edge="1" parent="main-layer" source="node-a" target="node-b"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root></mxGraphModel></diagram></mxfile>`;
+
+  it("resolves root and the sole layer by structure regardless of their IDs", async () => {
+    const plan = await calculateNativeAutoLayout(noncanonicalIdsXml, "custom-page", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
+    expect(plan.layoutLayerId).toBe("main-layer");
+    expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["node-a", "node-b"]);
+  });
+
+  it("does not prefer a layer because its ID is 1 when multiple populated layers exist", async () => {
+    const ambiguous = `<mxfile><diagram id="custom-page"><mxGraphModel><root>
+      <mxCell id="graph-root"/>
+      <mxCell id="1" parent="graph-root"/>
+      <mxCell id="other-layer" parent="graph-root"/>
+      <mxCell id="in-default" value="Default layer node" vertex="1" parent="1"><mxGeometry x="10" y="10" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="in-other" value="Other layer node" vertex="1" parent="other-layer"><mxGeometry x="200" y="10" width="80" height="40" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    await expect(calculateNativeAutoLayout(ambiguous, "custom-page", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS))
+      .rejects.toThrow(/no top-level native Draw\.io vertices/i);
+  });
+
+  it("does not infer an active page from XML order in a multi-page file", async () => {
+    const secondPage = noncanonicalIdsXml
+      .replace('id="custom-page"', 'id="second-page"')
+      .replaceAll('id="graph-root"', 'id="second-root"')
+      .replaceAll('parent="graph-root"', 'parent="second-root"')
+      .replaceAll('id="main-layer"', 'id="second-layer"')
+      .replaceAll('parent="main-layer"', 'parent="second-layer"')
+      .replaceAll('id="node-a"', 'id="second-node-a"')
+      .replaceAll('id="node-b"', 'id="second-node-b"')
+      .replaceAll('id="edge-a-b"', 'id="second-edge-a-b"')
+      .replaceAll('source="node-a"', 'source="second-node-a"')
+      .replaceAll('target="node-b"', 'target="second-node-b"');
+    const multipage = noncanonicalIdsXml.replace("</mxfile>", secondPage.replace(/^<mxfile>|<\\/mxfile>$/g, "") + "</mxfile>");
+    await expect(calculateNativeAutoLayout(multipage, null, revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS))
+      .rejects.toThrow(/multiple pages but no active page ID/i);
+  });
+});
