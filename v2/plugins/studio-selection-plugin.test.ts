@@ -385,6 +385,23 @@ describe("native Draw.io script bridge", () => {
     expect(harness.rootEdge.style).toBe(beforeStyle);
   });
 
+  it("rejects async/await hidden inside template interpolation", () => {
+    const harness = createHarness();
+    const result = harness.runScript(
+      "var label = \u0060\u0024{(async function () { await Promise.resolve(); graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); })()}\u0060; return { ok: true };"
+    );
+    expect(result).toMatchObject({ success: false, batchRolledBack: true });
+    expect(String(result.error)).toContain("async functions and await");
+  });
+
+  it("ignores asynchronous API names inside labels and comments", () => {
+    const harness = createHarness();
+    const result = harness.runScript(
+      "var label = 'setTimeout async await parent'; /* await Promise.resolve(); */ return { ok: true, postconditions: { inspected: true }, xmlAssertions: [{ cellId: 'edge-root', exists: true, kind: 'edge' }] };"
+    );
+    expect(result).toMatchObject({ success: true });
+  });
+
   it("rejects unbalanced nested model transactions and unwinds them for rollback", () => {
     const harness = createHarness();
     const beforeStyle = harness.rootEdge.style;
