@@ -9,6 +9,22 @@ import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 
 export const SPATIAL_REGION_ANALYSIS_ID = "quality.spatial-region-boundaries";
 
+export interface SpatialRegionLayoutCandidate {
+  regionCellId: string;
+  label: string;
+  memberCellIds: string[];
+  boundaryCellIds: string[];
+  confidence: "high" | "medium" | "low";
+  eligible: boolean;
+  skipReason: string | null;
+}
+
+export interface SpatialRegionLayoutDetection {
+  candidates: SpatialRegionLayoutCandidate[];
+  eligibleCandidates: SpatialRegionLayoutCandidate[];
+  skippedCandidateCount: number;
+}
+
 export const spatialRegionAnalysisProvider = {
   descriptor: {
     id: SPATIAL_REGION_ANALYSIS_ID,
@@ -252,7 +268,7 @@ function areDisjointOrNested(a: CellBounds, b: CellBounds): boolean {
   return aContainsB || bContainsA;
 }
 
-function detectRegions(xml: string, pageId: string | null): NativeDiagramFinding[] {
+function detectRegionsCore(xml: string, pageId: string | null): { findings: NativeDiagramFinding[]; regions: RegionCandidate[]; cells: SpatialCell[] } {
   const { model } = parseNativePage(xml, pageId);
   const cells = readCells(model);
   const rootCandidates = cells.filter((cell) =>
@@ -260,7 +276,7 @@ function detectRegions(xml: string, pageId: string | null): NativeDiagramFinding
   );
   const root = rootCandidates.find((cell) => cell.id === "0") ??
     (rootCandidates.length === 1 ? rootCandidates[0] : null);
-  if (!root) return [];
+  if (!root) return { findings: [], regions: [], cells };
   const layers = cells.filter((cell) =>
     cell.parentId === root.id && cell.kind === "other" && !cell.hasGeometry && cell.visible
   );
@@ -470,7 +486,50 @@ function detectRegions(xml: string, pageId: string | null): NativeDiagramFinding
       details: { ambiguousCellCount: ambiguousMemberships.size }
     });
   }
-  return findings;
+  return { findings, regions, cells };
+}
+
+function detectRegions(xml: string, pageId: string | null): NativeDiagramFinding[] {
+  return detectRegionsCore(xml, pageId).findings;
+}
+
+/** Returns transient candidates for the shared layout projection; no native XML is changed. */
+export function detectSpatialRegionsForLayout(xml: string, pageId: string | null): SpatialRegionLayoutDetection {
+  const { regions } = detectRegionsCore(xml, pageId);
+  const nestedRegionIds = new Set(regions.flatMap((region) => region.nestedRegionCellIds));
+  const memberCounts = new Map<string, number>();
+  const candidateMembers = new Map<string, string[]>();
+  for (const region of regions) {
+    const memberIds = Array.from(new Set([
+      ...region.memberCellIds,
+      ...region.nearBoundaryLabels.map((item) => item.id)
+    ]));
+    candidateMembers.set(region.cell.id, memberIds);
+    for (const memberId of memberIds) memberCounts.set(memberId, (memberCounts.get(memberId) ?? 0) + 1);
+  }
+  const candidates = regions.map((region): SpatialRegionLayoutCandidate => {
+    const memberCellIds = candidateMembers.get(region.cell.id) ?? [];
+    const sharedMembers = memberCellIds.filter((id) => (memberCounts.get(id) ?? 0) > 1);
+    let skipReason: string | null = null;
+    if (region.confidence === "low") skipReason = "low-confidence-or-overlap";
+    else if (region.nestedRegionCellIds.length > 0 || nestedRegionIds.has(region.cell.id)) skipReason = "nested-region";
+    else if (sharedMembers.length > 0) skipReason = "ambiguous-member-assignment";
+    else if (memberCellIds.length === 0) skipReason = "no-unambiguous-members";
+    return {
+      regionCellId: region.cell.id,
+      label: region.ownLabel || region.nearBoundaryLabels[0]?.label || "Unlabelled region",
+      memberCellIds,
+      boundaryCellIds: region.boundaryCellIds.slice(),
+      confidence: region.confidence,
+      eligible: skipReason === null,
+      skipReason
+    };
+  });
+  return {
+    candidates,
+    eligibleCandidates: candidates.filter((candidate) => candidate.eligible),
+    skippedCandidateCount: candidates.filter((candidate) => !candidate.eligible).length
+  };
 }
 
 function analyze(context: NativeDiagramCapabilityContext, request: unknown): NativeDiagramAnalysisResponse {
