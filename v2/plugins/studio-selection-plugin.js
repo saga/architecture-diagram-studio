@@ -661,6 +661,137 @@
       return { changedCells: snapshots.length, changedBackground: backgroundChanged };
     }
 
+    function assertNativeScriptSynchronous(source) {
+      var executable = String(source || "")
+        .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, " ")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/.*$/gm, " ");
+      if (/\b(?:async|await)\b/.test(executable)) {
+        throw new Error("Native Draw.io scripts must be synchronous; async functions and await are not supported");
+      }
+      if (/\b(?:setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback|queueMicrotask|fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|BroadcastChannel|importScripts|addEventListener|attachEvent)\b/.test(executable) ||
+          /\.(?:\s*)(?:then|catch|finally|addListener|addEventListener)\s*\(/.test(executable) ||
+          /\b(?:parent|top|globalThis)\b/.test(executable)) {
+        throw new Error("Native Draw.io scripts cannot schedule asynchronous work, register deferred callbacks, or access parent/global execution contexts");
+      }
+    }
+
+    function executeNativeScriptSynchronously(source, activeModel, execute) {
+      assertNativeScriptSynchronous(source);
+      var patches = [];
+      var scriptUpdateDepth = 0;
+      var unbalancedUpdateDepth = 0;
+      var cleanupErrors = [];
+      var result;
+      var executionError = null;
+      var ownBegin = Object.prototype.hasOwnProperty.call(activeModel, "beginUpdate");
+      var ownEnd = Object.prototype.hasOwnProperty.call(activeModel, "endUpdate");
+      var beginDescriptor = Object.getOwnPropertyDescriptor(activeModel, "beginUpdate");
+      var endDescriptor = Object.getOwnPropertyDescriptor(activeModel, "endUpdate");
+      var originalBegin = activeModel.beginUpdate;
+      var originalEnd = activeModel.endUpdate;
+      var wrappedBegin;
+      var wrappedEnd;
+
+      function install(target, key, replacement) {
+        if (!target) return;
+        var hadOwn = Object.prototype.hasOwnProperty.call(target, key);
+        var descriptor = Object.getOwnPropertyDescriptor(target, key);
+        Object.defineProperty(target, key, {
+          configurable: true, enumerable: descriptor ? descriptor.enumerable : true,
+          writable: true, value: replacement
+        });
+        if (target[key] !== replacement) throw new Error("Could not enforce the synchronous script boundary for " + key);
+        patches.push({ target: target, key: key, hadOwn: hadOwn, descriptor: descriptor });
+      }
+
+      function restorePatches() {
+        for (var i = patches.length - 1; i >= 0; i--) {
+          var patch = patches[i];
+          try {
+            if (patch.hadOwn && patch.descriptor) Object.defineProperty(patch.target, patch.key, patch.descriptor);
+            else delete patch.target[patch.key];
+          } catch (error) {
+            cleanupErrors.push("Could not restore " + patch.key + ": " +
+              (error && error.message ? String(error.message) : String(error)));
+          }
+        }
+        patches = [];
+      }
+
+      try {
+        [
+          "setTimeout", "setInterval", "clearTimeout", "clearInterval", "requestAnimationFrame",
+          "cancelAnimationFrame", "requestIdleCallback", "cancelIdleCallback", "queueMicrotask",
+          "fetch", "XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker",
+          "BroadcastChannel", "importScripts", "addEventListener", "attachEvent"
+        ].forEach(function (name) {
+          install(window, name, function () {
+            throw new Error("Asynchronous or deferred work is not supported in native Draw.io scripts");
+          });
+        });
+        if (typeof Promise === "function" && Promise.prototype) {
+          ["then", "catch", "finally"].forEach(function (name) {
+            if (typeof Promise.prototype[name] === "function") {
+              install(Promise.prototype, name, function () {
+                throw new Error("Promise callbacks are not supported in synchronous native Draw.io scripts");
+              });
+            }
+          });
+        }
+        wrappedBegin = function () {
+          var value = originalBegin.apply(this, arguments);
+          scriptUpdateDepth += 1;
+          return value;
+        };
+        wrappedEnd = function () {
+          if (scriptUpdateDepth <= 0) throw new Error("Native Draw.io scripts must not close the bridge-owned outer model transaction");
+          var value = originalEnd.apply(this, arguments);
+          scriptUpdateDepth -= 1;
+          return value;
+        };
+        install(activeModel, "beginUpdate", wrappedBegin);
+        install(activeModel, "endUpdate", wrappedEnd);
+        result = execute();
+        if (activeModel.beginUpdate !== wrappedBegin || activeModel.endUpdate !== wrappedEnd) {
+          throw new Error("Native Draw.io scripts must not replace the model transaction methods");
+        }
+        unbalancedUpdateDepth = scriptUpdateDepth;
+      } catch (error) {
+        executionError = error;
+        unbalancedUpdateDepth = scriptUpdateDepth;
+      } finally {
+        var unwindCount = 0;
+        while (scriptUpdateDepth > 0 && unwindCount < 20) {
+          try { originalEnd.call(activeModel); scriptUpdateDepth -= 1; }
+          catch (error) {
+            cleanupErrors.push("Could not unwind a script-owned model transaction: " +
+              (error && error.message ? String(error.message) : String(error)));
+            break;
+          }
+          unwindCount += 1;
+        }
+        if (scriptUpdateDepth > 0) cleanupErrors.push("The script left more than 20 nested model transactions open.");
+        restorePatches();
+        try {
+          if (ownBegin && beginDescriptor) Object.defineProperty(activeModel, "beginUpdate", beginDescriptor);
+          else delete activeModel.beginUpdate;
+          if (ownEnd && endDescriptor) Object.defineProperty(activeModel, "endUpdate", endDescriptor);
+          else delete activeModel.endUpdate;
+        } catch (error) {
+          cleanupErrors.push("Could not restore the native model transaction methods: " +
+            (error && error.message ? String(error.message) : String(error)));
+        }
+      }
+      if (executionError) throw executionError;
+      if (unbalancedUpdateDepth > 0) {
+        throw new Error("Native Draw.io script left " + unbalancedUpdateDepth +
+          " nested beginUpdate call(s) unbalanced; the script transaction was unwound and the batch will roll back");
+      }
+      if (cleanupErrors.length) throw new Error("Native script cleanup was incomplete: " + cleanupErrors.join("; "));
+      return result;
+    }
+
     function editCell(request) {
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
@@ -848,7 +979,11 @@
         var executeNativeScript; var expressionSource = script.replace(/;\s*$/, "");
         try { executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\nreturn (\n' + expressionSource + '\n);'); }
         catch (compileError) { if (!compileError || compileError.name !== "SyntaxError") throw compileError; executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script); }
-        var scriptResult = executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) { return inspectDrawioRuntime(ui, activeGraph, activeModel, options); });
+        var scriptResult = executeNativeScriptSynchronously(script, activeModel, function () {
+          return executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
+            return inspectDrawioRuntime(ui, activeGraph, activeModel, options);
+          });
+        });
         if (scriptResult && typeof scriptResult.then === "function") throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
         return { executed: true, resultType: scriptResult === null ? "null" : typeof scriptResult, scriptResult: serializeScriptResult(scriptResult) };
       }
