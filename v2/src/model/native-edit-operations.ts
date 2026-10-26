@@ -78,7 +78,9 @@ export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): N
   const parsed = parseDrawioXml(xml);
   if (parsed.documentElement.nodeName !== "mxfile") return { id: null, title: null };
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const page = pageId != null ? diagrams.find((item) => item.getAttribute("id") === pageId) : diagrams[0];
+  const page = pageId != null
+    ? diagrams.find((item) => item.getAttribute("id") === pageId)
+    : diagrams.length === 1 ? diagrams[0] : undefined;
   if (!page) return { id: null, title: null };
   return {
     id: page.getAttribute("id") || null,
@@ -105,10 +107,12 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
   if (parsed.documentElement.nodeName === "mxGraphModel") return parsed;
   if (parsed.documentElement.nodeName !== "mxfile") return parsed;
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const diagram = pageId != null ? diagrams.find((page) => page.getAttribute("id") === pageId) : diagrams[0];
+  const diagram = pageId != null
+    ? diagrams.find((page) => page.getAttribute("id") === pageId)
+    : diagrams.length === 1 ? diagrams[0] : undefined;
   if (!diagram) {
     if (pageId != null) throw new Error(`Draw.io page “${pageId}” was not found; refusing to inspect cells from another page.`);
-    return parsed;
+    throw new Error("The Draw.io document has multiple pages but no active page ID; refusing to inspect cells from the first page.");
   }
   const model = diagram.getElementsByTagName("mxGraphModel").item(0);
   if (model) return model as unknown as Document;
@@ -138,7 +142,7 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
     const id = wrappedId || cell.getAttribute("id") || "";
     const vertex = cell.getAttribute("vertex") === "1";
     const edge = cell.getAttribute("edge") === "1";
-    if (!id || seen.has(id) || (!vertex && !edge) || id === "0" || id === "1") continue;
+    if (!id || seen.has(id) || (!vertex && !edge)) continue;
     seen.add(id);
     const c4Name = wrapper?.getAttribute("c4Name");
     const rawLabel = c4Name !== null && c4Name !== undefined
@@ -283,7 +287,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
         return { ok: false, error: `Operation ${index + 1}: Dagre does not support the requested “${operation.algorithm}” algorithm. Select “layered” or use ELK for other algorithms.` };
       }
       if (!nativeLayoutSupportsAlgorithm(operation.engine, operation.algorithm)) {
-        return { ok: false, error: `Operation ${index + 1}: algorithm “${operation.algorithm}” is not supported by “${operation.engine}”.` };
+        return { ok: false, error: `Operation ${index + 1}: algorithm “${operation.algorithm}” is not supported by “${operation.engine}".` };
       }
       operations.push(operation);
     } else {
