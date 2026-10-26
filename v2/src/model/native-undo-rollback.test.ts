@@ -21,7 +21,7 @@ function createCell(id: string, style = "", kind: "vertex" | "edge" | "cell" = "
   };
 }
 
-function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
+function createBridge(options: { failFirstStyleWriteTo?: string; initialBackground?: string | null } = {}) {
   let messageListener: ((event: { source: unknown; origin: string; data: string }) => void) | null = null;
   let failStyleOnce = options.failFirstStyleWriteTo ?? null;
   const postedMessages: Array<Record<string, unknown>> = [];
@@ -126,7 +126,7 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
 
   const selectionModel = { addListener() {} };
   const graph = {
-    background: null as string | null,
+    background: (options.initialBackground ?? null) as string | null,
     view: { validateBackground() {} },
     getModel: () => model,
     getSelectionModel: () => selectionModel,
@@ -177,8 +177,8 @@ const themePlan = {
   theme: "ocean-depths",
   documentRevision: "a".repeat(64),
   pageId: "p1",
-  expectedBackground: null,
-  background: "#C5DDE7",
+  expectedBackground: "#FFFF66",
+  background: null,
   expectedPageCellIds: ["0", "1", "a", "b"],
   changes: [
     { cellId: "a", kind: "vertex", expectedStyle: "fillColor=#FFFFFF;strokeColor=#000000;", style: "fillColor=#E0F2FE;strokeColor=#0369A1;fontColor=#17324D;studioColorRole=category-1;" },
@@ -188,7 +188,7 @@ const themePlan = {
 
 describe("native Draw.io history rollback", () => {
   it("does not add an Undo entry or clear Redo when a failed palette transaction is fully rolled back", () => {
-    const bridge = createBridge({ failFirstStyleWriteTo: "b" });
+    const bridge = createBridge({ failFirstStyleWriteTo: "b", initialBackground: "#FFFF66" });
     const priorUndo = [...bridge.undoEntries];
     const priorRedo = [...bridge.redoEntries];
 
@@ -199,7 +199,7 @@ describe("native Draw.io history rollback", () => {
     });
     expect(bridge.a.style).toBe("fillColor=#FFFFFF;strokeColor=#000000;");
     expect(bridge.b.style).toBe("fillColor=#FFFFFF;strokeColor=#000000;");
-    expect(bridge.getBackground()).toBeNull();
+    expect(bridge.getBackground()).toBe("#FFFF66");
     expect(bridge.undoEntries).toEqual(priorUndo);
     expect(bridge.redoEntries).toEqual(priorRedo);
   });
