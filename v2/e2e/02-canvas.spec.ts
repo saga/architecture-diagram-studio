@@ -64,6 +64,126 @@ function cellX(xml: string, fragment: string): number | null {
   return cellPosition(xml, fragment)?.x ?? null;
 }
 
+function nativeCellSnapshot(xml: string, cellId: string) {
+  const source = parseDrawioXml(xml);
+  const documentRoot = source.documentElement;
+  const models: Element[] = [];
+  if (documentRoot.nodeName === "mxGraphModel") {
+    models.push(documentRoot as unknown as Element);
+  } else if (documentRoot.nodeName === "mxfile") {
+    for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
+      const inline = page.getElementsByTagName("mxGraphModel").item(0);
+      if (inline) {
+        models.push(inline);
+        continue;
+      }
+      const payload = (page.textContent || "").trim();
+      if (!payload) continue;
+      try {
+        const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
+        if (decoded.documentElement.nodeName === "mxGraphModel") models.push(decoded.documentElement as unknown as Element);
+      } catch { /* Keep searching other pages. */ }
+    }
+  }
+  for (const model of models) {
+    const cell = Array.from(model.getElementsByTagName("mxCell")).find((candidate) => candidate.getAttribute("id") === cellId);
+    if (!cell) continue;
+    const geometry = Array.from(cell.children).find((child) => child.tagName === "mxGeometry") as Element | undefined;
+    return {
+      parent: cell.getAttribute("parent"),
+      source: cell.getAttribute("source"),
+      target: cell.getAttribute("target"),
+      x: geometry?.getAttribute("x") ?? null,
+      y: geometry?.getAttribute("y") ?? null,
+      width: geometry?.getAttribute("width") ?? null,
+      height: geometry?.getAttribute("height") ?? null,
+      relative: geometry?.getAttribute("relative") ?? null,
+      points: geometry
+        ? Array.from(geometry.children)
+          .filter((child) => child.tagName === "Array" && child.getAttribute("as") === "points")
+          .flatMap((array) => Array.from(array.children))
+          .filter((child) => child.tagName === "mxPoint")
+          .map((point) => ({ x: point.getAttribute("x"), y: point.getAttribute("y") }))
+        : []
+    };
+  }
+  return null;
+}
+
+/** Drag the native SVG shape instead of the foreignObject label. */
+async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
+  // Scope to the rendered canvas label; the sidebar can contain duplicate palette labels.
+  const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
+  await expect(label, `the ${labelText} canvas node must be rendered before it can be dragged`).toBeVisible();
+  const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
+  const bounds = await label.boundingBox();
+  expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
+  expect(bounds, `the ${labelText} canvas label must have visible bounds`).not.toBeNull();
+
+  // Find the mxGraph SVG shape that actually contains the HTML label. This avoids both the
+  // palette duplicate and label-only hit targets that do not initiate the native vertex drag.
+  const shapePoint = await label.evaluate((element) => {
+    const labelBounds = element.getBoundingClientRect();
+    const center = {
+      x: labelBounds.left + labelBounds.width / 2,
+      y: labelBounds.top + labelBounds.height / 2
+    };
+    const candidates = Array.from(document.querySelectorAll(".geDiagramContainer rect[pointer-events='all']"))
+      .map((rect) => {
+        const r = rect.getBoundingClientRect();
+        return { rect, bounds: r, area: r.width * r.height };
+      })
+      .filter(({ bounds: r }) =>
+        r.width > 0 && r.height > 0 &&
+        center.x >= r.left && center.x <= r.right &&
+        center.y >= r.top && center.y <= r.bottom
+      )
+      .sort((a, b) => a.area - b.area);
+    const shape = candidates[0];
+    if (!shape) {
+      return {
+        error: "No native SVG vertex rect contains the rendered label",
+        labelBounds: { x: labelBounds.x, y: labelBounds.y, width: labelBounds.width, height: labelBounds.height },
+        visibleRects: Array.from(document.querySelectorAll(".geDiagramContainer rect[pointer-events='all']"))
+          .slice(0, 20).map((rect) => {
+            const r = rect.getBoundingClientRect();
+            return { x: r.x, y: r.y, width: r.width, height: r.height };
+          })
+      };
+    }
+    const r = shape.bounds;
+    const x = r.left + r.width * 0.8;
+    const y = r.top + r.height * 0.78;
+    const hit = document.elementFromPoint(x, y);
+    if (hit && hit.closest(".geItem")) {
+      return {
+        error: "The native canvas node is occluded by the Draw.io shape palette",
+        labelText: element.textContent,
+        x, y,
+        hit: { tag: hit.tagName, className: typeof hit.className === "string" ? hit.className : "" }
+      };
+    }
+    return {
+      x, y,
+      shapeBounds: { x: r.x, y: r.y, width: r.width, height: r.height },
+      hit: hit ? { tag: hit.tagName, className: typeof hit.className === "string" ? hit.className : "" } : null
+    };
+  });
+  if ("error" in shapePoint) throw new Error(JSON.stringify(shapePoint));
+
+  // Frame-local DOM coordinates become host-page coordinates after adding the iframe offset.
+  const startX = frameBox!.x + shapePoint.x;
+  const startY = frameBox!.y + shapePoint.y;
+  const before = await label.boundingBox();
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
+  await page.mouse.up();
+
+  await expect.poll(() => label.boundingBox(), { timeout: 5_000, intervals: [100] })
+    .not.toEqual(before);
+}
+
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
 function edgeStyles(xml: string): string[] {
   try {
@@ -231,6 +351,56 @@ test.describe("原生画布", () => {
     await expect(page.getByRole("button", { name: "Redo", exact: true })).toBeEnabled();
   });
 
+  test("Group 作为原子节点参与布局，内部节点与内部连线的相对几何保持不变", async ({ page, request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
+    const sourceXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
+    const groupCells = `
+      <mxCell id="group-container" value="Grouped Block" style="rounded=1;container=1;collapsible=0;fillColor=#f8fafc;strokeColor=#64748b;" vertex="1" parent="1"><mxGeometry x="930" y="430" width="230" height="120" as="geometry"/></mxCell>
+      <mxCell id="group-step-a" value="Step A" vertex="1" parent="group-container"><mxGeometry x="18" y="30" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="group-step-b" value="Step B" vertex="1" parent="group-container"><mxGeometry x="128" y="30" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="group-internal-edge" edge="1" parent="group-container" source="group-step-a" target="group-step-b" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="edge-database-to-group-child" edge="1" parent="1" source="database" target="group-step-a" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+    expect(sourceXml.split("</root>").length).toBe(2);
+    const withGroupXml = sourceXml.replace("</root>", groupCells + "</root>");
+    const saved = await request.put("/api/workspace/document", {
+      data: {
+        drawioXml: withGroupXml,
+        label: "E2E atomic group layout fixture",
+        baseRevision: state.workspaceRevision
+      }
+    });
+    expect(saved.status(), await saved.text()).toBe(200);
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    const beforeXml = await readWorkspaceXml(workspace);
+    const groupBefore = nativeCellSnapshot(beforeXml, "group-container");
+    const childABefore = nativeCellSnapshot(beforeXml, "group-step-a");
+    const childBBefore = nativeCellSnapshot(beforeXml, "group-step-b");
+    const internalEdgeBefore = nativeCellSnapshot(beforeXml, "group-internal-edge");
+    expect(groupBefore).not.toBeNull();
+    expect(childABefore).not.toBeNull();
+    expect(childBBefore).not.toBeNull();
+    expect(internalEdgeBefore).not.toBeNull();
+
+    await page.getByRole("button", { name: "Auto layout", exact: true }).click();
+    await expect.poll(async () => nativeCellSnapshot(await readWorkspaceXml(workspace), "group-container")?.x, {
+      timeout: 30_000, intervals: [500]
+    }).not.toBe(groupBefore!.x);
+
+    const afterXml = await readWorkspaceXml(workspace);
+    expect(nativeCellSnapshot(afterXml, "group-step-a")).toEqual(childABefore);
+    expect(nativeCellSnapshot(afterXml, "group-step-b")).toEqual(childBBefore);
+    expect(nativeCellSnapshot(afterXml, "group-internal-edge")).toEqual(internalEdgeBefore);
+    expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")).toMatchObject({
+      parent: "1", source: "database", target: "group-step-a"
+    });
+    expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")?.points.length).toBeGreaterThan(0);
+    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group boundary.");
+  });
+
   test("布局工具栏恢复引擎和方向下拉设置，以及横向纵向快捷布局", async ({ page }) => {
     await expect(page.getByRole("combobox", { name: "Layout engine" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Layout direction" })).toBeVisible();
@@ -260,47 +430,34 @@ test.describe("原生画布", () => {
 
   test("拖动节点会把新的几何信息写回工作区文件", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
-    const beforeX = cellX(before, "client");
+    const beforeX = cellX(before, "database");
     expect(beforeX).not.toBeNull();
 
-    const label = nativeFrame(page).getByText("Client", { exact: true });
-    const box = await label.boundingBox();
-    expect(box, "the Client node must be rendered before it can be dragged").not.toBeNull();
-
-    const startX = box!.x + box!.width / 2;
-    const startY = box!.y + box!.height / 2;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    // Use the same direct drag trajectory as the neighboring reload-after-drag test.
-    await page.mouse.move(startX + 120, startY + 40, { steps: 14 });
-    await page.mouse.up();
+    // The Client fixture starts under Draw.io's left palette; use an unobscured canvas node.
+    await dragNativeNode(page, "Database", 120, 40);
 
     await expect
-      .poll(async () => cellX(await readWorkspaceXml(workspace), "client"), { timeout: 30_000, intervals: [500] })
+      .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
       .not.toBe(beforeX);
     await expect(page.locator(".status-left")).toContainText("Synced native Draw.io changes");
   });
 
   test("刷新页面后画布恢复到拖动后的版本", async ({ page }) => {
-    const label = nativeFrame(page).getByText("Client", { exact: true });
-    const box = await label.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box!.x + box!.width / 2 + 120, box!.y + box!.height / 2 + 40, { steps: 14 });
-    await page.mouse.up();
+    const beforeDragXml = await readWorkspaceXml(workspace);
+    const beforeDragX = cellX(beforeDragXml, "database");
+    expect(beforeDragX).not.toBeNull();
+    await dragNativeNode(page, "Database", 120, 40);
 
-    const beforeReload = await readWorkspaceXml(workspace);
     await expect
-      .poll(async () => (await readWorkspaceXml(workspace)) !== beforeReload, { timeout: 30_000, intervals: [500] })
-      .toBe(true);
-    const draggedX = cellX(await readWorkspaceXml(workspace), "client");
+      .poll(async () => cellX(await readWorkspaceXml(workspace), "database"), { timeout: 30_000, intervals: [500] })
+      .not.toBe(beforeDragX);
+    const draggedX = cellX(await readWorkspaceXml(workspace), "database");
 
     await page.reload();
     await waitForNativeEditor(page);
-    await expect(nativeFrame(page).getByText("Client", { exact: true })).toBeVisible();
+    await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
     // The reload must not roll the file back to the pre-drag geometry.
-    expect(cellX(await readWorkspaceXml(workspace), "client")).toBe(draggedX);
+    expect(cellX(await readWorkspaceXml(workspace), "database")).toBe(draggedX);
   });
 
   test("选中画布元素后可以查看并编辑原生 Draw.io 属性", async ({ page }) => {

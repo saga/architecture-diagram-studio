@@ -152,6 +152,7 @@ export default function App() {
   const [drawioStatus, setDrawioStatus] = useState<"unknown" | "checking" | "ready" | "missing" | "error">("unknown");
   const [drawioStatusMessage, setDrawioStatusMessage] = useState("");
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
+  const [layoutCoverageNotice, setLayoutCoverageNotice] = useState<string | null>(null);
   const [nativeLayoutOptions, setNativeLayoutOptions] = useState<NativeAutoLayoutOptions>(() => loadNativeLayoutOptions());
   const [layoutSettingsOpen, setLayoutSettingsOpen] = useState(false);
   useEffect(() => {
@@ -1272,6 +1273,7 @@ export default function App() {
       return;
     }
     setAutoLayoutRunning(true);
+    setLayoutCoverageNotice(null);
     setLastAction("Calculating Studio " + algorithmLabel + "…");
     try {
       const source = latestDiagramStateRef.current;
@@ -1283,10 +1285,41 @@ export default function App() {
       if (latestState.drawioXml !== sourceXml || latestState.selectedNativePageId !== pageId) {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
+      const coverage = nativePlan.coverage;
+      const exclusionReasons: string[] = [];
+      if (coverage.nestedVertexCount) exclusionReasons.push(coverage.nestedVertexCount + " nested/group child nodes");
+      if (coverage.verticesInOtherLayersCount) exclusionReasons.push(coverage.verticesInOtherLayersCount + " nodes in other layers");
+      if (coverage.hiddenVertexCount) exclusionReasons.push(coverage.hiddenVertexCount + " hidden nodes");
+      if (coverage.verticesWithoutGeometryCount) exclusionReasons.push(coverage.verticesWithoutGeometryCount + " nodes without geometry");
+      if (coverage.edgesOutsideLayoutLayerCount) exclusionReasons.push(coverage.edgesOutsideLayoutLayerCount + " connectors outside the selected layer");
+      if (coverage.hiddenEdgeCount) exclusionReasons.push(coverage.hiddenEdgeCount + " hidden connectors");
+      if (coverage.edgesWithoutGeometryCount) exclusionReasons.push(coverage.edgesWithoutGeometryCount + " connectors without geometry");
+      if (coverage.edgesMissingTerminalsCount) exclusionReasons.push(coverage.edgesMissingTerminalsCount + " connectors without source/target terminals");
+      if (coverage.edgesWithEndpointsOutsideTargetVerticesCount) {
+        exclusionReasons.push(coverage.edgesWithEndpointsOutsideTargetVerticesCount + " connectors attached to out-of-scope nodes");
+      }
+      const exclusionNotice = exclusionReasons.length
+        ? " Exclusion reasons (categories can overlap): " + exclusionReasons.join(", ") + "."
+        : "";
+      const groupHandlingNotice = [
+        coverage.connectorsAttachedToNestedChildrenCount
+          ? " Routed " + coverage.connectorsAttachedToNestedChildrenCount + " connector(s) attached to grouped child nodes via the group boundary."
+          : "",
+        coverage.edgesWithinSameGroupUntouchedCount
+          ? " Left " + coverage.edgesWithinSameGroupUntouchedCount + " connector(s) within a single group unchanged."
+          : ""
+      ].filter(Boolean).join("");
+      const coverageMessage =
+        "Layout scope: rearrange " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount + " nodes and " +
+        coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors; leave " +
+        coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
+        " connectors untouched." + groupHandlingNotice + exclusionNotice;
+      setLayoutCoverageNotice(coverageMessage);
+      setLastAction(coverageMessage);
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
         pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
-        engine: options.engine, algorithm: options.algorithm, direction: options.direction,
+        coverage, engine: options.engine, algorithm: options.algorithm, direction: options.direction,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
         vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length
@@ -1296,16 +1329,22 @@ export default function App() {
       const layerNotice = nativePlan.layoutLayerFallback
         ? " (default layer was empty; used visible layer " + (nativePlan.layoutLayerId || "unknown") + ")"
         : "";
-      setLastAction("Studio auto layout applied" + layerNotice + "; syncing native Draw.io XML");
-      recordDiagnostic("drawio.layout.ui.completed", "The Studio layout plan was applied and serialized by native Draw.io", {
+      const appliedScope = "Draw.io serialized layout for " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
+        " nodes and " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount +
+        " connectors; " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
+        " connectors remain untouched" + layerNotice + ". Workspace save acknowledgement is tracked in the save status.";
+      setLastAction(appliedScope);
+      setLayoutCoverageNotice(appliedScope + groupHandlingNotice + exclusionNotice);
+      recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
-        engine: options.engine,
+        coverage, engine: options.engine,
         algorithm: options.algorithm, direction: options.direction, vertexCount: nativePlan.positions.length,
         edgeCount: nativePlan.edgeRoutes.length
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      setLayoutCoverageNotice(null);
       setLastAction("Auto layout failed: " + errorMessage);
       recordDiagnostic("drawio.layout.ui.failed", "Studio auto layout failed or could not be confirmed", {
         pageId: selectedNativePageId, errorMessage, engine: options.engine, algorithm: options.algorithm,
@@ -1587,6 +1626,16 @@ export default function App() {
             </Button>
           </div>
         </div>
+        {layoutCoverageNotice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            title="Only eligible top-level cells in the selected visible layer are laid out; native XML cells outside this scope remain untouched."
+            style={{ fontSize: 12, lineHeight: 1.5, color: "#65521a", padding: "6px 10px", borderLeft: "3px solid #c9a227", background: "rgba(201, 162, 39, 0.08)", margin: "0 0 8px" }}
+          >
+            {layoutCoverageNotice}
+          </div>
+        ) : null}
 
         <Modal
           title="Layout settings"

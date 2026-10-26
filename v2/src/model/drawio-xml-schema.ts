@@ -484,7 +484,16 @@ function addCellInventoryWarnings(root: DrawioXmlElement, warnings: string[], pa
       if (target && !ids.has(target) && !hasPoint("targetPoint")) warnings.push(pageLabel + ": edge " + (id || index) + " references missing target " + target + ".");
       if (!source && !hasPoint("sourcePoint")) warnings.push(pageLabel + ": edge " + (id || index) + " has neither a source nor a sourcePoint.");
       if (!target && !hasPoint("targetPoint")) warnings.push(pageLabel + ": edge " + (id || index) + " has neither a target nor a targetPoint.");
-      if (geometry?.attributes.relative !== "1") warnings.push(pageLabel + ": edge " + (id || index) + " geometry is not marked relative=1.");
+      const hasRelativeLabelPosition = Boolean(geometry && (
+        geometry.attributes.x !== undefined ||
+        geometry.attributes.y !== undefined ||
+        geometry.children.some((child) => child.name === "mxPoint" && child.attributes.as === "offset")
+      ));
+      if (geometry?.attributes.relative !== undefined && geometry.attributes.relative !== "1") {
+        warnings.push(pageLabel + ": edge " + (id || index) + " explicitly sets geometry relative=" + geometry.attributes.relative + " instead of relative=1.");
+      } else if (geometry && geometry.attributes.relative === undefined && hasRelativeLabelPosition) {
+        warnings.push(pageLabel + ": edge " + (id || index) + " has relative label offsets but its geometry does not declare relative=1.");
+      }
     }
   }
 }
