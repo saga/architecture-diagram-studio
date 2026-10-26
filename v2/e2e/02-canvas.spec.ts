@@ -619,7 +619,11 @@ test.describe("原生画布", () => {
           const state = graph.view && typeof graph.view.getState === "function" ? graph.view.getState(edge) : null;
           return { id: edge.id, stateAvailable: Boolean(state), pointCount: state && state.absolutePoints ? state.absolutePoints.length : 0 };
         });
-        return { affectedEdges: edges.length, stylesVerified, renderedEdges };
+        return {
+          ok: stylesVerified,
+          postconditions: { edgesFound: edges.length > 0, stylesVerified: stylesVerified },
+          affectedEdges: edges.length, stylesVerified, renderedEdges
+        };
       `;
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
@@ -651,7 +655,11 @@ test.describe("原生画布", () => {
     expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
     expect(result.scriptResult).toMatchObject({
       available: true,
-      value: { affectedEdges: expect.any(Number), stylesVerified: true, renderedEdges: expect.any(Array) }
+      value: {
+        ok: true,
+        postconditions: { edgesFound: true, stylesVerified: true },
+        affectedEdges: expect.any(Number), stylesVerified: true, renderedEdges: expect.any(Array)
+      }
     });
     await expect.poll(async () => {
       const styles = edgeStyles(await readWorkspaceXml(workspace));
