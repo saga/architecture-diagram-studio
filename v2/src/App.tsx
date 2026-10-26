@@ -1918,11 +1918,15 @@ export default function App() {
                   (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
                     ? "; workspace save confirmed."
                     : standaloneFileName && finalResult.path === "cell:batch" ? "; standalone file save confirmed." : ".")
-                : finalResult.failureStage === "persistence"
-                  ? "Native edit was serialized but persistence failed: " + (finalResult.error || "Unknown error")
-                  : finalResult.applicationState === "changed-unverified"
-                    ? "The native document changed, but the requested edit was not verified: " + (finalResult.error || "Unknown verification error")
-                    : finalResult.applicationState === "not-applied"
+                : finalResult.applicationState === "changed-unverified" && finalResult.failureStage === "persistence"
+                  ? "The native document changed, but the requested edit was not verified and persistence failed: " + (finalResult.error || "Unknown error")
+                  : finalResult.applicationState === "unknown" && finalResult.failureStage === "persistence"
+                    ? "The native edit outcome is unknown and persistence failed: " + (finalResult.error || "Unknown error")
+                    : finalResult.failureStage === "persistence"
+                      ? "Native edit was serialized but persistence failed: " + (finalResult.error || "Unknown error")
+                      : finalResult.applicationState === "changed-unverified"
+                        ? "The native document changed, but the requested edit was not verified: " + (finalResult.error || "Unknown verification error")
+                        : finalResult.applicationState === "not-applied"
                       ? "No document change was detected for this edit: " + (finalResult.error || "No matching change")
                       : finalResult.applicationState === "unknown"
                         ? "The native edit outcome is unknown: " + (finalResult.error || "No reliable serialized result")
