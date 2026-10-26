@@ -112,50 +112,17 @@ function nativeCellSnapshot(xml: string, cellId: string) {
 
 /** Drag the native SVG shape instead of the foreignObject label. */
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
-  // Scope to the real canvas node; Draw.io's sidebar can contain duplicate palette labels.
+  // Scope to the rendered canvas label; Draw.io's sidebar may contain the same palette label.
   const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
   await expect(label, `the ${labelText} canvas node must be rendered before it can be dragged`).toBeVisible();
-  const frameBox = await page.locator('iframe[title="Native Draw.io editor"]').boundingBox();
-  expect(frameBox, "the native Draw.io iframe must be visible").not.toBeNull();
+  const bounds = await label.boundingBox();
+  expect(bounds, `the ${labelText} canvas label must have visible bounds`).not.toBeNull();
 
-  // The label is rendered inside an SVG foreignObject; locate the native painted rect whose
-  // rendered bounds contain that label, rather than relying on the HTML label's tiny bounds.
-  const point = await label.evaluate((element) => {
-    const labelBounds = element.getBoundingClientRect();
-    const labelCenter = {
-      x: labelBounds.left + labelBounds.width / 2,
-      y: labelBounds.top + labelBounds.height / 2
-    };
-    const candidates = Array.from(document.querySelectorAll(".geDiagramContainer rect[ pointer-events='all'], .geDiagramContainer rect[pointer-events='all']"))
-      .map((rect) => {
-        const bounds = rect.getBoundingClientRect();
-        return { rect, bounds };
-      })
-      .filter(({ bounds }) =>
-        bounds.width >= 20 && bounds.height >= 12 &&
-        bounds.width < 800 && bounds.height < 500 &&
-        labelCenter.x >= bounds.left && labelCenter.x <= bounds.right &&
-        labelCenter.y >= bounds.top && labelCenter.y <= bounds.bottom
-      )
-      .sort((a, b) => a.bounds.width * a.bounds.height - b.bounds.width * b.bounds.height);
-    const shape = candidates[0];
-    if (!shape) {
-      throw new Error("Could not locate a painted SVG shape containing canvas label " +
-        element.textContent + "; label bounds=" + JSON.stringify(labelBounds.toJSON()));
-    }
-    const bounds = shape.bounds;
-    const x = bounds.left + bounds.width * 0.82;
-    const y = bounds.top + bounds.height * 0.78;
-    const hit = document.elementFromPoint(x, y);
-    if (!hit || (!shape.rect.parentElement?.contains(hit) && hit !== shape.rect)) {
-      throw new Error("The chosen drag point does not hit the native vertex shape");
-    }
-    return { x, y };
-  });
-
-  // evaluate() returns iframe-local coordinates; page.mouse expects host-page coordinates.
-  const startX = frameBox!.x + point.x;
-  const startY = frameBox!.y + point.y;
+  // Playwright boundingBox() for a FrameLocator is already expressed in host-page coordinates.
+  // Start just below/right of the HTML label, on the painted body of the native vertex, avoiding
+  // Draw.io's inline text editor and resize handles.
+  const startX = bounds!.x + bounds!.width + 30;
+  const startY = bounds!.y + bounds!.height + 10;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
