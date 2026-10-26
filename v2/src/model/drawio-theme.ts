@@ -134,7 +134,9 @@ function themedNeutralStencilShape(
     changed = true;
     return prefix + targetFill + suffix;
   });
-  if (!changed || recolorableFills === 0) return null;
+  if (recolorableFills === 0) return null;
+  // An already-themed neutral backplate remains eligible, even when this palette leaves it unchanged.
+  if (!changed) return "stencil(" + match[1] + ")";
   return "stencil(" + encodeBase64(deflateSync(strToU8(encodeURIComponent(nextXml)))) + ")";
 }
 function safeColor(value: string): string | null { const color = value.trim(); return /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) ? color : null; }
@@ -179,7 +181,13 @@ function secondaryThemeColorValues(style: string, palette: DiagramThemePalette, 
   }
   return result;
 }
-function themeStyleValues(style: string, kind: "vertex" | "edge", palette: DiagramThemePalette, role: DrawioColorRole, cell?: DrawioDomElement): Record<string, string> {
+function themeStyleValues(style: string, kind: "vertex" | "edge", palette: DiagramThemePalette, role: DrawioColorRole, cell?: DrawioDomElement): Record<string, string> | null {
+  const shapeValue = styleProperty(style, "shape");
+  const isInlineStencil = /^stencil\\([^)]+\\)$/i.test(shapeValue ?? "");
+  const themedShape = isInlineStencil && cell ? themedNeutralStencilShape(cell, style, palette, role) : null;
+  // Inline stencil assets are skipped completely unless they pass the neutral-backplate checks.
+  // Recoloring only the outer style can still overwrite a logo's inherited brand colors.
+  if (isInlineStencil && themedShape === null) return null;
   const categoryColor = isCategoryRole(role) ? palette.categories[Number(role.slice("category-".length)) - 1] : null;
   const secondary = secondaryThemeColorValues(style, palette, role);
   if (kind === "vertex" && (role === "text" || isTextOnlyVertex(style))) {
@@ -189,16 +197,43 @@ function themeStyleValues(style: string, kind: "vertex" | "edge", palette: Diagr
     return { strokeColor: categoryColor?.stroke ?? palette.edgeStroke, fontColor: categoryColor ? palette.ink : palette.edgeFont, [DRAWIO_COLOR_ROLE_STYLE_KEY]: role, ...secondary };
   }
   const fillColor = styleProperty(style, "fillColor")?.toLowerCase() === "none" ? "none" : categoryColor?.fill ?? palette.baseFill;
-  const themedShape = cell ? themedNeutralStencilShape(cell, style, palette, role) : null;
   return { fillColor, strokeColor: categoryColor?.stroke ?? palette.baseStroke, fontColor: palette.ink,
     [DRAWIO_COLOR_ROLE_STYLE_KEY]: role, ...secondary, ...(themedShape ? { shape: themedShape } : {}) };
 }
-function applyThemeToGraphModel(documentOrModel: DrawioDomDocument | DrawioDomElement, theme: DrawioDiagramTheme): number { const model = documentOrModel.nodeType === 9 ? (documentOrModel as DrawioDomDocument).documentElement : documentOrModel as DrawioDomElement; if (!model || model.nodeName !== "mxGraphModel") return 0; const cells = Array.from(model.getElementsByTagName("mxCell")) as DrawioDomElement[]; const roles = assignColorRoles(cells); const palette = DRAWIO_DIAGRAM_THEMES[theme]; let changed = 0; for (const cell of cells) { const kind = cell.getAttribute("vertex") === "1" ? "vertex" : cell.getAttribute("edge") === "1" ? "edge" : null; if (!kind) continue; const originalStyle = cell.getAttribute("style") ?? ""; const role = roles.get(cell); if (!role) throw new Error("A colorable Draw.io cell had no stable color role."); const nextStyle = updateStyleProperties(originalStyle, themeStyleValues(originalStyle, kind, palette, role, cell)); if (nextStyle !== originalStyle) { cell.setAttribute("style", nextStyle); changed += 1; } } return changed; }
+function applyThemeToGraphModel(documentOrModel: DrawioDomDocument | DrawioDomElement, theme: DrawioDiagramTheme): number { const model = documentOrModel.nodeType === 9 ? (documentOrModel as DrawioDomDocument).documentElement : documentOrModel as DrawioDomElement; if (!model || model.nodeName !== "mxGraphModel") return 0; const cells = Array.from(model.getElementsByTagName("mxCell")) as DrawioDomElement[]; const roles = assignColorRoles(cells); const palette = DRAWIO_DIAGRAM_THEMES[theme]; let changed = 0; for (const cell of cells) { const kind = cell.getAttribute("vertex") === "1" ? "vertex" : cell.getAttribute("edge") === "1" ? "edge" : null; if (!kind) continue; const originalStyle = cell.getAttribute("style") ?? ""; const role = roles.get(cell); if (!role) throw new Error("A colorable Draw.io cell had no stable color role."); const values = themeStyleValues(originalStyle, kind, palette, role, cell); if (!values) continue; const nextStyle = updateStyleProperties(originalStyle, values); if (nextStyle !== originalStyle) { cell.setAttribute("style", nextStyle); changed += 1; } } return changed; }
 function decodeCompressedPage(page: DrawioDomElement): DrawioDomDocument | null { const payload = page.textContent?.trim() ?? ""; if (!payload) return null; try { const document = parseDrawioXml(decodeDrawioPageXml(payload)); return document.documentElement?.nodeName === "mxGraphModel" ? document : null; } catch { return null; } }
 function nativeXmlCellId(cell: DrawioDomElement): string { const wrapper = cell.parentElement as DrawioDomElement | null; const wrapperId = wrapper && (wrapper.nodeName === "object" || wrapper.nodeName === "UserObject") ? wrapper.getAttribute("id") : null; return wrapperId || cell.getAttribute("id") || ""; }
 function parseNativePageModel(xml: string, pageId: string | null): { model: DrawioDomElement; pageId: string | null } { const parsed = parseXml(xml); const root = parsed?.documentElement; if (!root) throw new Error("The Draw.io XML has no document element."); if (root.nodeName === "mxGraphModel") return { model: root as DrawioDomElement, pageId: null }; if (root.nodeName !== "mxfile") throw new Error("Color presets only support native Draw.io mxfile or mxGraphModel documents."); const pages = findDrawioElements(parsed as DrawioDomDocument, "diagram"); const page = pageId !== null ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : pages.length === 1 ? pages[0] : undefined; if (!page) throw new Error(pageId !== null ? "The active Draw.io page no longer exists. Select the page again before applying colors." : "The Draw.io document has multiple pages but no active page ID; refusing to color the first page."); const inlineModels = Array.from(page.getElementsByTagName("mxGraphModel")) as DrawioDomElement[]; const decodedModel = inlineModels[0] ?? decodeCompressedPage(page)?.documentElement as DrawioDomElement | undefined; if (!decodedModel || decodedModel.nodeName !== "mxGraphModel") throw new Error("The active Draw.io page could not be decoded safely. No colors were changed."); return { model: decodedModel, pageId: page.getAttribute("id") || null }; }
-export function calculateNativePalettePlan(xml: string, pageId: string | null, documentRevision: string, theme: DrawioDiagramTheme): NativePalettePlan { if (!/^[a-f0-9]{64}$/i.test(documentRevision)) throw new Error("Diagram colors require the revision of the exact native Draw.io XML snapshot."); const palette = DRAWIO_DIAGRAM_THEMES[theme]; if (!palette) throw new Error("Unsupported Draw.io diagram color preset."); const parsed = parseNativePageModel(xml, pageId); const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as DrawioDomElement[]; const ids = cells.map(nativeXmlCellId); if (ids.some((id) => !id) || new Set(ids).size !== ids.length) throw new Error("The active page has missing or duplicate cell IDs; no color changes were planned."); const roles = assignColorRoles(cells); const changes: NativePaletteChange[] = []; for (const cell of cells) { const kind = cell.getAttribute("vertex") === "1" ? "vertex" : cell.getAttribute("edge") === "1" ? "edge" : null; if (!kind) continue; const cellId = nativeXmlCellId(cell); const expectedStyle = cell.getAttribute("style") ?? ""; const role = roles.get(cell); if (!role) throw new Error("A colorable Draw.io cell had no stable color role."); const style = updateStyleProperties(expectedStyle, themeStyleValues(expectedStyle, kind, palette, role, cell)); if (style !== expectedStyle) changes.push({ cellId, kind, expectedStyle, style }); } return { theme, documentRevision, pageId: parsed.pageId, expectedPageCellIds: ids.sort(), changes }; }
-export function detectDrawioDiagramTheme(xml: string, pageId: string | null): DrawioDiagramTheme | "" { try { const { model } = parseNativePageModel(xml, pageId); const cells = (Array.from(model.getElementsByTagName("mxCell")) as DrawioDomElement[]).map((cell) => ({ cell, kind: cell.getAttribute("vertex") === "1" ? "vertex" as const : cell.getAttribute("edge") === "1" ? "edge" as const : null, style: cell.getAttribute("style") ?? "" })).filter((cell): cell is { cell: DrawioDomElement; kind: "vertex" | "edge"; style: string } => cell.kind !== null); if (cells.length === 0 || cells.some((cell) => roleFromStyle(cell.style) === null)) return ""; for (const theme of Object.keys(DRAWIO_DIAGRAM_THEMES) as DrawioDiagramTheme[]) { const palette = DRAWIO_DIAGRAM_THEMES[theme]; if (cells.every((cell) => { const role = roleFromStyle(cell.style); return role !== null && updateStyleProperties(cell.style, themeStyleValues(cell.style, cell.kind, palette, role, cell.cell)) === cell.style; })) return theme; } return ""; } catch { return ""; } }
+export function calculateNativePalettePlan(xml: string, pageId: string | null, documentRevision: string, theme: DrawioDiagramTheme): NativePalettePlan { if (!/^[a-f0-9]{64}$/i.test(documentRevision)) throw new Error("Diagram colors require the revision of the exact native Draw.io XML snapshot."); const palette = DRAWIO_DIAGRAM_THEMES[theme]; if (!palette) throw new Error("Unsupported Draw.io diagram color preset."); const parsed = parseNativePageModel(xml, pageId); const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as DrawioDomElement[]; const ids = cells.map(nativeXmlCellId); if (ids.some((id) => !id) || new Set(ids).size !== ids.length) throw new Error("The active page has missing or duplicate cell IDs; no color changes were planned."); const roles = assignColorRoles(cells); const changes: NativePaletteChange[] = []; for (const cell of cells) { const kind = cell.getAttribute("vertex") === "1" ? "vertex" : cell.getAttribute("edge") === "1" ? "edge" : null; if (!kind) continue; const cellId = nativeXmlCellId(cell); const expectedStyle = cell.getAttribute("style") ?? ""; const role = roles.get(cell); if (!role) throw new Error("A colorable Draw.io cell had no stable color role."); const values = themeStyleValues(expectedStyle, kind, palette, role, cell); if (!values) continue; const style = updateStyleProperties(expectedStyle, values); if (style !== expectedStyle) changes.push({ cellId, kind, expectedStyle, style }); } return { theme, documentRevision, pageId: parsed.pageId, expectedPageCellIds: ids.sort(), changes }; }
+export function detectDrawioDiagramTheme(xml: string, pageId: string | null): DrawioDiagramTheme | "" {
+  try {
+    const { model } = parseNativePageModel(xml, pageId);
+    const cells = (Array.from(model.getElementsByTagName("mxCell")) as DrawioDomElement[])
+      .map((cell) => ({
+        cell,
+        kind: cell.getAttribute("vertex") === "1" ? "vertex" as const : cell.getAttribute("edge") === "1" ? "edge" as const : null,
+        style: cell.getAttribute("style") ?? ""
+      }))
+      .filter((cell): cell is { cell: DrawioDomElement; kind: "vertex" | "edge"; style: string } => cell.kind !== null);
+    if (cells.length === 0 || cells.every((cell) => roleFromStyle(cell.style) === null)) return "";
+    const assignedRoles = assignColorRoles(cells.map((cell) => cell.cell));
+    for (const theme of Object.keys(DRAWIO_DIAGRAM_THEMES) as DrawioDiagramTheme[]) {
+      const palette = DRAWIO_DIAGRAM_THEMES[theme];
+      if (cells.every((cell) => {
+        const storedRole = roleFromStyle(cell.style);
+        const role = storedRole ?? assignedRoles.get(cell.cell);
+        if (role === null || role === undefined) return false;
+        const values = themeStyleValues(cell.style, cell.kind, palette, role, cell.cell);
+        // Unmarked inline stencils are intentionally excluded from theme coloring.
+        if (storedRole === null && values === null) return true;
+        return storedRole !== null && values !== null && updateStyleProperties(cell.style, values) === cell.style;
+      })) return theme;
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
 function encodeBase64(bytes: Uint8Array): string { let binary = ""; const chunkSize = 0x8000; for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length))); return btoa(binary); }
 function encodeCompressedPage(document: DrawioDomDocument): string { const encodedXml = encodeURIComponent(serializeDrawioXml(document)); return encodeBase64(deflateSync(strToU8(encodedXml))); }
 export function applyDrawioDiagramTheme(xml: string, theme: DrawioDiagramTheme): string { const palette = DRAWIO_DIAGRAM_THEMES[theme]; const parsed = parseXml(xml); if (!palette || !parsed) return xml; let changed = 0; const rootName = parsed.documentElement?.nodeName; if (rootName === "mxGraphModel") changed += applyThemeToGraphModel(parsed, theme); else if (rootName === "mxfile") { changed += findDrawioElements(parsed, "mxGraphModel").reduce((count, model) => count + applyThemeToGraphModel(model, theme), 0); for (const page of findDrawioElements(parsed, "diagram")) { if (findDrawioElements(page.ownerDocument as DrawioDomDocument, "mxGraphModel").some((model) => isDescendantOf(model, page))) continue; const decoded = decodeCompressedPage(page); if (!decoded) continue; const pageChanges = applyThemeToGraphModel(decoded, theme); if (pageChanges > 0) { page.textContent = encodeCompressedPage(decoded); changed += pageChanges; } } } return changed > 0 ? serializeDrawioXml(parsed) : xml; }
