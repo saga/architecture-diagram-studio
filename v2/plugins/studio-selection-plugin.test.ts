@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";\nimport { deflateSync, inflateSync, strFromU8, strToU8 } from "fflate";
+import { readFileSync } from "node:fs";\nimport { deflateRawSync, inflateRawSync, strFromU8, strToU8 } from "fflate";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
@@ -179,7 +179,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     location: { origin: "http://studio.test" },
     mxUtils: {
       createXmlDocument: () => ({ createElement: () => mockElement() }),
-      decompress: (payload: string) => decodeURIComponent(strFromU8(inflateSync(Uint8Array.from(atob(payload), (character) => character.charCodeAt(0)))))
+      decompress: (payload: string) => decodeURIComponent(strFromU8(inflateRawSync(Uint8Array.from(atob(payload), (character) => character.charCodeAt(0)))))
     },
     mxCellRenderer: { defaultShapes: shapeRegistry },
     addEventListener: (_name: string, callback: (event: Record<string, any>) => void) => { messageHandler = callback; },
@@ -457,7 +457,7 @@ describe("native Draw.io palette bridge", () => {
 
 describe("native Draw.io palette bridge stencil safety", () => {
   function encodeStencil(xml: string): string {
-    const compressed = deflateSync(strToU8(encodeURIComponent(xml)));
+    const compressed = deflateRawSync(strToU8(encodeURIComponent(xml)));
     let binary = "";
     for (const byte of compressed) binary += String.fromCharCode(byte);
     return btoa(binary);
