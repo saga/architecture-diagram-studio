@@ -1301,11 +1301,19 @@ export default function App() {
       const exclusionNotice = exclusionReasons.length
         ? " Exclusion reasons (categories can overlap): " + exclusionReasons.join(", ") + "."
         : "";
+      const groupHandlingNotice = [
+        coverage.connectorsAttachedToNestedChildrenCount
+          ? " Routed " + coverage.connectorsAttachedToNestedChildrenCount + " connector(s) attached to grouped child nodes via the group boundary."
+          : "",
+        coverage.edgesWithinSameGroupUntouchedCount
+          ? " Left " + coverage.edgesWithinSameGroupUntouchedCount + " connector(s) within a single group unchanged."
+          : ""
+      ].filter(Boolean).join("");
       const coverageMessage =
         "Layout scope: rearrange " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount + " nodes and " +
         coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors; leave " +
         coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
-        " connectors untouched." + exclusionNotice;
+        " connectors untouched." + groupHandlingNotice + exclusionNotice;
       setLayoutCoverageNotice(coverageMessage);
       setLastAction(coverageMessage);
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
@@ -1326,7 +1334,7 @@ export default function App() {
         " connectors; " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
         " connectors remain untouched" + layerNotice + ". Workspace save acknowledgement is tracked in the save status.";
       setLastAction(appliedScope);
-      setLayoutCoverageNotice(appliedScope + exclusionNotice);
+      setLayoutCoverageNotice(appliedScope + groupHandlingNotice + exclusionNotice);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
