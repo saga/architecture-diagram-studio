@@ -1550,16 +1550,16 @@ export default function App() {
             if (nextTheme) void applyDiagramTheme(nextTheme);
           }}>
             <option value="" disabled>Diagram colors (this page)</option>
-            <option value="ocean-depths">Ocean Depths — calm, professional</option>
-            <option value="sunset-boulevard">Sunset Boulevard — warm, expressive</option>
-            <option value="forest-canopy">Forest Canopy — grounded, organic</option>
-            <option value="modern-minimalist">Modern Minimalist — restrained, neutral</option>
-            <option value="golden-hour">Golden Hour — warm, nuanced</option>
-            <option value="arctic-frost">Arctic Frost — cool, crisp</option>
-            <option value="desert-rose">Desert Rose — muted, sophisticated</option>
-            <option value="tech-innovation">Tech Innovation — crisp, energetic</option>
-            <option value="botanical-garden">Botanical Garden — fresh, balanced</option>
-            <option value="midnight-galaxy">Midnight Galaxy — dark, dramatic</option>
+            <option value="ocean-depths">Ocean Depths</option>
+            <option value="sunset-boulevard">Sunset Boulevard</option>
+            <option value="forest-canopy">Forest Canopy</option>
+            <option value="modern-minimalist">Modern Minimalist</option>
+            <option value="golden-hour">Golden Hour</option>
+            <option value="arctic-frost">Arctic Frost</option>
+            <option value="desert-rose">Desert Rose</option>
+            <option value="tech-innovation">Tech Innovation</option>
+            <option value="botanical-garden">Botanical Garden</option>
+            <option value="midnight-galaxy">Midnight Galaxy</option>
           </UiSelect>
         </label>
         <UiButton type="button" className="button button-secondary" onClick={() => void openLocalFileDialog("open")}>Open Draw.io</UiButton>
