@@ -303,7 +303,11 @@ describe("native Draw.io script bridge", () => {
 
   it("does not execute a script twice when execution itself throws SyntaxError", () => {
     const harness = createHarness();
-    const result = harness.runScript('(function () { graph.insertVertex(graph.getDefaultParent(), null, "Created once", 1, 2, 30, 20); throw new SyntaxError("runtime syntax error"); })();');
+    const result = harness.runOperations([{
+      cellId: "__active_page__",
+      path: "cell:execute-script",
+      value: '(function () { graph.insertVertex(graph.getDefaultParent(), null, "Created once", 1, 2, 30, 20); throw new SyntaxError("runtime syntax error"); })();'
+    }]);
 
     expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
     expect(harness.getCreatedCells()).toHaveLength(0);
