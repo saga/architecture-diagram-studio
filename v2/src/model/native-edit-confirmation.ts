@@ -24,6 +24,8 @@ interface CellRecord {
 interface ModelRecords {
   pageId: string | null;
   cells: CellRecord[];
+  /** True only for a bare mxGraphModel without an mxfile page envelope. */
+  standalone: boolean;
 }
 
 function elementChildren(element: Element): Element[] {
@@ -39,24 +41,24 @@ function directChild(element: Element, name: string): Element | null {
   return elementChildren(element).find((child) => child.nodeName === name) ?? null;
 }
 
-function modelRoots(xml: string): Array<{ pageId: string | null; model: Element }> {
+function modelRoots(xml: string): Array<{ pageId: string | null; model: Element; standalone: boolean }> {
   const document = parseDrawioXml(xml);
   const root = document.documentElement;
-  if (root.nodeName === "mxGraphModel") return [{ pageId: null, model: root }];
+  if (root.nodeName === "mxGraphModel") return [{ pageId: null, model: root, standalone: true }];
   if (root.nodeName !== "mxfile") return [];
 
-  const result: Array<{ pageId: string | null; model: Element }> = [];
+  const result: Array<{ pageId: string | null; model: Element; standalone: boolean }> = [];
   for (const page of elementChildren(root).filter((child) => child.nodeName === "diagram")) {
     const pageId = page.getAttribute("id") || null;
     const inlineModel = directChild(page, "mxGraphModel");
     if (inlineModel) {
-      result.push({ pageId, model: inlineModel });
+      result.push({ pageId, model: inlineModel, standalone: false });
       continue;
     }
     const payload = (page.textContent || "").trim();
     if (!payload) continue;
     const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
-    if (decoded.documentElement.nodeName === "mxGraphModel") result.push({ pageId, model: decoded.documentElement });
+    if (decoded.documentElement.nodeName === "mxGraphModel") result.push({ pageId, model: decoded.documentElement, standalone: false });
   }
   return result;
 }
@@ -97,9 +99,9 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
 }
 
 function cellsForXml(xml: string): ModelRecords[] {
-  return modelRoots(xml).map(({ pageId, model }) => {
+  return modelRoots(xml).map(({ pageId, model, standalone }) => {
     const root = directChild(model, "root");
-    if (!root) return { pageId, cells: [] };
+    if (!root) return { pageId, cells: [], standalone };
     const cells: CellRecord[] = [];
     for (const item of elementChildren(root)) {
       const cell = item.nodeName === "mxCell" ? item : directChild(item, "mxCell");
@@ -108,12 +110,20 @@ function cellsForXml(xml: string): ModelRecords[] {
       if (!id) continue;
       cells.push({ id, pageId, wrapper: item, cell, geometry: directChild(cell, "mxGeometry") });
     }
-    return { pageId, cells };
+    return { pageId, cells, standalone };
   });
 }
 
 function scopedModels(models: ModelRecords[], pageId?: string | null): ModelRecords[] {
-  if (pageId != null && pageId !== "") return models.filter((model) => model.pageId === pageId);
+  // An explicitly empty ID is invalid, not a request to drop page scope.
+  if (pageId === "") return [];
+  if (pageId != null) {
+    const matchingPages = models.filter((model) => model.pageId === pageId);
+    if (matchingPages.length > 0) return matchingPages;
+    // A bare mxGraphModel has no page ID to match. It is still one unambiguous native model.
+    return models.length === 1 && models[0].standalone ? models : [];
+  }
+  // With no page ID, a single decoded model is unambiguous; multiple models require explicit scope.
   return models.length === 1 ? models : [];
 }
 
