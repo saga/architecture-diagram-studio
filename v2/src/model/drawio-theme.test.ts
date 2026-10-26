@@ -62,7 +62,7 @@ describe("native Draw.io diagram theme presets", () => {
 
     const edge = cellById(themed, "edge");
     expect(edge?.getAttribute("style")).toContain("strokeColor=#0F766E");
-    expect(edge?.getAttribute("style")).toContain("fontColor=#E2E8F0");
+    expect(edge?.getAttribute("style")).toContain("fontColor=#334155");
     expect(edge?.getAttribute("style")).toContain("endArrow=block");
     expect(edge?.getAttribute("style")).toContain("rounded=0");
     expect(themed).toContain('x="40" y="50"');
@@ -97,7 +97,7 @@ describe("native Draw.io diagram theme presets", () => {
   it("handles multiple uncompressed pages and keeps non-diagram XML untouched semantically", () => {
     const secondPage = sourceModel.replaceAll('id="plain"', 'id="plain-second"');
     const source = '<mxfile host="app.diagrams.net" custom="preserve"><diagram id="p1">' + sourceModel + '</diagram><diagram id="p2">' + secondPage + '</diagram></mxfile>';
-    const themed = applyDrawioDiagramTheme(source, "warm");
+    const themed = applyDrawioDiagramTheme(source, "sunset-boulevard");
     expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel").length).toBe(2);
     expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFFAF5");
     expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFFAF5");
@@ -106,8 +106,8 @@ describe("native Draw.io diagram theme presets", () => {
   it("leaves malformed XML and unchanged/unsupported input byte-for-byte intact", () => {
     const malformed = '<mxfile><diagram><mxGraphModel><root></mxfile>';
     const unsupported = '<mxlibrary><shapes/></mxlibrary>';
-    expect(applyDrawioDiagramTheme(malformed, "youth")).toBe(malformed);
-    expect(applyDrawioDiagramTheme(unsupported, "youth")).toBe(unsupported);
+    expect(applyDrawioDiagramTheme(malformed, "ocean-depths")).toBe(malformed);
+    expect(applyDrawioDiagramTheme(unsupported, "ocean-depths")).toBe(unsupported);
     expect(applyDrawioThemeBackground(malformed, "#101a2b")).toBe(malformed);
   });
 
@@ -152,8 +152,8 @@ describe("native Draw.io diagram theme presets", () => {
     const source = '<mxfile><diagram id="compressed">' + encoded + '</diagram></mxfile>';
     const plan = calculateNativePalettePlan(source, "compressed", "b".repeat(64), "midnight-galaxy");
     expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#253B53"))).toBe(true);
-    expect(() => calculateNativePalettePlan(source, "missing", "b".repeat(64), "midnight")).toThrow("active Draw.io page");
-    expect(() => calculateNativePalettePlan(source, "compressed", "not-a-revision", "midnight")).toThrow("exact native Draw.io XML snapshot");
+    expect(() => calculateNativePalettePlan(source, "missing", "b".repeat(64), "midnight-galaxy")).toThrow("active Draw.io page");
+    expect(() => calculateNativePalettePlan(source, "compressed", "not-a-revision", "midnight-galaxy")).toThrow("exact native Draw.io XML snapshot");
   });
 
 
