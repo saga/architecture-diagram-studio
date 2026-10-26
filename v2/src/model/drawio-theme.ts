@@ -2,7 +2,25 @@ import { deflateSync, strToU8 } from "fflate";
 import { findDrawioElements, parseDrawioXml, serializeDrawioXml, type DrawioDomDocument, type DrawioDomElement } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 
-export type DrawioDiagramTheme = "editorial" | "youth" | "warm" | "midnight";
+export type DrawioDiagramTheme =
+  | "ocean-depths"
+  | "sunset-boulevard"
+  | "forest-canopy"
+  | "modern-minimalist"
+  | "golden-hour"
+  | "arctic-frost"
+  | "desert-rose"
+  | "tech-innovation"
+  | "botanical-garden"
+  | "midnight-galaxy";
+
+export type DrawioCategoryRole =
+  | "category-1" | "category-2" | "category-3" | "category-4"
+  | "category-5" | "category-6" | "category-7" | "category-8";
+export type DrawioColorRole = "base" | "text" | DrawioCategoryRole;
+export const DRAWIO_COLOR_ROLE_STYLE_KEY = "studioColorRole";
+export const MAX_DRAWIO_COLOR_CATEGORIES = 8;
+
 export interface NativePaletteChange {
   cellId: string;
   kind: "vertex" | "edge";
@@ -20,43 +38,132 @@ export interface NativePalettePlan {
   changes: NativePaletteChange[];
 }
 
-
-interface DiagramThemePalette {
-  vertexFill: string;
-  vertexStroke: string;
-  vertexFont: string;
-  edgeStroke: string;
-  edgeFont: string;
+export interface DiagramCategoryColor {
+  fill: string;
+  stroke: string;
 }
 
+export interface DiagramThemePalette {
+  /** Neutral fallback for unclassified/default Draw.io vertices. */
+  baseFill: string;
+  baseStroke: string;
+  /** High-contrast text for node fills. */
+  ink: string;
+  edgeStroke: string;
+  edgeFont: string;
+  /** Fixed, reviewed colors. Category N always maps to the Nth entry; never generated at runtime. */
+  categories: readonly DiagramCategoryColor[];
+}
+
+const category = (fill: string, stroke: string): DiagramCategoryColor => ({ fill, stroke });
+
+/**
+ * Curated diagram palettes, inspired by the named-theme workflow in Anthropic's theme-factory
+ * and color-harmony guidance in meodai/skill.color-expert. These are fixed categorical swatches,
+ * not randomly generated colors. Soft fills reduce visual competition; distinct, more saturated
+ * outlines preserve category separation on Draw.io's light grid. Midnight Galaxy intentionally
+ * uses dark fills with light text/outlines.
+ */
 export const DRAWIO_DIAGRAM_THEMES: Record<DrawioDiagramTheme, DiagramThemePalette> = {
-  editorial: {
-    vertexFill: "#F1F5F9",
-    vertexStroke: "#64748B",
-    vertexFont: "#1E293B",
-    edgeStroke: "#475569",
-    edgeFont: "#334155"
+  "ocean-depths": {
+    baseFill: "#F8FAFC", baseStroke: "#64748B", ink: "#17324D",
+    edgeStroke: "#475569", edgeFont: "#334155",
+    categories: [
+      category("#E0F2FE", "#0369A1"), category("#CCFBF1", "#0F766E"),
+      category("#D1FAE5", "#15803D"), category("#FEF3C7", "#B45309"),
+      category("#FCE7F3", "#BE185D"), category("#EDE9FE", "#6D28D9"),
+      category("#F1F5F9", "#475569"), category("#FFEDD5", "#C2410C")
+    ]
   },
-  youth: {
-    vertexFill: "#FCE7F3",
-    vertexStroke: "#BE185D",
-    vertexFont: "#831843",
-    edgeStroke: "#DB2777",
-    edgeFont: "#9D174D"
+  "sunset-boulevard": {
+    baseFill: "#FFFAF5", baseStroke: "#9A6B5B", ink: "#422B2A",
+    edgeStroke: "#805044", edgeFont: "#52372F",
+    categories: [
+      category("#FFE4D6", "#C2410C"), category("#FDE68A", "#A16207"),
+      category("#FBCFE8", "#BE185D"), category("#FED7AA", "#9A3412"),
+      category("#DDD6FE", "#6D28D9"), category("#FECACA", "#B91C1C"),
+      category("#D9F99D", "#4D7C0F"), category("#CFFAFE", "#0E7490")
+    ]
   },
-  warm: {
-    vertexFill: "#FFF1E6",
-    vertexStroke: "#C2410C",
-    vertexFont: "#7C2D12",
-    edgeStroke: "#9A3412",
-    edgeFont: "#7C2D12"
+  "forest-canopy": {
+    baseFill: "#F7F8F0", baseStroke: "#617568", ink: "#1F342B",
+    edgeStroke: "#405A4B", edgeFont: "#30463A",
+    categories: [
+      category("#DDEFE2", "#1B4332"), category("#B7E4C7", "#2D6A4F"),
+      category("#F4E8C1", "#8A6D1D"), category("#D9EAD3", "#52796F"),
+      category("#D6E5FA", "#2F5D8C"), category("#E9D5FF", "#6B3FA0"),
+      category("#F5D0C5", "#9C4A37"), category("#D5E8E4", "#2F6D65")
+    ]
   },
-  midnight: {
-    vertexFill: "#27364E",
-    vertexStroke: "#93C5FD",
-    vertexFont: "#F8FAFC",
-    edgeStroke: "#64748B",
-    edgeFont: "#334155"
+  "modern-minimalist": {
+    baseFill: "#F8FAFC", baseStroke: "#64748B", ink: "#1F2937",
+    edgeStroke: "#475569", edgeFont: "#334155",
+    categories: [
+      category("#E9EEF5", "#475569"), category("#D9E2EC", "#334155"),
+      category("#E5E7EB", "#52525B"), category("#DDEBF7", "#1D4ED8"),
+      category("#FCE8E6", "#B42318"), category("#E8E0F0", "#6941C6"),
+      category("#DCEFEA", "#0F766E"), category("#F8EBD0", "#92400E")
+    ]
+  },
+  "golden-hour": {
+    baseFill: "#FFFCF2", baseStroke: "#8A7655", ink: "#493516",
+    edgeStroke: "#725D3B", edgeFont: "#59482D",
+    categories: [
+      category("#FFF3C4", "#9A6700"), category("#FCE1B7", "#B45309"),
+      category("#F4D5C8", "#9A3412"), category("#E6E2B6", "#68743C"),
+      category("#D8E8CF", "#3F6B4F"), category("#D4E5F4", "#2C5D7F"),
+      category("#E7DDF4", "#6E548E"), category("#F5DFE8", "#9D4357")
+    ]
+  },
+  "arctic-frost": {
+    baseFill: "#F7FBFC", baseStroke: "#647C8B", ink: "#263746",
+    edgeStroke: "#4B6474", edgeFont: "#344B59",
+    categories: [
+      category("#E0F2FE", "#0369A1"), category("#DFF7F3", "#0F766E"),
+      category("#E0E7FF", "#4338CA"), category("#EDE9FE", "#6D28D9"),
+      category("#F1F5F9", "#475569"), category("#D8F0F5", "#0E7490"),
+      category("#E3F4E4", "#3F7D4A"), category("#FDEBD2", "#B45309")
+    ]
+  },
+  "desert-rose": {
+    baseFill: "#FCF8F6", baseStroke: "#8A7777", ink: "#452E35",
+    edgeStroke: "#71565F", edgeFont: "#563F47",
+    categories: [
+      category("#F6E4E8", "#8F3D59"), category("#F6D9D0", "#A34E3B"),
+      category("#F3E4D0", "#8A6A3C"), category("#DDE7D8", "#526F5A"),
+      category("#E1E6F2", "#4F648C"), category("#E8DDF0", "#74537D"),
+      category("#F8E9C6", "#947326"), category("#D7E9E8", "#3F7775")
+    ]
+  },
+  "tech-innovation": {
+    baseFill: "#F7F9FF", baseStroke: "#64748B", ink: "#13294B",
+    edgeStroke: "#344563", edgeFont: "#263954",
+    categories: [
+      category("#DDEBFF", "#175CD3"), category("#CFFAFE", "#0E7490"),
+      category("#E0E7FF", "#4338CA"), category("#FCE7F3", "#BE185D"),
+      category("#D1FAE5", "#027A48"), category("#F3E8FF", "#7F56D9"),
+      category("#FEF3C7", "#B54708"), category("#FFE4E6", "#C01048")
+    ]
+  },
+  "botanical-garden": {
+    baseFill: "#F8FAF3", baseStroke: "#687B5C", ink: "#293B2B",
+    edgeStroke: "#4F6545", edgeFont: "#3E5135",
+    categories: [
+      category("#EAF4D3", "#527A36"), category("#D7F0D8", "#317A4B"),
+      category("#D8E9C8", "#6A7D35"), category("#F6E8B4", "#9B7D1A"),
+      category("#CDE7E4", "#2F7A75"), category("#DDE8F7", "#42649A"),
+      category("#F6DDD0", "#B65A38"), category("#E9DDF2", "#76528B")
+    ]
+  },
+  "midnight-galaxy": {
+    baseFill: "#1F2937", baseStroke: "#94A3B8", ink: "#F8FAFC",
+    edgeStroke: "#94A3B8", edgeFont: "#E2E8F0",
+    categories: [
+      category("#253B53", "#7DD3FC"), category("#284B4A", "#5EEAD4"),
+      category("#3B3D67", "#A5B4FC"), category("#4A315D", "#D8B4FE"),
+      category("#56354D", "#FDA4AF"), category("#284F3F", "#6EE7B7"),
+      category("#5B4930", "#FCD34D"), category("#37465B", "#CBD5E1")
+    ]
   }
 };
 
@@ -128,90 +235,105 @@ function isTextOnlyVertex(style: string): boolean {
   return style.split(";").some((part) => part.trim() === "text");
 }
 
-function applyThemeToGraphModel(
-  documentOrModel: DrawioDomDocument | DrawioDomElement,
-  palette: DiagramThemePalette
-): number {
-  const model = documentOrModel.nodeType === 9
-    ? (documentOrModel as DrawioDomDocument).documentElement
-    : documentOrModel as DrawioDomElement;
-  if (!model || model.nodeName !== "mxGraphModel") return 0;
-  let changed = 0;
-  const cells = model.getElementsByTagName("mxCell");
-  for (let index = 0; index < cells.length; index += 1) {
-    const cell = cells.item(index) as DrawioDomElement | null;
-    if (!cell) continue;
-    const isVertex = cell.getAttribute("vertex") === "1";
-    const isEdge = cell.getAttribute("edge") === "1";
-    if (!isVertex && !isEdge) continue;
-
-    const originalStyle = cell.getAttribute("style") ?? "";
-    const values: Record<string, string> = isEdge
-      ? { strokeColor: palette.edgeStroke, fontColor: palette.edgeFont }
-      : isTextOnlyVertex(originalStyle)
-        ? { fillColor: "none", strokeColor: "none", fontColor: palette.vertexFont }
-        : { fillColor: palette.vertexFill, strokeColor: palette.vertexStroke, fontColor: palette.vertexFont };
-    const nextStyle = updateStyleProperties(originalStyle, values);
-    if (nextStyle !== originalStyle) {
-      cell.setAttribute("style", nextStyle);
-      changed += 1;
-    }
+function styleProperty(style: string, key: string): string | null {
+  let found: string | null = null;
+  for (const part of String(style || "").split(";")) {
+    const equalsAt = part.indexOf("=");
+    if (equalsAt <= 0) continue;
+    if (part.slice(0, equalsAt).trim() === key) found = part.slice(equalsAt + 1).trim();
   }
-  return changed;
+  return found;
 }
 
-/** Decode through the shared bounded Draw.io page decoder used by XML validation. */
-function decodeCompressedPage(page: DrawioDomElement): DrawioDomDocument | null {
-  const payload = page.textContent?.trim() ?? "";
-  if (!payload) return null;
-  try {
-    const document = parseDrawioXml(decodeDrawioPageXml(payload));
-    return document.documentElement?.nodeName === "mxGraphModel" ? document : null;
-  } catch {
-    return null;
-  }
+function roleFromStyle(style: string): DrawioColorRole | null {
+  const value = styleProperty(style, DRAWIO_COLOR_ROLE_STYLE_KEY);
+  if (value === null) return null;
+  if (value === "base" || value === "text") return value;
+  if (/^category-[1-8]$/.test(value)) return value as DrawioCategoryRole;
+  throw new Error("The Draw.io cell contains an unsupported Studio color-role marker: " + value);
 }
 
-
-function nativeXmlCellId(cell: DrawioDomElement): string {
-  // Draw.io can encode a cell's ID on an outer <object>/<UserObject> wrapper, leaving mxCell.id absent.
-  const wrapper = cell.parentElement as DrawioDomElement | null;
-  const wrapperId = wrapper && (wrapper.nodeName === "object" || wrapper.nodeName === "UserObject")
-    ? wrapper.getAttribute("id")
-    : null;
-  return wrapperId || cell.getAttribute("id") || "";
+function sourceColorKey(style: string, kind: "vertex" | "edge"): string | null {
+  const fill = styleProperty(style, "fillColor");
+  const stroke = styleProperty(style, "strokeColor");
+  const visibleFill = fill && fill.toLowerCase() !== "none" ? fill : null;
+  const visibleStroke = stroke && stroke.toLowerCase() !== "none" ? stroke : null;
+  const value = kind === "edge" ? visibleStroke : visibleFill ?? visibleStroke;
+  return value ? "color:" + value.trim().toLowerCase() : null;
 }
 
-function parseNativePageModel(xml: string, pageId: string | null): { model: DrawioDomElement; pageId: string | null } {
-  const parsed = parseXml(xml);
-  const root = parsed?.documentElement;
-  if (!root) throw new Error("The Draw.io XML has no document element.");
-  if (root.nodeName === "mxGraphModel") return { model: root as DrawioDomElement, pageId: null };
-  if (root.nodeName !== "mxfile") throw new Error("Color presets only support native Draw.io mxfile or mxGraphModel documents.");
-
-  const pages = findDrawioElements(parsed as DrawioDomDocument, "diagram");
-  const page = pageId ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : pages[0];
-  if (!page) throw new Error(pageId
-    ? "The active Draw.io page no longer exists. Select the page again before applying colors."
-    : "The Draw.io document does not contain a page to color.");
-  const inlineModels = Array.from(page.getElementsByTagName("mxGraphModel")) as DrawioDomElement[];
-  const model = inlineModels[0] ?? decodeCompressedPage(page)?.documentElement as DrawioDomElement | undefined;
-  if (!model || model.nodeName !== "mxGraphModel") {
-    throw new Error("The active Draw.io page could not be decoded safely. No colors were changed.");
-  }
-  return { model, pageId: page.getAttribute("id") || null };
-}
-
-function themeStyleValues(style: string, kind: "vertex" | "edge", palette: DiagramThemePalette): Record<string, string> {
-  if (kind === "edge") return { strokeColor: palette.edgeStroke, fontColor: palette.edgeFont };
-  return isTextOnlyVertex(style)
-    ? { fillColor: "none", strokeColor: "none", fontColor: palette.vertexFont }
-    : { fillColor: palette.vertexFill, strokeColor: palette.vertexStroke, fontColor: palette.vertexFont };
+function isCategoryRole(role: DrawioColorRole): role is DrawioCategoryRole {
+  return role.startsWith("category-");
 }
 
 /**
- * Build a plan for the active page. This function only projects XML: live mutation is performed
- * by the Draw.io plugin in one native model transaction so the operation shares native Undo/Redo.
+ * Persist the original color-category identity inside a harmless, explicit custom style key.
+ * The key travels with native Draw.io XML and is changed in the same model transaction as colors,
+ * so repeated theme switches and Undo/Redo cannot lose the original category mapping.
+ */
+function assignColorRoles(cells: DrawioDomElement[]): Map<DrawioDomElement, DrawioColorRole> {
+  const roles = new Map<DrawioDomElement, DrawioColorRole>();
+  const usedCategoryRoles = new Set<DrawioCategoryRole>();
+  const colorKeyToRole = new Map<string, DrawioColorRole>();
+
+  for (const cell of cells) {
+    const kind = cell.getAttribute("vertex") === "1" ? "vertex"
+      : cell.getAttribute("edge") === "1" ? "edge" : null;
+    if (!kind) continue;
+    const style = cell.getAttribute("style") ?? "";
+    const existingRole = roleFromStyle(style);
+    if (existingRole === null) continue;
+    if (kind === "vertex" && isTextOnlyVertex(style) && existingRole !== "text") {
+      throw new Error("A text-only Draw.io cell has a conflicting Studio color-role marker.");
+    }
+    roles.set(cell, existingRole);
+    if (isCategoryRole(existingRole)) usedCategoryRoles.add(existingRole);
+    const colorKey = sourceColorKey(style, kind);
+    if (colorKey && !colorKeyToRole.has(colorKey)) colorKeyToRole.set(colorKey, existingRole);
+  }
+
+  const availableRoles: DrawioCategoryRole[] = [
+    "category-1", "category-2", "category-3", "category-4",
+    "category-5", "category-6", "category-7", "category-8"
+  ].filter((role) => !usedCategoryRoles.has(role));
+
+  for (const cell of cells) {
+    const kind = cell.getAttribute("vertex") === "1" ? "vertex"
+      : cell.getAttribute("edge") === "1" ? "edge" : null;
+    if (!kind || roles.has(cell)) continue;
+    const style = cell.getAttribute("style") ?? "";
+    if (kind === "vertex" && isTextOnlyVertex(style)) {
+      roles.set(cell, "text");
+      continue;
+    }
+    const colorKey = sourceColorKey(style, kind);
+    if (!colorKey) {
+      roles.set(cell, "base");
+      continue;
+    }
+    const knownRole = colorKeyToRole.get(colorKey);
+    if (knownRole) {
+      roles.set(cell, knownRole);
+      continue;
+    }
+    const nextRole = availableRoles.shift();
+    if (!nextRole) {
+      throw new Error(
+        "This page contains more than " + MAX_DRAWIO_COLOR_CATEGORIES +
+        " distinct original color categories. No colors were changed; simplify or explicitly merge categories first."
+      );
+    }
+    usedCategoryRoles.add(nextRole);
+    colorKeyToRole.set(colorKey, nextRole);
+    roles.set(cell, nextRole);
+  }
+  return roles;
+}
+
+/**
+ * Build a plan for the active page. Color roles are derived from original cell colors once and
+ * persisted as studioColorRole in the style string; live mutation is performed in one native
+ * Draw.io model transaction so the role markers and colors share native Undo/Redo.
  */
 export function calculateNativePalettePlan(
   xml: string,
@@ -230,6 +352,7 @@ export function calculateNativePalettePlan(
   if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
     throw new Error("The active page has missing or duplicate cell IDs; no color changes were planned.");
   }
+  const roles = assignColorRoles(cells);
   const changes: NativePaletteChange[] = [];
   for (const cell of cells) {
     const kind = cell.getAttribute("vertex") === "1" ? "vertex"
@@ -237,13 +360,15 @@ export function calculateNativePalettePlan(
     if (!kind) continue;
     const cellId = nativeXmlCellId(cell);
     const expectedStyle = cell.getAttribute("style") ?? "";
-    const style = updateStyleProperties(expectedStyle, themeStyleValues(expectedStyle, kind, palette));
+    const role = roles.get(cell);
+    if (!role) throw new Error("A colorable Draw.io cell had no stable color role.");
+    const style = updateStyleProperties(expectedStyle, themeStyleValues(expectedStyle, kind, palette, role));
     if (style !== expectedStyle) changes.push({ cellId, kind, expectedStyle, style });
   }
   return { theme, documentRevision, pageId: parsed.pageId, expectedPageCellIds: ids.sort(), changes };
 }
 
-/** Return a named preset only when every colorable cell on the selected page matches it. */
+/** Detect a named preset only when every colorable cell's colors and stable roles match it. */
 export function detectDrawioDiagramTheme(xml: string, pageId: string | null): DrawioDiagramTheme | "" {
   try {
     const { model } = parseNativePageModel(xml, pageId);
@@ -254,12 +379,14 @@ export function detectDrawioDiagramTheme(xml: string, pageId: string | null): Dr
         style: cell.getAttribute("style") ?? ""
       }))
       .filter((cell): cell is { kind: "vertex" | "edge"; style: string } => cell.kind !== null);
-    if (cells.length === 0) return "";
+    if (cells.length === 0 || cells.some((cell) => roleFromStyle(cell.style) === null)) return "";
     for (const theme of Object.keys(DRAWIO_DIAGRAM_THEMES) as DrawioDiagramTheme[]) {
       const palette = DRAWIO_DIAGRAM_THEMES[theme];
-      if (cells.every((cell) =>
-        updateStyleProperties(cell.style, themeStyleValues(cell.style, cell.kind, palette)) === cell.style
-      )) return theme;
+      if (cells.every((cell) => {
+        const role = roleFromStyle(cell.style);
+        return role !== null &&
+          updateStyleProperties(cell.style, themeStyleValues(cell.style, cell.kind, palette, role)) === cell.style;
+      })) return theme;
     }
     return "";
   } catch {
@@ -294,11 +421,11 @@ export function applyDrawioDiagramTheme(xml: string, theme: DrawioDiagramTheme):
   let changed = 0;
   const rootName = parsed.documentElement?.nodeName;
   if (rootName === "mxGraphModel") {
-    changed += applyThemeToGraphModel(parsed, palette);
+    changed += applyThemeToGraphModel(parsed, theme);
   } else if (rootName === "mxfile") {
     // Ordinary (uncompressed) pages are already native mxGraphModel elements in the document.
     changed += findDrawioElements(parsed, "mxGraphModel")
-      .reduce((count, model) => count + applyThemeToGraphModel(model, palette), 0);
+      .reduce((count, model) => count + applyThemeToGraphModel(model, theme), 0);
 
     // A compressed page has no mxGraphModel child until decoded. Ignore unsupported payloads
     // rather than replacing them with a partial reconstruction.
@@ -307,7 +434,7 @@ export function applyDrawioDiagramTheme(xml: string, theme: DrawioDiagramTheme):
         .some((model) => isDescendantOf(model, page))) continue;
       const decoded = decodeCompressedPage(page);
       if (!decoded) continue;
-      const pageChanges = applyThemeToGraphModel(decoded, palette);
+      const pageChanges = applyThemeToGraphModel(decoded, theme);
       if (pageChanges > 0) {
         page.textContent = encodeCompressedPage(decoded);
         changed += pageChanges;
