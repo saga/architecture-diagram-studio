@@ -55,7 +55,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(readDrawioModelBackground(themed)).toBeNull();
 
     const plain = cellById(themed, "plain");
-    expect(plain?.getAttribute("style")).toContain("fillColor=#D9EDF6");
+    expect(plain?.getAttribute("style")).toContain("fillColor=#C6E0EB");
     expect(plain?.getAttribute("style")).toContain("strokeColor=#1F617A");
     expect(plain?.getAttribute("style")).toContain("fontColor=#153548");
 
@@ -84,7 +84,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(themed).toContain('gridSize="4"');
   });
 
-  it("applies a preset to compressed pages and changes the canvas while preserving grid settings", () => {
+  it("applies a preset to compressed pages, clears the tinted canvas and preserves grid settings", () => {
     const inner = sourceModel.replace('background="light-dark(#FFFF66,#121212)"', 'background="#FFFF66"');
     const encoded = compressPage(inner);
     const source = '<mxfile host="app.diagrams.net"><diagram id="compressed" name="Compressed">' + encoded + '</diagram></mxfile>';
@@ -113,10 +113,10 @@ describe("native Draw.io diagram theme presets", () => {
     const source = '<mxfile host="app.diagrams.net" custom="preserve"><diagram id="p1">' + sourceModel + '</diagram><diagram id="p2">' + secondPage + '</diagram></mxfile>';
     const themed = applyDrawioDiagramTheme(source, "sunset-boulevard");
     expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel").length).toBe(2);
-    expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFE0CF");
-    expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFE0CF");
-    expect(readDrawioModelBackground(themed, "p1")).toBe("#F3C9B3");
-    expect(readDrawioModelBackground(themed, "p2")).toBe("#F3C9B3");
+    expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#F6C8AE");
+    expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#F6C8AE");
+    expect(readDrawioModelBackground(themed, "p1")).toBeNull();
+    expect(readDrawioModelBackground(themed, "p2")).toBeNull();
   });
 
   it("leaves malformed XML and unchanged/unsupported input byte-for-byte intact", () => {
@@ -148,7 +148,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(plan.expectedPageCellIds).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).not.toContain("plain");
-    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#FFE0CF");
+    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#F6C8AE");
     expect(detectDrawioDiagramTheme(source, "p2")).toBe("");
     const themed = applyDrawioDiagramTheme(source, "sunset-boulevard");
     expect(detectDrawioDiagramTheme(themed, "p2")).toBe("sunset-boulevard");
@@ -329,7 +329,7 @@ describe("theme color coverage and contrast", () => {
     const plain = cellById(themed, "plain")?.getAttribute("style") ?? "";
     expect(zone).toContain("fillColor=#B4D7A8");
     expect(zone).toContain("gradientColor=#B4D7A8");
-    expect(zone).toContain("labelBackgroundColor=#D5E7C8");
+    expect(zone).toContain("labelBackgroundColor=#C6DDBA");
     expect(zone).toContain("labelBorderColor=#285C38");
     expect(zone).toContain("swimlaneFillColor=#B4D7A8");
     expect(zone).toContain("indicatorColor=#285C38");
@@ -388,7 +388,7 @@ describe("neutral native stencil theme coverage", () => {
     const forestPayload = forestStyle.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(forestPayload).toBeTruthy();
     const forestXml = decompressStencil(forestPayload!);
-    expect(stencilFill(forestXml)).toBe("#D5E7C8");
+    expect(stencilFill(forestXml)).toBe("#C6DDBA");
     expect(forestXml.replace(/(<fillcolor\b[^>]*\bcolor=")[^"]+(")/gi, "$1__FILL__$2"))
       .toBe(sourceStencil.replace(/(<fillcolor\b[^>]*\bcolor=")[^"]+(")/gi, "$1__FILL__$2"));
     expect(forestStyle).toContain("studioColorRole=base");
@@ -397,7 +397,7 @@ describe("neutral native stencil theme coverage", () => {
     const midnightCell = findDrawioElements(midnight, "mxCell").find((cell) => cell.getAttribute("id") === "region");
     const midnightPayload = midnightCell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(midnightPayload).toBeTruthy();
-    expect(stencilFill(decompressStencil(midnightPayload!))).toBe("#D2DCF4");
+    expect(stencilFill(decompressStencil(midnightPayload!))).toBe("#C9D4F0");
   });
 
   it("does not recolor brand stencil assets and still detects the theme of surrounding native cells", () => {
