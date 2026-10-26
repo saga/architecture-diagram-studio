@@ -73,7 +73,7 @@ Phase 1's analysis provider continues to return diagnostics keyed by native cell
 
 A future explicit “layout inside this region” action may rearrange internal nodes while keeping the region's boundary fixed. That is distinct from global layout and must not run implicitly.
 
-Not every region should be freely moved: preserve the existing relative placement of IT and OT regions and boundary infrastructure unless the user explicitly asks to reorganize them. If constraints cannot be honored safely, leave the affected objects untouched and report reduced coverage.
+Phase 2 makes each region internally atomic, but the selected outer layout engine still decides how separate region proxies are arranged relative to one another. It does not yet guarantee that an existing IT-above-OT order, inter-region spacing, or boundary-node placement is preserved. This is an explicit limitation, not a hidden guarantee; adding user-confirmed spatial-order constraints belongs to the next constraint-aware phase. Ambiguous membership remains excluded from automatic grouping.
 
 ## 6. Implementation phases
 
@@ -97,6 +97,7 @@ Not every region should be freely moved: preserve the existing relative placemen
 - Allow users to confirm, reject or manually mark inferred regions.
 - Offer separate global-layout and region-internal-layout operations.
 - Persist explicit user choices only through a documented native Draw.io-safe mechanism; never make the inferred analysis a second source of truth.
+- Add optional user-confirmed constraints to preserve relative positions/order between regions and key boundary nodes; Phase 2 does not promise this cross-region spatial relation.
 - Evaluate all supported layout engines against the same fixtures and compare containment preservation, edge crossings, boundary-edge correctness, overlap, displacement and readability.
 
 ## 7. Phase 1 acceptance criteria
