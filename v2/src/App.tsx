@@ -1888,7 +1888,7 @@ export default function App() {
                   }
                 }
               }
-              if (acknowledgement && requestId !== null) {
+              if (acknowledgement && requestId !== null && !(isLateNativeBatch && !lateResultHasSnapshot)) {
                 try {
                   const ackResponse = await fetch("/api/copilot/intent/ack", {
                     method: "POST", headers: { "content-type": "application/json" },
