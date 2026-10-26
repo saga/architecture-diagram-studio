@@ -23,3 +23,5 @@
 | [0019](./0019-additive-native-c4-elements.md) | Additive Native C4 Elements, No In-Place Conversion | Accepted |
 | [0020](./0020-native-drawio-diagram-theme-presets.md) | Native Draw.io Diagram Theme Presets | Accepted |
 | [0021](./0021-expanded-native-layout-engines.md) | Expanded Native Layout Engines and Algorithm Adapters | Accepted |
+| [0022](./0022-atomic-spatial-region-layout.md) | Atomic Layout for Geometry-Only Spatial Regions | Accepted |
+| [0023](./0023-category-preserving-curated-diagram-palettes.md) | Category-Preserving Curated Diagram Palettes | Accepted |
