@@ -246,8 +246,17 @@ function styleProperty(style: string, key: string): string | null {
 }
 
 function roleFromStyle(style: string): DrawioColorRole | null {
-  const value = styleProperty(style, DRAWIO_COLOR_ROLE_STYLE_KEY);
-  if (value === null) return null;
+  const values = String(style || "").split(";").flatMap((part) => {
+    const equalsAt = part.indexOf("=");
+    return equalsAt > 0 && part.slice(0, equalsAt).trim() === DRAWIO_COLOR_ROLE_STYLE_KEY
+      ? [part.slice(equalsAt + 1).trim()]
+      : [];
+  });
+  if (values.length === 0) return null;
+  if (values.length !== 1) {
+    throw new Error("A Draw.io cell contains duplicate Studio color-role markers.");
+  }
+  const value = values[0];
   if (value === "base" || value === "text") return value;
   if (/^category-[1-8]$/.test(value)) return value as DrawioCategoryRole;
   throw new Error("The Draw.io cell contains an unsupported Studio color-role marker: " + value);
@@ -283,8 +292,9 @@ function assignColorRoles(cells: DrawioDomElement[]): Map<DrawioDomElement, Draw
     const style = cell.getAttribute("style") ?? "";
     const existingRole = roleFromStyle(style);
     if (existingRole === null) continue;
-    if (kind === "vertex" && isTextOnlyVertex(style) && existingRole !== "text") {
-      throw new Error("A text-only Draw.io cell has a conflicting Studio color-role marker.");
+    const textOnly = kind === "vertex" && isTextOnlyVertex(style);
+    if ((textOnly && existingRole !== "text") || (!textOnly && existingRole === "text")) {
+      throw new Error("A Draw.io cell has a conflicting Studio color-role marker for its native type.");
     }
     roles.set(cell, existingRole);
     if (isCategoryRole(existingRole)) usedCategoryRoles.add(existingRole);
@@ -410,8 +420,9 @@ function encodeCompressedPage(document: DrawioDomDocument): string {
 
 /**
  * Apply a named palette directly to native Draw.io XML. All mxGraphModel pages are handled,
- * including compressed pages. Only cell color properties are changed: page backgrounds/grid,
- * geometry, labels, connectors, non-color style entries and unknown XML remain untouched.
+ * including compressed pages. Cell color properties and the documented studioColorRole marker
+ * are changed; page backgrounds/grid, geometry, labels, cell relationships, other style entries
+ * and unknown XML remain untouched.
  */
 export function applyDrawioDiagramTheme(xml: string, theme: DrawioDiagramTheme): string {
   const palette = DRAWIO_DIAGRAM_THEMES[theme];
