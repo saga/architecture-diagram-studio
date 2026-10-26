@@ -112,21 +112,24 @@ function nativeCellSnapshot(xml: string, cellId: string) {
 
 /** Drag the native SVG shape instead of the foreignObject label. */
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
-  // Scope to the rendered canvas label; Draw.io's sidebar may contain the same palette label.
+  // Scope to the rendered canvas label. An unscoped text locator can match the Draw.io palette.
   const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
   await expect(label, `the ${labelText} canvas node must be rendered before it can be dragged`).toBeVisible();
   const bounds = await label.boundingBox();
   expect(bounds, `the ${labelText} canvas label must have visible bounds`).not.toBeNull();
 
-  // Playwright boundingBox() for a FrameLocator is already expressed in host-page coordinates.
-  // Start just below/right of the HTML label, on the painted body of the native vertex, avoiding
-  // Draw.io's inline text editor and resize handles.
-  const startX = bounds!.x + bounds!.width + 30;
-  const startY = bounds!.y + bounds!.height + 10;
+  // boundingBox() for a locator in the Draw.io iframe is already relative to the host page.
+  // Start on the actual label so Draw.io's mxGraph gesture handler receives the native drag;
+  // moving a small number of pixels and then continuing avoids triggering inline text editing.
+  const startX = bounds!.x + bounds!.width / 2;
+  const startY = bounds!.y + bounds!.height / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 14 });
   await page.mouse.up();
+
+  await expect.poll(() => label.boundingBox(), { timeout: 5_000, intervals: [100] })
+    .not.toEqual(bounds);
 }
 
 /** Returns all native edge styles from inline or compressed Draw.io pages. */
