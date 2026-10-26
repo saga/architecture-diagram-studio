@@ -568,6 +568,7 @@ export default function App() {
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
             scriptResult: result.scriptResult,
+            applicationState: result.applicationState,
             // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
             rolledBack: result.success ? false : result.batchRolledBack === true,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error, stack: step.stack }))
@@ -1800,7 +1801,9 @@ export default function App() {
                       // revision-checked path; only the editor acknowledgement decides success/failure.
                       const saved = await persistDocumentNow(result.serializedXml, result.success
                         ? "Copilot native edit"
-                        : "Captured native XML after Copilot script failure");
+                        : result.applicationState === "changed-unverified"
+                          ? "Captured unverified native XML after Copilot script edit"
+                          : "Captured native XML after Copilot script failure");
                       persistedRevision = typeof saved.workspaceRevision === "string" ? saved.workspaceRevision : null;
                       persistedVersionId = typeof saved.version?.id === "string" ? saved.version.id : null;
                       if (persistedRevision !== serializedXmlRevision) throw new Error("The server did not confirm the exact serialized XML revision.");
@@ -1870,7 +1873,9 @@ export default function App() {
                     body: JSON.stringify({
                       requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
                       standalone: acknowledgement.standalone, documentRevision: acknowledgement.documentRevision,
-                      outcome: finalResult.success ? "applied" : "failed", editorAcknowledged: result.success,
+                      outcome: finalResult.success ? "applied" : "failed",
+                      editorAcknowledged: result.success || typeof result.serializedXml === "string",
+                      applicationState: finalResult.applicationState ?? null,
                       serializedXmlRevision, persistenceStatus, persistedRevision, versionId: persistedVersionId,
                       failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
                     })
@@ -1913,21 +1918,40 @@ export default function App() {
                   (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
                     ? "; workspace save confirmed."
                     : standaloneFileName && finalResult.path === "cell:batch" ? "; standalone file save confirmed." : ".")
-                : (finalResult.failureStage === "persistence" ? "Native edit was serialized but persistence failed: " : "Native Draw.io edit failed: ") + (finalResult.error || "Unknown error")) + (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
+                : finalResult.failureStage === "persistence"
+                  ? "Native edit was serialized but persistence failed: " + (finalResult.error || "Unknown error")
+                  : finalResult.applicationState === "changed-unverified"
+                    ? "The native document changed, but the requested edit was not verified: " + (finalResult.error || "Unknown verification error")
+                    : finalResult.applicationState === "not-applied"
+                      ? "No document change was detected for this edit: " + (finalResult.error || "No matching change")
+                      : finalResult.applicationState === "unknown"
+                        ? "The native edit outcome is unknown: " + (finalResult.error || "No reliable serialized result")
+                        : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error")) +
+                (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
               if (finalResult.batchResults?.length) {
                 for (const step of finalResult.batchResults) {
-                  recordDiagnostic("copilot.native-batch.step." + (finalResult.success ? "applied" : "rolled-back"),
-                    "Native batch step " + step.index + (finalResult.success ? " applied" : " failed"),
+                  const stepEvent = finalResult.success
+                    ? "applied"
+                    : finalResult.batchRolledBack === true
+                      ? "rolled-back"
+                      : finalResult.applicationState === "changed-unverified"
+                        ? "failed-after-partial-apply"
+                        : finalResult.applicationState === "unknown"
+                          ? "outcome-unknown"
+                          : "failed";
+                  recordDiagnostic("copilot.native-batch.step." + stepEvent,
+                    "Native batch step " + step.index + (stepEvent === "applied" ? " applied" : stepEvent === "rolled-back" ? " rolled back" : " did not reach verified completion"),
                     { requestId: finalResult.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
                       stepSuccess: step.success, stepError: step.error ?? null, stepStack: step.stack ?? null,
-                      batchSuccess: finalResult.success, rollbackConfirmed: finalResult.batchRolledBack ?? null });
+                      batchSuccess: finalResult.success, applicationState: finalResult.applicationState ?? null,
+                      rollbackConfirmed: finalResult.batchRolledBack ?? null });
                 }
               }
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
             }}
             onSelectionChange={(cellId, pageId) => {
