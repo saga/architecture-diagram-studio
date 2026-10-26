@@ -398,7 +398,7 @@ test.describe("原生画布", () => {
       parent: "1", source: "database", target: "group-step-a"
     });
     expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")?.points.length).toBeGreaterThan(0);
-    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group boundary.");
+    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group/region boundary.");
   });
 
   test("geometry-only spatial regions move atomically and preserve internal connector waypoints", async ({ page, request }) => {
