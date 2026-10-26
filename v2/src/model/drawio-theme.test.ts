@@ -1,4 +1,4 @@
-import { deflateRawSync, deflateSync, inflateRawSync, inflateSync, strFromU8, strToU8 } from "fflate";
+import { deflateSync, inflateSync, strFromU8, strToU8 } from "fflate";
 import { describe, expect, it } from "vitest";
 import { findDrawioElements, parseDrawioXml, serializeDrawioXml } from "./drawio-xml-dom";
 import {
@@ -31,7 +31,7 @@ function decompressPage(encoded: string): string {
 }
 
 function compressStencil(xml: string): string {
-  const compressed = deflateRawSync(strToU8(encodeURIComponent(xml)));
+  const compressed = deflateSync(strToU8(encodeURIComponent(xml)));
   let binary = "";
   for (const byte of compressed) binary += String.fromCharCode(byte);
   return btoa(binary);
@@ -40,7 +40,7 @@ function compressStencil(xml: string): string {
 function decompressStencil(encoded: string): string {
   const binary = atob(encoded);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  return decodeURIComponent(strFromU8(inflateRawSync(bytes)));
+  return decodeURIComponent(strFromU8(inflateSync(bytes)));
 }
 
 const sourceModel = '<mxGraphModel background="light-dark(#FFFF66,#121212)" grid="1" gridSize="4" page="1" customModelAttribute="keep-me"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="plain" value="Plain" vertex="1" parent="1"/><mxCell id="colored" value="Colored" style="shape=rectangle;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;rounded=1;html=1;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell><mxCell id="text" value="Text only" style="text;html=1;align=center;fillColor=#ffffff;strokeColor=#000000;whiteSpace=wrap;" vertex="1" parent="1"/><mxCell id="edge" edge="1" parent="1" source="colored" target="plain" style="endArrow=block;strokeColor=#111111;fontColor=#222222;rounded=0;"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="40" y="50"/></Array></mxGeometry></mxCell></root></mxGraphModel>';
