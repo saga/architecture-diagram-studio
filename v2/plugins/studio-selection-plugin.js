@@ -505,7 +505,7 @@
       }
       var liveIds = allCells.map(runtimeCellId).sort(); var expectedIds = plan.expectedPageCellIds.slice().sort();
       if (liveIds.length !== expectedIds.length || liveIds.some(function (id, index) { return id !== expectedIds[index]; })) fail("The active Draw.io page changed after color calculation. No colors were applied; select the preset again.", true);
-      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true, studioColorRole: true };
+      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true, gradientColor: true, labelBackgroundColor: true, labelBorderColor: true, swimlaneFillColor: true, indicatorColor: true, indicatorGradientColor: true, separatorColor: true, fontColor2: true, studioColorRole: true };
       function normalizedStyle(cell) { var style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style; return typeof style === "string" ? style : ""; }
       function nonColorStyleSegments(style) { return String(style || "").split(";").filter(function (part) { var trimmed = part.trim(); if (!trimmed) return false; var equalsAt = trimmed.indexOf("="); var key = equalsAt > 0 ? trimmed.slice(0, equalsAt).trim() : ""; return !Object.prototype.hasOwnProperty.call(allowedCellStyles, key); }); }
       var changeIds = new Set(); var snapshots = [];

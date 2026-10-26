@@ -21,10 +21,10 @@ Palette selection must also be deterministic. Color roles should not be synthesi
    - Cells with the same source color key share one category. New categories receive stable role numbers in first-seen XML order.
    - Unstyled/default cells use the base role. Text-only cells use the text role and remain unfilled.
 4. Store the role as the small custom style key `studioColorRole` on each colorable mxCell: `base`, `text` or `category-1` through `category-8`. This marker is part of the native style string, not a second graph model. The selected theme maps each role to its own pre-defined colors. Repeated theme switches therefore use the stored role, not the last theme's fill color, as category identity.
-5. The marker and colors are changed together in one Draw.io model transaction. Existing roles cannot be silently reassigned by a theme change; native Undo/Redo restores both the prior colors and role markers together. Unknown non-color style keys, geometry, labels, IDs, parent relationships, endpoints, waypoints, page background and grid remain unchanged.
+5. The marker and colors are changed together in one Draw.io model transaction. Existing roles cannot be silently reassigned by a theme change; native Undo/Redo restores both the prior colors and role markers together. Unknown non-color style keys, geometry, labels, IDs, parent relationships, endpoints, waypoints, page background and grid remain unchanged. In addition to the primary fill/stroke/font properties, an existing hex-colored gradient, label background/border, swimlane fill, indicator, separator or secondary-font color follows the same assigned role. Absent properties are not introduced; explicit `none` and non-hex CSS expressions are preserved. Embedded image/SVG resources are not rewritten because they may contain brand artwork.
 6. If a page contains more than eight distinct original color categories, fail closed and explain the limit. Never collapse excess categories onto a repeated color just to complete the operation. The eight curated roles can be expanded deliberately in a later palette revision.
 7. A source document that was already uniformly recolored by the older implementation has lost the original category information in its current XML. Do not guess the lost colors. Restore the original file/version where possible before applying the new behavior.
-8. Color associations are treated as design context, not universal psychological rules. Palette character comes from the combined hue, lightness, chroma, neutral balance, and contrast. Light themes use restrained fills with clearer outlines; Midnight Galaxy uses darker fills and light outlines/text. Each preset is static and reviewed in source control.
+8. Color associations are treated as design context, not universal psychological rules. Palette character comes from the combined hue, lightness, chroma, neutral balance, and contrast. Themes must be visually distinguishable in the actual diagram, not just in the selector: curated base fills and categorical fills need visible hue/value separation, with strong outlines and readable text. Midnight Galaxy uses dark fills and luminous outlines/light text. Each preset is static and reviewed in source control.
 
 ## Curated theme intent
 
@@ -48,6 +48,8 @@ The palettes take inspiration from the curated-theme workflow in [Anthropic's th
 - A fixture with four distinct source colors remains four distinct categorical roles across all ten themes.
 - Repeated switching preserves role IDs; cells sharing a source color continue to share a role.
 - Base/default cells, text-only vertices, filled vertices, outline-only shapes and color-coded connectors are covered.
+- Existing hex-colored gradient/label/swimlane/indicator/separator properties follow the assigned theme role; `none`, absent keys, special CSS expressions, image assets, page background and grid are preserved.
+- Every theme has a distinct full palette signature, with eight distinct categorical fills and strokes.
 - More than eight distinct source categories fail before any mutation.
 - A planned style change can alter only color properties plus a valid initial `studioColorRole` assignment; an existing role cannot change.
 - Applying a theme is one native Undo entry; Undo/Redo restores colors and role markers together.

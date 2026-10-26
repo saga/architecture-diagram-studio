@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findDrawioElements, parseDrawioXml, serializeDrawioXml } from "./drawio-xml-dom";
 import {
   applyDrawioDiagramTheme,
+  DRAWIO_DIAGRAM_THEMES,
   applyDrawioThemeBackground,
   calculateNativePalettePlan,
   detectDrawioDiagramTheme,
@@ -41,28 +42,28 @@ describe("native Draw.io diagram theme presets", () => {
     expect(readDrawioModelBackground(themed)).toBe("light-dark(#FFFF66,#121212)");
 
     const plain = cellById(themed, "plain");
-    expect(plain?.getAttribute("style")).toContain("fillColor=#F8FAFC");
-    expect(plain?.getAttribute("style")).toContain("strokeColor=#64748B");
-    expect(plain?.getAttribute("style")).toContain("fontColor=#17324D");
+    expect(plain?.getAttribute("style")).toContain("fillColor=#D9EDF6");
+    expect(plain?.getAttribute("style")).toContain("strokeColor=#1F617A");
+    expect(plain?.getAttribute("style")).toContain("fontColor=#153548");
 
     const colored = cellById(themed, "colored");
-    expect(colored?.getAttribute("style")).toContain("fillColor=#E0F2FE");
-    expect(colored?.getAttribute("style")).toContain("strokeColor=#0369A1");
-    expect(colored?.getAttribute("style")).toContain("fontColor=#17324D");
+    expect(colored?.getAttribute("style")).toContain("fillColor=#B7DDEB");
+    expect(colored?.getAttribute("style")).toContain("strokeColor=#176B85");
+    expect(colored?.getAttribute("style")).toContain("fontColor=#153548");
     expect(colored?.getAttribute("style")).toContain("rounded=1");
     expect(colored?.getAttribute("style")).toContain("html=1");
     expect(colored?.getAttribute("style")).not.toContain("fillColor=#ffffff");
 
     const text = cellById(themed, "text");
-    expect(text?.getAttribute("style")).toContain("fontColor=#17324D");
+    expect(text?.getAttribute("style")).toContain("fontColor=#153548");
     expect(text?.getAttribute("style")).toContain("fillColor=none");
     expect(text?.getAttribute("style")).toContain("strokeColor=none");
     expect(text?.getAttribute("style")).not.toContain("fillColor=#ffffff");
     expect(text?.getAttribute("style")).not.toContain("strokeColor=#000000");
 
     const edge = cellById(themed, "edge");
-    expect(edge?.getAttribute("style")).toContain("strokeColor=#0F766E");
-    expect(edge?.getAttribute("style")).toContain("fontColor=#17324D");
+    expect(edge?.getAttribute("style")).toContain("strokeColor=#146D59");
+    expect(edge?.getAttribute("style")).toContain("fontColor=#153548");
     expect(edge?.getAttribute("style")).toContain("endArrow=block");
     expect(edge?.getAttribute("style")).toContain("rounded=0");
     expect(themed).toContain('x="40" y="50"');
@@ -85,10 +86,10 @@ describe("native Draw.io diagram theme presets", () => {
     const vertex = findDrawioElements(model, "mxCell").find((cell) => cell.getAttribute("id") === "colored");
     const edge = findDrawioElements(model, "mxCell").find((cell) => cell.getAttribute("id") === "edge");
 
-    expect(vertex?.getAttribute("style")).toContain("fillColor=#253B53");
-    expect(vertex?.getAttribute("style")).toContain("strokeColor=#7DD3FC");
-    expect(vertex?.getAttribute("style")).toContain("fontColor=#F8FAFC");
-    expect(edge?.getAttribute("style")).toContain("strokeColor=#5EEAD4");
+    expect(vertex?.getAttribute("style")).toContain("fillColor=#27375A");
+    expect(vertex?.getAttribute("style")).toContain("strokeColor=#6AC7FF");
+    expect(vertex?.getAttribute("style")).toContain("fontColor=#F5F7FF");
+    expect(edge?.getAttribute("style")).toContain("strokeColor=#67E8C7");
     expect(decoded).toContain('background="#FFFF66"');
     expect(decoded).toContain('grid="1"');
     expect(decoded).toContain('customModelAttribute="keep-me"');
@@ -99,8 +100,8 @@ describe("native Draw.io diagram theme presets", () => {
     const source = '<mxfile host="app.diagrams.net" custom="preserve"><diagram id="p1">' + sourceModel + '</diagram><diagram id="p2">' + secondPage + '</diagram></mxfile>';
     const themed = applyDrawioDiagramTheme(source, "sunset-boulevard");
     expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel").length).toBe(2);
-    expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFFAF5");
-    expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFFAF5");
+    expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFE0CF");
+    expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFE0CF");
   });
 
   it("leaves malformed XML and unchanged/unsupported input byte-for-byte intact", () => {
@@ -130,7 +131,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(plan.expectedPageCellIds).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).not.toContain("plain");
-    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#FFFAF5");
+    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#FFE0CF");
     expect(detectDrawioDiagramTheme(source, "p2")).toBe("");
     const themed = applyDrawioDiagramTheme(source, "sunset-boulevard");
     expect(detectDrawioDiagramTheme(themed, "p2")).toBe("sunset-boulevard");
@@ -220,13 +221,13 @@ describe("native Draw.io diagram theme presets", () => {
     const outlineFirst = cellById(first, "outline")?.getAttribute("style") ?? "";
     expect(outlineFirst).toContain("fillColor=none");
     expect(outlineFirst).toContain("studioColorRole=category-1");
-    expect(outlineFirst).toContain("strokeColor=#0369A1");
+    expect(outlineFirst).toContain("strokeColor=#176B85");
 
     const second = applyDrawioDiagramTheme(first, "sunset-boulevard");
     const outlineSecond = cellById(second, "outline")?.getAttribute("style") ?? "";
     expect(outlineSecond).toContain("fillColor=none");
     expect(outlineSecond).toContain("studioColorRole=category-1");
-    expect(outlineSecond).toContain("strokeColor=#C2410C");
+    expect(outlineSecond).toContain("strokeColor=#B33F1D");
     expect(cellById(second, "filled")?.getAttribute("style")).toContain("studioColorRole=category-2");
   });
 
@@ -265,5 +266,47 @@ describe("native theme page identity", () => {
     expect(calculateNativePalettePlan(multipage, "p2", "a".repeat(64), "ocean-depths").pageId).toBe("p2");
     expect(() => calculateNativePalettePlan(multipage, "", "a".repeat(64), "ocean-depths"))
       .toThrow(/active Draw\.io page no longer exists/i);
+  });
+});
+
+
+describe("theme color coverage and contrast", () => {
+  it("recolors existing native gradient, label, swimlane and indicator colors without adding absent properties", () => {
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="themed" value="Zone" vertex="1" parent="1" style="shape=rect;fillColor=#808080;strokeColor=#333333;fontColor=#111111;gradientColor=#AAAAAA;labelBackgroundColor=#FFFFFF;labelBorderColor=#222222;swimlaneFillColor=#CCCCCC;indicatorColor=#444444;indicatorGradientColor=#BBBBBB;separatorColor=#555555;"/>' +
+      '<mxCell id="plain" value="Plain" vertex="1" parent="1" style="fillColor=none;strokeColor=#123456;labelBackgroundColor=none;"/>' +
+    '</root></mxGraphModel>';
+    const themed = applyDrawioDiagramTheme(source, "forest-canopy");
+    const zone = cellById(themed, "themed")?.getAttribute("style") ?? "";
+    const plain = cellById(themed, "plain")?.getAttribute("style") ?? "";
+    expect(zone).toContain("fillColor=#B4D7A8");
+    expect(zone).toContain("gradientColor=#B4D7A8");
+    expect(zone).toContain("labelBackgroundColor=#D5E7C8");
+    expect(zone).toContain("labelBorderColor=#285C38");
+    expect(zone).toContain("swimlaneFillColor=#B4D7A8");
+    expect(zone).toContain("indicatorColor=#285C38");
+    expect(zone).toContain("indicatorGradientColor=#B4D7A8");
+    expect(zone).toContain("separatorColor=#285C38");
+    expect(plain).toContain("fillColor=none");
+    expect(plain).toContain("labelBackgroundColor=none");
+    expect(plain).toContain("strokeColor=#285C38");
+    expect(plain).not.toContain("gradientColor=");
+    expect(plain).not.toContain("swimlaneFillColor=");
+  });
+
+  it("gives each curated theme a distinct visual signature and keeps category fills distinct", () => {
+    const entries = Object.entries(DRAWIO_DIAGRAM_THEMES);
+    const signatures = entries.map(([, palette]) => [
+      palette.baseFill, palette.baseStroke, palette.ink, palette.edgeStroke,
+      ...palette.categories.map((color) => color.fill),
+      ...palette.categories.map((color) => color.stroke)
+    ].join("|"));
+    expect(new Set(signatures).size).toBe(entries.length);
+    for (const [name, palette] of entries) {
+      expect(new Set(palette.categories.map((color) => color.fill)).size, name + " should have eight distinct fills").toBe(8);
+      expect(new Set(palette.categories.map((color) => color.stroke)).size, name + " should have eight distinct strokes").toBe(8);
+    }
+    expect(DRAWIO_DIAGRAM_THEMES["forest-canopy"].baseFill).not.toBe(DRAWIO_DIAGRAM_THEMES["modern-minimalist"].baseFill);
+    expect(DRAWIO_DIAGRAM_THEMES["forest-canopy"].edgeStroke).not.toBe(DRAWIO_DIAGRAM_THEMES["modern-minimalist"].edgeStroke);
   });
 });
