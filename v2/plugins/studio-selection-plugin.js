@@ -842,7 +842,14 @@
             (error && error.message ? String(error.message) : String(error)));
         }
       }
-      if (executionError) throw executionError;
+      if (executionError) {
+        if (cleanupErrors.length) {
+          throw new Error("Native Draw.io script failed: " +
+            (executionError && executionError.message ? String(executionError.message) : String(executionError)) +
+            "; script cleanup also failed: " + cleanupErrors.join("; "));
+        }
+        throw executionError;
+      }
       if (unbalancedUpdateDepth > 0) {
         throw new Error("Native Draw.io script left " + unbalancedUpdateDepth +
           " nested beginUpdate call(s) unbalanced; the script transaction was unwound and the batch will roll back");
