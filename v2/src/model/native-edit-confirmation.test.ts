@@ -1,6 +1,6 @@
 import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "./native-edit-confirmation";
+import { nativeEditIsReflectedInXml, nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff } from "./native-edit-confirmation";
 
 const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -155,6 +155,42 @@ describe("native edit XML confirmation", () => {
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: before, cellId: "__batch__", pageId: "missing-page", path: "cell:batch", value: scriptBatch
     })).toBe(false);
+  });
+
+  it("verifies script-declared cell, edge terminal, style and geometry assertions against serialized XML", () => {
+    const serialized = labelEdited.replace("</root>", 
+      '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">' +
+      '<mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { messageCreated: true, terminalsVerified: true },
+        xmlAssertions: [
+          { cellId: "api", exists: true, kind: "vertex", label: "New API", parentId: "1",
+            style: { rounded: "0" }, geometry: { x: 10, y: 20, width: 100, height: 40 } },
+          { cellId: "read-results", exists: true, kind: "edge", label: "readResults()",
+            parentId: "1", sourceId: "api", targetId: "db",
+            style: { edgeStyle: "orthogonalEdgeStyle", endArrow: "block" }, geometry: { relative: true } },
+          { cellId: "removed-cell", exists: false }
+        ]
+      }
+    };
+    expect(nativeScriptResultMatchesXml(result, serialized, "p1")).toBe(true);
+    expect(nativeScriptResultMatchesXml(result, before, "p1")).toBe(false);
+    expect(nativeScriptResultMatchesXml({
+      ...result,
+      value: { ...result.value, xmlAssertions: [
+        { cellId: "read-results", exists: true, kind: "edge", sourceId: "db", targetId: "api" }
+      ] }
+    }, serialized, "p1")).toBe(false);
+    expect(nativeScriptResultMatchesXml({
+      ...result,
+      value: { ...result.value, xmlAssertions: [{ cellId: "api", exists: true, kind: "vertex", label: "Wrong label" }] }
+    }, serialized, "p1")).toBe(false);
+    expect(nativeScriptResultMatchesXml({
+      available: true, value: { ok: true, postconditions: { complete: true } }
+    }, serialized, "p1")).toBe(false);
   });
 
   it("accepts a bare mxGraphModel when the editor page ID is not present in the source XML", () => {
