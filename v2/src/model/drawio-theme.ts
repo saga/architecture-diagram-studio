@@ -183,7 +183,7 @@ function secondaryThemeColorValues(style: string, palette: DiagramThemePalette, 
 }
 function themeStyleValues(style: string, kind: "vertex" | "edge", palette: DiagramThemePalette, role: DrawioColorRole, cell?: DrawioDomElement): Record<string, string> | null {
   const shapeValue = styleProperty(style, "shape");
-  const isInlineStencil = /^stencil\\([^)]+\\)$/i.test(shapeValue ?? "");
+  const isInlineStencil = /^stencil\(([^)]+)\)$/i.test(shapeValue ?? "");
   const themedShape = isInlineStencil && cell ? themedNeutralStencilShape(cell, style, palette, role) : null;
   // Inline stencil assets are skipped completely unless they pass the neutral-backplate checks.
   // Recoloring only the outer style can still overwrite a logo's inherited brand colors.
