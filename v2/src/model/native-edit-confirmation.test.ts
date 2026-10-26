@@ -211,6 +211,7 @@ describe("native edit XML confirmation", () => {
     const validation = validateNativeScriptResultAgainstXml(result, serialized, "p1");
     expect(validation.ok).toBe(false);
     expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "invalid-assertion",
       cellId: "read-results",
       field: "style",
       reason: expect.stringContaining("non-empty object")
@@ -226,7 +227,7 @@ describe("native edit XML confirmation", () => {
     const validation = validateNativeScriptResultAgainstXml(result, before, "p1");
     expect(validation.ok).toBe(false);
     expect(validation.failures).toContainEqual(expect.objectContaining({
-      index: 0, field: "assertion", reason: expect.stringContaining("JSON object")
+      kind: "invalid-assertion", index: 0, field: "assertion", reason: expect.stringContaining("JSON object")
     }));
   });
 
@@ -271,10 +272,10 @@ describe("native edit XML confirmation", () => {
     const validation = validateNativeScriptResultAgainstXml(result, serialized, "p1");
     expect(validation.ok).toBe(false);
     expect(validation.failures).toContainEqual(expect.objectContaining({
-      index: 0, field: "sourceId", expected: "db", actual: "api"
+      kind: "mismatch", index: 0, field: "sourceId", expected: "db", actual: "api"
     }));
     expect(validation.failures).toContainEqual(expect.objectContaining({
-      index: 0, field: "targetId", expected: "api", actual: "db"
+      kind: "mismatch", index: 0, field: "targetId", expected: "api", actual: "db"
     }));
     expect(validation.failures).not.toContainEqual(expect.objectContaining({ field: "style.endArrow" }));
   });
