@@ -215,18 +215,25 @@ export function detectDrawioDiagramTheme(xml: string, pageId: string | null): Dr
         style: cell.getAttribute("style") ?? ""
       }))
       .filter((cell): cell is { cell: DrawioDomElement; kind: "vertex" | "edge"; style: string } => cell.kind !== null);
-    if (cells.length === 0 || cells.every((cell) => roleFromStyle(cell.style) === null)) return "";
+    if (cells.length === 0) return "";
     const assignedRoles = assignColorRoles(cells.map((cell) => cell.cell));
+    const eligibilityPalette = DRAWIO_DIAGRAM_THEMES["ocean-depths"];
+    const themeable = cells.flatMap((cell) => {
+      const storedRole = roleFromStyle(cell.style);
+      const role = storedRole ?? assignedRoles.get(cell.cell);
+      if (!role) return [];
+      const values = themeStyleValues(cell.style, cell.kind, eligibilityPalette, role, cell.cell);
+      // Inline stencils that fail safety checks are intentionally excluded; all other cells
+      // must carry persisted roles before the current theme can be reported as known.
+      if (!values) return [];
+      return [{ ...cell, role, storedRole }];
+    });
+    if (themeable.length === 0 || themeable.some((cell) => cell.storedRole === null)) return "";
     for (const theme of Object.keys(DRAWIO_DIAGRAM_THEMES) as DrawioDiagramTheme[]) {
       const palette = DRAWIO_DIAGRAM_THEMES[theme];
-      if (cells.every((cell) => {
-        const storedRole = roleFromStyle(cell.style);
-        const role = storedRole ?? assignedRoles.get(cell.cell);
-        if (role === null || role === undefined) return false;
-        const values = themeStyleValues(cell.style, cell.kind, palette, role, cell.cell);
-        // Unmarked inline stencils are intentionally excluded from theme coloring.
-        if (storedRole === null && values === null) return true;
-        return storedRole !== null && values !== null && updateStyleProperties(cell.style, values) === cell.style;
+      if (themeable.every((cell) => {
+        const values = themeStyleValues(cell.style, cell.kind, palette, cell.role, cell.cell);
+        return values !== null && updateStyleProperties(cell.style, values) === cell.style;
       })) return theme;
     }
     return "";

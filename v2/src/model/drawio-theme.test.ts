@@ -362,13 +362,17 @@ describe("neutral native stencil theme coverage", () => {
     expect(stencilFill(decompressStencil(midnightPayload!))).toBe("#1D2540");
   });
 
-  it("does not rewrite a large stencil that contains chromatic brand colors", () => {
+  it("does not recolor brand stencil assets and still detects the theme of surrounding native cells", () => {
     const sourceStencil = stencilXml("#e6e7e8", '<strokecolor color="#4286c5"/>');
     const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="normal" value="Service" vertex="1" parent="1" style="fillColor=#808080;strokeColor=#333333;"/>' +
       stencilCellXml("brand", sourceStencil) + '</root></mxGraphModel>';
     const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
-    const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "brand");
-    expect(cell?.getAttribute("style")).toBe("shape=stencil(" + compressStencil(sourceStencil) + ");");
+    const brand = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "brand");
+    const normal = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "normal");
+    expect(brand?.getAttribute("style")).toBe("shape=stencil(" + compressStencil(sourceStencil) + ");");
+    expect(normal?.getAttribute("style")).toContain("fillColor=#B7DDEB");
+    expect(detectDrawioDiagramTheme(serializeDrawioXml(themed), null)).toBe("ocean-depths");
   });
 
   it("does not modify small neutral stencils or their outer styles", () => {
