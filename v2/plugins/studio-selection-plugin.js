@@ -661,11 +661,68 @@
       return { changedCells: snapshots.length, changedBackground: backgroundChanged };
     }
 
+    function maskNativeScriptStringsAndComments(source) {
+      var output = source.split("");
+      function blank(index) {
+        if (source.charAt(index) !== "\n" && source.charAt(index) !== "\r") output[index] = " ";
+      }
+      function scanCode(start, stopAtTemplateBrace) {
+        var i = start; var nestedBraces = 0;
+        while (i < source.length) {
+          var current = source.charAt(i); var next = source.charAt(i + 1);
+          if (current === "'" || current === '"') {
+            var quote = current; blank(i); i += 1;
+            while (i < source.length) {
+              current = source.charAt(i); blank(i);
+              if (current === "\\") { if (i + 1 < source.length) blank(i + 1); i += 2; continue; }
+              i += 1;
+              if (current === quote) break;
+            }
+            continue;
+          }
+          if (source.charCodeAt(i) === 96) { blank(i); i = scanTemplate(i + 1); continue; }
+          if (current === "/" && next === "/") {
+            blank(i); blank(i + 1); i += 2;
+            while (i < source.length && source.charAt(i) !== "\n" && source.charAt(i) !== "\r") { blank(i); i += 1; }
+            continue;
+          }
+          if (current === "/" && next === "*") {
+            blank(i); blank(i + 1); i += 2;
+            while (i < source.length) {
+              current = source.charAt(i); blank(i);
+              if (current === "*" && source.charAt(i + 1) === "/") { blank(i + 1); i += 2; break; }
+              i += 1;
+            }
+            continue;
+          }
+          if (stopAtTemplateBrace && current === "{") { nestedBraces += 1; i += 1; continue; }
+          if (stopAtTemplateBrace && current === "}") {
+            if (nestedBraces === 0) { blank(i); return i + 1; }
+            nestedBraces -= 1; i += 1; continue;
+          }
+          i += 1;
+        }
+        return i;
+      }
+      function scanTemplate(start) {
+        var i = start;
+        while (i < source.length) {
+          var current = source.charAt(i);
+          if (current === "\\") { blank(i); if (i + 1 < source.length) blank(i + 1); i += 2; continue; }
+          if (source.charCodeAt(i) === 96) { blank(i); return i + 1; }
+          if (current === "$" && source.charAt(i + 1) === "{") {
+            blank(i); blank(i + 1); i = scanCode(i + 2, true); continue;
+          }
+          blank(i); i += 1;
+        }
+        return i;
+      }
+      scanCode(0, false);
+      return output.join("");
+    }
+
     function assertNativeScriptSynchronous(source) {
-      var executable = String(source || "")
-        .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, " ")
-        .replace(/\/\*[\s\S]*?\*\//g, " ")
-        .replace(/\/\/.*$/gm, " ");
+      var executable = maskNativeScriptStringsAndComments(String(source || ""));
       if (/\b(?:async|await)\b/.test(executable)) {
         throw new Error("Native Draw.io scripts must be synchronous; async functions and await are not supported");
       }
