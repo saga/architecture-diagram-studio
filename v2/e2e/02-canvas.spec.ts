@@ -64,7 +64,53 @@ function cellX(xml: string, fragment: string): number | null {
   return cellPosition(xml, fragment)?.x ?? null;
 }
 
-/** Drag a blank part of the native node rather than its text label. */
+function nativeCellSnapshot(xml: string, cellId: string) {
+  const source = parseDrawioXml(xml);
+  const documentRoot = source.documentElement;
+  const models: Element[] = [];
+  if (documentRoot.nodeName === "mxGraphModel") {
+    models.push(documentRoot as unknown as Element);
+  } else if (documentRoot.nodeName === "mxfile") {
+    for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
+      const inline = page.getElementsByTagName("mxGraphModel").item(0);
+      if (inline) {
+        models.push(inline);
+        continue;
+      }
+      const payload = (page.textContent || "").trim();
+      if (!payload) continue;
+      try {
+        const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
+        if (decoded.documentElement.nodeName === "mxGraphModel") models.push(decoded.documentElement as unknown as Element);
+      } catch { /* Keep searching other pages. */ }
+    }
+  }
+  for (const model of models) {
+    const cell = Array.from(model.getElementsByTagName("mxCell")).find((candidate) => candidate.getAttribute("id") === cellId);
+    if (!cell) continue;
+    const geometry = Array.from(cell.children).find((child) => child.tagName === "mxGeometry") as Element | undefined;
+    return {
+      parent: cell.getAttribute("parent"),
+      source: cell.getAttribute("source"),
+      target: cell.getAttribute("target"),
+      x: geometry?.getAttribute("x") ?? null,
+      y: geometry?.getAttribute("y") ?? null,
+      width: geometry?.getAttribute("width") ?? null,
+      height: geometry?.getAttribute("height") ?? null,
+      relative: geometry?.getAttribute("relative") ?? null,
+      points: geometry
+        ? Array.from(geometry.children)
+          .filter((child) => child.tagName === "Array" && child.getAttribute("as") === "points")
+          .flatMap((array) => Array.from(array.children))
+          .filter((child) => child.tagName === "mxPoint")
+          .map((point) => ({ x: point.getAttribute("x"), y: point.getAttribute("y") }))
+        : []
+    };
+  }
+  return null;
+}
+
+/** Drag the native SVG shape instead of the foreignObject label. */
 async function dragNativeNode(page: import("@playwright/test").Page, labelText: string, deltaX: number, deltaY: number) {
   // Scope to the real canvas node; Draw.io's sidebar can contain duplicate palette labels.
   const label = nativeFrame(page).locator(".geDiagramContainer").getByText(labelText, { exact: true });
@@ -276,6 +322,56 @@ test.describe("原生画布", () => {
       });
     }, { timeout: 20_000, intervals: [500] }).toBe(true);
     await expect(page.getByRole("button", { name: "Redo", exact: true })).toBeEnabled();
+  });
+
+  test("Group 作为原子节点参与布局，内部节点与内部连线的相对几何保持不变", async ({ page, request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
+    const sourceXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
+    const groupCells = `
+      <mxCell id="group-container" value="Grouped Block" style="rounded=1;container=1;collapsible=0;fillColor=#f8fafc;strokeColor=#64748b;" vertex="1" parent="1"><mxGeometry x="930" y="430" width="230" height="120" as="geometry"/></mxCell>
+      <mxCell id="group-step-a" value="Step A" vertex="1" parent="group-container"><mxGeometry x="18" y="30" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="group-step-b" value="Step B" vertex="1" parent="group-container"><mxGeometry x="128" y="30" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="group-internal-edge" edge="1" parent="group-container" source="group-step-a" target="group-step-b" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="edge-database-to-group-child" edge="1" parent="1" source="database" target="group-step-a" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+    expect(sourceXml.split("</root>").length).toBe(2);
+    const withGroupXml = sourceXml.replace("</root>", groupCells + "</root>");
+    const saved = await request.put("/api/workspace/document", {
+      data: {
+        drawioXml: withGroupXml,
+        label: "E2E atomic group layout fixture",
+        baseRevision: state.workspaceRevision
+      }
+    });
+    expect(saved.status(), await saved.text()).toBe(200);
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    const beforeXml = await readWorkspaceXml(workspace);
+    const groupBefore = nativeCellSnapshot(beforeXml, "group-container");
+    const childABefore = nativeCellSnapshot(beforeXml, "group-step-a");
+    const childBBefore = nativeCellSnapshot(beforeXml, "group-step-b");
+    const internalEdgeBefore = nativeCellSnapshot(beforeXml, "group-internal-edge");
+    expect(groupBefore).not.toBeNull();
+    expect(childABefore).not.toBeNull();
+    expect(childBBefore).not.toBeNull();
+    expect(internalEdgeBefore).not.toBeNull();
+
+    await page.getByRole("button", { name: "Auto layout", exact: true }).click();
+    await expect.poll(async () => nativeCellSnapshot(await readWorkspaceXml(workspace), "group-container")?.x, {
+      timeout: 30_000, intervals: [500]
+    }).not.toBe(groupBefore!.x);
+
+    const afterXml = await readWorkspaceXml(workspace);
+    expect(nativeCellSnapshot(afterXml, "group-step-a")).toEqual(childABefore);
+    expect(nativeCellSnapshot(afterXml, "group-step-b")).toEqual(childBBefore);
+    expect(nativeCellSnapshot(afterXml, "group-internal-edge")).toEqual(internalEdgeBefore);
+    expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")).toMatchObject({
+      parent: "1", source: "database", target: "group-step-a"
+    });
+    expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")?.points.length).toBeGreaterThan(0);
+    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group boundary.");
   });
 
   test("布局工具栏恢复引擎和方向下拉设置，以及横向纵向快捷布局", async ({ page }) => {
