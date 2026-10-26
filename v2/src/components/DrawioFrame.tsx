@@ -263,7 +263,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           reject(new Error("Wait for the current native edit to finish saving before applying diagram colors."));
           return;
         }
-        if (!plan.changes.length || plan.changes.length > 10000 ||
+        if ((!plan.changes.length && plan.expectedBackground === plan.background) || plan.changes.length > 10000 ||
             !plan.expectedPageCellIds.length || plan.expectedPageCellIds.length > 20000) {
           reject(new Error("The color plan is empty or exceeds native editor limits."));
           return;
@@ -277,7 +277,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           target.postMessage(JSON.stringify({ event: "studioNativePaletteRequest", requestId, plan }), DRAWIO_ORIGIN);
           recordDiagnostic("drawio.palette.requested", "Sent a revision- and active-page-bound palette plan to the native Draw.io editor", {
             requestId, theme: plan.theme, pageId: plan.pageId, documentRevision: plan.documentRevision,
-            expectedCellCount: plan.expectedPageCellIds.length, changeCount: plan.changes.length
+            expectedCellCount: plan.expectedPageCellIds.length, changeCount: plan.changes.length,
+            expectedBackground: plan.expectedBackground, nextBackground: plan.background
           });
         } catch (error) {
           rejectPendingNativePalette(new Error("Could not send the color plan to Draw.io: " +

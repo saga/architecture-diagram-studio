@@ -568,9 +568,16 @@
       function fail(message, rollbackConfirmed) { var error = new Error(message); error.rollbackConfirmed = rollbackConfirmed === true; throw error; }
       if (!plan || typeof plan !== "object" || !Array.isArray(plan.expectedPageCellIds) || !Array.isArray(plan.changes) || ["ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist", "golden-hour", "arctic-frost", "desert-rose", "tech-innovation", "botanical-garden", "midnight-galaxy"].indexOf(plan.theme) < 0) fail("The Studio color plan is malformed; nothing was changed.", true);
       if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) fail("The Studio color plan is not bound to a valid native XML revision.", true);
-      if (plan.expectedPageCellIds.length < 1 || plan.expectedPageCellIds.length > 20000 || plan.changes.length < 1 || plan.changes.length > 10000) fail("The Studio color plan is empty or exceeds native editor limits.", true);
+      if (plan.expectedBackground !== null && (typeof plan.expectedBackground !== "string" || plan.expectedBackground.length > 500)) fail("The Studio color plan contains an invalid expected page background.", true);
+      if (typeof plan.background !== "string" || !/^#[0-9a-f]{6}$/i.test(plan.background)) fail("The Studio color plan contains an invalid target page background.", true);
+      if (plan.expectedPageCellIds.length < 1 || plan.expectedPageCellIds.length > 20000 || plan.changes.length > 10000) fail("The Studio color plan is empty or exceeds native editor limits.", true);
+      if (plan.changes.length === 0 && plan.expectedBackground === plan.background) fail("The Studio color plan does not contain any changes.", true);
       if (!activeModel || typeof activeModel.getRoot !== "function" || typeof activeModel.getChildCount !== "function" || typeof activeModel.getChildAt !== "function" || typeof activeModel.getStyle !== "function" || typeof activeModel.setStyle !== "function" || typeof activeModel.beginUpdate !== "function" || typeof activeModel.endUpdate !== "function") fail("The active Draw.io model does not expose the required native style transaction API.", true);
       if ((plan.pageId || null) !== (currentPageId() || null)) fail("The active Draw.io page changed after color calculation. Select the preset again.", true);
+      var originalGraphBackground = activeGraph.background == null ? null : String(activeGraph.background);
+      if (originalGraphBackground !== plan.expectedBackground) fail("The active Draw.io page background changed after color calculation. Select the preset again.", true);
+      var backgroundChanged = plan.background !== originalGraphBackground;
+      if (backgroundChanged && typeof activeModel.execute !== "function") fail("The native Draw.io model does not support an undoable background transaction.", true);
       var uniqueExpectedIds = new Set();
       for (var e = 0; e < plan.expectedPageCellIds.length; e++) { var expectedId = plan.expectedPageCellIds[e]; if (typeof expectedId !== "string" || !expectedId || expectedId.length > 500 || uniqueExpectedIds.has(expectedId)) fail("The Studio color plan contains invalid or duplicate native cell IDs.", true); uniqueExpectedIds.add(expectedId); }
       var root = activeModel && typeof activeModel.getRoot === "function" ? activeModel.getRoot() : null;
@@ -613,17 +620,45 @@
         snapshots.push({ cell: liveCell, cellId: change.cellId, style: liveCell.style, nextStyle: change.style });
       }
       var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
+      var pendingBackgroundValue = plan.background;
       activeModel.beginUpdate();
-      try { snapshots.forEach(function (snapshot) { activeModel.setStyle(snapshot.cell, snapshot.nextStyle); }); }
+      try {
+        snapshots.forEach(function (snapshot) { activeModel.setStyle(snapshot.cell, snapshot.nextStyle); });
+        if (backgroundChanged) {
+          // Record the graph-background toggle as a native model change, making it share one undo entry with cell styles.
+          activeModel.execute({
+            execute: function () {
+              var previousBackground = activeGraph.background == null ? null : String(activeGraph.background);
+              activeGraph.background = pendingBackgroundValue;
+              pendingBackgroundValue = previousBackground;
+              if (activeGraph.view && typeof activeGraph.view.validateBackground === "function") activeGraph.view.validateBackground();
+              if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+            }
+          });
+        }
+      }
       catch (mutationError) {
         var rollbackErrors = [];
-        snapshots.slice().reverse().forEach(function (snapshot) { try { activeModel.setStyle(snapshot.cell, snapshot.style); } catch (rollbackError) { rollbackErrors.push(snapshot.cellId + ": " + (rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError))); } });
+        if ((activeGraph.background == null ? null : String(activeGraph.background)) !== originalGraphBackground) {
+          try {
+            activeGraph.background = originalGraphBackground;
+            if (activeGraph.view && typeof activeGraph.view.validateBackground === "function") activeGraph.view.validateBackground();
+            if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+          } catch (backgroundRollbackError) {
+            rollbackErrors.push("page background: " + (backgroundRollbackError && backgroundRollbackError.message ? String(backgroundRollbackError.message) : String(backgroundRollbackError)));
+          }
+        }
+        snapshots.slice().reverse().forEach(function (snapshot) {
+          try { activeModel.setStyle(snapshot.cell, snapshot.style); }
+          catch (rollbackError) { rollbackErrors.push(snapshot.cellId + ": " + (rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError))); }
+        });
         if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) rollbackErrors.push("Native Undo/Redo history could not be restored to its pre-color checkpoint.");
-        fail("Studio color application failed: " + (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) + (rollbackErrors.length ? "; style/history rollback was incomplete: " + rollbackErrors.join("; ") : "; previous styles and native history were restored."), rollbackErrors.length === 0);
+        fail("Studio color application failed: " + (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) + (rollbackErrors.length ? "; style/background/history rollback was incomplete: " + rollbackErrors.join("; ") : "; previous styles, background and native history were restored."), rollbackErrors.length === 0);
       } finally { activeModel.endUpdate(); }
       if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+      if (activeGraph.view && typeof activeGraph.view.validateBackground === "function") activeGraph.view.validateBackground();
       if (typeof activeGraph.refresh === "function") activeGraph.refresh();
-      return { changedCells: snapshots.length };
+      return { changedCells: snapshots.length, changedBackground: backgroundChanged };
     }
 
     function editCell(request) {
@@ -914,7 +949,7 @@
           bindHistoryModelListener(); publishSelection(); publish({ event: "studioHistoryCommandResult", action: historyAction, success: true });
         } catch (historyError) { publishHistoryState(); publish({ event: "studioHistoryCommandResult", action: historyAction, success: false, error: historyError && historyError.message ? String(historyError.message) : String(historyError) }); }
       } else if (request.event === "studioNativePaletteRequest") {
-        try { var paletteGraph = currentGraph(); var paletteModel = typeof paletteGraph.getModel === "function" ? paletteGraph.getModel() : model; var paletteResult = applyNativePalettePlan(request.plan, paletteGraph, paletteModel); bindHistoryModelListener(); publishSelection(); publish({ event: "studioNativePaletteResult", requestId: request.requestId, success: true, changedCells: paletteResult.changedCells }); }
+        try { var paletteGraph = currentGraph(); var paletteModel = typeof paletteGraph.getModel === "function" ? paletteGraph.getModel() : model; var paletteResult = applyNativePalettePlan(request.plan, paletteGraph, paletteModel); bindHistoryModelListener(); publishSelection(); publish({ event: "studioNativePaletteResult", requestId: request.requestId, success: true, changedCells: paletteResult.changedCells, changedBackground: paletteResult.changedBackground }); }
         catch (paletteError) { publish({ event: "studioNativePaletteResult", requestId: request.requestId, success: false, error: paletteError && paletteError.message ? String(paletteError.message) : String(paletteError), rollbackConfirmed: Boolean(paletteError && paletteError.rollbackConfirmed) }); }
       } else if (request.event === "studioNativeLayoutRequest") {
         try { var layoutGraph = currentGraph(); var layoutModel = typeof layoutGraph.getModel === "function" ? layoutGraph.getModel() : model; var layoutResult = applyNativeLayoutPlan(request.plan, layoutGraph, layoutModel); publish({ event: "studioNativeLayoutResult", requestId: request.requestId, success: true, changedVertices: layoutResult.changedVertices, changedEdges: layoutResult.changedEdges, engine: layoutResult.engine, algorithm: layoutResult.algorithm }); }
@@ -941,7 +976,7 @@
     var bridgeGraph = currentGraph(); var bridgeModel = typeof bridgeGraph.getModel === "function" ? bridgeGraph.getModel() : model;
     var bridgeCapabilities = {
       graph: runtimeMethods(bridgeGraph, ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"]),
-      model: runtimeMethods(bridgeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate"]),
+      model: runtimeMethods(bridgeModel, ["getRoot", "getChildCount", "getChildAt", "getCell", "getStyle", "setStyle", "setValue", "setGeometry", "setTerminal", "beginUpdate", "endUpdate", "execute"]),
       view: runtimeMethods(bridgeGraph && bridgeGraph.view, ["getState", "validate"])
     };
     pendingBridgeReadyMessage = { event: "studioBridgeReady", drawioVersion: "v32.0.2", capabilityManifest: buildCapabilityManifest(bridgeCapabilities) };

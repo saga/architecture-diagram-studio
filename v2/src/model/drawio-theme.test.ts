@@ -52,7 +52,7 @@ describe("native Draw.io diagram theme presets", () => {
 
     expect(themed).not.toBe(source);
     expect(themed).toContain('data-owner="external"');
-    expect(readDrawioModelBackground(themed)).toBe("light-dark(#FFFF66,#121212)");
+    expect(readDrawioModelBackground(themed)).toBe("#C5DDE7");
 
     const plain = cellById(themed, "plain");
     expect(plain?.getAttribute("style")).toContain("fillColor=#D9EDF6");
@@ -84,7 +84,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(themed).toContain('gridSize="4"');
   });
 
-  it("applies a preset to compressed pages and leaves their page background/grid settings alone", () => {
+  it("applies a preset to compressed pages and changes the canvas while preserving grid settings", () => {
     const inner = sourceModel.replace('background="light-dark(#FFFF66,#121212)"', 'background="#FFFF66"');
     const encoded = compressPage(inner);
     const source = '<mxfile host="app.diagrams.net"><diagram id="compressed" name="Compressed">' + encoded + '</diagram></mxfile>';
@@ -103,7 +103,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(vertex?.getAttribute("style")).toContain("strokeColor=#6AC7FF");
     expect(vertex?.getAttribute("style")).toContain("fontColor=#F5F7FF");
     expect(edge?.getAttribute("style")).toContain("strokeColor=#67E8C7");
-    expect(decoded).toContain('background="#FFFF66"');
+    expect(decoded).toContain('background="#10172A"');
     expect(decoded).toContain('grid="1"');
     expect(decoded).toContain('customModelAttribute="keep-me"');
   });
@@ -115,6 +115,8 @@ describe("native Draw.io diagram theme presets", () => {
     expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel").length).toBe(2);
     expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFE0CF");
     expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFE0CF");
+    expect(readDrawioModelBackground(themed, "p1")).toBe("#F3C9B3");
+    expect(readDrawioModelBackground(themed, "p2")).toBe("#F3C9B3");
   });
 
   it("leaves malformed XML and unchanged/unsupported input byte-for-byte intact", () => {
@@ -125,7 +127,7 @@ describe("native Draw.io diagram theme presets", () => {
     expect(applyDrawioThemeBackground(malformed, "#101a2b")).toBe(malformed);
   });
 
-  it("keeps explicit background editing separate from diagram palette selection", () => {
+  it("keeps the explicit background editing helper available independently of diagram presets", () => {
     const source = '<mxfile><diagram><mxGraphModel background="#ffffff"><root/></mxGraphModel></diagram></mxfile>';
     const result = applyDrawioThemeBackground(source, "#101a2b");
     expect(readDrawioModelBackground(result)).toBe("#101a2b");
@@ -141,6 +143,8 @@ describe("native Draw.io diagram theme presets", () => {
     const plan = calculateNativePalettePlan(source, "p2", "a".repeat(64), "sunset-boulevard");
 
     expect(plan.pageId).toBe("p2");
+    expect(plan.expectedBackground).toBe("light-dark(#FFFF66,#121212)");
+    expect(plan.background).toBe("#F3C9B3");
     expect(plan.expectedPageCellIds).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).not.toContain("plain");
@@ -183,6 +187,7 @@ describe("native Draw.io diagram theme presets", () => {
         expect(cell, "planned cell " + change.cellId).toBeTruthy();
         cell?.setAttribute("style", change.style);
       }
+      findDrawioElements(planned, "mxGraphModel")[0]?.setAttribute("background", plan.background);
       expect(serializeDrawioXml(planned)).toBe(expected);
       expect(detectDrawioDiagramTheme(expected, "p1")).toBe(theme);
       const alreadyApplied = calculateNativePalettePlan(expected, "p1", "d".repeat(64), theme);
@@ -213,6 +218,7 @@ describe("native Draw.io diagram theme presets", () => {
         expect(cell, "planned cell " + change.cellId).toBeTruthy();
         cell?.setAttribute("style", change.style);
       }
+      findDrawioElements(parsed, "mxGraphModel")[0]?.setAttribute("background", plan.background);
       themedXml = serializeDrawioXml(parsed);
       const cells = ["green", "blue", "orange", "yellow"].map((id) => cellById(themedXml, id));
       const roles = cells.map((cell) => cell?.getAttribute("style")?.split(";")
@@ -270,6 +276,33 @@ describe("native Draw.io diagram theme presets", () => {
 });
 
 
+describe("native theme page backgrounds", () => {
+  it("plans the active page background and leaves other pages unchanged", () => {
+    const source = '<mxfile><diagram id="one"><mxGraphModel background="#FFFFFF" grid="1" gridSize="10"><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="a" value="A" vertex="1" parent="1" style="fillColor=#FFFFFF;strokeColor=#000000;"/>' +
+      '</root></mxGraphModel></diagram><diagram id="two"><mxGraphModel background="#F0F0F0" grid="1"><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="b" value="B" vertex="1" parent="1"/>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const plan = calculateNativePalettePlan(source, "one", "a".repeat(64), "tech-innovation");
+    expect(plan.expectedBackground).toBe("#FFFFFF");
+    expect(plan.background).toBe("#C0CDF2");
+    const parsed = parseDrawioXml(source);
+    const targetPage = findDrawioElements(parsed, "diagram").find((page) => page.getAttribute("id") === "one");
+    const targetModel = targetPage ? findDrawioElements(targetPage as never, "mxGraphModel")[0] : undefined;
+    targetModel?.setAttribute("background", plan.background);
+    for (const change of plan.changes) {
+      const cell = findDrawioElements(parsed, "mxCell").find((candidate) => candidate.getAttribute("id") === change.cellId);
+      cell?.setAttribute("style", change.style);
+    }
+    const after = serializeDrawioXml(parsed);
+    expect(detectDrawioDiagramTheme(after, "one")).toBe("tech-innovation");
+    expect(readDrawioModelBackground(after, "one")).toBe("#C0CDF2");
+    expect(readDrawioModelBackground(after, "two")).toBe("#F0F0F0");
+    expect(after).toContain('gridSize="10"');
+  });
+});
+
 describe("native theme page identity", () => {
   it("requires an explicit page ID when multiple pages exist and rejects an empty ID", () => {
     const multipage = '<mxfile><diagram id="p1">' + sourceModel +
@@ -310,7 +343,7 @@ describe("theme color coverage and contrast", () => {
   it("gives each curated theme a distinct visual signature and keeps category fills distinct", () => {
     const entries = Object.entries(DRAWIO_DIAGRAM_THEMES);
     const signatures = entries.map(([, palette]) => [
-      palette.baseFill, palette.baseStroke, palette.ink, palette.edgeStroke,
+      palette.background, palette.baseFill, palette.baseStroke, palette.ink, palette.edgeStroke,
       ...palette.categories.map((color) => color.fill),
       ...palette.categories.map((color) => color.stroke)
     ].join("|"));
@@ -318,7 +351,10 @@ describe("theme color coverage and contrast", () => {
     for (const [name, palette] of entries) {
       expect(new Set(palette.categories.map((color) => color.fill)).size, name + " should have eight distinct fills").toBe(8);
       expect(new Set(palette.categories.map((color) => color.stroke)).size, name + " should have eight distinct strokes").toBe(8);
+      expect(/^#[0-9A-F]{6}$/.test(palette.background), name + " should have a fixed canvas color").toBe(true);
+      expect(palette.background).not.toBe(palette.baseFill);
     }
+    expect(new Set(entries.map(([, palette]) => palette.background)).size).toBe(10);
     expect(DRAWIO_DIAGRAM_THEMES["forest-canopy"].baseFill).not.toBe(DRAWIO_DIAGRAM_THEMES["modern-minimalist"].baseFill);
     expect(DRAWIO_DIAGRAM_THEMES["forest-canopy"].edgeStroke).not.toBe(DRAWIO_DIAGRAM_THEMES["modern-minimalist"].edgeStroke);
   });

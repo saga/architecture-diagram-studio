@@ -94,6 +94,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     getStyle: (cell: MockCell) => cell.style,
     beginUpdate: () => undefined,
     endUpdate: () => undefined,
+    execute: (change: { execute: () => void }) => { change.execute(); },
     addListener: () => undefined,
     setStyle: (cell: MockCell, style: string | null) => { cell.style = style; },
     setValue: (cell: MockCell, value: any) => { cell.value = value; },
@@ -133,6 +134,8 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   let generatedCellCount = 0;
   const graph: Record<string, any> = {
     gridSize: 10,
+    background: null as string | null,
+    view: { validateBackground() {} },
     insertVertex: (parent: MockCell, _id: string | null, value: string, x: number, y: number, width: number, height: number, style?: string | null) => {
       const created = makeCell("created-" + (++generatedCellCount), { vertex: true, style: style ?? "drawio-default-vertex-style;" });
       created.value = value;
@@ -245,6 +248,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   }
 
   return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect, runPalette,
+    getBackground: () => graph.background,
     getCreatedCells: () => [...byId.values()].filter((cell) => cell.id.startsWith("created-")),
     getEditorModifiedCalls: () => editorModifiedCalls, getGraphRefreshCalls: () => graphRefreshCalls };
 }
@@ -443,6 +447,7 @@ describe("native Draw.io palette bridge", () => {
     const nextStyle = "shape=rect;rounded=1;fillColor=#B7DDEB;gradientColor=#B7DDEB;labelBackgroundColor=#D9EDF6;labelBorderColor=#176B85;swimlaneFillColor=#B7DDEB;indicatorColor=#176B85;indicatorGradientColor=#B7DDEB;separatorColor=#176B85;dashed=1;strokeColor=#176B85;fontColor=#153548;studioColorRole=category-1;";
     const result = harness.runPalette({
       theme: "ocean-depths", documentRevision: "a".repeat(64), pageId: null,
+      expectedBackground: null, background: "#C5DDE7",
       expectedPageCellIds: expectedIds,
       changes: [{ cellId: "service", kind: "vertex", expectedStyle: originalStyle, style: nextStyle }]
     });
@@ -452,6 +457,8 @@ describe("native Draw.io palette bridge", () => {
     expect(harness.service.style).toContain("labelBorderColor=#176B85");
     expect(harness.service.style).toContain("dashed=1");
     expect(harness.service.style).toContain("studioColorRole=category-1");
+    expect(result).toMatchObject({ changedBackground: true });
+    expect(harness.getBackground()).toBe("#C5DDE7");
   });
 });
 
@@ -476,6 +483,7 @@ describe("native Draw.io palette bridge stencil safety", () => {
     const nextStyle = "shape=stencil(" + encodeStencil(afterStencil) + ");fillColor=#D9EDF6;strokeColor=#1F617A;fontColor=#153548;studioColorRole=base;";
     return {
       theme: "ocean-depths", documentRevision: "a".repeat(64), pageId: null,
+      expectedBackground: null, background: "#C5DDE7",
       expectedPageCellIds: ["0", "1", "service", "database", "edge-root", "group", "nested-service", "edge-nested"].sort(),
       changes: [{ cellId: "service", kind: "vertex", expectedStyle: originalStyle, style: nextStyle }]
     };

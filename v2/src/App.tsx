@@ -660,7 +660,7 @@ export default function App() {
         throw new Error("The diagram or active page changed while colors were being prepared. Nothing was applied; select the preset again.");
       }
       const plan = calculateNativePalettePlan(sourceXml, pageId, documentRevision, theme);
-      if (plan.changes.length === 0) {
+      if (plan.changes.length === 0 && plan.expectedBackground === plan.background) {
         setDiagramTheme(detectDrawioDiagramTheme(sourceXml, pageId));
         setLastAction("The active page already matches " + presetLabel + ", or contains no colorable cells. No changes were made.");
         recordDiagnostic("drawio.palette.noop", "The active-page color preset produced no native style changes", {
@@ -1544,7 +1544,7 @@ export default function App() {
             <UiButton key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => openPage(page)}>{label}{page === "traces" && traceEntries.some((entry) => entry.level === "error") && <i className="nav-error-dot" />}</UiButton>
           )}
         </nav>
-        <label className="theme-selector" title="Apply a color preset to elements and connectors on the active Draw.io page. The change is one native Undo/Redo step.">
+        <label className="theme-selector" title="Apply a coordinated canvas background, element and connector palette to the active Draw.io page. The change is one native Undo/Redo step.">
           <span aria-hidden="true">◐</span>
           <UiSelect value={diagramTheme} disabled={diagramThemeApplying || !nativeEditorReady || documentSaveState === "conflict"} aria-label="Draw.io diagram color theme for current page" popupMatchSelectWidth={false} onChange={(event) => {
             const nextTheme = event.target.value as DiagramTheme;

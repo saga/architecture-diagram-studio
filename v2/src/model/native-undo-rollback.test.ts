@@ -79,6 +79,7 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
     getChildAt: (cell: NativeCell, index: number) => cell.children[index],
     getCell: (id: string) => cells.get(id) ?? null,
     getStyle: (cell: NativeCell) => cell.style,
+    execute(change: { execute: () => void }) { change.execute(); this.currentEdit.changes.push(change); },
     addListener() {},
     removeListener() {},
     beginUpdate() { updateLevel += 1; },
@@ -125,6 +126,8 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
 
   const selectionModel = { addListener() {} };
   const graph = {
+    background: null as string | null,
+    view: { validateBackground() {} },
     getModel: () => model,
     getSelectionModel: () => selectionModel,
     getSelectionCells: () => [],
@@ -158,6 +161,7 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
     send,
     a,
     b,
+    getBackground: () => graph.background,
     undoEntries,
     redoEntries,
     postedMessages,
@@ -173,6 +177,8 @@ const themePlan = {
   theme: "ocean-depths",
   documentRevision: "a".repeat(64),
   pageId: "p1",
+  expectedBackground: null,
+  background: "#C5DDE7",
   expectedPageCellIds: ["0", "1", "a", "b"],
   changes: [
     { cellId: "a", kind: "vertex", expectedStyle: "fillColor=#FFFFFF;strokeColor=#000000;", style: "fillColor=#E0F2FE;strokeColor=#0369A1;fontColor=#17324D;studioColorRole=category-1;" },
@@ -193,6 +199,7 @@ describe("native Draw.io history rollback", () => {
     });
     expect(bridge.a.style).toBe("fillColor=#FFFFFF;strokeColor=#000000;");
     expect(bridge.b.style).toBe("fillColor=#FFFFFF;strokeColor=#000000;");
+    expect(bridge.getBackground()).toBeNull();
     expect(bridge.undoEntries).toEqual(priorUndo);
     expect(bridge.redoEntries).toEqual(priorRedo);
   });
