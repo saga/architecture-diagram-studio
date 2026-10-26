@@ -520,6 +520,7 @@ export function validateNativeScriptResultAgainstXml(
     };
 
     value.xmlAssertions.forEach((raw, assertionIndex) => {
+      let cellId = "";
       const invalid = (field: string, reason: string, expected?: unknown, actual?: unknown) => {
         fail({ index: assertionIndex, ...(cellId ? { cellId } : {}), field, reason,
           ...(expected !== undefined ? { expected } : {}), ...(actual !== undefined ? { actual } : {}) });
@@ -530,7 +531,7 @@ export function validateNativeScriptResultAgainstXml(
       }
 
       const assertion = raw as Record<string, unknown>;
-      const cellId = typeof assertion.cellId === "string" ? assertion.cellId.trim() : "";
+      cellId = typeof assertion.cellId === "string" ? assertion.cellId.trim() : "";
       let shapeInvalid = false;
       for (const key of Object.keys(assertion)) {
         if (!allowedFields.has(key)) {
