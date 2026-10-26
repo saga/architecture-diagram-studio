@@ -56,6 +56,13 @@ export const DRAWIO_DIAGRAM_THEMES: Record<DrawioDiagramTheme, DiagramThemePalet
     categories: [category("#27375A", "#6AC7FF"), category("#1F403D", "#67E8C7"), category("#3D4028", "#D9F775"), category("#4B3923", "#FFD166"), category("#4B2D44", "#FF9BD2"), category("#30264D", "#BEA4FF"), category("#4B2932", "#FFB4A2"), category("#263D51", "#A9D2FF")]
   }
 };
+function directThemeChild(element: Element, name: string): Element | null {
+  for (let index = 0; index < element.childNodes.length; index += 1) {
+    const child = element.childNodes.item(index);
+    if (child?.nodeType === 1 && child.nodeName === name) return child as Element;
+  }
+  return null;
+}
 function decodeStencilXml(payload: string): string | null {
   try {
     const binary = atob(payload);
@@ -101,7 +108,7 @@ function themedNeutralStencilShape(
   role: DrawioColorRole
 ): string | null {
   if (cell.getAttribute("vertex") !== "1") return null;
-  const geometry = directChild(cell, "mxGeometry");
+  const geometry = directThemeChild(cell, "mxGeometry");
   const width = Number(geometry?.getAttribute("width") ?? 0);
   const height = Number(geometry?.getAttribute("height") ?? 0);
   // Only theme large, neutral stencil areas such as room/region backplates.
