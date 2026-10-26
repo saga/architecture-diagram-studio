@@ -23,7 +23,8 @@ function readCellProperties(xml: string, cellId: string, pageId: string | null):
     else if (root.localName === "mxfile") {
       const pages = Array.from(root.children).filter((element) => element.localName === "diagram");
       const activePages = pageId ? pages.filter((page) => page.getAttribute("id") === pageId) : pages;
-      for (const page of activePages.length ? activePages : pages) {
+      // An explicit page ID is authoritative. Never fall back to another page when it is missing.
+      for (const page of activePages) {
         const inlineModel = Array.from(page.children).find((element) => element.localName === "mxGraphModel");
         if (inlineModel) {
           models.push(inlineModel);
@@ -40,6 +41,7 @@ function readCellProperties(xml: string, cellId: string, pageId: string | null):
         } catch { /* The schema validator reports malformed compressed pages elsewhere. */ }
       }
     }
+    const matches: CellProperties[] = [];
     for (const model of models) {
       const candidate = Array.from(model.querySelectorAll("[id]")).find((element) =>
         element.getAttribute("id") === cellId && (element.localName === "mxCell" || !!element.querySelector("mxCell"))
@@ -65,13 +67,13 @@ function readCellProperties(xml: string, cellId: string, pageId: string | null):
         }
         return [{ name: element.localName, attributes: attributes(element) }];
       }) : [];
-      return {
+      matches.push({
         wrapper, cell, geometry, points, nestedGeometry,
         label: displayLabel(wrapper?.getAttribute("label") ?? wrapper?.getAttribute("value") ?? cell.getAttribute("value") ?? ""),
         style: cell.getAttribute("style") ?? ""
-      };
+      });
     }
-    return null;
+    return matches.length === 1 ? matches[0] : null;
   } catch { return null; }
 }
 function displayLabel(value: string): string {
@@ -93,6 +95,14 @@ function styleTokens(style: string): Array<[string, string]> {
   }
   return tokens;
 }
+function isStructuralRootOrLayer(cell: Element, model: Element): boolean {
+  if (cell.getAttribute("vertex") === "1" || cell.getAttribute("edge") === "1") return false;
+  if (Array.from(cell.children).some((child) => child.localName === "mxGeometry")) return false;
+  const parentId = cell.getAttribute("parent");
+  if (!parentId) return cell === Array.from(model.querySelectorAll("root > mxCell")).find((candidate) => !candidate.hasAttribute("parent"));
+  const root = Array.from(model.querySelectorAll("root > mxCell")).find((candidate) => !candidate.hasAttribute("parent"));
+  return !!root && parentId === root.getAttribute("id");
+}
 function Field({ label, value, onChange, multiline = false, readOnly = false }: {
   label: string; value: string; onChange?: (value: string) => void; multiline?: boolean; readOnly?: boolean;
 }) {
@@ -108,7 +118,7 @@ function Field({ label, value, onChange, multiline = false, readOnly = false }: 
 export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }: Props) {
   const properties = useMemo(() => cellId ? readCellProperties(xml, cellId, pageId) : null, [xml, cellId, pageId]);
   if (!cellId) return <div className="empty-inspector">Select an element or connector in the Draw.io canvas to inspect its native properties.</div>;
-  if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> was not found in the current native XML. No changes have been made.</div>;
+  if (!properties) return <div className="empty-inspector">Selected cell <code>{cellId}</code> was not found unambiguously in the current native XML. No changes have been made.</div>;
 
   const { wrapper, cell, geometry, label, style, points, nestedGeometry } = properties;
   const wrapperAttrs = attributes(wrapper).filter(([name]) => name !== "id" && name !== "label" && !(name === "value" && !wrapper?.hasAttribute("label")));
@@ -121,6 +131,14 @@ export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }
     // fields cannot overwrite each other while the XML autosave is still in flight.
     update("style:" + key)(value);
   };
+  const parentId = cell.getAttribute("parent");
+  const rootCell = cell.ownerDocument.querySelector("root > mxCell:not([parent])");
+  const parentIsStructuralRoot = !!rootCell && parentId === rootCell.getAttribute("id");
+  const structuralParentCell = parentId
+    ? Array.from(cell.ownerDocument.querySelectorAll("mxCell")).find((candidate) => candidate.getAttribute("id") === parentId) ?? null
+    : null;
+  const parentIsStructuralLayer = !!structuralParentCell && isStructuralRootOrLayer(structuralParentCell, cell.ownerDocument.documentElement);
+  const parentReadOnly = isStructuralRootOrLayer(cell, cell.ownerDocument.documentElement) || parentIsStructuralRoot || parentIsStructuralLayer;
 
   return <section className="native-inspector">
     <div className="native-inspector-heading">
@@ -174,7 +192,7 @@ export default function NativeSelectionInspector({ xml, cellId, pageId, onEdit }
     <div className="native-inspector-group">
       <div className="field-label">Cell references</div>
       {(["parent", "source", "target"] as const).filter((key) => cell.hasAttribute(key)).map((key) =>
-        <Field key={key} label={key} value={cell.getAttribute(key) ?? ""} onChange={update("cell:" + key)} readOnly={key === "parent" && (cellId === "0" || cellId === "1")} />
+        <Field key={key} label={key} value={cell.getAttribute(key) ?? ""} onChange={update("cell:" + key)} readOnly={key === "parent" && parentReadOnly} />
       )}
       <Field label="id" value={cellId} readOnly />
     </div>
