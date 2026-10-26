@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml, nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
+import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import type { NativePalettePlan } from "../model/drawio-theme";
@@ -884,23 +884,32 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               } else if (acknowledgement.success && isScriptBatchValue(pending.value)) {
                 const scriptResult = pending.scriptResult ?? acknowledgement.scriptResult;
                 const scriptChecksPassed = hasVerifiedScriptPostconditions(scriptResult);
-                const serializedAssertionsPassed = scriptChecksPassed &&
-                  nativeScriptResultMatchesXml(scriptResult, data.xml, pending.pageId);
+                const assertionValidation = scriptChecksPassed
+                  ? validateNativeScriptResultAgainstXml(scriptResult, data.xml, pending.pageId)
+                  : { ok: false, failures: [{
+                    index: null, field: "postconditions",
+                    reason: "The script did not return passing, verifiable postconditions."
+                  }] };
+                const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
+                const assertionDiagnostic = assertionValidation.failures.slice(0, 8)
+                  .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
+                    failure.field + ": " + failure.reason).join("; ");
                 if (serializedAssertionsPassed) {
                   acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
                 } else {
                   const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
+                  const detail = assertionDiagnostic
+                    ? " Assertion diagnostics: " + assertionDiagnostic
+                    : "";
                   acknowledgement = {
                     ...acknowledgement,
                     success: false,
                     applicationState,
                     error: applicationState === "changed-unverified"
-                      ? scriptChecksPassed
-                        ? "The document changed, but the script's declared native-cell assertions did not match the serialized XML."
-                        : "The document changed, but the script did not return passing, verifiable postconditions."
+                      ? "The document changed, but native script assertions were invalid or did not match the serialized XML." + detail
                       : applicationState === "not-applied"
-                        ? "The script did not confirm its requested postconditions and the document appears unchanged."
-                        : "The script result could not be verified against the serialized document.",
+                        ? "The script did not confirm its requested postconditions and the document appears unchanged." + detail
+                        : "The script result could not be verified against the serialized document." + detail,
                     auditWarning: applicationState === "changed-unverified"
                       ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
                       : applicationState === "unknown"
@@ -908,9 +917,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                         : "No document change was detected in the serialized snapshot."
                   };
                   recordDiagnostic("drawio.script.postcondition.xml-mismatch",
-                    "The script's structured result did not match the serialized native XML",
+                    "The script's native-cell assertions were invalid or did not match the serialized native XML",
                     { requestId, applicationState, booleanPostconditionsPassed: scriptChecksPassed,
-                      serializedAssertionsPassed, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
+                      serializedAssertionsPassed, assertionFailureCount: assertionValidation.failures.length,
+                      assertionFailures: assertionValidation.failures.slice(0, 25),
+                      xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
                 }
               } else if (acknowledgement.success) {
                 acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
