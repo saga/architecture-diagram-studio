@@ -261,13 +261,17 @@ function parseGraphModel(xml: string, requestedPageId: string | null): { model: 
   if (root.nodeName !== "mxfile") throw new Error("Auto layout only supports native Draw.io mxfile or mxGraphModel documents.");
 
   const diagrams = Array.from(document.getElementsByTagName("diagram"));
-  const page = requestedPageId
+  // A missing page ID is only resolvable when the document has exactly one page.
+  // Never treat XML order as a substitute for the active page selected in Draw.io.
+  const page = requestedPageId !== null
     ? diagrams.find((candidate) => candidate.getAttribute("id") === requestedPageId)
-    : diagrams[0];
+    : diagrams.length === 1 ? diagrams[0] : undefined;
   if (!page) {
-    throw new Error(requestedPageId
+    throw new Error(requestedPageId !== null
       ? "The selected Draw.io page no longer exists. Select the page again before laying it out."
-      : "The Draw.io document has no pages to lay out.");
+      : diagrams.length > 1
+        ? "The Draw.io document has multiple pages but no active page ID; refusing to lay out the first page."
+        : "The Draw.io document has no pages to lay out.");
   }
 
   const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
@@ -337,14 +341,12 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
 
   const all = Array.from(byId.values());
 
-  // Draw.io commonly uses IDs "0" and "1", but valid files can prefix every cell ID
-  // (for example, after copying a diagram). Resolve the root and layers by parent links,
-  // preferring conventional IDs only when they are actually present in the cell tree.
+  // IDs are opaque references, not semantic roles. Root and layer roles come only from
+  // the native parent/child structure; ambiguous structures must not be resolved by ID or XML order.
   const rootCellCandidates = all.filter((cell) =>
     cell.parentId === null && cell.kind === "other" && !cell.hasGeometry
   );
-  const rootCell = rootCellCandidates.find((cell) => cell.id === "0") ??
-    (rootCellCandidates.length === 1 ? rootCellCandidates[0] : null);
+  const rootCell = rootCellCandidates.length === 1 ? rootCellCandidates[0] : null;
   const rootCellId = rootCell?.id ?? null;
   const rootLayers = rootCellId
     ? all.filter((cell) =>
@@ -355,10 +357,9 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       )
     : [];
 
-  // Prefer the conventional default layer where present. If IDs are nonstandard, a sole
-  // visible layer is unambiguous; with multiple layers, do not choose based on XML order.
-  const canonicalDefaultLayer = rootLayers.find((cell) => cell.id === "1") ?? null;
-  let layoutLayer = canonicalDefaultLayer ?? (rootLayers.length === 1 ? rootLayers[0] : null);
+  // Use a sole visible layer when unambiguous. If there are several layers, a sole populated
+  // layer may be selected below; never prefer a layer because its ID is "1".
+  let layoutLayer = rootLayers.length === 1 ? rootLayers[0] : null;
   let layoutLayerFallback = false;
 
   const eligibleVerticesForLayer = (layerId: string | null): ProjectedCell[] => {
