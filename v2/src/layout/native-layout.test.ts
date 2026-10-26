@@ -259,7 +259,7 @@ describe("Studio-owned native-cell layout", () => {
       <mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Overlay" parent="0"/>
       <mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="100" y="0" width="80" height="40" as="geometry"/></mxCell>
-      <mxCell id="overlay-node" value="Other layer node" vertex="1" parent="2"><mxGeometry x="200" y="0" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="overlay-node" value="Other layer node" vertex="1" parent="2" visible="0"><mxGeometry x="200" y="0" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="group" value="Group" vertex="1" parent="1"><mxGeometry x="0" y="100" width="120" height="80" as="geometry"/></mxCell>
       <mxCell id="nested" value="Nested child" vertex="1" parent="group"><mxGeometry x="10" y="10" width="40" height="20" as="geometry"/></mxCell>
       <mxCell id="nested-2" value="Nested child 2" vertex="1" parent="group"><mxGeometry x="65" y="10" width="40" height="20" as="geometry"/></mxCell>
@@ -283,7 +283,7 @@ describe("Studio-owned native-cell layout", () => {
       untouchedVertexCount: 5,
       nestedVertexCount: 2,
       verticesInOtherLayersCount: 1,
-      hiddenVertexCount: 1,
+      hiddenVertexCount: 2,
       verticesWithoutGeometryCount: 1,
       sourceEdgeCount: 6,
       plannedEdgeCount: 2,
@@ -314,7 +314,7 @@ describe("Studio-owned native-cell layout", () => {
 
   it("keeps honest coverage for the upstream multi-page BPMN example", async () => {
     const fixture = readFileSync(new URL("./fixtures/bpmn-example.drawio", import.meta.url), "utf8");
-    const plan = await calculateNativeAutoLayout(fixture, null, revision, {
+    const plan = await calculateNativeAutoLayout(fixture, "L4GpW-EUjeUzysb4IhCQ", revision, {
       ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
       engine: "dagre",
       algorithm: "layered"
@@ -385,7 +385,7 @@ describe("Studio-owned native-cell layout", () => {
     }
   );
 
-  it("prefers Draw.io's conventional default layer ID 1 even when another layer appears first in XML", async () => {
+  it("selects the sole populated visible layer without relying on ID or XML order", async () => {
     const reorderedLayers = xml.replace(
       '<mxCell id="0"/>',
       '<mxCell id="0"/><mxCell id="overlay" value="Overlay" parent="0"/>'
@@ -393,7 +393,7 @@ describe("Studio-owned native-cell layout", () => {
     const plan = await calculateNativeAutoLayout(reorderedLayers, "page-1", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
 
     expect(plan.layoutLayerId).toBe("1");
-    expect(plan.layoutLayerFallback).toBe(false);
+    expect(plan.layoutLayerFallback).toBe(true);
     expect(plan.positions.map((item) => item.cellId).sort()).toEqual(["api", "db", "worker"]);
   });
 
