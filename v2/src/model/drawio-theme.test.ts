@@ -333,7 +333,7 @@ describe("neutral native stencil theme coverage", () => {
       '</foreground></shape>';
   }
   function stencilCellXml(id: string, stencil: string, geometry = 'x="0" y="0" width="400" height="300"'): string {
-    return '<mxCell id="' + id + '" value="" vertex="1" parent="1" style="shape=stencil(' + compressPage(stencil) + ');">' +
+    return '<mxCell id="' + id + '" value="" vertex="1" parent="1" style="shape=stencil(' + compressStencil(stencil) + ');">' +
       '<mxGeometry ' + geometry + ' as="geometry"/></mxCell>';
   }
   function stencilFill(xml: string): string {
