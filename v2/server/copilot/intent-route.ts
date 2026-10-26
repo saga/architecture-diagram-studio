@@ -138,7 +138,8 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
     requestId: body.requestId, sessionId: body.sessionId, standalone: body.standalone,
     documentRevision: body.documentRevision, outcome: body.outcome, editorAcknowledged: body.editorAcknowledged,
     serializedXmlRevision: body.serializedXmlRevision, persistenceStatus: body.persistenceStatus,
-    persistedRevision: body.persistedRevision, versionId: body.versionId, failureStage: body.failureStage, error: body.error
+    persistedRevision: body.persistedRevision, versionId: body.versionId, applicationState: body.applicationState,
+    failureStage: body.failureStage, error: body.error
   });
 }
 
@@ -315,6 +316,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const persistedRevision = typeof body.persistedRevision === "string" ? body.persistedRevision : null;
     const versionId = typeof body.versionId === "string" ? body.versionId : null;
     const failureStage = body.failureStage === "editor" || body.failureStage === "persistence" ? body.failureStage : null;
+    const applicationState = body.applicationState === "applied-and-verified" ||
+      body.applicationState === "changed-unverified" || body.applicationState === "not-applied" ||
+      body.applicationState === "unknown" ? body.applicationState : null;
     const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
     if (!outcome || (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) ||
         (outcome === "failed" && !errorMessage && !failureStage)) {
@@ -367,7 +371,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const responseBody = {
       outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."),
       requestId, documentRevision: serializedXmlRevision, persistedRevision, versionId,
-      resolvedTargets, editorAcknowledged, persistenceStatus, failureStage,
+      resolvedTargets, editorAcknowledged, persistenceStatus, applicationState, failureStage,
       ...(errorMessage ? { error: errorMessage } : {})
     };
     await deps.writeLog("turn.native-edit.final-outcome", {
@@ -376,7 +380,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       operationCount: pending.operationCount, summary: pending.summary,
       operations: recordedOperations, resolvedTargets,
       outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision, versionId,
-      failureStage, error: errorMessage
+      applicationState, failureStage, error: errorMessage
     });
     acknowledgements.complete(requestId, { fingerprint, status: outcome === "applied" ? 200 : 200, body: responseBody, completedAt: Date.now() });
     res.json(responseBody);
@@ -549,7 +553,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         type: "object",
         properties: {
           summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the requested change." },
-          script: { type: "string", minLength: 1, maxLength: 50000, description: "JavaScript source executed against the live native Draw.io runtime. Available arguments: ui, editor, graph, model, inspectRuntime. Use native APIs rather than replacing the saved mxfile XML." }
+          script: { type: "string", minLength: 1, maxLength: 50000, description: "JavaScript source executed against the live native Draw.io runtime. Available arguments: ui, editor, graph, model, inspectRuntime. For a modifying script, return a JSON object { ok: true, postconditions: { checkName: true, ... }, ... } only after checking the requested result in the native model; all postcondition values must be true booleans. Keep diagnostic IDs/details in other fields. Use native APIs rather than replacing the saved mxfile XML." }
         },
         required: ["summary", "script"],
         additionalProperties: false
