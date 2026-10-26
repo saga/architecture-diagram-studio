@@ -1922,7 +1922,7 @@ export default function App() {
                   finalResult = { ...finalResult, auditWarning: "The edit result could not be recorded by the server: " + (error instanceof Error ? error.message : String(error)) };
                 }
                 nativeEditAckContextsRef.current.delete(requestId);
-              } else if (isLateNativeBatch) {
+              } else if (isLateNativeBatch && !lateResultHasSnapshot) {
                 // Without a resulting XML snapshot (or explicit rollback), a late timeout response
                 // is not a terminal receipt. Keep the request locked until the user reloads/reconciles.
                 finalResult = {
