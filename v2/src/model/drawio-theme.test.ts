@@ -310,3 +310,64 @@ describe("theme color coverage and contrast", () => {
     expect(DRAWIO_DIAGRAM_THEMES["forest-canopy"].edgeStroke).not.toBe(DRAWIO_DIAGRAM_THEMES["modern-minimalist"].edgeStroke);
   });
 });
+
+
+describe("neutral native stencil theme coverage", () => {
+  function stencilXml(fillColor: string, extraColor = ""): string {
+    return '<shape w="400" h="300" aspect="variable" strokewidth="inherit"><foreground>' +
+      '<strokecolor color="#ffffff"/><fillcolor color="' + fillColor + '"/>' +
+      extraColor + '<path><move x="0" y="0"/><line x="400" y="0"/><line x="400" y="300"/><close/></path>' +
+      '</foreground></shape>';
+  }
+  function stencilCellXml(id: string, stencil: string, geometry = 'x="0" y="0" width="400" height="300"'): string {
+    return '<mxCell id="' + id + '" value="" vertex="1" parent="1" style="shape=stencil(' + compressPage(stencil) + ');">' +
+      '<mxGeometry ' + geometry + ' as="geometry"/></mxCell>';
+  }
+  function stencilFill(xml: string): string {
+    return xml.match(/<fillcolor\\b[^>]*\\bcolor="([^"]+)"/i)?.[1] ?? "";
+  }
+
+  it("themes large neutral stencil backplates and preserves stencil geometry", () => {
+    const sourceStencil = stencilXml("#e6e7e8");
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      stencilCellXml("region", sourceStencil) + '</root></mxGraphModel>';
+    const forest = parseDrawioXml(applyDrawioDiagramTheme(source, "forest-canopy"));
+    const forestCell = findDrawioElements(forest, "mxCell").find((cell) => cell.getAttribute("id") === "region");
+    const forestStyle = forestCell?.getAttribute("style") ?? "";
+    const forestPayload = forestStyle.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    expect(forestPayload).toBeTruthy();
+    const forestXml = decompressPage(forestPayload!);
+    expect(stencilFill(forestXml)).toBe("#D5E7C8");
+    expect(forestXml.replace(/(<fillcolor\\b[^>]*\\bcolor=")[^"]+(")/gi, "$1__FILL__$2"))
+      .toBe(sourceStencil.replace(/(<fillcolor\\b[^>]*\\bcolor=")[^"]+(")/gi, "$1__FILL__$2"));
+    expect(forestStyle).toContain("studioColorRole=base");
+
+    const midnight = parseDrawioXml(applyDrawioDiagramTheme(serializeDrawioXml(forest), "midnight-galaxy"));
+    const midnightCell = findDrawioElements(midnight, "mxCell").find((cell) => cell.getAttribute("id") === "region");
+    const midnightPayload = midnightCell?.getAttribute("style")?.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    expect(midnightPayload).toBeTruthy();
+    expect(stencilFill(decompressPage(midnightPayload!))).toBe("#1D2540");
+  });
+
+  it("does not rewrite a large stencil that contains chromatic brand colors", () => {
+    const sourceStencil = stencilXml("#e6e7e8", '<strokecolor color="#4286c5"/>');
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      stencilCellXml("brand", sourceStencil) + '</root></mxGraphModel>';
+    const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
+    const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "brand");
+    const payload = cell?.getAttribute("style")?.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    expect(payload).toBeTruthy();
+    expect(decompressPage(payload!)).toBe(sourceStencil);
+  });
+
+  it("does not modify small neutral stencils", () => {
+    const sourceStencil = stencilXml("#e6e7e8");
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      stencilCellXml("small", sourceStencil, 'x="0" y="0" width="100" height="100"') + '</root></mxGraphModel>';
+    const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
+    const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "small");
+    const payload = cell?.getAttribute("style")?.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    expect(payload).toBeTruthy();
+    expect(decompressPage(payload!)).toBe(sourceStencil);
+  });
+});

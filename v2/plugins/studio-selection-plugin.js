@@ -480,6 +480,87 @@
       return { changedVertices: changedVertices, changedEdges: changedEdges, engine: plan.engine, algorithm: plan.algorithm };
     }
 
+    function paletteStyleValue(style, key) {
+      var found = null;
+      String(style || "").split(";").forEach(function (part) {
+        var equalsAt = part.indexOf("=");
+        if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) found = part.slice(equalsAt + 1).trim();
+      });
+      return found;
+    }
+    function stencilPayloadFromStyle(style) {
+      var shape = paletteStyleValue(style, "shape");
+      var match = typeof shape === "string" ? shape.match(/^stencil\\(([^)]+)\\)$/i) : null;
+      return match ? match[1] : null;
+    }
+    function decodePaletteStencil(payload) {
+      if (!payload || !window.mxUtils || typeof window.mxUtils.decompress !== "function") return null;
+      try {
+        var xml = window.mxUtils.decompress(payload);
+        if (typeof xml !== "string") return null;
+        if (/^%3cshape/i.test(xml.trim())) xml = decodeURIComponent(xml);
+        return xml;
+      } catch (_) { return null; }
+    }
+    function isTransparentPaletteStencilColor(value) {
+      return /^rgba\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*0(?:\\.0+)?\\s*\\)$/i.test(String(value || "").trim());
+    }
+    function neutralPaletteStencilColor(value) {
+      var color = String(value || "").trim();
+      if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) return false;
+      var hex = color.slice(1);
+      if (hex.length === 3) hex = hex.split("").map(function (part) { return part + part; }).join("");
+      var rgb = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+      return Math.max.apply(Math, rgb) - Math.min.apply(Math, rgb) <= 8;
+    }
+    function neutralPaletteStencilMidtone(value) {
+      var color = String(value || "").trim();
+      if (!neutralPaletteStencilColor(color)) return false;
+      var hex = color.slice(1);
+      if (hex.length === 3) hex = hex.split("").map(function (part) { return part + part; }).join("");
+      var rgb = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+      var brightness = (rgb[0] + rgb[1] + rgb[2]) / 3;
+      return brightness >= 120 && brightness <= 245;
+    }
+    function paletteStencilColorsSafe(xml, currentFill, hasRole) {
+      var colors = Array.from(String(xml || "").matchAll(/\\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
+      return colors.length > 0 && colors.every(function (color) {
+        return isTransparentPaletteStencilColor(color) || neutralPaletteStencilColor(color) ||
+          (hasRole && currentFill && color.toLowerCase() === currentFill.toLowerCase());
+      });
+    }
+    function stencilFillFingerprint(xml) {
+      return String(xml || "").replace(/(<fillcolor\\b[^>]*?\\bcolor=")[^"]*(")/gi, "$1__STUDIO_FILL__$2");
+    }
+    function paletteStencilMutationIsSafe(beforeStyle, afterStyle) {
+      var beforePayload = stencilPayloadFromStyle(beforeStyle);
+      var afterPayload = stencilPayloadFromStyle(afterStyle);
+      if (!beforePayload || !afterPayload) return false;
+      var beforeXml = decodePaletteStencil(beforePayload);
+      var afterXml = decodePaletteStencil(afterPayload);
+      if (!beforeXml || !afterXml) return false;
+      var beforeFill = paletteStyleValue(beforeStyle, "fillColor");
+      var afterFill = paletteStyleValue(afterStyle, "fillColor");
+      var beforeRole = paletteStyleValue(beforeStyle, "studioColorRole");
+      var afterRole = paletteStyleValue(afterStyle, "studioColorRole");
+      if (!paletteStencilColorsSafe(beforeXml, beforeFill, Boolean(beforeRole)) ||
+          !paletteStencilColorsSafe(afterXml, afterFill, Boolean(afterRole))) return false;
+      if (stencilFillFingerprint(beforeXml) !== stencilFillFingerprint(afterXml)) return false;
+      var beforeFills = Array.from(beforeXml.matchAll(/<fillcolor\\b[^>]*?\\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
+      var afterFills = Array.from(afterXml.matchAll(/<fillcolor\\b[^>]*?\\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
+      if (!beforeFills.length || beforeFills.length !== afterFills.length) return false;
+      var changed = false;
+      for (var index = 0; index < beforeFills.length; index++) {
+        var oldColor = beforeFills[index];
+        var nextColor = afterFills[index];
+        if (oldColor === nextColor) continue;
+        var oldWasThemedFill = Boolean(beforeRole && beforeFill && oldColor.toLowerCase() === beforeFill.toLowerCase());
+        var oldIsEligible = neutralPaletteStencilMidtone(oldColor) || oldWasThemedFill;
+        if (!oldIsEligible || !afterFill || nextColor.toLowerCase() !== afterFill.toLowerCase()) return false;
+        changed = true;
+      }
+      return changed;
+    }
     function applyNativePalettePlan(plan, activeGraph, activeModel) {
       function fail(message, rollbackConfirmed) { var error = new Error(message); error.rollbackConfirmed = rollbackConfirmed === true; throw error; }
       if (!plan || typeof plan !== "object" || !Array.isArray(plan.expectedPageCellIds) || !Array.isArray(plan.changes) || ["ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist", "golden-hour", "arctic-frost", "desert-rose", "tech-innovation", "botanical-garden", "midnight-galaxy"].indexOf(plan.theme) < 0) fail("The Studio color plan is malformed; nothing was changed.", true);
@@ -505,7 +586,7 @@
       }
       var liveIds = allCells.map(runtimeCellId).sort(); var expectedIds = plan.expectedPageCellIds.slice().sort();
       if (liveIds.length !== expectedIds.length || liveIds.some(function (id, index) { return id !== expectedIds[index]; })) fail("The active Draw.io page changed after color calculation. No colors were applied; select the preset again.", true);
-      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true, gradientColor: true, labelBackgroundColor: true, labelBorderColor: true, swimlaneFillColor: true, indicatorColor: true, indicatorGradientColor: true, separatorColor: true, fontColor2: true, studioColorRole: true };
+      var allowedCellStyles = { fillColor: true, strokeColor: true, fontColor: true, gradientColor: true, labelBackgroundColor: true, labelBorderColor: true, swimlaneFillColor: true, indicatorColor: true, indicatorGradientColor: true, separatorColor: true, fontColor2: true, studioColorRole: true, shape: true };
       function normalizedStyle(cell) { var style = typeof activeModel.getStyle === "function" ? activeModel.getStyle(cell) : cell.style; return typeof style === "string" ? style : ""; }
       function nonColorStyleSegments(style) { return String(style || "").split(";").filter(function (part) { var trimmed = part.trim(); if (!trimmed) return false; var equalsAt = trimmed.indexOf("="); var key = equalsAt > 0 ? trimmed.slice(0, equalsAt).trim() : ""; return !Object.prototype.hasOwnProperty.call(allowedCellStyles, key); }); }
       var changeIds = new Set(); var snapshots = [];
@@ -515,6 +596,8 @@
         changeIds.add(change.cellId); var liveCell = liveById[change.cellId];
         if (!liveCell || (change.kind === "vertex" ? !liveCell.vertex : !liveCell.edge)) fail("A target cell is no longer the expected vertex or connector: " + change.cellId, true);
         if (normalizedStyle(liveCell) !== change.expectedStyle) fail("A target cell's style changed after color calculation: " + change.cellId + ". No colors were applied.", true);
+        var beforeShape = paletteStyleValue(change.expectedStyle, "shape"); var afterShape = paletteStyleValue(change.style, "shape");
+        if (beforeShape !== afterShape && !paletteStencilMutationIsSafe(change.expectedStyle, change.style)) fail("The color plan attempts to alter stencil geometry or recolor a non-neutral stencil asset.", true);
         var beforeNonColors = nonColorStyleSegments(change.expectedStyle); var afterNonColors = nonColorStyleSegments(change.style);
         if (beforeNonColors.length !== afterNonColors.length || beforeNonColors.some(function (part, index) { return part !== afterNonColors[index]; })) fail("The color plan attempts to change a non-color style property.", true);
         function stylePropertyValue(style, key) { var found = null; String(style || "").split(";").forEach(function (part) { var equalsAt = part.indexOf("="); if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) found = part.slice(equalsAt + 1).trim(); }); return found; }

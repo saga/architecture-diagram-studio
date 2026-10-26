@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";\nimport { deflateSync, inflateSync, strFromU8, strToU8 } from "fflate";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
@@ -177,7 +177,10 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     }) },
     parent,
     location: { origin: "http://studio.test" },
-    mxUtils: { createXmlDocument: () => ({ createElement: () => mockElement() }) },
+    mxUtils: {
+      createXmlDocument: () => ({ createElement: () => mockElement() }),
+      decompress: (payload: string) => decodeURIComponent(strFromU8(inflateSync(Uint8Array.from(atob(payload), (character) => character.charCodeAt(0)))))
+    },
     mxCellRenderer: { defaultShapes: shapeRegistry },
     addEventListener: (_name: string, callback: (event: Record<string, any>) => void) => { messageHandler = callback; },
     setTimeout: () => undefined
@@ -448,5 +451,50 @@ describe("native Draw.io palette bridge", () => {
     expect(harness.service.style).toContain("labelBorderColor=#176B85");
     expect(harness.service.style).toContain("dashed=1");
     expect(harness.service.style).toContain("studioColorRole=category-1");
+  });
+});
+
+
+describe("native Draw.io palette bridge stencil safety", () => {
+  function encodeStencil(xml: string): string {
+    const compressed = deflateSync(strToU8(encodeURIComponent(xml)));
+    let binary = "";
+    for (const byte of compressed) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  }
+  function stencilXml(fillColor: string, extraColor = ""): string {
+    return '<shape w="400" h="300" aspect="variable" strokewidth="inherit"><foreground>' +
+      '<strokecolor color="#ffffff"/><fillcolor color="' + fillColor + '"/>' +
+      extraColor + '<path><move x="0" y="0"/><line x="400" y="0"/><line x="400" y="300"/><close/></path>' +
+      '</foreground></shape>';
+  }
+  function makePlan(harness: ReturnType<typeof createHarness>, beforeStencil: string, afterStencil: string) {
+    harness.service.geometry = mockGeometry(0, 0, 400, 300);
+    const originalStyle = "shape=stencil(" + encodeStencil(beforeStencil) + ");";
+    harness.service.style = originalStyle;
+    const nextStyle = "shape=stencil(" + encodeStencil(afterStencil) + ");fillColor=#D9EDF6;strokeColor=#1F617A;fontColor=#153548;studioColorRole=base;";
+    return {
+      theme: "ocean-depths", documentRevision: "a".repeat(64), pageId: null,
+      expectedPageCellIds: ["0", "1", "service", "database", "edge-root", "group", "nested-service", "edge-nested"].sort(),
+      changes: [{ cellId: "service", kind: "vertex", expectedStyle: originalStyle, style: nextStyle }]
+    };
+  }
+
+  it("accepts a neutral grayscale stencil fill recolor while retaining path geometry", () => {
+    const harness = createHarness();
+    const before = stencilXml("#e6e7e8");
+    const after = stencilXml("#D9EDF6");
+    const result = harness.runPalette(makePlan(harness, before, after));
+    expect(result).toMatchObject({ event: "studioNativePaletteResult", success: true, changedCells: 1 });
+    expect(harness.service.style).toContain("studioColorRole=base");
+  });
+
+  it("rejects stencil mutations that touch a chromatic brand asset", () => {
+    const harness = createHarness();
+    const before = stencilXml("#e6e7e8", '<strokecolor color="#4286c5"/>');
+    const after = stencilXml("#D9EDF6", '<strokecolor color="#4286c5"/>');
+    const result = harness.runPalette(makePlan(harness, before, after));
+    expect(result).toMatchObject({ event: "studioNativePaletteResult", success: false, rollbackConfirmed: true });
+    expect(harness.service.style).toBe("shape=stencil(" + encodeStencil(before) + ");");
   });
 });
