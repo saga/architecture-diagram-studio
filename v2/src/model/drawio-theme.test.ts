@@ -274,7 +274,7 @@ describe("theme color coverage and contrast", () => {
   it("recolors existing native gradient, label, swimlane and indicator colors without adding absent properties", () => {
     const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
       '<mxCell id="themed" value="Zone" vertex="1" parent="1" style="shape=rect;fillColor=#808080;strokeColor=#333333;fontColor=#111111;gradientColor=#AAAAAA;labelBackgroundColor=#FFFFFF;labelBorderColor=#222222;swimlaneFillColor=#CCCCCC;indicatorColor=#444444;indicatorGradientColor=#BBBBBB;separatorColor=#555555;"/>' +
-      '<mxCell id="plain" value="Plain" vertex="1" parent="1" style="fillColor=none;strokeColor=#123456;labelBackgroundColor=none;"/>' +
+      '<mxCell id="plain" value="Plain" vertex="1" parent="1" style="fillColor=none;strokeColor=#808080;labelBackgroundColor=none;"/>' +
     '</root></mxGraphModel>';
     const themed = applyDrawioDiagramTheme(source, "forest-canopy");
     const zone = cellById(themed, "themed")?.getAttribute("style") ?? "";
