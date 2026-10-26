@@ -21,10 +21,10 @@ Palette selection must also be deterministic. Color roles should not be synthesi
    - Cells with the same source color key share one category. New categories receive stable role numbers in first-seen XML order.
    - Unstyled/default cells use the base role. Text-only cells use the text role and remain unfilled.
 4. Store the role as the small custom style key `studioColorRole` on each colorable mxCell: `base`, `text` or `category-1` through `category-8`. This marker is part of the native style string, not a second graph model. The selected theme maps each role to its own pre-defined colors. Repeated theme switches therefore use the stored role, not the last theme's fill color, as category identity.
-5. The role markers, cell colors and active page background change together in one native Draw.io model transaction. Each preset defines a dedicated canvas background color as well as node/category/connector colors; switching presets replaces the active page's previous background. The background is applied through the live graph API and represented in the serialized active page `mxGraphModel background` attribute. Undo/Redo must restore or reapply the background and cell colors together in one step. Other pages and grid settings (`grid`, `gridSize`) remain unchanged; geometry, labels, IDs, parent relationships, endpoints and waypoints are preserved.
+5. The role markers and cell colors change together in one native Draw.io model transaction. **All ten palettes leave the canvas background unset**: on the active page, remove the `mxGraphModel background` attribute instead of painting the canvas another pastel color. This deliberately returns the page to Draw.io's default neutral canvas, so the background cannot visually merge with node fills. The same native transaction clears an existing custom or legacy preset background; Undo restores that exact prior value, and Redo clears it again. Other pages and grid settings (`grid`, `gridSize`) remain unchanged; geometry, labels, IDs, parent relationships, endpoints and waypoints are preserved.
 6. If a page contains more than eight distinct original color categories, fail closed and explain the limit. Never collapse excess categories onto a repeated color just to complete the operation. The eight curated roles can be expanded deliberately in a later palette revision.
 7. A source document that was already uniformly recolored by the older implementation has lost the original category information in its current XML. Do not guess the lost colors. Restore the original file/version where possible before applying the new behavior.
-8. Color associations are treated as design context, not universal psychological rules. Palette character comes from the combined hue, lightness, chroma, neutral balance, and contrast. Themes must be visually distinguishable in the actual diagram, not just in the selector: curated base fills and categorical fills need visible hue/value separation, with strong outlines and readable text. Midnight Galaxy uses dark fills and luminous outlines/light text. Each preset is static and reviewed in source control.
+8. Color associations are treated as design context, not universal psychological rules. Palette character comes from the combined hue, lightness, chroma, neutral balance, and contrast. Themes must be visually distinguishable in the actual diagram, not just in the selector: node fills must be distinct from the neutral canvas and from each other, borders/connectors must remain visible on white, and text must remain readable. Avoid using a softly tinted canvas merely because it matches a palette's hue; when the background competes with blocks, unset it. Midnight Galaxy is redesigned as a moonlit indigo palette for the standard light canvas, not a dark canvas with low-separation dark blocks. Each preset is static and reviewed in source control.
 
 ## Curated theme intent
 
@@ -48,32 +48,32 @@ The palettes take inspiration from the curated-theme workflow in [Anthropic's th
 - A fixture with four distinct source colors remains four distinct categorical roles across all ten themes.
 - Repeated switching preserves role IDs; cells sharing a source color continue to share a role.
 - Base/default cells, text-only vertices, filled vertices, outline-only shapes and color-coded connectors are covered.
-- Existing hex-colored gradient/label/swimlane/indicator/separator properties follow the assigned theme role; `none`, absent keys, special CSS expressions and image assets are preserved. Each theme applies its own coordinated canvas background to the active page while preserving its grid settings and all other pages.
+- Existing hex-colored gradient/label/swimlane/indicator/separator properties follow the assigned theme role; `none`, absent keys, special CSS expressions and image assets are preserved. Every theme clears the active page's explicit background, preserves grid settings and leaves other pages unchanged.
 - Every theme has a distinct full palette signature, with eight distinct categorical fills and strokes.
 - Large neutral stencil fixtures recolor internal gray fills across repeated theme switches, while colored stencils and small icons remain byte-for-byte unchanged; the live bridge rejects unsafe stencil mutations.
 - More than eight distinct source categories fail before any mutation.
 - A planned style change can alter only color properties plus a valid initial `studioColorRole` assignment; an existing role cannot change.
 - Applying a theme is one native Undo entry; Undo/Redo restores colors and role markers together.
 - Tests cover compressed/uncompressed XML, active-page background changes, unchanged grid settings, saved XML, malformed input, stale revision/page and unchanged non-color properties.
-- Undo restores the source background and cell styles together; Redo restores both.
-- All ten canvas backgrounds are distinct from each other and their base node fills; background colors are treated as coordinated surface roles, not reused node fills.
+- Undo restores the exact source background attribute (including absence, hex values and `light-dark(...)`) with cell styles; Redo reapplies the unpainted-canvas state and colors.
+- Every theme uses an unset canvas background. Theme identity is communicated by node fills, outlines, connectors and text, not by tinting the whole workspace.
 
 
 ## Canvas background design references
 
-The visual identities start from the established theme catalogue in [Anthropic's Theme Factory](https://github.com/anthropics/skills/tree/main/skills/theme-factory). Canvas backgrounds are defined as their own semantic surface role, rather than reusing node fills. This follows [Material 3's color roles](https://docs.flutter.dev/release/breaking-changes/new-color-scheme-roles), which separates surfaces/containers from accent roles, and the deliberate tone families in [Tailwind's color palettes](https://tailwindcss.com/docs/colors). These references guide the method; the exact values below are project-specific and must be reviewed with node fills, connector strokes and text contrast in the actual diagram.
+The visual identities start from the established theme catalogue in [Anthropic's Theme Factory](https://github.com/anthropics/skills/tree/main/skills/theme-factory), the semantic surface/accent separation in [Material 3 color roles](https://docs.flutter.dev/release/breaking-changes/new-color-scheme-roles), and the deliberate tone families in [Tailwind's color palettes](https://tailwindcss.com/docs/colors). Those references support the key distinction: canvas is a neutral surface; node fills and strokes carry diagram meaning. In this product, the correct neutral surface is Draw.io's own default, so every preset removes the `background` attribute instead of adding a hue-tinted canvas. These palettes are project-specific and should be reviewed against real diagrams and their labels, not judged from swatches alone.
 
 | Theme | Canvas background | Visual relationship |
 |---|---|---|
-| Ocean Depths | `#C5DDE7` | Muted maritime blue beneath clearer blue/teal nodes |
-| Sunset Boulevard | `#F3C9B3` | Warm apricot surface beneath coral/rose categories |
-| Forest Canopy | `#C3D8B7` | Sage surface with green, sky and plum distinctions |
-| Modern Minimalist | `#D4D8DE` | Neutral-gray canvas with darker strokes and controlled accents |
-| Golden Hour | `#EAD18A` | Honey surface with bright gold and complementary cool accents |
-| Arctic Frost | `#C1DFEC` | Icy blue surface with teal and indigo accents |
-| Desert Rose | `#E3B9C4` | Dusty rose surface with clay, sage and blue categories |
-| Tech Innovation | `#C0CDF2` | Periwinkle surface with crisp blue/cyan/violet accents |
-| Botanical Garden | `#C7D894` | Leaf-green surface with lighter mint and sky elements |
-| Midnight Galaxy | `#10172A` | Deep navy surface with luminous borders and light labels |
+| Ocean Depths | Unset; Draw.io default canvas | Maritime blue/teal blocks on a neutral surface |
+| Sunset Boulevard | Unset; Draw.io default canvas | Coral, rose and gold blocks on a neutral surface |
+| Forest Canopy | Unset; Draw.io default canvas | Greens, earth tones, sky and plum blocks on a neutral surface |
+| Modern Minimalist | Unset; Draw.io default canvas | Neutral-gray blocks with controlled categorical accents |
+| Golden Hour | Unset; Draw.io default canvas | Honey, ochre and cool-toned blocks with dark outlines |
+| Arctic Frost | Unset; Draw.io default canvas | Icy blue, teal and indigo blocks with readable boundaries |
+| Desert Rose | Unset; Draw.io default canvas | Rose, clay, sand and sage blocks |
+| Tech Innovation | Unset; Draw.io default canvas | Blue, cyan, violet, green and amber blocks |
+| Botanical Garden | Unset; Draw.io default canvas | Leaf, sage, mint and sky blocks |
+| Midnight Galaxy | Unset; Draw.io default canvas | Moonlit indigo and muted galaxy colors with dark connector strokes |
 
-The background must remain a native Draw.io page property. Do not simulate it by injecting an opaque CSS layer over the canvas SVG, which can cover the native grid and is not persisted in the document.
+The canvas remains entirely Draw.io-owned. Palette application removes only the active page's `background` attribute; it does not inject an opaque CSS layer over the SVG, and it preserves Draw.io's native grid. An explicit custom background is cleared by applying a palette but can be restored exactly with one native Undo.
