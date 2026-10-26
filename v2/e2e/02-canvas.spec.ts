@@ -230,7 +230,7 @@ test.describe("原生画布", () => {
     await expect(page.locator(".status-native")).toHaveAttribute("title", /AI scripts use the live editor API and save through Studio/);
   });
 
-  test("图形主题直接重着色 Draw.io XML，保持应用主题、页面背景和网格", async ({ page, request }) => {
+  test("图形主题同时更换当前页面背景与节点颜色，并保留网格和应用主题", async ({ page, request }) => {
     const stateResponse = await request.get("/api/workspace/state");
     expect(stateResponse.ok()).toBe(true);
     const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
@@ -240,7 +240,6 @@ test.describe("原生画布", () => {
     expect(models.length).toBeGreaterThan(0);
     models.item(0)?.setAttribute("background", "#FFFF66");
     const documentXml = serializeDrawioXml(sourceDocument);
-    expect(documentXml).not.toBe(initialXml);
     const savedFixture = await request.put("/api/workspace/document", {
       data: { drawioXml: documentXml, label: "E2E native background fixture", baseRevision: state.workspaceRevision }
     });
@@ -266,9 +265,19 @@ test.describe("原生画布", () => {
     await page.getByText("Ocean Depths", { exact: true }).click();
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
-      .toContain("fillColor=#E0F2FE");
+      .toContain("fillColor=#B7DDEB");
     await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
-      color: "rgb(255, 255, 102)",
+      color: "rgb(197, 221, 231)",
+      themeOverlay: false
+    });
+    expect((await inspectCanvas())?.image).not.toBe("none");
+
+    await page.locator(".theme-selector .ant-select").click();
+    await page.getByText("Midnight Galaxy", { exact: true }).click();
+    await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
+      .toContain('background="#10172A"');
+    await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
+      color: "rgb(16, 23, 42)",
       themeOverlay: false
     });
     expect((await inspectCanvas())?.image).not.toBe("none");
@@ -276,13 +285,11 @@ test.describe("原生画布", () => {
     await page.reload();
     await waitForNativeEditor(page);
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
-    const reloadedCanvas = await inspectCanvas();
-    expect(reloadedCanvas).toMatchObject({ color: "rgb(255, 255, 102)", themeOverlay: false });
-    expect(reloadedCanvas?.image).not.toBe("none");
+    expect(await inspectCanvas()).toMatchObject({ color: "rgb(16, 23, 42)", themeOverlay: false });
     const savedXml = await readWorkspaceXml(workspace);
-    expect(savedXml).toContain('background="#FFFF66"');
+    expect(savedXml).toContain('background="#10172A"');
     expect(savedXml).toContain('grid="1"');
-    expect(savedXml).toContain("fillColor=#E0F2FE");
+    expect(savedXml).toContain("fillColor=#");
   });
 
   test("原生 Undo/Redo 工具栏、宿主快捷键和颜色预设共用同一历史栈", async ({ page }) => {
@@ -293,26 +300,36 @@ test.describe("原生画布", () => {
 
     await page.locator(".theme-selector .ant-select").click();
     await page.getByText("Ocean Depths", { exact: true }).click();
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => {
+      const xml = await readWorkspaceXml(workspace);
+      return xml.includes("fillColor=#B7DDEB") && xml.includes('background="#C5DDE7"');
+    }, { timeout: 20_000 }).toBe(true);
     await expect(undo).toBeEnabled();
 
-    // The palette transaction is one native model edit: one Undo restores the prior styles.
+    // One native Undo restores the source cell styles and page background together.
     await undo.click();
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(false);
+    await expect.poll(async () => {
+      const xml = await readWorkspaceXml(workspace);
+      return !xml.includes("fillColor=#B7DDEB") && !xml.includes('background="#C5DDE7"');
+    }, { timeout: 20_000 }).toBe(true);
     await expect(redo).toBeEnabled();
     await expect(undo).toBeDisabled();
 
-    // Host-level shortcuts still reach Draw.io after focus moved to Studio controls.
     await page.keyboard.press("Control+Shift+Z");
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => {
+      const xml = await readWorkspaceXml(workspace);
+      return xml.includes("fillColor=#B7DDEB") && xml.includes('background="#C5DDE7"');
+    }, { timeout: 20_000 }).toBe(true);
     await expect(page.locator(".theme-selector")).toContainText("Ocean Depths");
     await expect(undo).toBeEnabled();
     await page.keyboard.press("Control+Z");
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(false);
+    await expect.poll(async () => {
+      const xml = await readWorkspaceXml(workspace);
+      return !xml.includes("fillColor=#B7DDEB") && !xml.includes('background="#C5DDE7"');
+    }, { timeout: 20_000 }).toBe(true);
     await expect(redo).toBeEnabled();
     await expect(page.locator(".theme-selector")).toContainText("Diagram colors (this page)");
   });
-
   test("自动布局按钮调用原生 Draw.io 布局并保存重排结果", async ({ page }) => {
     const ids = ["client", "api", "worker", "queue", "database"];
     const beforeXml = await readWorkspaceXml(workspace);

@@ -42,7 +42,7 @@ A future provider should reuse the shared XML parser/schema, target resolver, ty
 
 ## Native Draw.io diagram color presets
 
-The Diagram colors selector is a document operation, not a Studio appearance setting. Ten curated, fixed palettes each define eight category swatches plus neutral/text/connector roles. The first application derives category identity from source fill colors (or strokes for outline-only shapes/connectors) and stores stable `studioColorRole` markers in native cell styles. Subsequent switches reuse those markers, so a new theme changes the colors without erasing distinct source categories. Text-only cells remain unfilled; outlines stay outlines. Pages with more than eight distinct source categories fail closed instead of silently merging categories. Role markers and colors are changed in the same native Draw.io transaction and use the ordinary Undo/Redo, save and version path. Non-color styles, geometry, labels, connections, page backgrounds and grid settings remain unchanged. Studio does not overlay the native Draw.io SVG. See [ADR-0023](docs/adr/0023-category-preserving-curated-diagram-palettes.md).
+The Diagram colors selector is a document operation, not a Studio appearance setting. Ten curated palettes define coordinated native page backgrounds, category swatches, and neutral/text/connector roles. Source colors establish stable `studioColorRole` markers, so switching themes does not erase the original category distinctions. Text-only cells remain unfilled and outline-only shapes remain outlines. Pages with more than eight distinct source categories fail closed. The active page background, role markers and cell colors are applied in the same native Draw.io undoable transaction; grid settings and other pages remain unchanged. The result follows the normal Undo/Redo, save and version path. Studio does not overlay the native Draw.io SVG. See [ADR-0023](docs/adr/0023-category-preserving-curated-diagram-palettes.md).
 
 ## Explicit non-goals
 
@@ -57,7 +57,7 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 | src/model/drawio-xml-schema.ts | Draw.io XML and encoded-page validation |
 | src/model/native-edit-operations.ts | Typed native operations and active-page cell index |
 | src/model/native-diagram-capabilities.ts | Extension contracts for future native operation planners and read-only analyzers |
-| src/model/drawio-theme.ts | Native Draw.io cell color-preset transformation; page backgrounds/grid remain Draw.io-owned |
+| src/model/drawio-theme.ts | Native Draw.io cell palette and active-page background transformation; grid remains Draw.io-owned |
 | src/hooks/useWorkspaceBootstrap.ts | Loads XML without conversion |
 | src/hooks/useWorkspacePersistence.ts | Persists exact XML and chat state |
 | src/intent/aiProvider.ts | Native edit request/response contract |
