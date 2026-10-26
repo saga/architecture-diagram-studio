@@ -74,7 +74,7 @@ function decodeStencilXml(payload: string): string | null {
   }
 }
 function isTransparentStencilColor(value: string): boolean {
-  return /^rgba\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*0(?:\\.0+)?\\s*\\)$/i.test(value.trim());
+  return /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0(?:\.0+)?\s*\)$/i.test(value.trim());
 }
 function neutralStencilRgb(value: string): [number, number, number] | null {
   const color = safeColor(value);
@@ -95,7 +95,7 @@ function isNeutralStencilMidtone(value: string): boolean {
   return brightness >= 120 && brightness <= 245;
 }
 function stencilColorsAreNeutralOrCurrentFill(xml: string, currentFill: string | null, hasStableRole: boolean): boolean {
-  const colors = Array.from(xml.matchAll(/\\bcolor="([^"]+)"/gi), (match) => match[1]);
+  const colors = Array.from(xml.matchAll(/\bcolor="([^"]+)"/gi), (match) => match[1]);
   if (colors.length === 0) return false;
   return colors.every((color) => isTransparentStencilColor(color) ||
     neutralStencilRgb(color) !== null ||
@@ -115,7 +115,7 @@ function themedNeutralStencilShape(
   // Small stencil icons, logos and other branded artwork are left byte-for-byte unchanged.
   if (!Number.isFinite(width) || !Number.isFinite(height) || width * height < 20000) return null;
   const shapeValue = styleProperty(style, "shape");
-  const match = shapeValue?.match(/^stencil\\(([^)]+)\\)$/i);
+  const match = shapeValue?.match(/^stencil\(([^)]+)\)$/i);
   if (!match) return null;
   const sourceXml = decodeStencilXml(match[1]);
   if (!sourceXml) return null;
@@ -126,7 +126,7 @@ function themedNeutralStencilShape(
   const targetFill = categoryColor?.fill ?? palette.baseFill;
   let changed = false;
   let recolorableFills = 0;
-  const nextXml = sourceXml.replace(/(<fillcolor\\b[^>]*?\\bcolor=")([^"]+)(")/gi, (whole, prefix: string, color: string, suffix: string) => {
+  const nextXml = sourceXml.replace(/(<fillcolor\b[^>]*?\bcolor=")([^"]+)(")/gi, (whole, prefix: string, color: string, suffix: string) => {
     const sourceCategoryFill = hasStableRole && Boolean(sourceFill) && color.toLowerCase() === sourceFill!.toLowerCase();
     if (!isNeutralStencilMidtone(color) && !sourceCategoryFill) return whole;
     recolorableFills += 1;

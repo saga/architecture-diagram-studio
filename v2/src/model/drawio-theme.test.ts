@@ -324,7 +324,7 @@ describe("neutral native stencil theme coverage", () => {
       '<mxGeometry ' + geometry + ' as="geometry"/></mxCell>';
   }
   function stencilFill(xml: string): string {
-    return xml.match(/<fillcolor\\b[^>]*\\bcolor="([^"]+)"/i)?.[1] ?? "";
+    return xml.match(/<fillcolor\b[^>]*\bcolor="([^"]+)"/i)?.[1] ?? "";
   }
 
   it("themes large neutral stencil backplates and preserves stencil geometry", () => {
@@ -334,17 +334,17 @@ describe("neutral native stencil theme coverage", () => {
     const forest = parseDrawioXml(applyDrawioDiagramTheme(source, "forest-canopy"));
     const forestCell = findDrawioElements(forest, "mxCell").find((cell) => cell.getAttribute("id") === "region");
     const forestStyle = forestCell?.getAttribute("style") ?? "";
-    const forestPayload = forestStyle.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    const forestPayload = forestStyle.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(forestPayload).toBeTruthy();
     const forestXml = decompressPage(forestPayload!);
     expect(stencilFill(forestXml)).toBe("#D5E7C8");
-    expect(forestXml.replace(/(<fillcolor\\b[^>]*\\bcolor=")[^"]+(")/gi, "$1__FILL__$2"))
-      .toBe(sourceStencil.replace(/(<fillcolor\\b[^>]*\\bcolor=")[^"]+(")/gi, "$1__FILL__$2"));
+    expect(forestXml.replace(/(<fillcolor\b[^>]*\bcolor=")[^"]+(")/gi, "$1__FILL__$2"))
+      .toBe(sourceStencil.replace(/(<fillcolor\b[^>]*\bcolor=")[^"]+(")/gi, "$1__FILL__$2"));
     expect(forestStyle).toContain("studioColorRole=base");
 
     const midnight = parseDrawioXml(applyDrawioDiagramTheme(serializeDrawioXml(forest), "midnight-galaxy"));
     const midnightCell = findDrawioElements(midnight, "mxCell").find((cell) => cell.getAttribute("id") === "region");
-    const midnightPayload = midnightCell?.getAttribute("style")?.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    const midnightPayload = midnightCell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(midnightPayload).toBeTruthy();
     expect(stencilFill(decompressPage(midnightPayload!))).toBe("#1D2540");
   });
@@ -355,7 +355,7 @@ describe("neutral native stencil theme coverage", () => {
       stencilCellXml("brand", sourceStencil) + '</root></mxGraphModel>';
     const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
     const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "brand");
-    const payload = cell?.getAttribute("style")?.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    const payload = cell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(payload).toBeTruthy();
     expect(decompressPage(payload!)).toBe(sourceStencil);
   });
@@ -366,7 +366,7 @@ describe("neutral native stencil theme coverage", () => {
       stencilCellXml("small", sourceStencil, 'x="0" y="0" width="100" height="100"') + '</root></mxGraphModel>';
     const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
     const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "small");
-    const payload = cell?.getAttribute("style")?.match(/shape=stencil\\(([^)]+)\\)/)?.[1];
+    const payload = cell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
     expect(payload).toBeTruthy();
     expect(decompressPage(payload!)).toBe(sourceStencil);
   });

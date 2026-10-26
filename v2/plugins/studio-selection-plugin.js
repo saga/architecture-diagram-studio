@@ -490,7 +490,7 @@
     }
     function stencilPayloadFromStyle(style) {
       var shape = paletteStyleValue(style, "shape");
-      var match = typeof shape === "string" ? shape.match(/^stencil\\(([^)]+)\\)$/i) : null;
+      var match = typeof shape === "string" ? shape.match(/^stencil\(([^)]+)\)$/i) : null;
       return match ? match[1] : null;
     }
     function decodePaletteStencil(payload) {
@@ -503,7 +503,7 @@
       } catch (_) { return null; }
     }
     function isTransparentPaletteStencilColor(value) {
-      return /^rgba\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*0(?:\\.0+)?\\s*\\)$/i.test(String(value || "").trim());
+      return /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0(?:\.0+)?\s*\)$/i.test(String(value || "").trim());
     }
     function neutralPaletteStencilColor(value) {
       var color = String(value || "").trim();
@@ -523,14 +523,14 @@
       return brightness >= 120 && brightness <= 245;
     }
     function paletteStencilColorsSafe(xml, currentFill, hasRole) {
-      var colors = Array.from(String(xml || "").matchAll(/\\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
+      var colors = Array.from(String(xml || "").matchAll(/\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
       return colors.length > 0 && colors.every(function (color) {
         return isTransparentPaletteStencilColor(color) || neutralPaletteStencilColor(color) ||
           (hasRole && currentFill && color.toLowerCase() === currentFill.toLowerCase());
       });
     }
     function stencilFillFingerprint(xml) {
-      return String(xml || "").replace(/(<fillcolor\\b[^>]*?\\bcolor=")[^"]*(")/gi, "$1__STUDIO_FILL__$2");
+      return String(xml || "").replace(/(<fillcolor\b[^>]*?\bcolor=")[^"]*(")/gi, "$1__STUDIO_FILL__$2");
     }
     function paletteStencilMutationIsSafe(beforeStyle, afterStyle) {
       var beforePayload = stencilPayloadFromStyle(beforeStyle);
@@ -546,8 +546,8 @@
       if (!paletteStencilColorsSafe(beforeXml, beforeFill, Boolean(beforeRole)) ||
           !paletteStencilColorsSafe(afterXml, afterFill, Boolean(afterRole))) return false;
       if (stencilFillFingerprint(beforeXml) !== stencilFillFingerprint(afterXml)) return false;
-      var beforeFills = Array.from(beforeXml.matchAll(/<fillcolor\\b[^>]*?\\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
-      var afterFills = Array.from(afterXml.matchAll(/<fillcolor\\b[^>]*?\\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
+      var beforeFills = Array.from(beforeXml.matchAll(/<fillcolor\b[^>]*?\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
+      var afterFills = Array.from(afterXml.matchAll(/<fillcolor\b[^>]*?\bcolor="([^"]+)"/gi), function (match) { return match[1]; });
       if (!beforeFills.length || beforeFills.length !== afterFills.length) return false;
       var changed = false;
       for (var index = 0; index < beforeFills.length; index++) {
