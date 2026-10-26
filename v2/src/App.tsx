@@ -1684,9 +1684,21 @@ export default function App() {
             role="status"
             aria-live="polite"
             title="Only eligible top-level cells in the selected visible layer are laid out; native XML cells outside this scope remain untouched."
-            style={{ fontSize: 12, lineHeight: 1.5, color: "#65521a", padding: "6px 10px", borderLeft: "3px solid #c9a227", background: "rgba(201, 162, 39, 0.08)", margin: "0 0 8px" }}
+            style={{ fontSize: 12, lineHeight: 1.5, color: "#65521a", padding: "6px 10px", borderLeft: "3px solid #c9a227", background: "rgba(201, 162, 39, 0.08)", margin: "0 0 8px", display: "flex", alignItems: "flex-start", gap: 8 }}
           >
-            {layoutCoverageNotice}
+            <div style={{ flex: "1 1 auto", minWidth: 0, overflowWrap: "anywhere" }}>
+              {layoutCoverageNotice}
+            </div>
+            <Button
+              type="text"
+              size="small"
+              aria-label="Close layout summary"
+              title="Close layout summary"
+              onClick={() => setLayoutCoverageNotice(null)}
+              style={{ flex: "0 0 auto", width: 24, height: 24, padding: 0, marginTop: -2, color: "inherit", fontSize: 18, lineHeight: 1 }}
+            >
+              ×
+            </Button>
           </div>
         ) : null}
 
