@@ -356,6 +356,71 @@ test("Copilot executes a direct native Draw.io script in a multi-page file with 
       xml.includes('value="Copied page marker"');
   }).toBe(true);
 });
+test("Copilot warns instead of claiming nothing was applied when script XML assertions fail", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
+  await openStudio(page);
+  await waitForNativeEditor(page);
+
+  const markerLabel = "UNVERIFIED_SCRIPT_MARKER_20261026";
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    const ack = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: ack.outcome, requestId: ack.requestId,
+        documentRevision: ack.serializedXmlRevision ?? null,
+        persistedRevision: ack.persistedRevision ?? null, versionId: ack.versionId ?? null
+      })
+    });
+  });
+  await page.route("**/api/copilot/intent", async (route) => {
+    const body = JSON.parse(route.request().postData() || "{}") as {
+      sessionId?: string; documentRevision?: unknown; context?: { activePageId?: string | null };
+    };
+    const script = [
+      "var parent = graph.getDefaultParent();",
+      "var created = graph.insertVertex(parent, null, '" + markerLabel + "', 140, 220, 180, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
+      "graph.refresh();",
+      "return { ok: true, postconditions: { createdVertexPresentInLiveModel: model.getCell(created.id) === created }, created: { cellId: created.id, label: graph.convertValueToString(created) } };"
+    ].join("\n");
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "command_ready",
+        reply: "Add a vertex but omit host-verifiable XML assertions to exercise the unverified path.",
+        nativeEdits: {
+          operations: [{
+            op: "run_drawio_script", target: "active_page",
+            summary: "Add a vertex without serialized XML assertions", script,
+            cellId: "__active_page__", targetLabel: "active Draw.io page"
+          }],
+          summary: "Add a vertex without serialized XML assertions",
+          requestId: "66666666-6666-4666-8666-666666666666",
+          pageId: body.context?.activePageId ?? null,
+          documentRevision: String(body.documentRevision ?? "")
+        },
+        sessionId: body.sessionId || "e2e-unverified-script",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
+        toolsUsed: ["run_drawio_script"]
+      })
+    });
+  });
+
+  await page.getByRole("tab", { name: "Copilot" }).click();
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
+  await input.fill("Add one native vertex but omit its host-verifiable XML assertion");
+  await input.press("Enter");
+
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("diagram has changed");
+  await expect(resultMessage).toContainText("Do not retry this edit yet");
+  await expect(resultMessage).not.toContainText("Nothing was applied");
+  await expect.poll(async () => {
+    const xml = await readWorkspaceXml(workspace);
+    return xml.split(markerLabel).length - 1;
+  }, { timeout: 20_000, intervals: [250] }).toBe(1);
+});
+
 test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
