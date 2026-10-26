@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { NativeDiagramCapabilityContext } from "../model/native-diagram-capabilities";
 import {
@@ -6,6 +7,7 @@ import {
 } from "./spatial-region-analysis";
 
 const revision = "r".repeat(64);
+const industrialIotXml = readFileSync(new URL("./fixtures/industrial-iot-example.drawio", import.meta.url), "utf8");
 
 function context(documentXml: string, pageId: string | null = "page-1", documentRevision = revision): NativeDiagramCapabilityContext {
   return { documentXml, documentRevision, pageId, selectedCellId: null, cells: [] };
@@ -48,6 +50,15 @@ function analyze(xml: string, pageId: string | null = "page-1", ctxRevision = re
 }
 
 describe("read-only spatial region analysis", () => {
+  it("detects at least one region in the real public Industrial IoT Draw.io example", () => {
+    const pageId = "SXgX17sldJI9QkPeDldp";
+    const response = analyze(industrialIotXml, pageId);
+    expect(response.status).toBe("analyzed");
+    if (response.status === "analyzed") {
+      expect(response.result.findings.some((finding) => finding.ruleId === "spatial-region.candidate")).toBe(true);
+    }
+  });
+
   it("detects a large rectangular sibling boundary and probable title without modifying XML", () => {
     const xml = page(regionCells);
     const before = xml;
