@@ -34,35 +34,35 @@ const sourceModel = '<mxGraphModel background="light-dark(#FFFF66,#121212)" grid
 describe("native Draw.io diagram theme presets", () => {
   it("colors unstyled vertices, recolors externally styled cells, and preserves non-color styles", () => {
     const source = '<mxfile host="app.diagrams.net" data-owner="external"><diagram id="p1" name="Main">' + sourceModel + '</diagram></mxfile>';
-    const themed = applyDrawioDiagramTheme(source, "youth");
+    const themed = applyDrawioDiagramTheme(source, "ocean-depths");
 
     expect(themed).not.toBe(source);
     expect(themed).toContain('data-owner="external"');
     expect(readDrawioModelBackground(themed)).toBe("light-dark(#FFFF66,#121212)");
 
     const plain = cellById(themed, "plain");
-    expect(plain?.getAttribute("style")).toContain("fillColor=#FCE7F3");
-    expect(plain?.getAttribute("style")).toContain("strokeColor=#BE185D");
-    expect(plain?.getAttribute("style")).toContain("fontColor=#831843");
+    expect(plain?.getAttribute("style")).toContain("fillColor=#F8FAFC");
+    expect(plain?.getAttribute("style")).toContain("strokeColor=#64748B");
+    expect(plain?.getAttribute("style")).toContain("fontColor=#17324D");
 
     const colored = cellById(themed, "colored");
-    expect(colored?.getAttribute("style")).toContain("fillColor=#FCE7F3");
-    expect(colored?.getAttribute("style")).toContain("strokeColor=#BE185D");
-    expect(colored?.getAttribute("style")).toContain("fontColor=#831843");
+    expect(colored?.getAttribute("style")).toContain("fillColor=#E0F2FE");
+    expect(colored?.getAttribute("style")).toContain("strokeColor=#0369A1");
+    expect(colored?.getAttribute("style")).toContain("fontColor=#17324D");
     expect(colored?.getAttribute("style")).toContain("rounded=1");
     expect(colored?.getAttribute("style")).toContain("html=1");
     expect(colored?.getAttribute("style")).not.toContain("fillColor=#ffffff");
 
     const text = cellById(themed, "text");
-    expect(text?.getAttribute("style")).toContain("fontColor=#831843");
+    expect(text?.getAttribute("style")).toContain("fontColor=#17324D");
     expect(text?.getAttribute("style")).toContain("fillColor=none");
     expect(text?.getAttribute("style")).toContain("strokeColor=none");
     expect(text?.getAttribute("style")).not.toContain("fillColor=#ffffff");
     expect(text?.getAttribute("style")).not.toContain("strokeColor=#000000");
 
     const edge = cellById(themed, "edge");
-    expect(edge?.getAttribute("style")).toContain("strokeColor=#DB2777");
-    expect(edge?.getAttribute("style")).toContain("fontColor=#9D174D");
+    expect(edge?.getAttribute("style")).toContain("strokeColor=#0F766E");
+    expect(edge?.getAttribute("style")).toContain("fontColor=#E2E8F0");
     expect(edge?.getAttribute("style")).toContain("endArrow=block");
     expect(edge?.getAttribute("style")).toContain("rounded=0");
     expect(themed).toContain('x="40" y="50"');
@@ -75,7 +75,7 @@ describe("native Draw.io diagram theme presets", () => {
     const encoded = compressPage(inner);
     const source = '<mxfile host="app.diagrams.net"><diagram id="compressed" name="Compressed">' + encoded + '</diagram></mxfile>';
 
-    const themed = applyDrawioDiagramTheme(source, "midnight");
+    const themed = applyDrawioDiagramTheme(source, "midnight-galaxy");
     expect(themed).not.toBe(source);
     const outer = parseDrawioXml(themed);
     const page = findDrawioElements(outer, "diagram")[0];
@@ -85,10 +85,10 @@ describe("native Draw.io diagram theme presets", () => {
     const vertex = findDrawioElements(model, "mxCell").find((cell) => cell.getAttribute("id") === "colored");
     const edge = findDrawioElements(model, "mxCell").find((cell) => cell.getAttribute("id") === "edge");
 
-    expect(vertex?.getAttribute("style")).toContain("fillColor=#27364E");
-    expect(vertex?.getAttribute("style")).toContain("strokeColor=#93C5FD");
+    expect(vertex?.getAttribute("style")).toContain("fillColor=#253B53");
+    expect(vertex?.getAttribute("style")).toContain("strokeColor=#7DD3FC");
     expect(vertex?.getAttribute("style")).toContain("fontColor=#F8FAFC");
-    expect(edge?.getAttribute("style")).toContain("strokeColor=#64748B");
+    expect(edge?.getAttribute("style")).toContain("strokeColor=#5EEAD4");
     expect(decoded).toContain('background="#FFFF66"');
     expect(decoded).toContain('grid="1"');
     expect(decoded).toContain('customModelAttribute="keep-me"');
@@ -99,8 +99,8 @@ describe("native Draw.io diagram theme presets", () => {
     const source = '<mxfile host="app.diagrams.net" custom="preserve"><diagram id="p1">' + sourceModel + '</diagram><diagram id="p2">' + secondPage + '</diagram></mxfile>';
     const themed = applyDrawioDiagramTheme(source, "warm");
     expect(findDrawioElements(parseDrawioXml(themed), "mxGraphModel").length).toBe(2);
-    expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFF1E6");
-    expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFF1E6");
+    expect(cellById(themed, "plain")?.getAttribute("style")).toContain("fillColor=#FFFAF5");
+    expect(cellById(themed, "plain-second")?.getAttribute("style")).toContain("fillColor=#FFFAF5");
   });
 
   it("leaves malformed XML and unchanged/unsupported input byte-for-byte intact", () => {
@@ -124,17 +124,17 @@ describe("native Draw.io diagram theme presets", () => {
     const secondPage = sourceModel.replaceAll('id="plain"', 'id="plain-second"');
     const source = '<mxfile><diagram id="p1" name="One">' + sourceModel +
       '</diagram><diagram id="p2" name="Two">' + secondPage + '</diagram></mxfile>';
-    const plan = calculateNativePalettePlan(source, "p2", "a".repeat(64), "youth");
+    const plan = calculateNativePalettePlan(source, "p2", "a".repeat(64), "sunset-boulevard");
 
     expect(plan.pageId).toBe("p2");
     expect(plan.expectedPageCellIds).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).toContain("plain-second");
     expect(plan.changes.map((change) => change.cellId)).not.toContain("plain");
-    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#FCE7F3");
+    expect(plan.changes.find((change) => change.cellId === "plain-second")?.style).toContain("fillColor=#FFFAF5");
     expect(detectDrawioDiagramTheme(source, "p2")).toBe("");
-    const themed = applyDrawioDiagramTheme(source, "youth");
-    expect(detectDrawioDiagramTheme(themed, "p2")).toBe("youth");
-    expect(detectDrawioDiagramTheme(themed, "p1")).toBe("youth");
+    const themed = applyDrawioDiagramTheme(source, "sunset-boulevard");
+    expect(detectDrawioDiagramTheme(themed, "p2")).toBe("sunset-boulevard");
+    expect(detectDrawioDiagramTheme(themed, "p1")).toBe("sunset-boulevard");
   });
 
 
@@ -142,7 +142,7 @@ describe("native Draw.io diagram theme presets", () => {
     const source = '<mxfile><diagram id="page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
       '<object id="wrapped-vertex" label="Wrapped"><mxCell vertex="1" parent="1" style="rounded=1;fillColor=#FFFFFF;strokeColor=#111111;">' +
       '<mxGeometry x="1" y="2" width="80" height="40" as="geometry"/></mxCell></object></root></mxGraphModel></diagram></mxfile>';
-    const plan = calculateNativePalettePlan(source, "page", "e".repeat(64), "warm");
+    const plan = calculateNativePalettePlan(source, "page", "e".repeat(64), "golden-hour");
     expect(plan.expectedPageCellIds).toContain("wrapped-vertex");
     expect(plan.changes.some((change) => change.cellId === "wrapped-vertex" && change.kind === "vertex")).toBe(true);
   });
@@ -150,8 +150,8 @@ describe("native Draw.io diagram theme presets", () => {
   it("creates plans for compressed pages and rejects stale/missing active pages", () => {
     const encoded = compressPage(sourceModel);
     const source = '<mxfile><diagram id="compressed">' + encoded + '</diagram></mxfile>';
-    const plan = calculateNativePalettePlan(source, "compressed", "b".repeat(64), "midnight");
-    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#27364E"))).toBe(true);
+    const plan = calculateNativePalettePlan(source, "compressed", "b".repeat(64), "midnight-galaxy");
+    expect(plan.changes.some((change) => change.cellId === "colored" && change.style.includes("fillColor=#253B53"))).toBe(true);
     expect(() => calculateNativePalettePlan(source, "missing", "b".repeat(64), "midnight")).toThrow("active Draw.io page");
     expect(() => calculateNativePalettePlan(source, "compressed", "not-a-revision", "midnight")).toThrow("exact native Draw.io XML snapshot");
   });
@@ -159,7 +159,7 @@ describe("native Draw.io diagram theme presets", () => {
 
   it("keeps the native palette plan equivalent to the established color rules", () => {
     const source = '<mxfile host="app.diagrams.net"><diagram id="p1" name="Main">' + sourceModel + '</diagram></mxfile>';
-    const themes: DrawioDiagramTheme[] = ["editorial", "youth", "warm", "midnight"];
+    const themes: DrawioDiagramTheme[] = ["ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist", "golden-hour", "arctic-frost", "desert-rose", "tech-innovation", "botanical-garden", "midnight-galaxy"];
     for (const theme of themes) {
       const expected = applyDrawioDiagramTheme(source, theme);
       const plan = calculateNativePalettePlan(source, "p1", "c".repeat(64), theme);
@@ -176,8 +176,43 @@ describe("native Draw.io diagram theme presets", () => {
     }
   });
 
+  it("keeps original color categories distinct through repeated theme switches", () => {
+    const source = '<mxfile><diagram id="colors" name="Colors"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="green" value="Green category" vertex="1" parent="1" style="fillColor=#D9EAD3;strokeColor=#6AA84F;fontColor=#000000;"/>' +
+      '<mxCell id="blue" value="Blue category" vertex="1" parent="1" style="fillColor=#D9E8FB;strokeColor=#6C8EBF;fontColor=#000000;"/>' +
+      '<mxCell id="orange" value="Orange category" vertex="1" parent="1" style="fillColor=#FCE2C4;strokeColor=#D79B00;fontColor=#000000;"/>' +
+      '<mxCell id="yellow" value="Yellow category" vertex="1" parent="1" style="fillColor=#FFF0BF;strokeColor=#D6B656;fontColor=#000000;"/>' +
+      '</root></mxGraphModel></diagram></mxfile>';
+    const themes: DrawioDiagramTheme[] = [
+      "ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist",
+      "golden-hour", "arctic-frost", "desert-rose", "tech-innovation",
+      "botanical-garden", "midnight-galaxy"
+    ];
+    let themedXml = source;
+    const expectedRoles = ["category-1", "category-2", "category-3", "category-4"];
+    for (const theme of themes) {
+      const plan = calculateNativePalettePlan(themedXml, "colors", "f".repeat(64), theme);
+      const parsed = parseDrawioXml(themedXml);
+      for (const change of plan.changes) {
+        const cell = findDrawioElements(parsed, "mxCell").find((candidate) => candidate.getAttribute("id") === change.cellId);
+        expect(cell, "planned cell " + change.cellId).toBeTruthy();
+        cell?.setAttribute("style", change.style);
+      }
+      themedXml = serializeDrawioXml(parsed);
+      const cells = ["green", "blue", "orange", "yellow"].map((id) => cellById(themedXml, id));
+      const roles = cells.map((cell) => cell?.getAttribute("style")?.split(";")
+        .find((part) => part.startsWith("studioColorRole="))?.split("=", 2)[1]);
+      expect(roles).toEqual(expectedRoles);
+      const fills = cells.map((cell) => cell?.getAttribute("style")?.split(";")
+        .find((part) => part.startsWith("fillColor="))?.split("=", 2)[1]);
+      expect(new Set(fills).size).toBe(4);
+      expect(detectDrawioDiagramTheme(themedXml, "colors")).toBe(theme);
+    }
+  });
+
   it("supports each documented diagram preset", () => {
-    const themes: DrawioDiagramTheme[] = ["editorial", "youth", "warm", "midnight"];
+    const themes: DrawioDiagramTheme[] = ["ocean-depths", "sunset-boulevard", "forest-canopy", "modern-minimalist", "golden-hour", "arctic-frost", "desert-rose", "tech-innovation", "botanical-garden", "midnight-galaxy"];
     for (const theme of themes) {
       expect(applyDrawioDiagramTheme(sourceModel, theme)).not.toBe(sourceModel);
     }
