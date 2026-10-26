@@ -414,11 +414,11 @@ describe("emulateEmbeddedFlowDirection", () => {
 
   function flowFixture() {
     const vertices: FlowVertex[] = [
-      { id: "a", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 0, y: 0, width: 40, height: 40, hasGeometry: true, visible: true },
-      { id: "b", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 200, y: 40, width: 40, height: 40, hasGeometry: true, visible: true }
+      { id: "a", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 0, y: 0, width: 40, height: 40, hasGeometry: true, visible: true, points: [] },
+      { id: "b", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 200, y: 40, width: 40, height: 40, hasGeometry: true, visible: true, points: [] }
     ];
     const edges: FlowEdge[] = [
-      { id: "e", parentId: "1", sourceId: "a", targetId: "b", kind: "edge", x: 0, y: 0, width: 0, height: 0, hasGeometry: true, visible: true }
+      { id: "e", parentId: "1", sourceId: "a", targetId: "b", kind: "edge", x: 0, y: 0, width: 0, height: 0, hasGeometry: true, visible: true, points: [] }
     ];
     return { vertices, edges };
   }
