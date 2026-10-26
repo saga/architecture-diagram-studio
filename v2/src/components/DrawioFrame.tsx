@@ -893,7 +893,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
                 const assertionDiagnostic = assertionValidation.failures.slice(0, 8)
                   .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
-                    failure.field + ": " + failure.reason).join("; ");
+                    "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
                 if (serializedAssertionsPassed) {
                   acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
                 } else {
