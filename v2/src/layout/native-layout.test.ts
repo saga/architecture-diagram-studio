@@ -74,16 +74,22 @@ describe("Studio-owned native-cell layout", () => {
       hiddenVertexCount: 1,
       verticesWithoutGeometryCount: 1,
       sourceEdgeCount: 5,
-      plannedEdgeCount: 1,
-      untouchedEdgeCount: 4,
+      plannedEdgeCount: 2,
+      untouchedEdgeCount: 3,
       edgesOutsideLayoutLayerCount: 1,
       hiddenEdgeCount: 0,
       edgesWithoutGeometryCount: 1,
       edgesMissingTerminalsCount: 1,
-      edgesWithEndpointsOutsideTargetVerticesCount: 1
+      edgesWithEndpointsOutsideTargetVerticesCount: 0,
+      connectorsAttachedToNestedChildrenCount: 1,
+      edgesWithinSameGroupUntouchedCount: 0
     });
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
-    expect(plan.edgeRoutes.map((route) => route.cellId)).toEqual(["edge-ab"]);
+    expect(plan.edgeRoutes.map((route) => route.cellId).sort()).toEqual(["edge-ab", "edge-nested-target"]);
+    expect(plan.edgeRoutes.find((route) => route.cellId === "edge-nested-target")?.points.length).toBeGreaterThan(0);
+    // Layout calculation is read-only: neither child-local geometry nor the native edge terminal is rewritten.
+    expect(scopedXml).toContain('id="nested" value="Nested child" vertex="1" parent="group"');
+    expect(scopedXml).toContain('id="edge-nested-target" edge="1" parent="1" source="a" target="nested"');
   });
 
   it("keeps honest coverage for the upstream multi-page BPMN example", async () => {
@@ -98,10 +104,10 @@ describe("Studio-owned native-cell layout", () => {
       sourceVertexCount: 45,
       plannedVertexCount: 3,
       untouchedVertexCount: 42,
-      sourceEdgeCount: 32,
-      plannedEdgeCount: 0,
-      untouchedEdgeCount: 32
+      sourceEdgeCount: 32
     });
+    expect(plan.coverage.plannedEdgeCount).toBe(plan.edgeRoutes.length);
+    expect(plan.coverage.untouchedEdgeCount).toBe(plan.coverage.sourceEdgeCount - plan.coverage.plannedEdgeCount);
     expect(plan.pageId).toBe("L4GpW-EUjeUzysb4IhCQ");
   });
 
@@ -117,10 +123,10 @@ describe("Studio-owned native-cell layout", () => {
       sourceVertexCount: 54,
       plannedVertexCount: 54,
       untouchedVertexCount: 0,
-      sourceEdgeCount: 17,
-      plannedEdgeCount: 1,
-      untouchedEdgeCount: 16
+      sourceEdgeCount: 17
     });
+    expect(plan.coverage.plannedEdgeCount).toBe(plan.edgeRoutes.length);
+    expect(plan.coverage.untouchedEdgeCount).toBe(plan.coverage.sourceEdgeCount - plan.coverage.plannedEdgeCount);
   });
 
   it("rejects non-layered algorithms for Dagre rather than silently ignoring the selection", async () => {
