@@ -1802,7 +1802,9 @@ export default function App() {
               let persistedRevision: string | null = null;
               let persistedVersionId: string | null = null;
               let persistenceStatus = "not_attempted";
-              if (result.path === "cell:batch") {
+              const lateResultHasSnapshot = typeof result.serializedXml === "string" ||
+                result.batchRolledBack === true || result.applicationState === "not-applied";
+              if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
                 if (typeof result.serializedXml !== "string") {
                   if (result.success) {
                     finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
@@ -1920,6 +1922,16 @@ export default function App() {
                   finalResult = { ...finalResult, auditWarning: "The edit result could not be recorded by the server: " + (error instanceof Error ? error.message : String(error)) };
                 }
                 nativeEditAckContextsRef.current.delete(requestId);
+              } else if (isLateNativeBatch) {
+                // Without a resulting XML snapshot (or explicit rollback), a late timeout response
+                // is not a terminal receipt. Keep the request locked until the user reloads/reconciles.
+                finalResult = {
+                  ...result,
+                  success: false,
+                  applicationState: "unknown",
+                  error: "The editor returned after the wait expired but did not provide a final serialized XML snapshot.",
+                  auditWarning: "The edit remains unresolved. Do not retry; inspect History and reload the document before another edit."
+                };
               }
               if (resolver && requestId !== null) {
                 if (nativeEditResolversRef.current.get(requestId) !== resolver) {
@@ -1929,10 +1941,22 @@ export default function App() {
                 nativeEditResolversRef.current.delete(requestId);
                 resolver(finalResult);
               }
-              const wasLateNativeEdit = result.path === "cell:batch" && !resolver &&
+              const lateResultIsTerminal = finalResult.success ||
+                typeof finalResult.serializedXml === "string" || finalResult.batchRolledBack === true ||
+                finalResult.applicationState === "not-applied";
+              const wasLateNativeEdit = isLateNativeBatch && lateResultIsTerminal &&
                 requestId !== null && lateNativeEditRequestsRef.current.delete(requestId);
-              if (result.path === "cell:batch" && !resolver && !wasLateNativeEdit) {
+              if (result.path === "cell:batch" && !resolver && !isLateNativeBatch && !wasLateNativeEdit) {
                 recordDiagnostic("copilot.native-edit.acknowledgement.unobserved", "A native edit completed without an active waiter or a registered timeout to reconcile", { requestId, success: finalResult.success }, "warn");
+                return;
+              }
+              if (isLateNativeBatch && !wasLateNativeEdit) {
+                const unresolvedText = "A native edit timed out without a final serialized result. The diagram state is still unknown; do not retry. Inspect the current document and History, then reload the document before submitting another edit.";
+                setLastAction(unresolvedText);
+                setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: unresolvedText }].slice(-300));
+                recordDiagnostic("copilot.native-edit.acknowledgement.late-unresolved",
+                  "A timed-out native edit returned without enough evidence to reconcile its outcome",
+                  { requestId, applicationState: finalResult.applicationState ?? null, rollbackConfirmed: finalResult.batchRolledBack === true }, "error");
                 return;
               }
               const status = (finalResult.success
