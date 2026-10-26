@@ -170,13 +170,13 @@ function createBridge(options: { failFirstStyleWriteTo?: string } = {}) {
 }
 
 const themePlan = {
-  theme: "youth",
+  theme: "ocean-depths",
   documentRevision: "a".repeat(64),
   pageId: "p1",
   expectedPageCellIds: ["0", "1", "a", "b"],
   changes: [
-    { cellId: "a", kind: "vertex", expectedStyle: "fillColor=#FFFFFF;strokeColor=#000000;", style: "fillColor=#FCE7F3;strokeColor=#BE185D;" },
-    { cellId: "b", kind: "vertex", expectedStyle: "fillColor=#FFFFFF;strokeColor=#000000;", style: "fillColor=#FCE7F3;strokeColor=#BE185D;" }
+    { cellId: "a", kind: "vertex", expectedStyle: "fillColor=#FFFFFF;strokeColor=#000000;", style: "fillColor=#E0F2FE;strokeColor=#0369A1;fontColor=#17324D;studioColorRole=category-1;" },
+    { cellId: "b", kind: "vertex", expectedStyle: "fillColor=#FFFFFF;strokeColor=#000000;", style: "fillColor=#E0F2FE;strokeColor=#0369A1;fontColor=#17324D;studioColorRole=category-1;" }
   ]
 };
 
