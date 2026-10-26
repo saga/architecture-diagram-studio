@@ -398,7 +398,84 @@ test.describe("原生画布", () => {
       parent: "1", source: "database", target: "group-step-a"
     });
     expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")?.points.length).toBeGreaterThan(0);
-    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group boundary.");
+    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group/region boundary.");
+  });
+
+  test("geometry-only spatial regions move atomically and preserve internal connector waypoints", async ({ page, request }) => {
+    const stateResponse = await request.get("/api/workspace/state");
+    expect(stateResponse.ok()).toBe(true);
+    const state = await stateResponse.json() as { drawioXml?: string | null; workspaceRevision?: string | null };
+    const sourceXml = typeof state.drawioXml === "string" ? state.drawioXml : await readWorkspaceXml(workspace);
+    const regionCells = `
+      <mxCell id="spatial-it-region" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="900" y="400" width="350" height="260" as="geometry"/>
+      </mxCell>
+      <mxCell id="spatial-it-title" value="IT Network" vertex="1" parent="1" style="shape=text;html=1;align=left;strokeColor=none;fillColor=none;">
+        <mxGeometry x="920" y="405" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="spatial-switch-a" value="Switch A" vertex="1" parent="1"><mxGeometry x="950" y="480" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="spatial-server-b" value="Server B" vertex="1" parent="1"><mxGeometry x="1080" y="480" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="spatial-plc-c" value="PLC C" vertex="1" parent="1"><mxGeometry x="1090" y="570" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="spatial-internal-edge" edge="1" parent="1" source="spatial-switch-a" target="spatial-server-b" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">
+        <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1050" y="500"/><mxPoint x="1050" y="520"/></Array></mxGeometry>
+      </mxCell>
+      <mxCell id="spatial-cross-boundary-edge" edge="1" parent="1" source="spatial-plc-c" target="database" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">
+        <mxGeometry relative="1" as="geometry"/>
+      </mxCell>`;
+    expect(sourceXml.split("</root>").length).toBe(2);
+    const withRegionXml = sourceXml.replace("</root>", regionCells + "</root>");
+    const saved = await request.put("/api/workspace/document", {
+      data: {
+        drawioXml: withRegionXml,
+        label: "E2E geometry-only atomic spatial region fixture",
+        baseRevision: state.workspaceRevision
+      }
+    });
+    expect(saved.status(), await saved.text()).toBe(200);
+
+    await page.reload();
+    await waitForNativeEditor(page);
+    const beforeXml = await readWorkspaceXml(workspace);
+    const beforeRegion = nativeCellSnapshot(beforeXml, "spatial-it-region");
+    const memberIds = ["spatial-it-title", "spatial-switch-a", "spatial-server-b", "spatial-plc-c"];
+    const beforeMembers = new Map(memberIds.map((id) => [id, nativeCellSnapshot(beforeXml, id)]));
+    const beforeInternalEdge = nativeCellSnapshot(beforeXml, "spatial-internal-edge");
+    expect(beforeRegion).not.toBeNull();
+    expect([...beforeMembers.values()].every((item) => item !== null)).toBe(true);
+    expect(beforeInternalEdge?.points.length).toBe(2);
+
+    await page.getByRole("button", { name: "Auto layout", exact: true }).click();
+    await expect.poll(async () => {
+      const after = nativeCellSnapshot(await readWorkspaceXml(workspace), "spatial-it-region");
+      return after?.x !== beforeRegion!.x || after?.y !== beforeRegion!.y;
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+
+    const afterXml = await readWorkspaceXml(workspace);
+    const afterRegion = nativeCellSnapshot(afterXml, "spatial-it-region");
+    const afterInternalEdge = nativeCellSnapshot(afterXml, "spatial-internal-edge");
+    expect(afterRegion).not.toBeNull();
+    const dx = Number(afterRegion!.x) - Number(beforeRegion!.x);
+    const dy = Number(afterRegion!.y) - Number(beforeRegion!.y);
+    for (const id of memberIds) {
+      const before = beforeMembers.get(id)!;
+      const after = nativeCellSnapshot(afterXml, id);
+      expect(after).not.toBeNull();
+      expect(Number(after!.x) - Number(before!.x)).toBeCloseTo(dx, 3);
+      expect(Number(after!.y) - Number(before!.y)).toBeCloseTo(dy, 3);
+      expect(after!.parent).toBe(before!.parent);
+      expect(after!.width).toBe(before!.width);
+      expect(after!.height).toBe(before!.height);
+    }
+    expect(afterInternalEdge?.points).toHaveLength(2);
+    for (let index = 0; index < 2; index += 1) {
+      expect(Number(afterInternalEdge!.points[index].x)).toBeCloseTo(Number(beforeInternalEdge!.points[index].x) + dx, 3);
+      expect(Number(afterInternalEdge!.points[index].y)).toBeCloseTo(Number(beforeInternalEdge!.points[index].y) + dy, 3);
+    }
+    expect(nativeCellSnapshot(afterXml, "spatial-cross-boundary-edge")).toMatchObject({
+      parent: "1", source: "spatial-plc-c", target: "database"
+    });
+    expect(nativeCellSnapshot(afterXml, "spatial-cross-boundary-edge")?.points.length).toBeGreaterThan(0);
+    await expect(page.getByRole("status")).toContainText(/Kept \d+ spatial region\(s\) atomic with \d+ member node\(s\)/);
   });
 
   test("布局工具栏恢复引擎和方向下拉设置，以及横向纵向快捷布局", async ({ page }) => {

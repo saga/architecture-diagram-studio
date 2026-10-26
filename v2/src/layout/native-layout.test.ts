@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { detectSpatialRegionsForLayout } from "./spatial-region-analysis";
 import {
   calculateNativeAutoLayout,
   DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
@@ -28,8 +29,139 @@ const bpmnChoreographyXml = readFileSync(
   new URL("./fixtures/bpmn-choreography-model.drawio", import.meta.url),
   "utf8"
 );
+const industrialIotXml = readFileSync(
+  new URL("./fixtures/industrial-iot-example.drawio", import.meta.url),
+  "utf8"
+);
+const industrialIotPageId = "SXgX17sldJI9QkPeDldp";
 
 describe("Studio-owned native-cell layout", () => {
+  it("moves spatial region members as one atomic block and translates explicit internal waypoints", async () => {
+    const regionXml = `<mxfile host="test"><diagram id="region-page" name="Region"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="region-it" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="100" y="100" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="region-title" value="IT Network" vertex="1" parent="1" style="shape=text;html=1;align=left;strokeColor=none;fillColor=none;">
+        <mxGeometry x="120" y="102" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="switch-a" value="Switch A" vertex="1" parent="1"><mxGeometry x="150" y="160" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="server-b" value="Server B" vertex="1" parent="1"><mxGeometry x="270" y="180" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="plc-c" value="PLC C" vertex="1" parent="1"><mxGeometry x="390" y="280" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside-node" value="Outside" vertex="1" parent="1"><mxGeometry x="760" y="180" width="100" height="50" as="geometry"/></mxCell>
+      <mxCell id="edge-inside-region" edge="1" parent="1" source="switch-a" target="server-b" style="edgeStyle=orthogonalEdgeStyle;">
+        <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="245" y="170"/><mxPoint x="245" y="200"/></Array></mxGeometry>
+      </mxCell>
+      <mxCell id="edge-across-region" edge="1" parent="1" source="plc-c" target="outside-node" style="edgeStyle=orthogonalEdgeStyle;">
+        <mxGeometry relative="1" as="geometry"/>
+      </mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(regionXml, "region-page", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    const original = new Map([
+      ["region-it", { x: 100, y: 100 }],
+      ["region-title", { x: 120, y: 102 }],
+      ["switch-a", { x: 150, y: 160 }],
+      ["server-b", { x: 270, y: 180 }],
+      ["plc-c", { x: 390, y: 280 }]
+    ]);
+    const regionPosition = positions.get("region-it");
+    expect(regionPosition).toBeDefined();
+    expect(plan.coverage.spatialRegionCount).toBe(1);
+    expect(plan.coverage.spatialRegionMemberCount).toBe(4);
+    expect(plan.coverage.spatialRegionInternalEdgeCount).toBe(1);
+    expect(plan.coverage.spatialRegionInternalEdgesTranslatedCount).toBe(1);
+    expect(plan.coverage.connectorsAttachedToNestedChildrenCount).toBe(1);
+    expect(positions.size).toBe(6);
+
+    const delta = { x: regionPosition!.x - 100, y: regionPosition!.y - 100 };
+    for (const id of ["region-title", "switch-a", "server-b", "plc-c"]) {
+      const position = positions.get(id);
+      expect(position).toBeDefined();
+      expect(position!.x).toBeCloseTo(original.get(id)!.x + delta.x, 4);
+      expect(position!.y).toBeCloseTo(original.get(id)!.y + delta.y, 4);
+      expect(position!.x - regionPosition!.x).toBeCloseTo(original.get(id)!.x - 100, 4);
+      expect(position!.y - regionPosition!.y).toBeCloseTo(original.get(id)!.y - 100, 4);
+    }
+
+    const internalRoute = plan.edgeRoutes.find((route) => route.cellId === "edge-inside-region");
+    expect(internalRoute?.points).toEqual([
+      { x: 245 + delta.x, y: 170 + delta.y },
+      { x: 245 + delta.x, y: 200 + delta.y }
+    ]);
+    const externalRoute = plan.edgeRoutes.find((route) => route.cellId === "edge-across-region");
+    expect(externalRoute?.points.some((point) =>
+      Math.abs(point.x - (regionPosition!.x + 500)) < 0.02
+    )).toBe(true);
+    expect(plan.expectedCells.filter((cell) => cell.kind === "vertex").map((cell) => cell.cellId).sort())
+      .toEqual(["outside-node", "plc-c", "region-it", "region-title", "server-b", "switch-a"].sort());
+    // Planning uses a transient region proxy. The native terminal IDs and source XML stay unchanged.
+    expect(regionXml).toContain('source="plc-c" target="outside-node"');
+    expect(regionXml).toContain('source="switch-a" target="server-b"');
+  });
+
+  it("routes a connector between two spatial regions through both native region boundaries", async () => {
+    const twoRegionXml = `<mxfile host="test"><diagram id="two-regions" name="Two Regions"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="region-left" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="region-left-title" value="IT Network" vertex="1" parent="1" style="shape=text;html=1;strokeColor=none;fillColor=none;">
+        <mxGeometry x="20" y="8" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="left-a" value="Switch A" vertex="1" parent="1"><mxGeometry x="40" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="left-b" value="Server B" vertex="1" parent="1"><mxGeometry x="150" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="left-c" value="PLC C" vertex="1" parent="1"><mxGeometry x="260" y="180" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="region-right" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="600" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="region-right-title" value="OT Network" vertex="1" parent="1" style="shape=text;html=1;strokeColor=none;fillColor=none;">
+        <mxGeometry x="620" y="8" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="right-a" value="Switch D" vertex="1" parent="1"><mxGeometry x="650" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="right-b" value="Server E" vertex="1" parent="1"><mxGeometry x="760" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="right-c" value="PLC F" vertex="1" parent="1"><mxGeometry x="870" y="180" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="edge-between-regions" edge="1" parent="1" source="left-c" target="right-c" style="edgeStyle=orthogonalEdgeStyle;">
+        <mxGeometry relative="1" as="geometry"/>
+      </mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(twoRegionXml, "two-regions", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    const left = positions.get("region-left");
+    const right = positions.get("region-right");
+    const route = plan.edgeRoutes.find((item) => item.cellId === "edge-between-regions");
+    expect(left).toBeDefined();
+    expect(right).toBeDefined();
+    expect(plan.coverage.spatialRegionCount).toBe(2);
+    expect(plan.coverage.spatialRegionMemberCount).toBe(8);
+    expect(route?.points.length).toBeGreaterThanOrEqual(2);
+    expect(route?.points[0].x).toBeCloseTo(left!.x + 500, 2);
+    expect(route?.points[route.points.length - 1].x).toBeCloseTo(right!.x, 2);
+    expect(plan.expectedCells.find((cell) => cell.cellId === "edge-between-regions"))
+      .toMatchObject({ sourceId: "left-c", targetId: "right-c", parentId: "1" });
+    expect(twoRegionXml).toContain('source="left-c" target="right-c"');
+  });
+
+  it("applies atomic region projection to the real Industrial IoT example", async () => {
+    const detection = detectSpatialRegionsForLayout(industrialIotXml, industrialIotPageId);
+    expect(detection.eligibleCandidates.length).toBeGreaterThan(0);
+    const plan = await calculateNativeAutoLayout(industrialIotXml, industrialIotPageId, revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const plannedIds = new Set(plan.positions.map((position) => position.cellId));
+    for (const region of detection.eligibleCandidates) {
+      expect(plannedIds.has(region.regionCellId)).toBe(true);
+      for (const memberId of region.memberCellIds) expect(plannedIds.has(memberId)).toBe(true);
+    }
+    expect(plan.coverage.spatialRegionCount).toBe(detection.eligibleCandidates.length);
+    expect(plan.coverage.spatialRegionMemberCount).toBeGreaterThan(0);
+    expect(plan.coverage.spatialRegionBoundaryVertexCount).toBeGreaterThan(0);
+  });
+
   it("lays out the BPMN choreography example when root and layer IDs are generated", async () => {
     const plan = await calculateNativeAutoLayout(
       bpmnChoreographyXml,
@@ -85,7 +217,13 @@ describe("Studio-owned native-cell layout", () => {
       edgesMissingTerminalsCount: 1,
       edgesWithEndpointsOutsideTargetVerticesCount: 0,
       connectorsAttachedToNestedChildrenCount: 1,
-      edgesWithinSameGroupUntouchedCount: 1
+      edgesWithinSameGroupUntouchedCount: 1,
+      spatialRegionCount: 0,
+      spatialRegionMemberCount: 0,
+      spatialRegionBoundaryVertexCount: 0,
+      spatialRegionCandidatesSkippedCount: 0,
+      spatialRegionInternalEdgeCount: 0,
+      spatialRegionInternalEdgesTranslatedCount: 0
     });
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
     expect(plan.edgeRoutes.map((route) => route.cellId).sort()).toEqual(["edge-ab", "edge-nested-target"]);
@@ -320,11 +458,11 @@ describe("emulateEmbeddedFlowDirection", () => {
 
   function flowFixture() {
     const vertices: FlowVertex[] = [
-      { id: "a", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 0, y: 0, width: 40, height: 40, hasGeometry: true, visible: true },
-      { id: "b", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 200, y: 40, width: 40, height: 40, hasGeometry: true, visible: true }
+      { id: "a", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 0, y: 0, width: 40, height: 40, hasGeometry: true, visible: true, points: [] },
+      { id: "b", parentId: "1", sourceId: null, targetId: null, kind: "vertex", x: 200, y: 40, width: 40, height: 40, hasGeometry: true, visible: true, points: [] }
     ];
     const edges: FlowEdge[] = [
-      { id: "e", parentId: "1", sourceId: "a", targetId: "b", kind: "edge", x: 0, y: 0, width: 0, height: 0, hasGeometry: true, visible: true }
+      { id: "e", parentId: "1", sourceId: "a", targetId: "b", kind: "edge", x: 0, y: 0, width: 0, height: 0, hasGeometry: true, visible: true, points: [] }
     ];
     return { vertices, edges };
   }

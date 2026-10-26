@@ -3,6 +3,7 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import { calculateAdditionalNativeLayout, type AdditionalLayoutEngine } from "./additional-layout-engines";
 import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
+import { detectSpatialRegionsForLayout, type SpatialRegionLayoutCandidate } from "./spatial-region-analysis";
 
 export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
 export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
@@ -140,6 +141,12 @@ export interface NativeLayoutCoverage {
   edgesWithEndpointsOutsideTargetVerticesCount: number;
   connectorsAttachedToNestedChildrenCount: number;
   edgesWithinSameGroupUntouchedCount: number;
+  spatialRegionCount: number;
+  spatialRegionMemberCount: number;
+  spatialRegionBoundaryVertexCount: number;
+  spatialRegionCandidatesSkippedCount: number;
+  spatialRegionInternalEdgeCount: number;
+  spatialRegionInternalEdgesTranslatedCount: number;
 }
 
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
@@ -174,6 +181,7 @@ interface ProjectedCell {
   height: number;
   hasGeometry: boolean;
   visible: boolean;
+  points: Point[];
 }
 
 interface NativePageProjection {
@@ -197,9 +205,16 @@ interface NativePageProjection {
   edgesMissingTerminalsCount: number;
   edgesWithEndpointsOutsideTargetVerticesCount: number;
   vertices: ProjectedCell[];
-  /** All source cells are transient input used to resolve nested terminal coordinates. */
+  /** Eligible geometry-only regions are transient proxy nodes; their member cells move by the same delta. */
+  spatialRegions: SpatialRegionLayoutCandidate[];
+  spatialRegionCandidateCount: number;
+  spatialRegionCandidatesSkippedCount: number;
+  spatialRegionMemberCount: number;
+  spatialRegionBoundaryVertexCount: number;
+  /** All source cells are transient input to resolve native and inferred nested terminals. */
   allCells: ProjectedCell[];
   edges: ProjectedCell[];
+  regionInternalEdges: ProjectedCell[];
   connectorsAttachedToNestedChildrenCount: number;
   edgesWithinSameGroupUntouchedCount: number;
 }
@@ -293,6 +308,13 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     const y = Number(geometry?.getAttribute("y") ?? 0);
     const width = Number(geometry?.getAttribute("width") ?? 0);
     const height = Number(geometry?.getAttribute("height") ?? 0);
+    const pointsArray = geometry ? directChild(geometry, "Array") : null;
+    const points = pointsArray?.getAttribute("as") === "points"
+      ? elementChildren(pointsArray).filter((point) => point.nodeName === "mxPoint").map((point) => ({
+          x: Number(point.getAttribute("x") ?? 0),
+          y: Number(point.getAttribute("y") ?? 0)
+        })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      : [];
     const projected: ProjectedCell = {
       id,
       parentId: cell.getAttribute("parent") || null,
@@ -304,7 +326,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       width: Number.isFinite(width) ? width : 0,
       height: Number.isFinite(height) ? height : 0,
       hasGeometry: Boolean(geometry),
-      visible: cell.getAttribute("visible") !== "0"
+      visible: cell.getAttribute("visible") !== "0",
+      points
     };
     // Draw.io wrappers may expose both a wrapper ID and an mxCell ID. The active mxGraph
     // model resolves a cell by its effective ID, which is the wrapper ID when present.
@@ -371,8 +394,28 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   }
 
   const layoutLayerId = layoutLayer?.id ?? null;
-  const vertexIds = new Set(vertices.map((cell) => cell.id));
   const allById = new Map(all.map((cell) => [cell.id, cell] as const));
+  const rawVertexIds = new Set(vertices.map((cell) => cell.id));
+  const regionDetection = detectSpatialRegionsForLayout(xml, parsed.pageId);
+  const candidatesForLayer = regionDetection.candidates.filter((candidate) =>
+    allById.get(candidate.regionCellId)?.parentId === layoutLayerId
+  );
+  const spatialRegions = candidatesForLayer.filter((candidate) =>
+    candidate.eligible &&
+    rawVertexIds.has(candidate.regionCellId) &&
+    candidate.memberCellIds.every((memberId) =>
+      rawVertexIds.has(memberId) && allById.get(memberId)?.parentId === layoutLayerId
+    )
+  );
+  const spatialRegionMemberIds = new Set(spatialRegions.flatMap((region) => region.memberCellIds));
+  const regionOwnerByMemberId = new Map<string, string>();
+  for (const region of spatialRegions) {
+    for (const memberId of region.memberCellIds) regionOwnerByMemberId.set(memberId, region.regionCellId);
+  }
+  // Members and region labels are removed from the outer solver graph. The native cells stay
+  // siblings in the Draw.io XML; only the disposable solver projection treats them as a compound node.
+  vertices = vertices.filter((cell) => !spatialRegionMemberIds.has(cell.id));
+  const vertexIds = new Set(vertices.map((cell) => cell.id));
   const layoutOwnerForTerminal = (terminalId: string | null): string | null => {
     if (!terminalId) return null;
     let current = allById.get(terminalId);
@@ -380,6 +423,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     while (current && !seen.has(current.id)) {
       seen.add(current.id);
       if (!current.visible) return null;
+      const inferredRegionOwner = regionOwnerByMemberId.get(current.id);
+      if (inferredRegionOwner) return inferredRegionOwner;
       if (vertexIds.has(current.id)) return current.id;
       if (current.kind !== "vertex" || !current.hasGeometry || current.width <= 0 || current.height <= 0) return null;
       current = current.parentId ? allById.get(current.parentId) : undefined;
@@ -401,8 +446,17 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     layoutSourceId: layoutOwnerForTerminal(cell.sourceId),
     layoutTargetId: layoutOwnerForTerminal(cell.targetId)
   }));
+  const regionInternalEdges = candidateEdges
+    .filter(({ cell }) => {
+      if (!cell.sourceId || !cell.targetId) return false;
+      const sourceRegion = regionOwnerByMemberId.get(cell.sourceId);
+      const targetRegion = regionOwnerByMemberId.get(cell.targetId);
+      return Boolean(sourceRegion && targetRegion && sourceRegion === targetRegion);
+    })
+    .map(({ cell, layoutSourceId, layoutTargetId }) => ({ ...cell, layoutSourceId, layoutTargetId }));
+  const regionInternalEdgeIds = new Set(regionInternalEdges.map((edge) => edge.id));
   const edgesWithinSameGroup = sourceEdges.filter((cell) => {
-    if (!cell.sourceId || !cell.targetId) return false;
+    if (regionInternalEdgeIds.has(cell.id) || !cell.sourceId || !cell.targetId) return false;
     const sourceOwner = layoutOwnerForTerminal(cell.sourceId);
     const targetOwner = layoutOwnerForTerminal(cell.targetId);
     return Boolean(sourceOwner && targetOwner && sourceOwner === targetOwner) &&
@@ -412,7 +466,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     .filter(({ layoutSourceId, layoutTargetId, cell }) =>
       Boolean(layoutSourceId && layoutTargetId) &&
       !(layoutSourceId === layoutTargetId &&
-        (cell.sourceId !== layoutSourceId || cell.targetId !== layoutTargetId))
+        (cell.sourceId !== layoutSourceId || cell.targetId !== layoutTargetId)) &&
+      !regionInternalEdgeIds.has(cell.id)
     )
     .map(({ cell, layoutSourceId, layoutTargetId }) => ({
       ...cell,
@@ -422,6 +477,9 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   const connectorsAttachedToNestedChildrenCount = edges.filter((edge) =>
     edge.sourceId !== edge.layoutSourceId || edge.targetId !== edge.layoutTargetId
   ).length;
+  const spatialRegionBoundaryVertexCount = new Set(
+    spatialRegions.flatMap((region) => region.boundaryCellIds).filter((id) => rawVertexIds.has(id))
+  ).size;
   return {
     pageId: parsed.pageId,
     pageTitle: parsed.pageTitle,
@@ -449,8 +507,14 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       return !layoutOwnerForTerminal(cell.sourceId) || !layoutOwnerForTerminal(cell.targetId);
     }).length,
     vertices,
+    spatialRegions,
+    spatialRegionCandidateCount: candidatesForLayer.length,
+    spatialRegionCandidatesSkippedCount: candidatesForLayer.length - spatialRegions.length,
+    spatialRegionMemberCount: spatialRegionMemberIds.size,
+    spatialRegionBoundaryVertexCount,
     allCells: all,
     edges,
+    regionInternalEdges,
     connectorsAttachedToNestedChildrenCount,
     edgesWithinSameGroupUntouchedCount: edgesWithinSameGroup.length
   };
@@ -589,6 +653,7 @@ function normalizePlan(
   const dx = preserveNativePositions ? 0 : options.margin - minX;
   const dy = preserveNativePositions ? 0 : options.margin - minY;
   const finiteCoordinate = (value: number) => Number.isFinite(value) && Math.abs(value) <= 1_000_000;
+  const cellsById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
   const nativePositions = projection.vertices.map((cell) => {
     const point = positions.get(cell.id)!;
     const x = point.x + dx;
@@ -596,10 +661,30 @@ function normalizePlan(
     if (!finiteCoordinate(x) || !finiteCoordinate(y)) throw new Error("The layout engine returned an invalid node coordinate.");
     return { cellId: cell.id, x, y };
   });
+  const finalTopLevelPositionById = new Map(nativePositions.map((position) => [
+    position.cellId, { x: position.x, y: position.y }
+  ] as const));
+  const regionDeltaById = new Map<string, Point>();
+  for (const region of projection.spatialRegions) {
+    const sourceRegion = cellsById.get(region.regionCellId);
+    const finalRegion = finalTopLevelPositionById.get(region.regionCellId);
+    if (!sourceRegion || !finalRegion) throw new Error("A detected spatial region was missing from the outer layout result.");
+    const delta = { x: finalRegion.x - sourceRegion.x, y: finalRegion.y - sourceRegion.y };
+    regionDeltaById.set(region.regionCellId, delta);
+    for (const memberId of region.memberCellIds) {
+      const member = cellsById.get(memberId);
+      if (!member || member.kind !== "vertex" || !member.hasGeometry || member.parentId !== projection.layoutLayerId) {
+        throw new Error("A spatial region member changed scope during layout planning: " + memberId);
+      }
+      const x = member.x + delta.x;
+      const y = member.y + delta.y;
+      if (!finiteCoordinate(x) || !finiteCoordinate(y)) throw new Error("The layout engine returned invalid region-member coordinates.");
+      nativePositions.push({ cellId: memberId, x, y });
+    }
+  }
   const finalPositionById = new Map(nativePositions.map((position) => [
     position.cellId, { x: position.x, y: position.y }
   ] as const));
-  const cellsById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
   const absoluteBoundsForCell = (cellId: string): { x: number; y: number; width: number; height: number } | null => {
     let current = cellsById.get(cellId);
     if (!current || current.kind !== "vertex" || !current.hasGeometry) return null;
@@ -665,6 +750,19 @@ function normalizePlan(
     }
     nativeRoutes.push({ cellId: edge.id, points: translated });
   }
+  // Internal connectors are not sent through the outer solver. When they carry explicit
+  // waypoints, translate those points by the same region delta as both endpoints.
+  for (const edge of projection.regionInternalEdges) {
+    if (edge.points.length === 0) continue;
+    const regionId = edge.layoutSourceId;
+    const delta = regionId ? regionDeltaById.get(regionId) : undefined;
+    if (!delta) throw new Error("An internal region connector had no corresponding region translation: " + edge.id);
+    const translated = edge.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
+    if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
+      throw new Error("The layout engine returned an invalid internal region connector route.");
+    }
+    nativeRoutes.push({ cellId: edge.id, points: translated });
+  }
 
   const cellsToGuard = new Map<string, NativeLayoutExpectedCell>();
   for (const vertex of projection.vertices) cellsToGuard.set(vertex.id, {
@@ -672,11 +770,29 @@ function normalizePlan(
     width: vertex.width, height: vertex.height, parentId: vertex.parentId,
     sourceId: null, targetId: null
   });
+  for (const region of projection.spatialRegions) {
+    for (const memberId of region.memberCellIds) {
+      const member = cellsById.get(memberId);
+      if (!member) throw new Error("A spatial region member disappeared before plan generation: " + memberId);
+      cellsToGuard.set(member.id, {
+        cellId: member.id, kind: "vertex", x: member.x, y: member.y,
+        width: member.width, height: member.height, parentId: member.parentId,
+        sourceId: null, targetId: null
+      });
+    }
+  }
   for (const edge of projection.edges) cellsToGuard.set(edge.id, {
     cellId: edge.id, kind: "edge", x: edge.x, y: edge.y,
     width: edge.width, height: edge.height, parentId: edge.parentId,
     sourceId: edge.sourceId, targetId: edge.targetId
   });
+  for (const edge of projection.regionInternalEdges.filter((item) => item.points.length > 0)) {
+    cellsToGuard.set(edge.id, {
+      cellId: edge.id, kind: "edge", x: edge.x, y: edge.y,
+      width: edge.width, height: edge.height, parentId: edge.parentId,
+      sourceId: edge.sourceId, targetId: edge.targetId
+    });
+  }
 
   return {
     ...options,
@@ -687,22 +803,28 @@ function normalizePlan(
     layoutLayerFallback: projection.layoutLayerFallback,
     coverage: {
       sourceVertexCount: projection.sourceVertexCount,
-      plannedVertexCount: projection.vertices.length,
-      untouchedVertexCount: Math.max(0, projection.sourceVertexCount - projection.vertices.length),
+      plannedVertexCount: projection.vertices.length + projection.spatialRegionMemberCount,
+      untouchedVertexCount: Math.max(0, projection.sourceVertexCount - projection.vertices.length - projection.spatialRegionMemberCount),
       nestedVertexCount: projection.nestedVertexCount,
       verticesInOtherLayersCount: projection.verticesInOtherLayersCount,
       hiddenVertexCount: projection.hiddenVertexCount,
       verticesWithoutGeometryCount: Math.max(0, projection.sourceVertexCount - projection.sourceVertexWithGeometryCount),
       sourceEdgeCount: projection.sourceEdgeCount,
-      plannedEdgeCount: projection.edges.length,
-      untouchedEdgeCount: Math.max(0, projection.sourceEdgeCount - projection.edges.length),
+      plannedEdgeCount: projection.edges.length + projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length,
+      untouchedEdgeCount: Math.max(0, projection.sourceEdgeCount - projection.edges.length - projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length),
       edgesOutsideLayoutLayerCount: projection.edgesOutsideLayoutLayerCount,
       hiddenEdgeCount: projection.hiddenEdgeCount,
       edgesWithoutGeometryCount: Math.max(0, projection.sourceEdgeCount - projection.sourceEdgeWithGeometryCount),
       edgesMissingTerminalsCount: projection.edgesMissingTerminalsCount,
       edgesWithEndpointsOutsideTargetVerticesCount: projection.edgesWithEndpointsOutsideTargetVerticesCount,
       connectorsAttachedToNestedChildrenCount: projection.connectorsAttachedToNestedChildrenCount,
-      edgesWithinSameGroupUntouchedCount: projection.edgesWithinSameGroupUntouchedCount
+      edgesWithinSameGroupUntouchedCount: projection.edgesWithinSameGroupUntouchedCount,
+      spatialRegionCount: projection.spatialRegions.length,
+      spatialRegionMemberCount: projection.spatialRegionMemberCount,
+      spatialRegionBoundaryVertexCount: projection.spatialRegionBoundaryVertexCount,
+      spatialRegionCandidatesSkippedCount: projection.spatialRegionCandidatesSkippedCount,
+      spatialRegionInternalEdgeCount: projection.regionInternalEdges.length,
+      spatialRegionInternalEdgesTranslatedCount: projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length
     },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),

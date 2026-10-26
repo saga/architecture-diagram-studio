@@ -1299,10 +1299,10 @@ export default function App() {
         finding.ruleId === "spatial-region.overlap-ambiguous" || finding.ruleId === "spatial-region.membership-ambiguous"
       ).length;
       const regionNotice = regionCandidates.length
-        ? " Read-only region analysis detected " + regionCandidates.length + " ungrouped region candidate(s)" +
+        ? " Region analysis detected " + regionCandidates.length + " candidate(s)" +
           (regionLabels.length ? " (" + regionLabels.join(", ") + ")" : "") +
-          (ambiguousRegionCount ? "; " + ambiguousRegionCount + " overlap/membership ambiguity finding(s)" : "") +
-          ". Phase 1 only reports these boundaries; this auto-layout does not yet keep each region and its contents together."
+          (ambiguousRegionCount ? "; " + ambiguousRegionCount + " overlap/membership ambiguity finding(s) will not be auto-grouped" : "") +
+          ". Only unambiguous regions with complete active-layer membership are treated as atomic blocks."
         : "";
       const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options);
       const latestState = latestDiagramStateRef.current;
@@ -1327,10 +1327,22 @@ export default function App() {
         : "";
       const groupHandlingNotice = [
         coverage.connectorsAttachedToNestedChildrenCount
-          ? " Routed " + coverage.connectorsAttachedToNestedChildrenCount + " connector(s) attached to grouped child nodes via the group boundary."
+          ? " Routed " + coverage.connectorsAttachedToNestedChildrenCount + " connector(s) attached to grouped child nodes via the group/region boundary."
           : "",
         coverage.edgesWithinSameGroupUntouchedCount
-          ? " Left " + coverage.edgesWithinSameGroupUntouchedCount + " connector(s) within a single group unchanged."
+          ? " Left " + coverage.edgesWithinSameGroupUntouchedCount + " connector(s) within a native group unchanged."
+          : "",
+        coverage.spatialRegionCount
+          ? " Kept " + coverage.spatialRegionCount + " spatial region(s) atomic with " + coverage.spatialRegionMemberCount + " member node(s); region-internal connector geometry stays aligned."
+          : "",
+        coverage.spatialRegionInternalEdgesTranslatedCount
+          ? " Translated explicit waypoints on " + coverage.spatialRegionInternalEdgesTranslatedCount + " internal region connector(s)."
+          : "",
+        coverage.spatialRegionBoundaryVertexCount
+          ? " Kept " + coverage.spatialRegionBoundaryVertexCount + " boundary node(s) outside the regions."
+          : "",
+        coverage.spatialRegionCandidatesSkippedCount
+          ? " Skipped automatic grouping for " + coverage.spatialRegionCandidatesSkippedCount + " ambiguous or unsupported region candidate(s)."
           : ""
       ].filter(Boolean).join("");
       const coverageMessage =

@@ -2,13 +2,13 @@
 
 Date: 2026-10-26
 
-Status: Phase 1 implemented as a read-only analysis provider. Phase 2 (atomic region projection and region-aware edge routing) is not implemented yet. This document covers region-boundary inference for large rectangular boundaries that have no native Draw.io parent-child relationship.
+Status: Phase 1 and Phase 2 implemented. Geometry-only regions are projected as transient atomic nodes for outer layout; member positions and explicit internal waypoints are translated with the region. Ambiguous, nested and unsupported region candidates remain outside atomic grouping.
 
 ## 1. Problem and scope
 
 The example [industrial-iot-example.drawio](https://github.com/jgraph/drawio-diagrams/blob/dev/examples/industrial-iot-example.drawio) uses large outline rectangles to communicate ranges such as **IT Network** and **OT Network**. These rectangles and the devices inside them may be ordinary sibling cells in the same layer. They are not equivalent to a native Draw.io Group: there is no XML `parent` relationship that makes the contents move together.
 
-Current auto-layout projection follows native cell ancestry. Switching Dagre, ELK, Graphviz, MSAGL, Cytoscape or D3 alone will not infer the intended containment from geometry. A layout engine must first be given a shared representation of which objects are regions, their members and their boundary crossings.
+Native Group layout already follows cell ancestry. Geometry-only region layout now obtains the same outer-layout behavior through one shared transient projection that feeds every supported engine; this projection is derived from the native XML and is never persisted.
 
 The authoritative diagram remains native Draw.io XML. Region inference is transient analysis only: do not create a persisted graph model, rewrite cell parents, change styles, or create actual Draw.io Groups as a side effect.
 
@@ -63,17 +63,17 @@ Thresholds are implementation heuristics, not Draw.io guarantees. They should be
 - **Medium:** a large plain rectangle with multiple enclosed non-text elements but no definitive semantic marker.
 - **Low:** conflicting/overlapping candidates or ambiguous membership.
 
-Phase 1 returns diagnostics keyed by native cell IDs. It does not modify XML and does not feed region constraints to the auto-layout engines.
+Phase 1's analysis provider continues to return diagnostics keyed by native cell IDs. Phase 2 consumes the same detection result in the shared layout planner: eligible regions become outer solver vertices, while member cells and probable titles are excluded from the outer solver and receive the region's final translation. XML is still changed only by the existing revision-bound native layout transaction.
 
 ## 5. Layout behavior planned after Phase 1
 
-The initial safe default for a confirmed region is atomic treatment in the outer layout: the region boundary and its members move by the same delta, while member sizes, styles, local/relative positions and internal connector geometry remain unchanged. The outer engine sees a temporary region proxy, not the region's individual children.
+**Implemented in Phase 2:** eligible regions are atomic nodes in the outer layout. The region boundary and its members (including probable boundary title cells) move by the same delta; member sizes, styles, parent IDs and relative positions stay unchanged. The outer engine sees a temporary region proxy, not each individual member.
 
-Edges crossing the region boundary need a separate routing step. Temporary layout terminals may target the region proxy, but native source/target IDs must remain pointed at the original cells. A node touching multiple regions (such as a boundary firewall) must remain an explicit bridge or a fixed boundary node; it must not be forced into a single region.
+**Implemented in Phase 2:** cross-boundary edges use temporary region proxy terminals for outer routing. Their native source/target IDs still point to original cells, and boundary waypoints are added at the translated region boundary. Direct internal edges are removed from the outer solver; explicit internal waypoints are translated by the region delta, while waypoint-free internal edges retain native endpoints and let Draw.io recalculate their rendered route. A node touching a region boundary (such as a firewall) remains a standalone bridge node.
 
 A future explicit “layout inside this region” action may rearrange internal nodes while keeping the region's boundary fixed. That is distinct from global layout and must not run implicitly.
 
-Not every region should be freely moved: preserve the existing relative placement of IT and OT regions and boundary infrastructure unless the user explicitly asks to reorganize them. If constraints cannot be honored safely, leave the affected objects untouched and report reduced coverage.
+Phase 2 makes each region internally atomic, but the selected outer layout engine still decides how separate region proxies are arranged relative to one another. It does not yet guarantee that an existing IT-above-OT order, inter-region spacing, or boundary-node placement is preserved. This is an explicit limitation, not a hidden guarantee; adding user-confirmed spatial-order constraints belongs to the next constraint-aware phase. Ambiguous membership remains excluded from automatic grouping.
 
 ## 6. Implementation phases
 
@@ -84,25 +84,38 @@ Not every region should be freely moved: preserve the existing relative placemen
 - Surface a diagnostic summary during auto-layout without changing the layout plan or native XML.
 - Add unit coverage for explicit containers, ordinary large nodes, region membership, text labels, boundary nodes, overlapping areas, page scoping, invalid requests and stale revisions.
 
-### Phase 2 — atomic region projection
+### Phase 2 — atomic region projection (implemented)
 
-- Extend the shared transient layout projection so every engine sees the same region proxy and constraints.
-- Keep geometry of region contents untouched when the outer region moves.
-- Preserve native terminal IDs and add boundary waypoints for cross-region edges.
-- Maintain revision/page checks, coverage accounting, rollback and native Draw.io serialization.
+- Every layout engine receives the same transient region proxy projection; members and probable region titles are not laid out separately.
+- Applying a plan moves the border and member vertices by the same delta, retaining size, style, parent IDs and intra-region relative geometry.
+- Cross-region edges route through the region boundary while original native source/target IDs are preserved. Internal edges do not enter the outer solver; existing explicit waypoints move with their region.
+- Coverage reports regions applied/skipped, member count, boundary nodes and internal connectors.
+- Existing revision/page checks, native Draw.io transaction, XML serialization, persistence and version-history contract remain in force.
 
 ### Phase 3 — explicit interaction and nested layout
 
 - Allow users to confirm, reject or manually mark inferred regions.
 - Offer separate global-layout and region-internal-layout operations.
 - Persist explicit user choices only through a documented native Draw.io-safe mechanism; never make the inferred analysis a second source of truth.
+- Add optional user-confirmed constraints to preserve relative positions/order between regions and key boundary nodes; Phase 2 does not promise this cross-region spatial relation.
 - Evaluate all supported layout engines against the same fixtures and compare containment preservation, edge crossings, boundary-edge correctness, overlap, displacement and readability.
 
 ## 7. Phase 1 acceptance criteria
 
 - Only the requested page is analyzed; malformed XML, missing pages and stale requests fail closed.
-- A plausible large background rectangle with several enclosed nodes is reported by the read-only analyzer; Phase 1 does not yet exclude it from the existing layout projection or change any XML.
+- A plausible large background rectangle with several enclosed nodes is detected, excluded from independent outer-node layout, and translated atomically with its members by the Phase 2 planner.
 - A large normal node connected by edges, a rectangle with too few enclosed nodes and non-rectangular device shapes are not treated as regions.
 - Border-crossing nodes and ambiguous overlaps are reported without a forced single-region assignment.
 - The provider follows `NativeDiagramAnalysisProvider`: findings only, no operations or replacement XML.
 - Existing native layout coordinates/routes and Draw.io apply/save/undo contracts are unchanged.
+
+
+## 8. Phase 2 acceptance criteria
+
+- For an eligible region, the boundary, enclosed top-level member cells and probable title cells receive exactly the same x/y delta. Width, height, style, labels, native parents and source XML during planning remain unchanged.
+- Outer layout engines receive the region cell as one proxy and do not receive member cells as independent vertices or internal edges as outer edges.
+- Edges crossing a region retain their original native source/target IDs and get boundary waypoints based on final region/member coordinates.
+- Internal region edges are excluded from the outer solver. Existing explicit edge waypoints move by the same region delta; waypoint-free edges rely on native Draw.io rerouting.
+- Nested, overlapping, shared-membership and low-confidence candidates are reported as skipped rather than automatically merged.
+- The generated plan still uses the shared native XML revision/page/cell-set checks, one native Draw.io model transaction, rollback, serialization acknowledgement and version persistence.
+- Unit tests include a controlled geometry fixture and the upstream Industrial IoT example. E2E verifies a real Draw.io transaction moves region and members together and preserves internal waypoints.
