@@ -483,7 +483,7 @@ describe("native Draw.io palette bridge stencil safety", () => {
     harness.service.geometry = mockGeometry(0, 0, 400, 300);
     const originalStyle = "shape=stencil(" + encodeStencil(beforeStencil) + ");";
     harness.service.style = originalStyle;
-    const nextStyle = "shape=stencil(" + encodeStencil(afterStencil) + ");fillColor=#D9EDF6;strokeColor=#1F617A;fontColor=#153548;studioColorRole=base;";
+    const nextStyle = "shape=stencil(" + encodeStencil(afterStencil) + ");fillColor=#C6E0EB;strokeColor=#1F617A;fontColor=#153548;studioColorRole=base;";
     return {
       theme: "ocean-depths", documentRevision: "a".repeat(64), pageId: null,
       expectedBackground: null, background: "#C5DDE7",
@@ -495,7 +495,7 @@ describe("native Draw.io palette bridge stencil safety", () => {
   it("accepts a neutral grayscale stencil fill recolor while retaining path geometry", () => {
     const harness = createHarness();
     const before = stencilXml("#e6e7e8");
-    const after = stencilXml("#D9EDF6");
+    const after = stencilXml("#C6E0EB");
     const result = harness.runPalette(makePlan(harness, before, after));
     expect(result).toMatchObject({ event: "studioNativePaletteResult", success: true, changedCells: 1 });
     expect(harness.service.style).toContain("studioColorRole=base");
@@ -504,7 +504,7 @@ describe("native Draw.io palette bridge stencil safety", () => {
   it("rejects theme recoloring for a small stencil even when its XML contains only neutral colors", () => {
     const harness = createHarness();
     const before = stencilXml("#e6e7e8");
-    const after = stencilXml("#D9EDF6");
+    const after = stencilXml("#C6E0EB");
     const plan = makePlan(harness, before, after);
     harness.service.geometry = mockGeometry(0, 0, 100, 100);
     const originalStyle = harness.service.style;
@@ -516,7 +516,7 @@ describe("native Draw.io palette bridge stencil safety", () => {
   it("rejects stencil mutations that touch a chromatic brand asset", () => {
     const harness = createHarness();
     const before = stencilXml("#e6e7e8", '<strokecolor color="#4286c5"/>');
-    const after = stencilXml("#D9EDF6", '<strokecolor color="#4286c5"/>');
+    const after = stencilXml("#C6E0EB", '<strokecolor color="#4286c5"/>');
     const result = harness.runPalette(makePlan(harness, before, after));
     expect(result).toMatchObject({ event: "studioNativePaletteResult", success: false, rollbackConfirmed: true });
     expect(harness.service.style).toBe("shape=stencil(" + encodeStencil(before) + ");");
