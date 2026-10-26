@@ -671,7 +671,7 @@
       }
       if (/\b(?:setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback|queueMicrotask|fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|BroadcastChannel|importScripts|addEventListener|attachEvent)\b/.test(executable) ||
           /\.(?:\s*)(?:then|catch|finally|addListener|addEventListener)\s*\(/.test(executable) ||
-          /\b(?:parent|top|globalThis)\b/.test(executable)) {
+          /\bglobalThis\b|\b(?:window|self)\s*\.\s*(?:parent|top)\b/.test(executable)) {
         throw new Error("Native Draw.io scripts cannot schedule asynchronous work, register deferred callbacks, or access parent/global execution contexts");
       }
     }
