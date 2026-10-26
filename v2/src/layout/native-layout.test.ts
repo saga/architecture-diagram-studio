@@ -41,7 +41,8 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.layoutLayerId).toBe("VR5IMITfkwXBvMDUpB2b-1");
     expect(plan.layoutLayerFallback).toBe(false);
     expect(plan.positions).toHaveLength(26);
-    expect(plan.edgeRoutes).toHaveLength(13);
+    // Includes cross-boundary connectors attached to nested BPMN choreography cells.
+    expect(plan.edgeRoutes).toHaveLength(24);
   });
 
   it("reports nodes and edges outside the selected layout scope instead of claiming full-page coverage", async () => {
