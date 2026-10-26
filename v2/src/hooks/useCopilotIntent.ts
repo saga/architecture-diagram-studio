@@ -16,6 +16,22 @@ import { calculateNativeAutoLayout } from "../layout/native-layout";
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string; script?: string } };
 type Workspace = { id: string } | null;
 
+function describeNativeExecutionState(execution: NativeEditExecution): string {
+  if (execution.applicationState === "changed-unverified") {
+    return "（文档已发生变化但未通过验证；先检查当前图，不要重试或直接恢复旧版本）";
+  }
+  if (execution.applicationState === "not-applied") {
+    return "（未检测到文档变化）";
+  }
+  if (execution.applicationState === "applied-and-verified") {
+    return "（图形修改已通过验证；请确认保存状态）";
+  }
+  if (execution.rolledBack) {
+    return "（编辑器已确认回滚）";
+  }
+  return "（回滚状态未确认；先检查当前图和 History，不要盲目重试）";
+}
+
 interface CopilotIntentOptions {
   projectWorkspace: Workspace;
   standaloneMode: boolean;
@@ -340,10 +356,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                     role: "assistant",
                     id: Date.now() + 1,
                     text: repairedExecution.failureStage === "persistence"
-                      ? "自动修正已在编辑器执行，但保存未获确认：" + repairReason + "。请从 History 检查或恢复版本。"
-                      : "自动修正未成功：" + repairReason + (repairedExecution.rolledBack
-                        ? "（编辑器已确认回滚）"
-                        : "（回滚状态未知，请从 History 检查或恢复版本）")
+                      ? "自动修正已在编辑器执行，但保存未获确认：" + repairReason + "。请检查当前图和实际文件；不要盲目重试或直接恢复版本。"
+                      : "自动修正未成功：" + repairReason + describeNativeExecutionState(repairedExecution)
                   }]);
                 }
                 return;
@@ -361,7 +375,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 role: "assistant",
                 id: Date.now() + 1,
                 text: "自动修正没有返回可执行的脚本命令；未进行第二次执行。原编辑失败：" + reason +
-                  (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知，请从 History 检查或恢复版本）")
+                  describeNativeExecutionState(execution)
               }]);
               return;
             } catch (repairError) {
@@ -375,7 +389,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 role: "assistant",
                 id: Date.now() + 1,
                 text: "自动修正尝试失败，未执行第二次脚本：" + repairMessage +
-                  "\n\n原编辑失败：" + reason + (execution.rolledBack ? "（已确认回滚）" : "（回滚状态未知）")
+                  "\n\n原编辑失败：" + reason + describeNativeExecutionState(execution)
               }]);
               return;
             }
