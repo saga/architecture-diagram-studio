@@ -35,6 +35,9 @@ describe("native edit XML confirmation", () => {
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: labelEdited, cellId: "api", pageId: "", path: "label", value: "New API"
     })).toBe(false);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: labelEdited, cellId: "__active_page__", pageId: "", path: "cell:execute-script", value: "return true;"
+    })).toBe(false);
   });
 
   it("confirms a mixed selection and document batch without expecting selection in XML", () => {
