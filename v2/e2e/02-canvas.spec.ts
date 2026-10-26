@@ -622,6 +622,10 @@ test.describe("原生画布", () => {
         return {
           ok: stylesVerified,
           postconditions: { edgesFound: edges.length > 0, stylesVerified: stylesVerified },
+          xmlAssertions: edges.map((edge) => ({
+            cellId: edge.id, exists: true, kind: "edge",
+            style: { edgeStyle: "orthogonalEdgeStyle", curved: "1" }
+          })),
           affectedEdges: edges.length, stylesVerified, renderedEdges
         };
       `;
