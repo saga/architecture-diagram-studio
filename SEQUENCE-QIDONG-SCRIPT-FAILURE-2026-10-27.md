@@ -222,3 +222,24 @@ cd /Users/saga/code-repos/architecture-diagram-studio/v2
 
 1. **不要重试，也不要从 History 恢复。** 图已经是正确状态（15 cells，一条「启动」）。
 2. 如果确实要再跑一次脚本，先把 `22/20/21` 删掉或改用新的 id，否则会出现重复 id。
+
+---
+
+## 9. 后续实现记录（2026-10-27）
+
+本报告中的根因已落实为代码与契约调整；新增决策记录为 [ADR-0020: Native Script Assertion Contracts and Accurate Edit Outcomes](./docs/adr/0020-native-script-assertion-contract-and-outcome-reporting.md)。
+
+### 已实施的代码调整
+
+1. **断言验证从单一布尔值扩展为结构化诊断。** 新增 `validateNativeScriptResultAgainstXml()`，保留 `nativeScriptResultMatchesXml()` 作为兼容的布尔包装。失败记录包括断言序号、cell ID、字段、原因、预期值和实际值（可取得时）。
+2. **验证器严格检查断言形状。** 拒绝把完整 style 字符串当作 `style` 断言，拒绝空 `style: {}` 和 `geometry: {}`，检查未知字段和错误类型，并对页面范围和 cell ID 歧义作显式判断。
+3. **编辑器诊断包含具名失败项。** `DrawioFrame` 的 `drawio.script.postcondition.xml-mismatch` 事件现在记录验证失败详情，不再只有 `serializedAssertionsPassed: false`。
+4. **修正模型可见的 API 契约。** 常驻指令、脚本工具描述和 `docs/DRAWIO-AGENT-API-CONTRACT.md` 明确规定 `getTerminal(true/false)`、递归计数要求，以及 style/geometry 断言的对象格式。
+5. **修正自动修复失败的用户反馈。** `changed-unverified` 明确显示“文档已发生变化但未通过验证”，不会将它直接描述为“回滚状态未知”，也不再建议用户不加检查地恢复旧版本。
+6. **增加回归测试。** 覆盖 style 字符串、空 style/geometry 断言、字段级起终点不匹配诊断，以及常驻指令中的 API 规则。
+
+### 验证状态与剩余工作
+
+本次通过仓库文件接口完成源码和文档提交，但当前执行环境没有可运行的本地仓库副本，因此**尚未实际运行 Vitest、TypeScript build 或 Playwright**。以上测试目前是新增的回归用例，不应误报为已通过。接下来仍需在项目运行环境执行 `npm test` / 对应 Vitest 测试与 `npm run build`，确认类型推断、断言诊断和脚本回执链路完整。
+
+重要操作约束未改变：如果序列化结果为 `changed-unverified`，先检查当前画布、实际文件和 History，再决定如何修正；不要盲目重放插入操作。
