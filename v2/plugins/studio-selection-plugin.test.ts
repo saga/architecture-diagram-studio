@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";\nimport { deflateRawSync, inflateRawSync, strFromU8, strToU8 } from "fflate";
+import { readFileSync } from "node:fs";
+import { deflateRawSync, inflateRawSync, strFromU8, strToU8 } from "fflate";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
