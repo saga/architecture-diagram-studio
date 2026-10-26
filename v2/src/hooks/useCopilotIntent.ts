@@ -380,20 +380,30 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               return;
             }
           }
-          recordDiagnostic("copilot.native-edits.failed", "The native editor rejected an atomic Copilot edit batch", {
+          recordDiagnostic("copilot.native-edits.failed", "The native edit did not reach a verified successful outcome", {
             operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
-            rolledBack: execution.rolledBack, scriptResult: execution.scriptResult ?? null,
+            rolledBack: execution.rolledBack, applicationState: execution.applicationState ?? null,
+            scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           }, "error");
+          const failureMessage = execution.failureStage === "persistence"
+            ? "The native editor applied and serialized the change, but the workspace save was not confirmed: " + reason + ". Reload the authoritative workspace before continuing."
+            : execution.applicationState === "changed-unverified"
+              ? "The diagram has changed and may already be saved, but the requested edit was not verified: " + reason +
+                "\n\nDo not retry this edit yet; inspect the current diagram and History first to avoid duplicating a message or other element."
+              : execution.applicationState === "unknown"
+                ? "The native edit outcome is unknown: " + reason +
+                  "\n\nDo not retry this edit yet; inspect the current diagram and History first."
+                : execution.applicationState === "not-applied"
+                  ? "No document change was detected for this edit: " + reason +
+                    (execution.rolledBack ? " The batch was rolled back." : " Inspect the current diagram before retrying.")
+                  : execution.rolledBack
+                    ? "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). The batch was rolled back."
+                    : "The native edit failed (" + reason + "), and rollback was not confirmed. The current diagram may contain partial changes; inspect it and History before retrying.";
           setMessages((items) => [...items, {
             role: "assistant",
             id: Date.now() + 1,
-            text: execution.failureStage === "persistence"
-              ? "The native editor applied and serialized the change, but the workspace save was not confirmed: " + reason + ". Reload the authoritative workspace before continuing."
-              : "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). " +
-                (execution.rolledBack
-                  ? "The batch was rolled back."
-                  : "The native editor did not confirm a rollback; reload the diagram before continuing.")
+            text: failureMessage
           }]);
         }
         return;
