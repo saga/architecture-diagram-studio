@@ -15,6 +15,7 @@ import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
 import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES } from "./layout/native-layout";
+import { spatialRegionAnalysisProvider } from "./layout/spatial-region-analysis";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
@@ -1280,6 +1281,29 @@ export default function App() {
       const sourceXml = source.drawioXml;
       const pageId = source.selectedNativePageId;
       const documentRevision = await calculateDrawioXmlRevision(sourceXml);
+      const regionAnalysisResponse = await spatialRegionAnalysisProvider.analyze({
+        documentXml: sourceXml,
+        documentRevision,
+        pageId,
+        selectedCellId: null,
+        cells: []
+      }, { documentRevision, pageId });
+      const regionFindings = regionAnalysisResponse.status === "analyzed"
+        ? regionAnalysisResponse.result.findings
+        : [];
+      const regionCandidates = regionFindings.filter((finding) => finding.ruleId === "spatial-region.candidate");
+      const regionLabels = Array.from(new Set(regionCandidates.map((finding) =>
+        typeof finding.details?.label === "string" ? finding.details.label : ""
+      ).filter((label) => label.length > 0 && label !== "Unlabelled region")));
+      const ambiguousRegionCount = regionFindings.filter((finding) =>
+        finding.ruleId === "spatial-region.overlap-ambiguous" || finding.ruleId === "spatial-region.membership-ambiguous"
+      ).length;
+      const regionNotice = regionCandidates.length
+        ? " Read-only region analysis detected " + regionCandidates.length + " ungrouped region candidate(s)" +
+          (regionLabels.length ? " (" + regionLabels.join(", ") + ")" : "") +
+          (ambiguousRegionCount ? "; " + ambiguousRegionCount + " overlap/membership ambiguity finding(s)" : "") +
+          ". Phase 1 only reports these boundaries; this auto-layout does not yet keep each region and its contents together."
+        : "";
       const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options);
       const latestState = latestDiagramStateRef.current;
       if (latestState.drawioXml !== sourceXml || latestState.selectedNativePageId !== pageId) {
@@ -1313,7 +1337,7 @@ export default function App() {
         "Layout scope: rearrange " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount + " nodes and " +
         coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors; leave " +
         coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
-        " connectors untouched." + groupHandlingNotice + exclusionNotice;
+        " connectors untouched." + groupHandlingNotice + exclusionNotice + regionNotice;
       setLayoutCoverageNotice(coverageMessage);
       setLastAction(coverageMessage);
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
@@ -1322,7 +1346,8 @@ export default function App() {
         coverage, engine: options.engine, algorithm: options.algorithm, direction: options.direction,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
-        vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length
+        vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length,
+        spatialRegionCandidateCount: regionCandidates.length, spatialRegionAmbiguityCount: ambiguousRegionCount
       });
       const serializedXml = await frame.applyAutoLayout(nativePlan);
       if (!isDrawioXmlDocument(serializedXml)) throw new Error("Draw.io did not return a valid serialized XML document.");
@@ -1333,8 +1358,8 @@ export default function App() {
         " nodes and " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount +
         " connectors; " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount +
         " connectors remain untouched" + layerNotice + ". Workspace save acknowledgement is tracked in the save status.";
-      setLastAction(appliedScope);
-      setLayoutCoverageNotice(appliedScope + groupHandlingNotice + exclusionNotice);
+      setLastAction(appliedScope + regionNotice);
+      setLayoutCoverageNotice(appliedScope + groupHandlingNotice + exclusionNotice + regionNotice);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
