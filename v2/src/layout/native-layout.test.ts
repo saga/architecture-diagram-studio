@@ -162,6 +162,77 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.coverage.spatialRegionBoundaryVertexCount).toBeGreaterThan(0);
   });
 
+  it.each([
+    ["dagre", "layered"],
+    ["elk", "layered"],
+    ["graphviz", "dot"],
+    ["msagl", "layered"],
+    ["cytoscape", "breadthfirst"],
+    ["d3", "tree"]
+  ] as const)(
+    "shares atomic spatial-region projection across all supported layout engines (%s / %s)",
+    async (engine, algorithm) => {
+      const regionXml = \`<mxfile host="test"><diagram id="engine-matrix" name="Engine matrix"><mxGraphModel><root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="region" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+          <mxGeometry x="100" y="100" width="500" height="400" as="geometry"/>
+        </mxCell>
+        <mxCell id="region-title" value="IT Network" vertex="1" parent="1" style="shape=text;html=1;align=left;strokeColor=none;fillColor=none;">
+          <mxGeometry x="120" y="102" width="130" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="switch" value="Switch" vertex="1" parent="1"><mxGeometry x="150" y="160" width="80" height="40" as="geometry"/></mxCell>
+        <mxCell id="server" value="Server" vertex="1" parent="1"><mxGeometry x="270" y="180" width="80" height="40" as="geometry"/></mxCell>
+        <mxCell id="plc" value="PLC" vertex="1" parent="1"><mxGeometry x="390" y="280" width="80" height="40" as="geometry"/></mxCell>
+        <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="760" y="180" width="100" height="50" as="geometry"/></mxCell>
+        <mxCell id="internal-edge" edge="1" parent="1" source="switch" target="server">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="245" y="170"/><mxPoint x="245" y="200"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="cross-edge" edge="1" parent="1" source="plc" target="outside">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root></mxGraphModel></diagram></mxfile>\`;
+      const plan = await calculateNativeAutoLayout(regionXml, "engine-matrix", revision, {
+        ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine, algorithm, direction: "RIGHT"
+      });
+      const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+      const region = positions.get("region");
+      expect(region).toBeDefined();
+      expect(plan.coverage.spatialRegionCount).toBe(1);
+      expect(plan.coverage.spatialRegionMemberCount).toBe(4);
+      expect(positions.size).toBe(6);
+
+      const originalPositions = new Map([
+        ["region-title", { x: 120, y: 102 }],
+        ["switch", { x: 150, y: 160 }],
+        ["server", { x: 270, y: 180 }],
+        ["plc", { x: 390, y: 280 }]
+      ]);
+      const delta = { x: region!.x - 100, y: region!.y - 100 };
+      for (const id of ["region-title", "switch", "server", "plc"]) {
+        const position = positions.get(id);
+        expect(position).toBeDefined();
+        expect(position!.x).toBeCloseTo(originalPositions.get(id)!.x + delta.x, 4);
+        expect(position!.y).toBeCloseTo(originalPositions.get(id)!.y + delta.y, 4);
+      }
+
+      const internalRoute = plan.edgeRoutes.find((route) => route.cellId === "internal-edge");
+      expect(internalRoute?.points).toEqual([
+        { x: 245 + delta.x, y: 170 + delta.y },
+        { x: 245 + delta.x, y: 200 + delta.y }
+      ]);
+      const crossRoute = plan.edgeRoutes.find((route) => route.cellId === "cross-edge");
+      expect(crossRoute).toBeDefined();
+      expect(crossRoute!.points.some((point) =>
+        Math.abs(point.x - region!.x) < 0.02 ||
+        Math.abs(point.x - (region!.x + 500)) < 0.02 ||
+        Math.abs(point.y - region!.y) < 0.02 ||
+        Math.abs(point.y - (region!.y + 400)) < 0.02
+      )).toBe(true);
+      expect(plan.expectedCells.find((cell) => cell.cellId === "cross-edge"))
+        .toMatchObject({ sourceId: "plc", targetId: "outside", parentId: "1" });
+    }
+  );
+
   it("lays out the BPMN choreography example when root and layer IDs are generated", async () => {
     const plan = await calculateNativeAutoLayout(
       bpmnChoreographyXml,
