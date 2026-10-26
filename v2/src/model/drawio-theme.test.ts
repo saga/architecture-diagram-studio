@@ -368,19 +368,15 @@ describe("neutral native stencil theme coverage", () => {
       stencilCellXml("brand", sourceStencil) + '</root></mxGraphModel>';
     const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
     const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "brand");
-    const payload = cell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
-    expect(payload).toBeTruthy();
-    expect(decompressStencil(payload!)).toBe(sourceStencil);
+    expect(cell?.getAttribute("style")).toBe("shape=stencil(" + compressStencil(sourceStencil) + ");");
   });
 
-  it("does not modify small neutral stencils", () => {
+  it("does not modify small neutral stencils or their outer styles", () => {
     const sourceStencil = stencilXml("#e6e7e8");
     const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
       stencilCellXml("small", sourceStencil, 'x="0" y="0" width="100" height="100"') + '</root></mxGraphModel>';
     const themed = parseDrawioXml(applyDrawioDiagramTheme(source, "ocean-depths"));
     const cell = findDrawioElements(themed, "mxCell").find((item) => item.getAttribute("id") === "small");
-    const payload = cell?.getAttribute("style")?.match(/shape=stencil\(([^)]+)\)/)?.[1];
-    expect(payload).toBeTruthy();
-    expect(decompressStencil(payload!)).toBe(sourceStencil);
+    expect(cell?.getAttribute("style")).toBe("shape=stencil(" + compressStencil(sourceStencil) + ");");
   });
 });
