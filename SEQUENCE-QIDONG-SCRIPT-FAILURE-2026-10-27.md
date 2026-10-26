@@ -231,12 +231,12 @@ cd /Users/saga/code-repos/architecture-diagram-studio/v2
 
 ### 已实施的代码调整
 
-1. **断言验证从单一布尔值扩展为结构化诊断。** 新增 `validateNativeScriptResultAgainstXml()`，保留 `nativeScriptResultMatchesXml()` 作为兼容的布尔包装。失败记录包括断言序号、cell ID、字段、原因、预期值和实际值（可取得时）。
+1. **断言验证从单一布尔值扩展为结构化诊断。** 新增 `validateNativeScriptResultAgainstXml()`，保留 `nativeScriptResultMatchesXml()` 作为兼容的布尔包装。失败明确区分 `invalid-result`、`invalid-assertion`、`invalid-document` 和 `mismatch`，并记录断言序号、cell ID、字段、原因、预期值和实际值（可取得时）。
 2. **验证器严格检查断言形状。** 拒绝把完整 style 字符串当作 `style` 断言，拒绝空 `style: {}` 和 `geometry: {}`，检查未知字段和错误类型，并对页面范围和 cell ID 歧义作显式判断。
 3. **编辑器诊断包含具名失败项。** `DrawioFrame` 的 `drawio.script.postcondition.xml-mismatch` 事件现在记录验证失败详情，不再只有 `serializedAssertionsPassed: false`。
 4. **修正模型可见的 API 契约。** 常驻指令、脚本工具描述和 `docs/DRAWIO-AGENT-API-CONTRACT.md` 明确规定 `getTerminal(true/false)`、递归计数要求，以及 style/geometry 断言的对象格式。
 5. **修正自动修复失败的用户反馈。** `changed-unverified` 明确显示“文档已发生变化但未通过验证”，不会将它直接描述为“回滚状态未知”，也不再建议用户不加检查地恢复旧版本。
-6. **增加回归测试。** 覆盖 style 字符串、空 style/geometry 断言、字段级起终点不匹配诊断，以及常驻指令中的 API 规则。
+6. **增加回归测试。** 覆盖 style 字符串、空 style/geometry 断言、非对象断言行、缺失页面、字段级起终点不匹配诊断，以及常驻指令中的 API 规则。
 
 ### 验证状态与剩余工作
 
