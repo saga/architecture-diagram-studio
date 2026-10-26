@@ -263,10 +263,10 @@ test.describe("原生画布", () => {
     expect((await inspectCanvas())?.image).not.toBe("none");
 
     await page.locator(".theme-selector .ant-select").click();
-    await page.getByText("Vivid", { exact: true }).click();
+    await page.getByText("Ocean Depths", { exact: true }).click();
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
-      .toContain("fillColor=#FCE7F3");
+      .toContain("fillColor=#E0F2FE");
     await expect.poll(inspectCanvas, { timeout: 20_000 }).toMatchObject({
       color: "rgb(255, 255, 102)",
       themeOverlay: false
@@ -282,7 +282,7 @@ test.describe("原生画布", () => {
     const savedXml = await readWorkspaceXml(workspace);
     expect(savedXml).toContain('background="#FFFF66"');
     expect(savedXml).toContain('grid="1"');
-    expect(savedXml).toContain("fillColor=#FCE7F3");
+    expect(savedXml).toContain("fillColor=#E0F2FE");
   });
 
   test("原生 Undo/Redo 工具栏、宿主快捷键和颜色预设共用同一历史栈", async ({ page }) => {
@@ -292,23 +292,23 @@ test.describe("原生画布", () => {
     await expect(redo).toBeDisabled();
 
     await page.locator(".theme-selector .ant-select").click();
-    await page.getByText("Vivid", { exact: true }).click();
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(true);
+    await page.getByText("Ocean Depths", { exact: true }).click();
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(true);
     await expect(undo).toBeEnabled();
 
     // The palette transaction is one native model edit: one Undo restores the prior styles.
     await undo.click();
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(false);
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(false);
     await expect(redo).toBeEnabled();
     await expect(undo).toBeDisabled();
 
     // Host-level shortcuts still reach Draw.io after focus moved to Studio controls.
     await page.keyboard.press("Control+Shift+Z");
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(true);
-    await expect(page.locator(".theme-selector")).toContainText("Vivid");
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(true);
+    await expect(page.locator(".theme-selector")).toContainText("Ocean Depths");
     await expect(undo).toBeEnabled();
     await page.keyboard.press("Control+Z");
-    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#FCE7F3"), { timeout: 20_000 }).toBe(false);
+    await expect.poll(async () => (await readWorkspaceXml(workspace)).includes("fillColor=#E0F2FE"), { timeout: 20_000 }).toBe(false);
     await expect(redo).toBeEnabled();
     await expect(page.locator(".theme-selector")).toContainText("Diagram colors (this page)");
   });
