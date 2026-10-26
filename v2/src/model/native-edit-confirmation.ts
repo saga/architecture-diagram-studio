@@ -435,18 +435,68 @@ export interface NativeScriptXmlCellAssertion {
  * Boolean postconditions express what the script checked in the live editor; xmlAssertions
  * carry the concrete cell facts the host can verify after serialization.
  */
-export function nativeScriptResultMatchesXml(
+export interface NativeScriptXmlAssertionFailure {
+  index: number | null;
+  cellId?: string;
+  field: string;
+  reason: string;
+  expected?: unknown;
+  actual?: unknown;
+}
+
+export interface NativeScriptXmlValidationResult {
+  ok: boolean;
+  failures: NativeScriptXmlAssertionFailure[];
+}
+
+function nativeAssertionStyleValue(style: string, key: string): Array<string | null> | null {
+  const matches = style.split(";").map((part) => {
+    const index = part.indexOf("=");
+    return index < 0
+      ? { key: part.trim(), value: null as string | null }
+      : { key: part.slice(0, index).trim(), value: part.slice(index + 1).trim() };
+  }).filter((entry) => entry.key === key);
+  return matches.length ? matches.map((entry) => entry.value) : null;
+}
+
+/**
+ * Validates both the shape of model-declared assertions and their values in serialized XML.
+ * Diagnostics distinguish an invalid assertion contract from a genuine document mismatch.
+ */
+export function validateNativeScriptResultAgainstXml(
   scriptResult: unknown,
   xml: string,
   pageId: string | null
-): boolean {
+): NativeScriptXmlValidationResult {
+  const failures: NativeScriptXmlAssertionFailure[] = [];
+  const maxFailures = 100;
+  const fail = (failure: NativeScriptXmlAssertionFailure) => {
+    if (failures.length < maxFailures) failures.push(failure);
+  };
+  const finish = (): NativeScriptXmlValidationResult => ({ ok: failures.length === 0, failures });
+
   try {
-    if (!scriptResult || typeof scriptResult !== "object" || Array.isArray(scriptResult)) return false;
+    if (!scriptResult || typeof scriptResult !== "object" || Array.isArray(scriptResult)) {
+      fail({ index: null, field: "scriptResult", reason: "Script result must be a JSON object.", actual: scriptResult });
+      return finish();
+    }
     const outer = scriptResult as Record<string, unknown>;
-    if (outer.available !== true || !outer.value || typeof outer.value !== "object" || Array.isArray(outer.value)) return false;
+    if (outer.available !== true || !outer.value || typeof outer.value !== "object" || Array.isArray(outer.value)) {
+      fail({ index: null, field: "scriptResult.value", reason: "Script result does not contain an available JSON value.", actual: outer.available });
+      return finish();
+    }
     const value = outer.value as Record<string, unknown>;
-    if (value.ok !== true || !Array.isArray(value.xmlAssertions) || value.xmlAssertions.length === 0) return false;
+    if (value.ok !== true) {
+      fail({ index: null, field: "ok", reason: "Script result must declare ok: true.", expected: true, actual: value.ok });
+    }
+    if (!Array.isArray(value.xmlAssertions) || value.xmlAssertions.length === 0) {
+      fail({ index: null, field: "xmlAssertions", reason: "At least one native-cell assertion is required.", expected: "non-empty array", actual: value.xmlAssertions });
+      return finish();
+    }
+
     const models = cellsForXml(xml);
+    const allowedFields = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
+    const geometryFields = new Set(["x", "y", "width", "height", "relative"]);
 
     const attributeMatches = (cell: Element, key: "parent" | "source" | "target", expected: unknown): boolean => {
       if (expected !== null && typeof expected !== "string") return false;
@@ -456,81 +506,188 @@ export function nativeScriptResultMatchesXml(
     };
     const styleMatches = (style: string, key: string, expected: unknown): boolean => {
       if (expected !== null && typeof expected !== "string") return false;
-      const entries = style.split(";").map((part) => {
-        const index = part.indexOf("=");
-        return index < 0
-          ? { key: part.trim(), value: null as string | null }
-          : { key: part.slice(0, index).trim(), value: part.slice(index + 1).trim() };
-      }).filter((entry) => entry.key === key);
-      return expected === null
-        ? entries.length === 0
-        : entries.some((entry) => entry.value === expected);
+      const actual = nativeAssertionStyleValue(style, key);
+      return expected === null ? actual === null : Boolean(actual?.some((entry) => entry === expected));
     };
 
-    for (const raw of value.xmlAssertions) {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
-      const assertion = raw as Record<string, unknown>;
-      if (typeof assertion.cellId !== "string" || !assertion.cellId.trim()) return false;
-      const cellId = assertion.cellId.trim();
-      const expectedExists = assertion.exists === undefined ? true : assertion.exists;
-      if (typeof expectedExists !== "boolean") return false;
-      const record = findCell(models, cellId, pageId);
-      if (!expectedExists) {
-        if (record) return false;
-        continue;
+    value.xmlAssertions.forEach((raw, assertionIndex) => {
+      const invalid = (field: string, reason: string, expected?: unknown, actual?: unknown) => {
+        fail({ index: assertionIndex, field, reason, ...(expected !== undefined ? { expected } : {}), ...(actual !== undefined ? { actual } : {}) });
+      };
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        invalid("assertion", "Each assertion must be a JSON object.", "object", raw);
+        return;
       }
-      if (!record) return false;
 
-      if (assertion.kind !== undefined) {
-        if (assertion.kind !== "vertex" && assertion.kind !== "edge") return false;
-        if (record.cell.getAttribute(assertion.kind) !== "1") return false;
+      const assertion = raw as Record<string, unknown>;
+      const cellId = typeof assertion.cellId === "string" ? assertion.cellId.trim() : "";
+      let shapeInvalid = false;
+      for (const key of Object.keys(assertion)) {
+        if (!allowedFields.has(key)) {
+          invalid(key, "Unknown assertion field.", [...allowedFields], key);
+          shapeInvalid = true;
+        }
+      }
+      if (!cellId) {
+        invalid("cellId", "A non-empty cellId is required.", "non-empty string", assertion.cellId);
+        shapeInvalid = true;
+      }
+      if (assertion.exists !== undefined && typeof assertion.exists !== "boolean") {
+        invalid("exists", "exists must be a boolean.", "boolean", assertion.exists);
+        shapeInvalid = true;
+      }
+      if (assertion.kind !== undefined && assertion.kind !== "vertex" && assertion.kind !== "edge") {
+        invalid("kind", "kind must be vertex or edge.", ["vertex", "edge"], assertion.kind);
+        shapeInvalid = true;
+      }
+      if (assertion.label !== undefined && typeof assertion.label !== "string") {
+        invalid("label", "label must be a string; an empty string is valid.", "string", assertion.label);
+        shapeInvalid = true;
+      }
+      for (const key of ["parentId", "sourceId", "targetId"] as const) {
+        if (assertion[key] !== undefined && assertion[key] !== null && typeof assertion[key] !== "string") {
+          invalid(key, key + " must be a string or null.", ["string", "null"], assertion[key]);
+          shapeInvalid = true;
+        }
+      }
+      if (assertion.style !== undefined) {
+        if (!assertion.style || typeof assertion.style !== "object" || Array.isArray(assertion.style)) {
+          invalid("style", "style must be a non-empty object mapping style keys to expected values, not a full style string.", "Record<string, string | null>", typeof assertion.style);
+          shapeInvalid = true;
+        } else {
+          const entries = Object.entries(assertion.style as Record<string, unknown>);
+          if (entries.length === 0) {
+            invalid("style", "An empty style object verifies no style keys; omit style or provide explicit key/value expectations.", "non-empty object", {});
+            shapeInvalid = true;
+          }
+          for (const [key, expected] of entries) {
+            if (!key.trim() || (expected !== null && typeof expected !== "string")) {
+              invalid("style." + key, "Each style entry needs a non-empty key and a string or null expected value.", "string or null", expected);
+              shapeInvalid = true;
+            }
+          }
+        }
+      }
+      if (assertion.geometry !== undefined) {
+        if (!assertion.geometry || typeof assertion.geometry !== "object" || Array.isArray(assertion.geometry)) {
+          invalid("geometry", "geometry must be a non-empty object containing explicit geometry fields.", "object", assertion.geometry);
+          shapeInvalid = true;
+        } else {
+          const entries = Object.entries(assertion.geometry as Record<string, unknown>);
+          if (entries.length === 0) {
+            invalid("geometry", "An empty geometry object verifies no properties; omit geometry or provide explicit expectations.", "non-empty object", {});
+            shapeInvalid = true;
+          }
+          for (const [key, expected] of entries) {
+            if (!geometryFields.has(key)) {
+              invalid("geometry." + key, "Unknown geometry assertion field.", [...geometryFields], key);
+              shapeInvalid = true;
+            } else if (key === "relative") {
+              if (expected !== null && typeof expected !== "boolean") {
+                invalid("geometry.relative", "relative must be a boolean or null.", ["boolean", "null"], expected);
+                shapeInvalid = true;
+              }
+            } else if (expected !== null && (typeof expected !== "number" || !Number.isFinite(expected))) {
+              invalid("geometry." + key, "Coordinate and size expectations must be finite numbers or null.", "finite number or null", expected);
+              shapeInvalid = true;
+            }
+          }
+        }
+      }
+
+      const expectedExists = assertion.exists === undefined ? true : assertion.exists;
+      const evidenceFields = Object.keys(assertion).filter((key) => key !== "cellId" && key !== "exists");
+      if (expectedExists !== false && assertion.exists !== true && evidenceFields.length === 0) {
+        invalid("assertion", "An assertion must verify existence explicitly or include at least one concrete cell property.", "exists: true or concrete property expectations", assertion);
+        shapeInvalid = true;
+      }
+      if (expectedExists === false && evidenceFields.length > 0) {
+        invalid("assertion", "An assertion for a missing cell may contain only cellId and exists: false.", "{ cellId, exists: false }", Object.keys(assertion));
+        shapeInvalid = true;
+      }
+      if (shapeInvalid) return;
+
+      const record = findCell(models, cellId, pageId);
+      if (expectedExists === false) {
+        if (record) invalid("exists", "The cell exists in the serialized XML but was declared absent.", false, true);
+        return;
+      }
+      if (!record) {
+        invalid("cellId", "The cell was not found uniquely on the requested page.", cellId, null);
+        return;
+      }
+
+      if (assertion.kind !== undefined && record.cell.getAttribute(assertion.kind) !== "1") {
+        invalid("kind", "Serialized cell kind did not match.", assertion.kind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell");
       }
       if (assertion.label !== undefined) {
-        if (typeof assertion.label !== "string" || !labelMatches(record, assertion.label)) return false;
+        const actual = findText(record);
+        if (!(actual === assertion.label || normalizeLabel(actual) === normalizeLabel(assertion.label))) {
+          invalid("label", "Serialized label did not match.", assertion.label, actual);
+        }
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
         if (assertion[key] === undefined) continue;
         const attribute = key === "parentId" ? "parent" : key === "sourceId" ? "source" : "target";
-        if (!attributeMatches(record.cell, attribute, assertion[key])) return false;
+        if (!attributeMatches(record.cell, attribute, assertion[key])) {
+          invalid(key, "Serialized cell relationship did not match.", assertion[key], record.cell.hasAttribute(attribute) ? record.cell.getAttribute(attribute) : null);
+        }
       }
       if (assertion.style !== undefined) {
-        if (!assertion.style || typeof assertion.style !== "object" || Array.isArray(assertion.style)) return false;
         const style = record.cell.getAttribute("style") || "";
-        for (const [key, expected] of Object.entries(assertion.style as Record<string, unknown>)) {
-          if (!key || !styleMatches(style, key, expected)) return false;
+        for (const [key, expected] of Object.entries(assertion.style as Record<string, string | null>)) {
+          if (!styleMatches(style, key, expected)) {
+            invalid("style." + key, "Serialized style key did not match.", expected, nativeAssertionStyleValue(style, key));
+          }
         }
       }
       if (assertion.geometry !== undefined) {
-        if (!assertion.geometry || typeof assertion.geometry !== "object" || Array.isArray(assertion.geometry) || !record.geometry) return false;
-        const geometry = assertion.geometry as Record<string, unknown>;
-        for (const key of ["x", "y", "width", "height"] as const) {
-          if (!(key in geometry)) continue;
-          const expected = geometry[key];
-          const actualRaw = record.geometry.getAttribute(key);
-          if (expected === null) {
-            if (actualRaw !== null) return false;
-            continue;
+        if (!record.geometry) {
+          invalid("geometry", "The serialized cell has no geometry element.", assertion.geometry, null);
+        } else {
+          const geometry = assertion.geometry as Record<string, number | boolean | null>;
+          for (const key of ["x", "y", "width", "height"] as const) {
+            if (!(key in geometry)) continue;
+            const expected = geometry[key];
+            const actualRaw = record.geometry.getAttribute(key);
+            const actual = actualRaw === null || !Number.isFinite(Number(actualRaw)) ? null : Number(actualRaw);
+            if (expected === null ? actualRaw !== null : actual === null || Math.abs(actual - (expected as number)) > 0.01) {
+              invalid("geometry." + key, "Serialized geometry value did not match.", expected, actual);
+            }
           }
-          if (typeof expected !== "number" || !Number.isFinite(expected) || actualRaw === null) return false;
-          const actual = Number(actualRaw);
-          if (!Number.isFinite(actual) || Math.abs(actual - expected) > 0.01) return false;
-        }
-        if ("relative" in geometry) {
-          const expected = geometry.relative;
-          const actualRaw = record.geometry.getAttribute("relative");
-          if (expected === null) {
-            if (actualRaw !== null) return false;
-          } else {
-            if (typeof expected !== "boolean") return false;
-            if ((actualRaw === "1") !== expected) return false;
+          if ("relative" in geometry) {
+            const expected = geometry.relative;
+            const actualRaw = record.geometry.getAttribute("relative");
+            if (expected === null ? actualRaw !== null : (actualRaw === "1") !== expected) {
+              invalid("geometry.relative", "Serialized relative flag did not match.", expected, actualRaw === null ? null : actualRaw === "1");
+            }
           }
         }
       }
+    });
+
+    if (value.ok !== true && failures.length === 0) {
+      fail({ index: null, field: "ok", reason: "Script result must declare ok: true.", expected: true, actual: value.ok });
     }
-    return true;
-  } catch {
-    return false;
+    return finish();
+  } catch (error) {
+    fail({
+      index: null,
+      field: "xml",
+      reason: "Unable to validate assertions against serialized Draw.io XML.",
+      actual: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500)
+    });
+    return finish();
   }
+}
+
+/** Backward-compatible boolean API for callers that only need the verification result. */
+export function nativeScriptResultMatchesXml(
+  scriptResult: unknown,
+  xml: string,
+  pageId: string | null
+): boolean {
+  return validateNativeScriptResultAgainstXml(scriptResult, xml, pageId).ok;
 }
 
 
