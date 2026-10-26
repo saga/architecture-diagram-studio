@@ -129,6 +129,34 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
+  it("validates prefixed root and layer IDs without assuming the literal IDs 0 and 1", () => {
+    const prefixedPage = '<diagram id="p2" name="Duplicated page"><mxGraphModel><root>' +
+      '<mxCell id="copy-prefix-0"/><mxCell id="copy-prefix-1" parent="copy-prefix-0"/>' +
+      '<mxCell id="other" value="Before" vertex="1" parent="copy-prefix-1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel></diagram>';
+    const multiPage = before.replace("</mxfile>", prefixedPage + "</mxfile>");
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script",
+      value: 'return { ok: true, postconditions: { changed: true } };'
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: multiPage, xml: multiPage, cellId: "__batch__", pageId: "p2", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+    // An unrelated page's ID convention must not veto an edit scoped to p1.
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: multiPage, xml: multiPage, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: scriptBatch
+    })).toBe(true);
+  });
+
+  it("rejects a missing script target page instead of falling back to unrelated pages", () => {
+    const scriptBatch = JSON.stringify([{
+      cellId: "__active_page__", path: "cell:execute-script", value: "return { ok: true };"
+    }]);
+    expect(nativeEditIsReflectedInXml({
+      beforeXml: before, xml: before, cellId: "__batch__", pageId: "missing-page", path: "cell:batch", value: scriptBatch
+    })).toBe(false);
+  });
+
   it("accepts a bare mxGraphModel when the editor page ID is not present in the source XML", () => {
     const bareBefore = before.replace('<mxfile><diagram id="p1" name="Overview">', '').replace('</diagram></mxfile>', '');
     const bareAfter = bareBefore.replace('value="Old API"', 'value="New API"');
