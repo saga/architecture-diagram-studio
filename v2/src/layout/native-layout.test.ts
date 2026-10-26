@@ -102,6 +102,50 @@ describe("Studio-owned native-cell layout", () => {
     expect(regionXml).toContain('source="switch-a" target="server-b"');
   });
 
+  it("routes a connector between two spatial regions through both native region boundaries", async () => {
+    const twoRegionXml = `<mxfile host="test"><diagram id="two-regions" name="Two Regions"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="region-left" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="region-left-title" value="IT Network" vertex="1" parent="1" style="shape=text;html=1;strokeColor=none;fillColor=none;">
+        <mxGeometry x="20" y="8" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="left-a" value="Switch A" vertex="1" parent="1"><mxGeometry x="40" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="left-b" value="Server B" vertex="1" parent="1"><mxGeometry x="150" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="left-c" value="PLC C" vertex="1" parent="1"><mxGeometry x="260" y="180" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="region-right" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="600" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="region-right-title" value="OT Network" vertex="1" parent="1" style="shape=text;html=1;strokeColor=none;fillColor=none;">
+        <mxGeometry x="620" y="8" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="right-a" value="Switch D" vertex="1" parent="1"><mxGeometry x="650" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="right-b" value="Server E" vertex="1" parent="1"><mxGeometry x="760" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="right-c" value="PLC F" vertex="1" parent="1"><mxGeometry x="870" y="180" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="edge-between-regions" edge="1" parent="1" source="left-c" target="right-c" style="edgeStyle=orthogonalEdgeStyle;">
+        <mxGeometry relative="1" as="geometry"/>
+      </mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(twoRegionXml, "two-regions", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    const left = positions.get("region-left");
+    const right = positions.get("region-right");
+    const route = plan.edgeRoutes.find((item) => item.cellId === "edge-between-regions");
+    expect(left).toBeDefined();
+    expect(right).toBeDefined();
+    expect(plan.coverage.spatialRegionCount).toBe(2);
+    expect(plan.coverage.spatialRegionMemberCount).toBe(8);
+    expect(route?.points.length).toBeGreaterThanOrEqual(2);
+    expect(route?.points[0].x).toBeCloseTo(left!.x + 500, 2);
+    expect(route?.points[route.points.length - 1].x).toBeCloseTo(right!.x, 2);
+    expect(plan.expectedCells.find((cell) => cell.cellId === "edge-between-regions"))
+      .toMatchObject({ sourceId: "left-c", targetId: "right-c", parentId: "1" });
+    expect(twoRegionXml).toContain('source="left-c" target="right-c"');
+  });
+
   it("applies atomic region projection to the real Industrial IoT example", async () => {
     const detection = detectSpatialRegionsForLayout(industrialIotXml, industrialIotPageId);
     expect(detection.eligibleCandidates.length).toBeGreaterThan(0);
