@@ -230,8 +230,21 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
-test("Copilot executes a direct native Draw.io script without a review proposal", async ({ page, request }) => {
+test("Copilot executes a direct native Draw.io script in a multi-page file with prefixed root IDs", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
+  const stateResponse = await request.get("/api/workspace/state");
+  expect(stateResponse.ok()).toBe(true);
+  const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
+  const prefixedPage = '<diagram id="copied-page" name="Duplicated page"><mxGraphModel><root>' +
+    '<mxCell id="copy-prefix-0"/><mxCell id="copy-prefix-1" parent="copy-prefix-0"/>' +
+    '<mxCell id="copy-marker" value="Copied page marker" vertex="1" parent="copy-prefix-1"><mxGeometry x="80" y="80" width="120" height="50" as="geometry"/></mxCell>' +
+    '</root></mxGraphModel></diagram>';
+  const multiPageXml = state.drawioXml.replace("</mxfile>", prefixedPage + "</mxfile>");
+  expect(multiPageXml).not.toBe(state.drawioXml);
+  const fixtureSave = await request.put("/api/workspace/document", {
+    data: { drawioXml: multiPageXml, label: "Multi-page script confirmation fixture", baseRevision: state.workspaceRevision }
+  });
+  expect(fixtureSave.status(), await fixtureSave.text()).toBe(200);
   await openStudio(page);
   await waitForNativeEditor(page);
 
@@ -294,7 +307,8 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
       "var parent = graph.getDefaultParent();",
       "var created = graph.insertVertex(parent, null, '" + scriptMarker + "', 120, 180, 160, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
       "graph.refresh();",
-      "return { cellId: created.id, label: graph.convertValueToString(created) };"
+      "var result = { cellId: created.id, label: graph.convertValueToString(created) };",
+      "return { ok: result.label === '" + scriptMarker + "', postconditions: { createdVertexExists: model.getCell(result.cellId) === created, createdLabelMatches: result.label === '" + scriptMarker + "' }, created: result };"
     ].join("\n");
     await route.fulfill({
       status: 200,
@@ -333,7 +347,14 @@ test("Copilot executes a direct native Draw.io script without a review proposal"
   await expect(resultMessage).toContainText("Add a native Draw.io vertex");
   await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
   await expect(nativeFrame(page).getByText(scriptMarker, { exact: true })).toBeVisible();
-  await expect.poll(async () => (await readWorkspaceXml(workspace)).includes(scriptMarker)).toBe(true);
+  await expect.poll(async () => {
+    const xml = await readWorkspaceXml(workspace);
+    return xml.includes(scriptMarker) &&
+      xml.includes('id="copied-page"') &&
+      xml.includes('id="copy-prefix-0"') &&
+      xml.includes('id="copy-prefix-1"') &&
+      xml.includes('value="Copied page marker"');
+  }).toBe(true);
 });
 test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
