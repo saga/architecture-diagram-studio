@@ -887,7 +887,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const assertionValidation: NativeScriptXmlValidationResult = scriptChecksPassed
                   ? validateNativeScriptResultAgainstXml(scriptResult, data.xml, pending.pageId)
                   : { ok: false, failures: [{
-                    index: null, field: "postconditions",
+                    kind: "invalid-result", index: null, field: "postconditions",
                     reason: "The script did not return passing, verifiable postconditions."
                   }] };
                 const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
