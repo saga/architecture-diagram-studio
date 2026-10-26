@@ -62,7 +62,7 @@ describe("native Draw.io diagram theme presets", () => {
 
     const edge = cellById(themed, "edge");
     expect(edge?.getAttribute("style")).toContain("strokeColor=#0F766E");
-    expect(edge?.getAttribute("style")).toContain("fontColor=#334155");
+    expect(edge?.getAttribute("style")).toContain("fontColor=#17324D");
     expect(edge?.getAttribute("style")).toContain("endArrow=block");
     expect(edge?.getAttribute("style")).toContain("rounded=0");
     expect(themed).toContain('x="40" y="50"');
