@@ -407,6 +407,125 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
 }
 
 
+export interface NativeScriptXmlCellAssertion {
+  cellId: string;
+  exists?: boolean;
+  kind?: "vertex" | "edge";
+  label?: string;
+  parentId?: string | null;
+  sourceId?: string | null;
+  targetId?: string | null;
+  style?: Record<string, string | null>;
+  geometry?: Partial<Record<"x" | "y" | "width" | "height", number | null>> & { relative?: boolean | null };
+}
+
+/**
+ * Independently verifies script-declared native-cell evidence against the serialized XML.
+ * Boolean postconditions express what the script checked in the live editor; xmlAssertions
+ * carry the concrete cell facts the host can verify after serialization.
+ */
+export function nativeScriptResultMatchesXml(
+  scriptResult: unknown,
+  xml: string,
+  pageId: string | null
+): boolean {
+  try {
+    if (!scriptResult || typeof scriptResult !== "object" || Array.isArray(scriptResult)) return false;
+    const outer = scriptResult as Record<string, unknown>;
+    if (outer.available !== true || !outer.value || typeof outer.value !== "object" || Array.isArray(outer.value)) return false;
+    const value = outer.value as Record<string, unknown>;
+    if (value.ok !== true || !Array.isArray(value.xmlAssertions) || value.xmlAssertions.length === 0) return false;
+    const models = cellsForXml(xml);
+    const seen = new Set<string>();
+
+    const attributeMatches = (cell: Element, key: "parent" | "source" | "target", expected: unknown): boolean => {
+      if (expected !== null && typeof expected !== "string") return false;
+      return expected === null
+        ? !cell.hasAttribute(key) || cell.getAttribute(key) === ""
+        : cell.getAttribute(key) === expected;
+    };
+    const styleMatches = (style: string, key: string, expected: unknown): boolean => {
+      if (expected !== null && typeof expected !== "string") return false;
+      const entries = style.split(";").map((part) => {
+        const index = part.indexOf("=");
+        return index < 0
+          ? { key: part.trim(), value: null as string | null }
+          : { key: part.slice(0, index).trim(), value: part.slice(index + 1).trim() };
+      }).filter((entry) => entry.key === key);
+      return expected === null
+        ? entries.length === 0
+        : entries.some((entry) => entry.value === expected);
+    };
+
+    for (const raw of value.xmlAssertions) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+      const assertion = raw as Record<string, unknown>;
+      if (typeof assertion.cellId !== "string" || !assertion.cellId.trim()) return false;
+      const cellId = assertion.cellId.trim();
+      if (seen.has(cellId)) return false;
+      seen.add(cellId);
+      const expectedExists = assertion.exists === undefined ? true : assertion.exists;
+      if (typeof expectedExists !== "boolean") return false;
+      const record = findCell(models, cellId, pageId);
+      if (!expectedExists) {
+        if (record) return false;
+        continue;
+      }
+      if (!record) return false;
+
+      if (assertion.kind !== undefined) {
+        if (assertion.kind !== "vertex" && assertion.kind !== "edge") return false;
+        if (record.cell.getAttribute(assertion.kind) !== "1") return false;
+      }
+      if (assertion.label !== undefined) {
+        if (typeof assertion.label !== "string" || !labelMatches(record, assertion.label)) return false;
+      }
+      for (const key of ["parentId", "sourceId", "targetId"] as const) {
+        if (assertion[key] === undefined) continue;
+        const attribute = key === "parentId" ? "parent" : key === "sourceId" ? "source" : "target";
+        if (!attributeMatches(record.cell, attribute, assertion[key])) return false;
+      }
+      if (assertion.style !== undefined) {
+        if (!assertion.style || typeof assertion.style !== "object" || Array.isArray(assertion.style)) return false;
+        const style = record.cell.getAttribute("style") || "";
+        for (const [key, expected] of Object.entries(assertion.style as Record<string, unknown>)) {
+          if (!key || !styleMatches(style, key, expected)) return false;
+        }
+      }
+      if (assertion.geometry !== undefined) {
+        if (!assertion.geometry || typeof assertion.geometry !== "object" || Array.isArray(assertion.geometry) || !record.geometry) return false;
+        const geometry = assertion.geometry as Record<string, unknown>;
+        for (const key of ["x", "y", "width", "height"] as const) {
+          if (!(key in geometry)) continue;
+          const expected = geometry[key];
+          const actualRaw = record.geometry.getAttribute(key);
+          if (expected === null) {
+            if (actualRaw !== null) return false;
+            continue;
+          }
+          if (typeof expected !== "number" || !Number.isFinite(expected) || actualRaw === null) return false;
+          const actual = Number(actualRaw);
+          if (!Number.isFinite(actual) || Math.abs(actual - expected) > 0.01) return false;
+        }
+        if ("relative" in geometry) {
+          const expected = geometry.relative;
+          const actualRaw = record.geometry.getAttribute("relative");
+          if (expected === null) {
+            if (actualRaw !== null) return false;
+          } else {
+            if (typeof expected !== "boolean") return false;
+            if ((actualRaw === "1") !== expected) return false;
+          }
+        }
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
 export interface NativeDiagramXmlDiffSummary {
   available: boolean;
   changed?: boolean;
