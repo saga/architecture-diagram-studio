@@ -495,6 +495,11 @@ export function validateNativeScriptResultAgainstXml(
     }
 
     const models = cellsForXml(xml);
+    const scoped = scopedModels(models, pageId);
+    if (scoped.length === 0) {
+      fail({ index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId });
+      return finish();
+    }
     const allowedFields = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
     const geometryFields = new Set(["x", "y", "width", "height", "relative"]);
 
@@ -608,15 +613,18 @@ export function validateNativeScriptResultAgainstXml(
       }
       if (shapeInvalid) return;
 
-      const record = findCell(models, cellId, pageId);
+      const candidates = scoped.flatMap((model) => model.cells.filter((item) => item.id === cellId));
       if (expectedExists === false) {
-        if (record) invalid("exists", "The cell exists in the serialized XML but was declared absent.", false, true);
+        if (candidates.length > 0) invalid("exists", "The cell exists in the serialized XML but was declared absent.", false, true);
         return;
       }
-      if (!record) {
-        invalid("cellId", "The cell was not found uniquely on the requested page.", cellId, null);
+      if (candidates.length !== 1) {
+        invalid("cellId", candidates.length === 0
+          ? "The cell was not found on the requested page."
+          : "The cell ID is ambiguous on the requested page.", cellId, candidates.length);
         return;
       }
+      const record = candidates[0];
 
       if (assertion.kind !== undefined && record.cell.getAttribute(assertion.kind) !== "1") {
         invalid("kind", "Serialized cell kind did not match.", assertion.kind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell");
