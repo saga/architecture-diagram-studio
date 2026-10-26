@@ -430,11 +430,7 @@ export interface NativeScriptXmlCellAssertion {
   geometry?: Partial<Record<"x" | "y" | "width" | "height", number | null>> & { relative?: boolean | null };
 }
 
-/**
- * Independently verifies script-declared native-cell evidence against the serialized XML.
- * Boolean postconditions express what the script checked in the live editor; xmlAssertions
- * carry the concrete cell facts the host can verify after serialization.
- */
+/** A bounded field-level diagnostic explaining why a script assertion was rejected. */
 export type NativeScriptXmlAssertionFailureKind = "invalid-result" | "invalid-assertion" | "invalid-document" | "mismatch";
 
 export interface NativeScriptXmlAssertionFailure {
@@ -463,8 +459,10 @@ function nativeAssertionStyleValue(style: string, key: string): Array<string | n
 }
 
 /**
- * Validates both the shape of model-declared assertions and their values in serialized XML.
- * Diagnostics distinguish an invalid assertion contract from a genuine document mismatch.
+ * Independently verifies script-declared native-cell evidence against serialized XML.
+ * Boolean postconditions express what the script checked in the live editor; xmlAssertions
+ * carry the concrete cell facts the host verifies after serialization.
+ * Diagnostics distinguish invalid assertion structure from actual document mismatches.
  */
 export function validateNativeScriptResultAgainstXml(
   scriptResult: unknown,
