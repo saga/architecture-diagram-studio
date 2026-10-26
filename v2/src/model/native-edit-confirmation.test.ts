@@ -1,6 +1,6 @@
 import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { nativeEditIsReflectedInXml, nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff } from "./native-edit-confirmation";
+import { nativeEditIsReflectedInXml, nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml } from "./native-edit-confirmation";
 
 const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -194,6 +194,77 @@ describe("native edit XML confirmation", () => {
     expect(nativeScriptResultMatchesXml({
       available: true, value: { ok: true, postconditions: { complete: true } }
     }, serialized, "p1")).toBe(false);
+  });
+
+  it("reports malformed style assertion shape instead of a generic XML mismatch", () => {
+    const serialized = labelEdited.replace("</root>",
+      '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">' +
+      '<mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { messageCreated: true },
+        xmlAssertions: [{ cellId: "read-results", exists: true, kind: "edge", style: "edgeStyle=orthogonalEdgeStyle;endArrow=block;" }]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, serialized, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      cellId: undefined,
+      field: "style",
+      reason: expect.stringContaining("non-empty object")
+    }));
+    expect(nativeScriptResultMatchesXml(result, serialized, "p1")).toBe(false);
+  });
+
+  it("rejects empty style and geometry assertions because they prove no property", () => {
+    const serialized = labelEdited.replace("</root>",
+      '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">' +
+      '<mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const base = {
+      available: true,
+      value: { ok: true, postconditions: { messageCreated: true }, xmlAssertions: [] as Array<Record<string, unknown>> }
+    };
+    const emptyStyle = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{ cellId: "read-results", exists: true, style: {} }] }
+    };
+    const emptyGeometry = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{ cellId: "read-results", exists: true, geometry: {} }] }
+    };
+    expect(validateNativeScriptResultAgainstXml(emptyStyle, serialized, "p1")).toMatchObject({
+      ok: false,
+      failures: [expect.objectContaining({ field: "style", reason: expect.stringContaining("empty style object") })]
+    });
+    expect(validateNativeScriptResultAgainstXml(emptyGeometry, serialized, "p1")).toMatchObject({
+      ok: false,
+      failures: [expect.objectContaining({ field: "geometry", reason: expect.stringContaining("empty geometry object") })]
+    });
+  });
+
+  it("reports the exact field and expected/actual values when valid assertions contradict serialized XML", () => {
+    const serialized = labelEdited.replace("</root>",
+      '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">' +
+      '<mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { messageCreated: true },
+        xmlAssertions: [{ cellId: "read-results", exists: true, kind: "edge", sourceId: "db", targetId: "api", style: { endArrow: "block" } }]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, serialized, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      index: 0, field: "sourceId", expected: "db", actual: "api"
+    }));
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      index: 0, field: "targetId", expected: "api", actual: "db"
+    }));
+    expect(validation.failures).not.toContainEqual(expect.objectContaining({ field: "style.endArrow" }));
   });
 
   it("accepts a bare mxGraphModel when the editor page ID is not present in the source XML", () => {
