@@ -52,6 +52,8 @@ export interface NativeEditExecution {
   auditWarning?: string;
   /** Bounded return value from a native Draw.io script, when one was supplied. */
   scriptResult?: unknown;
+  /** Distinguishes a verified edit from a changed document whose requested postconditions remain unknown. */
+  applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
   rolledBack: boolean;
   steps: NativeBatchStepResult[];
 }
