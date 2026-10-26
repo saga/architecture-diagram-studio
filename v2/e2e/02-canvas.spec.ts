@@ -126,8 +126,9 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
     while (current && current !== document.documentElement) {
       const candidates = Array.from(current.querySelectorAll("rect")).filter((rect) => {
         const bounds = rect.getBoundingClientRect();
-        return bounds.width >= 80 && bounds.height >= 35 &&
-          bounds.width < 600 && bounds.height < 300;
+        return rect.getAttribute("pointer-events") === "all" &&
+          bounds.width >= 20 && bounds.height >= 12 &&
+          bounds.width < 800 && bounds.height < 500;
       });
       if (candidates.length === 1) {
         shape = candidates[0] as SVGRectElement;
