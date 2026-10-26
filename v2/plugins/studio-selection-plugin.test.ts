@@ -249,6 +249,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
 
   return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect, runPalette,
     getBackground: () => graph.background,
+    setBackground: (value: string | null) => { graph.background = value; },
     getCreatedCells: () => [...byId.values()].filter((cell) => cell.id.startsWith("created-")),
     getEditorModifiedCalls: () => editorModifiedCalls, getGraphRefreshCalls: () => graphRefreshCalls };
 }
@@ -441,13 +442,15 @@ describe("native Draw.io script bridge", () => {
 describe("native Draw.io palette bridge", () => {
   it("allows theme colors on existing gradients and labels while preserving other native style keys", () => {
     const harness = createHarness();
+    // Switching from an older preset must clear its colored canvas back to Draw.io's default.
+    harness.setBackground("#C5DDE7");
     const originalStyle = "shape=rect;rounded=1;fillColor=#ffffff;gradientColor=#eeeeee;labelBackgroundColor=#ffffff;labelBorderColor=#000000;swimlaneFillColor=#ffffff;indicatorColor=#000000;indicatorGradientColor=#eeeeee;separatorColor=#000000;dashed=1;";
     harness.service.style = originalStyle;
     const expectedIds = ["0", "1", "service", "database", "edge-root", "group", "nested-service", "edge-nested"].sort();
     const nextStyle = "shape=rect;rounded=1;fillColor=#B7DDEB;gradientColor=#B7DDEB;labelBackgroundColor=#D9EDF6;labelBorderColor=#176B85;swimlaneFillColor=#B7DDEB;indicatorColor=#176B85;indicatorGradientColor=#B7DDEB;separatorColor=#176B85;dashed=1;strokeColor=#176B85;fontColor=#153548;studioColorRole=category-1;";
     const result = harness.runPalette({
       theme: "ocean-depths", documentRevision: "a".repeat(64), pageId: null,
-      expectedBackground: null, background: "#C5DDE7",
+      expectedBackground: "#C5DDE7", background: null,
       expectedPageCellIds: expectedIds,
       changes: [{ cellId: "service", kind: "vertex", expectedStyle: originalStyle, style: nextStyle }]
     });
@@ -458,7 +461,7 @@ describe("native Draw.io palette bridge", () => {
     expect(harness.service.style).toContain("dashed=1");
     expect(harness.service.style).toContain("studioColorRole=category-1");
     expect(result).toMatchObject({ changedBackground: true });
-    expect(harness.getBackground()).toBe("#C5DDE7");
+    expect(harness.getBackground()).toBeNull();
   });
 });
 
