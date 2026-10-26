@@ -280,6 +280,22 @@ describe("native edit XML confirmation", () => {
     expect(validation.failures).not.toContainEqual(expect.objectContaining({ field: "style.endArrow" }));
   });
 
+  it("compares the effective last occurrence of duplicated style keys", () => {
+    const serialized = labelEdited.replace("</root>",
+      '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="endArrow=block;endArrow=none;">' +
+      '<mxGeometry relative="1" as="geometry"/></mxCell></root>');
+    const makeResult = (value: string) => ({
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { edgeChecked: true },
+        xmlAssertions: [{ cellId: "read-results", exists: true, kind: "edge", style: { endArrow: value } }]
+      }
+    });
+    expect(validateNativeScriptResultAgainstXml(makeResult("block"), serialized, "p1").ok).toBe(false);
+    expect(validateNativeScriptResultAgainstXml(makeResult("none"), serialized, "p1").ok).toBe(true);
+  });
+
   it("accepts a bare mxGraphModel when the editor page ID is not present in the source XML", () => {
     const bareBefore = before.replace('<mxfile><diagram id="p1" name="Overview">', '').replace('</diagram></mxfile>', '');
     const bareAfter = bareBefore.replace('value="Old API"', 'value="New API"');
