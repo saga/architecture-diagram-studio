@@ -1,6 +1,8 @@
 # ADR-0020: Native Draw.io Diagram Theme Presets
 
-- Status: Accepted
+> Historical decision. Its uniform-recoloring behavior is superseded by ADR-0023, which preserves source color categories across curated themes.
+
+- Status: Superseded by [ADR-0023 — Category-Preserving Curated Diagram Palettes](./0023-category-preserving-curated-diagram-palettes.md)
 - Date: 2026-10-25
 - Supersedes: [ADR-0007 — Unified Theme Adapter for Native Draw.io](./0007-unified-theme-adapter-for-native-drawio.md)
 - Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md)
