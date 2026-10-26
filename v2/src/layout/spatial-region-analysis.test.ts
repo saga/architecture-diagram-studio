@@ -55,7 +55,12 @@ describe("read-only spatial region analysis", () => {
     const response = analyze(industrialIotXml, pageId);
     expect(response.status).toBe("analyzed");
     if (response.status === "analyzed") {
-      expect(response.result.findings.some((finding) => finding.ruleId === "spatial-region.candidate")).toBe(true);
+      const candidates = response.result.findings.filter((finding) => finding.ruleId === "spatial-region.candidate");
+      expect(candidates.length).toBeGreaterThan(0);
+      const labels = candidates.map((finding) => String(finding.details?.label ?? ""));
+      const nearbyLabels = candidates.map((finding) => String(finding.details?.probableBoundaryLabels ?? "")).join(" ");
+      expect([...labels, nearbyLabels].join(" ")).toContain("IT Network");
+      expect([...labels, nearbyLabels].join(" ")).toContain("OT Network");
     }
   });
 

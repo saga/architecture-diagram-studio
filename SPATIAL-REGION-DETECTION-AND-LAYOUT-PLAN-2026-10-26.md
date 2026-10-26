@@ -101,7 +101,7 @@ Not every region should be freely moved: preserve the existing relative placemen
 ## 7. Phase 1 acceptance criteria
 
 - Only the requested page is analyzed; malformed XML, missing pages and stale requests fail closed.
-- A plausible large background rectangle with several enclosed nodes is detected without becoming a layout vertex or changing any XML.
+- A plausible large background rectangle with several enclosed nodes is reported by the read-only analyzer; Phase 1 does not yet exclude it from the existing layout projection or change any XML.
 - A large normal node connected by edges, a rectangle with too few enclosed nodes and non-rectangular device shapes are not treated as regions.
 - Border-crossing nodes and ambiguous overlaps are reported without a forced single-region assignment.
 - The provider follows `NativeDiagramAnalysisProvider`: findings only, no operations or replacement XML.
