@@ -2,7 +2,7 @@
 
 Date: 2026-10-26
 
-Status: Phase 1 implementation in progress. This document describes read-only inference for large rectangular region boundaries that have no native Draw.io parent-child relationship.
+Status: Phase 1 implemented as a read-only analysis provider. Phase 2 (atomic region projection and region-aware edge routing) is not implemented yet. This document covers region-boundary inference for large rectangular boundaries that have no native Draw.io parent-child relationship.
 
 ## 1. Problem and scope
 
