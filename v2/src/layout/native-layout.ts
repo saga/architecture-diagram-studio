@@ -1025,8 +1025,9 @@ function normalizePlan(
     }
     nativeRoutes.push({ cellId: edge.id, points: translated });
   }
-  // Internal connectors are not sent through the outer solver. When they carry explicit
-  // waypoints, translate those points by the same region delta as both endpoints.
+  // Internal connectors bypass the outer solver because region members move atomically.
+  // Explicit routes are translated with the region; if that route collides with a member node,
+  // the same orthogonal obstacle router repairs it inside the region boundary.
   for (const edge of projection.regionInternalEdges) {
     if (edge.points.length === 0) continue;
     const regionId = edge.layoutSourceId;
@@ -1036,11 +1037,52 @@ function normalizePlan(
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid internal region connector route.");
     }
-    const points = orthogonalizeRoute(translated);
-    if (points.some((point, index) => index > 0 &&
-      Math.abs(point.x - points[index - 1].x) > routeAxisEpsilon &&
-      Math.abs(point.y - points[index - 1].y) > routeAxisEpsilon)) {
-      throw new Error("An internal region connector route could not be normalized to orthogonal segments.");
+    if (options.edgeRouting !== "ORTHOGONAL" || !edge.sourceId || !edge.targetId || !regionId) {
+      nativeRoutes.push({ cellId: edge.id, points: translated });
+      continue;
+    }
+
+    const regionBounds = absoluteBoundsForCell(regionId);
+    const sourceBounds = absoluteBoundsForCell(edge.sourceId);
+    const targetBounds = absoluteBoundsForCell(edge.targetId);
+    if (!regionBounds || !sourceBounds || !targetBounds) {
+      throw new Error("An internal region connector was missing terminal or region bounds: " + edge.id);
+    }
+    const region = projection.spatialRegions.find((candidate) => candidate.regionCellId === regionId);
+    const memberIds = new Set(region?.memberCellIds ?? []);
+    const internalObstacles = projection.allCells
+      .filter((cell) => memberIds.has(cell.id) && cell.kind === "vertex" && cell.hasGeometry &&
+        cell.width > 0 && cell.height > 0 && cell.visible &&
+        cell.id !== edge.sourceId && cell.id !== edge.targetId)
+      .map((cell) => absoluteBoundsForCell(cell.id))
+      .filter((bounds): bounds is { x: number; y: number; width: number; height: number } => bounds !== null);
+    const sourcePort = terminalEscape(sourceBounds, translated[0] ?? centerOf(targetBounds));
+    const targetPort = terminalEscape(targetBounds, translated[translated.length - 1] ?? centerOf(sourceBounds));
+    const withinRegion = (point: Point) =>
+      point.x >= regionBounds.x - routeAxisEpsilon &&
+      point.x <= regionBounds.x + regionBounds.width + routeAxisEpsilon &&
+      point.y >= regionBounds.y - routeAxisEpsilon &&
+      point.y <= regionBounds.y + regionBounds.height + routeAxisEpsilon;
+    const sourceEscape = withinRegion(sourcePort.escape) ? sourcePort.escape : sourcePort.port;
+    const targetEscape = withinRegion(targetPort.escape) ? targetPort.escape : targetPort.port;
+    const preferred = orthogonalizeRoute([sourceEscape, ...translated, targetEscape]);
+    const innerClearance = 6;
+    let points = isOrthogonalRouteClear(preferred, internalObstacles, innerClearance, regionBounds)
+      ? orthogonalizeRoute(translated)
+      : null;
+    if (!points) {
+      const routed = routeOrthogonalAvoidingObstacles(sourceEscape, targetEscape, internalObstacles, {
+        clearance: innerClearance,
+        bendPenalty: 18,
+        maxPoints: 80,
+        bounds: regionBounds
+      });
+      if (routed && isOrthogonalRouteClear(routed, internalObstacles, innerClearance, regionBounds)) {
+        points = orthogonalizeRoute(routed);
+      }
+    }
+    if (!points) {
+      throw new Error("No safe orthogonal route could be found for internal region connector " + edge.id + ".");
     }
     nativeRoutes.push({ cellId: edge.id, points });
   }
