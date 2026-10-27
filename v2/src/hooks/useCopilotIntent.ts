@@ -255,9 +255,15 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         } else {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
           const failedScriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
-          const scriptRuntimeError = failedStep?.path === "cell:execute-script" &&
+          const failedScriptStep = execution.steps.find((step) =>
+            step.path === "cell:execute-script" && step.success === false && typeof step.error === "string" && step.error.trim().length > 0
+          );
+          const scriptRuntimeError = Boolean(failedScriptStep || (
+            failedStep?.path === "cell:execute-script" &&
             typeof failedStep.error === "string" &&
-            failedStep.error.trim().length > 0;
+            failedStep.error.trim().length > 0
+          ));
+          const scriptErrorStep = failedScriptStep || (failedStep?.path === "cell:execute-script" ? failedStep : undefined);
           const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
           const shouldTryScriptRepair = Boolean(
             failedScriptOperation &&
@@ -273,11 +279,21 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             repairState.selectedNativeCellId === sourceSelectedCellId
           );
           if (shouldTryScriptRepair && failedScriptOperation?.op === "run_drawio_script") {
-            const boundedError = (failedStep?.error || reason).slice(0, 1200);
+            const boundedError = (scriptErrorStep?.error || failedStep?.error || reason).slice(0, 1200);
+            const boundedStack = scriptErrorStep?.stack || failedStep?.stack;
+            const toolResult = {
+              toolName: "run_drawio_script",
+              success: false as const,
+              error: boundedError,
+              ...(boundedStack ? { stack: boundedStack.slice(0, 8000) } : {}),
+              rollbackConfirmed: execution.rolledBack,
+              failedPath: scriptErrorStep?.path || failedStep?.path || "cell:execute-script"
+            };
             recordDiagnostic("copilot.native-script-repair.started", "Starting one automatic native script repair attempt after an editor-reported script failure and confirmed rollback", {
               sessionId: plan.sessionId || copilotSessionId,
               error: boundedError,
-              errorStack: failedStep?.stack?.slice(0, 8000) ?? null,
+              errorStack: boundedStack?.slice(0, 8000) ?? null,
+              toolResult,
               scriptLength: failedScriptOperation.script.length,
               rollbackConfirmed: execution.rolledBack,
               documentRevision,
@@ -296,7 +312,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 standalone: standaloneMode,
                 diagramXml: sourceXml,
                 documentRevision
-              }, "Automatically repair the failed native Draw.io script described in scriptRepair. Preserve the original user request and active-page scope. Use the exact editor error and runtime inspection to correct the actual failure; do not merely repeat the failed script unchanged. Return one corrected action by calling the dedicated run_drawio_script tool directly. There is no script allowlist or confirmation gate in local single-user mode. Do not claim the edit has been applied until the native editor returns the script result and the resulting XML/persistence acknowledgement succeeds.", {
+              }, "The previous run_drawio_script call returned a failed tool result. Treat context.scriptRepair.toolResult as that tool result, not as user prose. The editor reported the exact error and confirmed rollback, so use that failure result plus runtime inspection to correct the actual cause. Preserve the original user request and active-page scope; do not repeat the failed script unchanged. Return one corrected action by calling run_drawio_script directly. Do not claim success until the editor result and serialized XML/persistence acknowledgement succeed.", {
                 kind: "drawio",
                 title: nativePage.title || "Draw.io diagram",
                 activePageId,
@@ -310,7 +326,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   originalRequest: requestText,
                   failedScript: failedScriptOperation.script,
                   error: boundedError,
-                  ...(failedStep?.stack ? { stack: failedStep.stack.slice(0, 8000) } : {})
+                  ...(boundedStack ? { stack: boundedStack.slice(0, 8000) } : {}),
+                  toolResult
                 }
               });
               if (repairPlan.outcome === "command_ready") {
