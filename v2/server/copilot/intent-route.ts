@@ -131,7 +131,35 @@ function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): vo
 const contextBySession = new Map<string, unknown>();
 
 const ACK_TTL_MS = 10 * 60_000;
+const EMPTY_QUERY_WARNING_THRESHOLD = 3;
+const emptyQueryStreaks = new Map<string, { count: number; query: string; tool: string }>();
 const acknowledgementsDefault = new NativeExecutionAcknowledgements();
+
+async function logQueryResult(
+  sessionId: string,
+  tool: string,
+  query: string,
+  resultCount: number,
+  writeLog: IntentDependencies["writeLog"]
+): Promise<{ warning?: string }> {
+  const key = sessionId + ":" + tool;
+  if (resultCount > 0) {
+    emptyQueryStreaks.delete(key);
+    return {};
+  }
+  const previous = emptyQueryStreaks.get(key);
+  const count = previous ? previous.count + 1 : 1;
+  emptyQueryStreaks.set(key, { count, query, tool });
+  if (count < EMPTY_QUERY_WARNING_THRESHOLD) return {};
+  const warning = `The ${tool} query has returned no results ${count} consecutive times. Stop repeating near-identical searches; broaden or change the query, inspect the live Draw.io runtime, or explain the limitation.`;
+  if (count === EMPTY_QUERY_WARNING_THRESHOLD || count % EMPTY_QUERY_WARNING_THRESHOLD === 0) {
+    await writeLog("tool.query.empty-streak-warning", {
+      sessionId, tool, consecutiveEmptyResults: count, threshold: EMPTY_QUERY_WARNING_THRESHOLD,
+      query: query.slice(0, 120), warning
+    });
+  }
+  return { warning };
+}
 
 function acknowledgementFingerprint(body: Record<string, unknown>): string {
   return JSON.stringify({
@@ -428,7 +456,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     });
   }
 
-  function createDrawioShapeSearchTool() {
+  function createDrawioShapeSearchTool(sessionId: string) {
     return defineTool("search_drawio_shapes", {
       description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes C4 Person (person2), Software System and Container recipes; query each element type separately, then use the returned style and dimensions directly in one native script. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
@@ -440,19 +468,21 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         required: ["query"],
         additionalProperties: false
       },
-      handler: (args: { query?: unknown; limit?: unknown }) => {
+      handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
           throw new Error("Shape search requires a query from 2 to 120 characters.");
         }
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
         const results = searchDrawioShapeCatalog(args.query, limit);
+        const queryStatus = await logQueryResult(sessionId, "search_drawio_shapes", args.query.trim(), results.length, deps.writeLog);
         return {
           found: results.length > 0,
           catalogueVersion: DRAWIO_SHAPE_CATALOG_VERSION,
           exhaustive: false,
           results,
           ...(results.length ? {} : {
-            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Use a typed operation for a supported concept, inspect a known JS shape class when applicable, or report that no verified definition is available."
+            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified.",
+            ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
           })
         };
       }
@@ -498,6 +528,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
           ? Math.max(1, Math.min(10, Math.floor(args.limit)))
           : 5;
+        const queryStatus = await logQueryResult(sessionId, "search_drawio_elements", query, matches.length, deps.writeLog);
         const results = matches.slice(0, limit).flatMap((cell) =>
           typeof cell.id === "string" ? [{
             id: cell.id,
@@ -517,7 +548,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           results,
           ...(matches.length > results.length ? {
             guidance: "More matches exist than are shown. Narrow the query or use an exact cell ID; do not choose between ambiguous labels arbitrarily."
-          } : {})
+          } : {}),
+          ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
         };
       }
     });
@@ -912,7 +944,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             systemMessage: await buildSystemMessage(standalone),
             tools: [
               createSelectDiagramElementTool(sessionId),
-              createDrawioShapeSearchTool(),
+              createDrawioShapeSearchTool(sessionId),
               createDrawioElementSearchTool(sessionId),
               createDrawioReferenceTool(),
               createRunDrawioScriptTool(sessionId),
