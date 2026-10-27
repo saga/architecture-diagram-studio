@@ -36,6 +36,35 @@ const industrialIotXml = readFileSync(
 );
 const industrialIotPageId = "SXgX17sldJI9QkPeDldp";
 
+function routeCrossesRectangleBoundary(
+  points: Array<{ x: number; y: number }>,
+  bounds: { x: number; y: number; width: number; height: number }
+): boolean {
+  const left = bounds.x;
+  const right = bounds.x + bounds.width;
+  const top = bounds.y;
+  const bottom = bounds.y + bounds.height;
+  const epsilon = 0.5;
+  for (let index = 1; index < points.length; index += 1) {
+    const first = points[index - 1];
+    const second = points[index];
+    if (Math.abs(first.y - second.y) <= epsilon) {
+      const low = Math.min(first.x, second.x);
+      const high = Math.max(first.x, second.x);
+      if (first.y >= top - epsilon && first.y <= bottom + epsilon &&
+          ((low <= left + epsilon && high >= left - epsilon) ||
+           (low <= right + epsilon && high >= right - epsilon))) return true;
+    } else if (Math.abs(first.x - second.x) <= epsilon) {
+      const low = Math.min(first.y, second.y);
+      const high = Math.max(first.y, second.y);
+      if (first.x >= left - epsilon && first.x <= right + epsilon &&
+          ((low <= top + epsilon && high >= top - epsilon) ||
+           (low <= bottom + epsilon && high >= bottom - epsilon))) return true;
+    }
+  }
+  return false;
+}
+
 describe("Studio-owned native-cell layout", () => {
   it("routes an orthogonal connector around an unrelated node obstacle", async () => {
     const obstacleXml = `<mxfile host="test"><diagram id="obstacle-page" name="Obstacle routing"><mxGraphModel><root>
@@ -137,9 +166,9 @@ describe("Studio-owned native-cell layout", () => {
       { x: 245 + delta.x, y: 200 + delta.y }
     ]);
     const externalRoute = plan.edgeRoutes.find((route) => route.cellId === "edge-across-region");
-    expect(externalRoute?.points.some((point) =>
-      Math.abs(point.x - (regionPosition!.x + 500)) < 0.02
-    )).toBe(true);
+    expect(routeCrossesRectangleBoundary(externalRoute?.points ?? [], {
+      x: regionPosition!.x, y: regionPosition!.y, width: 500, height: 400
+    })).toBe(true);
     expect(plan.expectedCells.filter((cell) => cell.kind === "vertex").map((cell) => cell.cellId).sort())
       .toEqual(["outside-node", "plc-c", "region-it", "region-title", "server-b", "switch-a"].sort());
     // Planning uses a transient region proxy. The native terminal IDs and source XML stay unchanged.
@@ -187,8 +216,12 @@ describe("Studio-owned native-cell layout", () => {
     expect(route?.points.every((point, index) => index === 0 ||
       Math.abs(point.x - route!.points[index - 1].x) <= 0.5 ||
       Math.abs(point.y - route!.points[index - 1].y) <= 0.5)).toBe(true);
-    expect(route?.points.some((point) => Math.abs(point.x - (left!.x + 500)) < 0.02)).toBe(true);
-    expect(route?.points.some((point) => Math.abs(point.x - right!.x) < 0.02)).toBe(true);
+    expect(routeCrossesRectangleBoundary(route?.points ?? [], {
+      x: left!.x, y: left!.y, width: 500, height: 400
+    })).toBe(true);
+    expect(routeCrossesRectangleBoundary(route?.points ?? [], {
+      x: right!.x, y: right!.y, width: 500, height: 400
+    })).toBe(true);
     expect(plan.expectedCells.find((cell) => cell.cellId === "edge-between-regions"))
       .toMatchObject({ sourceId: "left-c", targetId: "right-c", parentId: "1" });
     expect(twoRegionXml).toContain('source="left-c" target="right-c"');
@@ -279,12 +312,9 @@ describe("Studio-owned native-cell layout", () => {
       expect(plan.edgeRoutes.some((route) => route.cellId === "internal-edge-no-waypoints")).toBe(false);
       const crossRoute = plan.edgeRoutes.find((route) => route.cellId === "cross-edge");
       expect(crossRoute).toBeDefined();
-      expect(crossRoute!.points.some((point) =>
-        Math.abs(point.x - region!.x) < 0.02 ||
-        Math.abs(point.x - (region!.x + 500)) < 0.02 ||
-        Math.abs(point.y - region!.y) < 0.02 ||
-        Math.abs(point.y - (region!.y + 400)) < 0.02
-      )).toBe(true);
+      expect(routeCrossesRectangleBoundary(crossRoute!.points, {
+        x: region!.x, y: region!.y, width: 500, height: 400
+      })).toBe(true);
       expect(plan.expectedCells.find((cell) => cell.cellId === "cross-edge"))
         .toMatchObject({ sourceId: "plc", targetId: "outside", parentId: "1" });
     }
