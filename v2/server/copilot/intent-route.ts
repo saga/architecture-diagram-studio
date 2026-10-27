@@ -593,7 +593,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
         const current = contextBySession.get(sessionId);
         const context = current && typeof current === "object"
-          ? current as { cells?: unknown }
+          ? current as { cells?: unknown; activePageId?: unknown; documentRevision?: unknown }
           : {};
         const cells = Array.isArray(context.cells)
           ? context.cells as Array<{
@@ -644,6 +644,8 @@ function createDrawioElementSearchTool(sessionId: string) {
         return {
           found: matches.length > 0,
           query,
+          pageId: typeof context.activePageId === "string" ? context.activePageId : null,
+          documentRevision: typeof context.documentRevision === "string" ? context.documentRevision : null,
           matchCount: matches.length,
           truncated: matches.length > results.length,
           results,
