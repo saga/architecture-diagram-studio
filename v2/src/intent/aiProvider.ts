@@ -24,7 +24,13 @@ export interface AIIntentContext {
   /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
   runtimeInspection?: DrawioRuntimeInspection;
   /** One bounded repair context after a failed native script with a confirmed rollback. */
-  scriptRepair?: { originalRequest: string; failedScript: string; error: string; stack?: string };
+  scriptRepair?: {
+    originalRequest: string;
+    failedScript: string;
+    error: string;
+    stack?: string;
+    toolResult: { toolName: "run_drawio_script"; success: false; error: string; stack?: string; rollbackConfirmed: boolean; failedPath: string };
+  };
 }
 
 export type AIIntentResponse = CopilotIntentResponse;
