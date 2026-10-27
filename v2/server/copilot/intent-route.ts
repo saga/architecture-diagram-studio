@@ -791,7 +791,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         properties: {
           summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the inspection or requested change." },
           mode: { type: "string", enum: ["read", "mutate"], default: "mutate", description: "Use mutate for edits. read is retained only for compatibility and returns an explicit rejection with no data; use inspect_drawio_graph for same-turn inspection." },
-          script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript source with live ui, editor, graph, model and inspectRuntime bindings. For mutate mode, return { ok:true, postconditions:{checkName:true}, xmlAssertions:[...] }; each assertion must contain cellId and concrete evidence. style must be a non-empty key/value object; geometry must contain at least one explicit field. All postcondition values must be true booleans. For read mode, return compact JSON results and do not mutate any graph/model/page state." }
+          script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript source with live ui, editor, graph, model and inspectRuntime bindings. For mutate mode, return { ok:true, postconditions:{checkName:true}, xmlAssertions:[...] }; each assertion must contain cellId and concrete evidence. style must be a non-empty key/value object; geometry must contain at least one explicit field. All postcondition values must be true booleans. mode=read is compatibility-only and rejected with no execution or result; use inspect_drawio_graph for same-turn reads." }
         },
         required: ["summary", "script"],
         additionalProperties: false
