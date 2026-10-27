@@ -65,8 +65,8 @@ export class NativeExecutionAcknowledgements {
     return this.pending.get(requestId);
   }
 
-  getReceipt(requestId: string): NativeExecutionAckReceipt | undefined {
-    return this.completed.get(requestId);
+  getReceipt(requestId: string): NativeExecutionAckReceipt | null {
+    return this.completed.get(requestId) ?? null;
   }
 
   complete(requestId: string, receipt: NativeExecutionAckReceipt): void {
