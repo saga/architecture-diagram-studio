@@ -65,6 +65,8 @@ export interface DrawioRuntimeInspection {
   capabilities: Record<RuntimeCapabilityGroup, string[]>;
   counts: { cells: number; vertices: number; edges: number };
   cells: DrawioRuntimeCell[];
+  /** Bounded live mxCellRenderer.defaultShapes registry from the current iframe. */
+  liveShapeClasses: string[];
   renderedEdges: Array<{
     id: string;
     stateAvailable: boolean;
@@ -242,6 +244,12 @@ export function normalizeDrawioRuntimeInspection(
     capabilities,
     counts: { cells: count("cells"), vertices: count("vertices"), edges: count("edges") },
     cells,
+    liveShapeClasses: Array.isArray(value.liveShapeClasses)
+      ? [...new Set(value.liveShapeClasses.filter((name): name is string =>
+          typeof name === "string" && name.length <= 160 && /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) &&
+          !["__proto__", "constructor", "prototype"].includes(name)
+        ))].slice(0, RUNTIME_INSPECTION_LIMITS.liveShapeClasses)
+      : [],
     renderedEdges,
     truncated: value.truncated === true ||
       (Array.isArray(value.cells) && value.cells.length > RUNTIME_INSPECTION_LIMITS.cells) ||
