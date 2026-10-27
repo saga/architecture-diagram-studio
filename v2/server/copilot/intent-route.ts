@@ -500,15 +500,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", minLength: 2, maxLength: 120, description: "Shape name or concept, in English or Chinese." },
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Shape name or concept, in English or Chinese; a single CJK character is valid." },
           limit: { type: "integer", minimum: 1, maximum: 8, default: 5 }
         },
         required: ["query"],
         additionalProperties: false
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
-        if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-          const error = "Shape search requires a query from 2 to 120 characters.";
+        if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+          const error = "Shape search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
           return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape name or concept in English or Chinese." };
         }
@@ -541,15 +541,15 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", minLength: 2, maxLength: 120, description: "Shape class, library or concept keyword, e.g. c4, person, uml." },
+        query: { type: "string", minLength: 1, maxLength: 120, description: "Shape class, library or concept keyword, e.g. c4, person, uml; a single CJK character is valid." },
         limit: { type: "integer", minimum: 1, maximum: 30, default: 15 }
       },
       required: ["query"],
       additionalProperties: false
     },
     handler: async (args: { query?: unknown; limit?: unknown }) => {
-      if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-        const error = "Live Draw.io shape search requires a query from 2 to 120 characters.";
+      if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+        const error = "Live Draw.io shape search requires a non-empty query no longer than 120 characters.";
         await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
         return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape class, library or concept keyword." };
       }
