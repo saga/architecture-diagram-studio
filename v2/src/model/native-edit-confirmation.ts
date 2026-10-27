@@ -839,6 +839,8 @@ export interface NativeScriptScopeViolation {
 export interface NativeScriptScopeResult {
   ok: boolean;
   available: boolean;
+  /** Whether the serialized before/after XML contains semantic changes when comparison is available. */
+  changed?: boolean;
   declaredCellIds: string[];
   violations: NativeScriptScopeViolation[];
   error?: string;
@@ -882,7 +884,7 @@ export function findUndeclaredNativeScriptChanges(
   }
   if (diff.truncated) {
     return {
-      ok: false, available: false, declaredCellIds, violations: [],
+      ok: false, available: false, changed: diff.changed, declaredCellIds, violations: [],
       error: "The before/after native XML change set is too large to verify every untouched cell."
     };
   }
@@ -1004,7 +1006,7 @@ export function findUndeclaredNativeScriptChanges(
   }
   const limit = Math.max(1, Math.floor(maxViolations) || 20);
   return {
-    ok: violations.length === 0, available: true, declaredCellIds,
+    ok: violations.length === 0, available: true, changed: diff.changed, declaredCellIds,
     violations: violations.slice(0, limit),
     ...(violations.length > limit ? { error: violations.length + " undeclared native cells were added, changed or removed; only the first " + limit + " are listed." } : {})
   };

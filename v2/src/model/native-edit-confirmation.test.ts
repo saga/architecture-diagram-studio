@@ -427,6 +427,13 @@ describe("native edit XML confirmation", () => {
       expect(result).toMatchObject({ ok: true, available: true, declaredCellIds: ["api"], violations: [] });
     });
 
+    it("reports when a verified scope check produced no semantic XML change", () => {
+      const result = findUndeclaredNativeScriptChanges(before, before, scriptResult([
+        { cellId: "db", exists: true, kind: "vertex", label: "Database" }
+      ]));
+      expect(result).toMatchObject({ ok: true, available: true, changed: false, violations: [] });
+    });
+
     it("accepts a script whose existing cells are untouched", () => {
       const result = findUndeclaredNativeScriptChanges(before, insertionOnly, scriptResult([
         { cellId: "ddd", exists: true, kind: "vertex", label: "ddd" },

@@ -269,9 +269,17 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             }]);
             return;
           }
-          recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
+          const scriptVerifiedNoChange = operations.some((operation) => operation.op === "run_drawio_script") &&
+            execution.semanticChanged === false;
+          recordDiagnostic(
+            scriptVerifiedNoChange ? "copilot.native-edits.verified-no-change" : "copilot.native-edits.applied",
+            scriptVerifiedNoChange
+              ? "Native script assertions passed against serialized XML, but the semantic diagram was already in the asserted state"
+              : "The native editor applied an atomic Copilot edit batch",
+            {
             operationCount: operations.length,
             steps: execution.steps.length,
+            semanticChanged: execution.semanticChanged ?? null,
             scriptResult: execution.scriptResult ?? null,
             operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
           });
@@ -279,8 +287,11 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             role: "assistant",
             id: Date.now() + 1,
             // Native edit status is derived from the editor acknowledgement, never from model-generated prose.
-            text: "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
-              operations.map(describeNativeEditOperation).join("; ") + "." + (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
+            text: scriptVerifiedNoChange
+              ? "Verified the requested native state against the serialized XML; the diagram was already in that state, so no semantic change was made: " +
+                operations.map(describeNativeEditOperation).join("; ") + "."
+              : "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
+                operations.map(describeNativeEditOperation).join("; ") + "." + (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
           }]);
         } else {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";

@@ -78,6 +78,8 @@ type NativeEditResult = {
   /** Bounded JSON-safe value returned by a native script. */
   scriptResult?: unknown;
   scriptMode?: "read" | "mutate";
+  /** Semantic before/after XML result for a validated script; false means no semantic change occurred. */
+  semanticChanged?: boolean;
   applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
@@ -1000,7 +1002,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                       : scriptScope.error || "The before/after XML could not be compared.")
                   : "";
                 if (serializedAssertionsPassed && undeclaredChangesPassed === true) {
-                  acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
+                  acknowledgement = {
+                    ...acknowledgement, applicationState: "applied-and-verified",
+                    ...(typeof scriptScope?.changed === "boolean" ? { semanticChanged: scriptScope.changed } : {})
+                  };
                 } else {
                   const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
                   const diagnosticParts = [

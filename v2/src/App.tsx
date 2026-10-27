@@ -141,7 +141,7 @@ export default function App() {
       : 75_000;
   })();
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
-  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string }) => void>());
+  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; semanticChanged?: boolean; applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const lateNativeEditRequestsRef = useRef(new Set<number>());
   const lateNativeSelectionRequestsRef = useRef(new Set<number>());
@@ -1946,7 +1946,9 @@ export default function App() {
                 ? (finalResult.success
                     ? "Read-only inspection completed; the diagram, source file and History were left unchanged."
                     : "Read-only inspection failed; the diagram, source file and History were left unchanged: " + (finalResult.error || "Unknown error"))
-                : (finalResult.success
+                : (finalResult.success && finalResult.semanticChanged === false
+                ? "Native script assertions passed; the requested state was already present, so no semantic diagram change was needed."
+                : finalResult.success
                 ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
                   (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
                     ? "; workspace save confirmed."
