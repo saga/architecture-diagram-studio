@@ -558,7 +558,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("Scripts receive live ui/editor/graph/model/inspectRuntime bindings");
     expect(prompt).toContain("exactly one terminal action per turn");
     expect(prompt.length).toBeLessThan(2800);
-    const firstRequest = JSON.parse((copilot as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
+    const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
     expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
   });
 
