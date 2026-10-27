@@ -4,7 +4,7 @@ import { CopilotTurnProgress } from "./turn-progress";
 describe("CopilotTurnProgress", () => {
   it("counts reasoning deltas without retaining their contents", () => {
     const progress = new CopilotTurnProgress(1_000);
-    expect(progress.observe("assistant.reasoning_delta", { delta: "思考" }, 1_025)).toBe(true);
+    expect(progress.observe("assistant.reasoning_delta", { deltaContent: "思考" }, 1_025)).toBe(true);
     const snapshot = progress.snapshot(1_050);
     expect(snapshot.phase).toBe("reasoning");
     expect(snapshot.reasoningDeltaEvents).toBe(1);
@@ -12,6 +12,31 @@ describe("CopilotTurnProgress", () => {
     expect(snapshot.totalDeltaBytes).toBe(Buffer.byteLength("思考", "utf8"));
     expect(snapshot.timeToFirstDeltaMs).toBe(25);
     expect(JSON.stringify(snapshot)).not.toContain("思考");
+  });
+
+  it("reads the Copilot SDK deltaContent field for assistant message deltas", () => {
+    const progress = new CopilotTurnProgress(1_000);
+    expect(progress.observe("assistant.message_delta", { deltaContent: "response" }, 1_040)).toBe(true);
+    const snapshot = progress.snapshot(1_050);
+    expect(snapshot.phase).toBe("assistant_output");
+    expect(snapshot.assistantDeltaEvents).toBe(1);
+    expect(snapshot.assistantDeltaBytes).toBe(Buffer.byteLength("response", "utf8"));
+    expect(snapshot.totalDeltaBytes).toBe(Buffer.byteLength("response", "utf8"));
+    expect(snapshot.timeToFirstDeltaMs).toBe(40);
+    expect(snapshot.quietMs).toBe(10);
+    expect(snapshot.lastProgressEventType).toBe("assistant.message_delta");
+    expect(JSON.stringify(snapshot)).not.toContain("response");
+  });
+
+  it("refreshes observable progress for reasoning_deltaContent chunks", () => {
+    const progress = new CopilotTurnProgress(1_000);
+    expect(progress.observe("assistant.reasoning_delta", { deltaContent: "reasoning" }, 1_075)).toBe(true);
+    const snapshot = progress.snapshot(1_100);
+    expect(snapshot.phase).toBe("reasoning");
+    expect(snapshot.reasoningDeltaEvents).toBe(1);
+    expect(snapshot.reasoningDeltaBytes).toBe(Buffer.byteLength("reasoning", "utf8"));
+    expect(snapshot.quietMs).toBe(25);
+    expect(snapshot.lastProgressEventType).toBe("assistant.reasoning_delta");
   });
 
   it("recognizes tool input deltas and keeps the tool name as a phase hint", () => {
