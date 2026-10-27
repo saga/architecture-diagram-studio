@@ -35,6 +35,20 @@ describe("extractNativeEditTargets", () => {
     ]);
   });
 
+  it("includes native shape, geometry, rotation and parent only when requested", () => {
+    const furnitureXml = XML.replace(
+      "</root>",
+      '<mxCell id="table" value="" style="shape=mxgraph.floorplan.table;rotation=90;" vertex="1" parent="1"><mxGeometry x="320.4" y="140.7" width="90" height="42" as="geometry"/></mxCell></root>'
+    );
+    expect(extractNativeEditTargets(furnitureXml).find((cell) => cell.id === "table"))
+      .toEqual({ id: "table", name: "", cellType: "vertex" });
+    expect(extractNativeEditTargets(furnitureXml, "p1", { includeGeometry: true }).find((cell) => cell.id === "table"))
+      .toEqual({
+        id: "table", name: "", cellType: "vertex", shape: "mxgraph.floorplan.table",
+        geometry: { x: 320, y: 141, width: 90, height: 42 }, rotation: 90, parentId: "1"
+      });
+  });
+
   it("does not fall back to the first page when the requested page ID is stale", () => {
     const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="other" value="Other page cell" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram>';
     const multiPage = XML.replace("</mxfile>", secondPage + "</mxfile>");
@@ -362,7 +376,25 @@ describe("toNativeCellEdits", () => {
       op: "run_drawio_script", target: "active_page", summary: "Curve all connectors", script,
       cellId: "__active_page__", targetLabel: "active Draw.io page"
     }], XML);
-    expect(plan).toEqual({ ok: true, edits: [{ cellId: "__active_page__", path: "cell:execute-script", value: script }] });
+    expect(plan).toEqual({
+      ok: true,
+      edits: [{
+        cellId: "__active_page__", path: "cell:execute-script",
+        value: JSON.stringify({ mode: "mutate", script })
+      }]
+    });
+    const readOnlyPlan = toNativeCellEdits([{
+      op: "run_drawio_script", target: "active_page", summary: "Inspect furniture",
+      mode: "read", script: "return { tables: 3 };",
+      cellId: "__active_page__", targetLabel: "active Draw.io page"
+    }], XML);
+    expect(readOnlyPlan).toEqual({
+      ok: true,
+      edits: [{
+        cellId: "__active_page__", path: "cell:execute-script",
+        value: JSON.stringify({ mode: "read", script: "return { tables: 3 };" })
+      }]
+    });
   });
 
   it("passes a move delta to the native editor for live-coordinate execution", () => {
