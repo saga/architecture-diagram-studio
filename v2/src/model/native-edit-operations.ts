@@ -134,7 +134,11 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
 }
 
 /** Read editable targets directly from native mxCells. */
-export function extractNativeEditTargets(xml: string, pageId?: string | null): NativeEditTarget[] {
+export function extractNativeEditTargets(
+  xml: string,
+  pageId?: string | null,
+  options: { includeGeometry?: boolean } = {}
+): NativeEditTarget[] {
   const parsed = parseNativeGraphModel(xml, pageId);
   const cells = findDrawioElements(parsed, "mxCell");
   const result: NativeEditTarget[] = [];
@@ -189,10 +193,12 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
       id,
       name: plainNativeLabel(rawLabel),
       cellType: vertex ? "vertex" : "edge",
-      ...(shape ? { shape: shape.slice(0, 180) } : {}),
-      ...(geometry ? { geometry } : {}),
-      ...(Number.isFinite(rotationValue) && rotationValue !== 0 ? { rotation: Math.round(rotationValue) } : {}),
-      ...(cell.getAttribute("parent") ? { parentId: cell.getAttribute("parent")! } : {})
+      ...(options.includeGeometry ? {
+        ...(shape ? { shape: shape.slice(0, 180) } : {}),
+        ...(geometry ? { geometry } : {}),
+        ...(Number.isFinite(rotationValue) && rotationValue !== 0 ? { rotation: Math.round(rotationValue) } : {}),
+        ...(cell.getAttribute("parent") ? { parentId: cell.getAttribute("parent")! } : {})
+      } : {})
     });
   }
   return result;
