@@ -1106,6 +1106,7 @@
         var batchResults = []; var batchScriptResult = null; var batchScriptMode = "mutate"; var readOnlyScriptBatch = operations.length === 1 &&
           operations[0] && operations[0].path === "cell:execute-script" &&
           parseNativeScriptPayload(operations[0].value).mode === "read";
+        var batchReadOnlyStateBefore = null;
         var failedIndex = -1; var batchCreatedCells = []; var previousBatchCreatedCells = activeBatchCreatedCells; activeBatchCreatedCells = batchCreatedCells; var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
         activeModel.beginUpdate();
         try {
@@ -1115,6 +1116,7 @@
             var readOnlyStateBefore = operation.path === "cell:execute-script" && readOnlyScriptBatch
               ? captureNativeReadOnlyState(activeGraph, activeModel)
               : null;
+            if (readOnlyStateBefore) batchReadOnlyStateBefore = readOnlyStateBefore;
             var operationResult = editCell({ cellId: operation.cellId, pageId: request.pageId, path: operation.path, value: operation.value });
             if (operation.path === "cell:execute-script") {
               batchScriptResult = operationResult && operationResult.scriptResult || null;
@@ -1180,6 +1182,22 @@
             return true;
           });
           if (!treeRestored) rollbackErrors.push({ cellId: "__active_page__", error: "The native cell tree/order does not match its pre-script snapshot after rollback." });
+          if (readOnlyScriptBatch && batchReadOnlyStateBefore) {
+            try {
+              if (nativeReadOnlyStateChanged(batchReadOnlyStateBefore, activeGraph, activeModel)) {
+                rollbackErrors.push({
+                  cellId: "__read_only_state__",
+                  error: "The read-only script changed editor or diagram state that the native cell snapshot rollback did not fully restore."
+                });
+              }
+            } catch (readOnlyRollbackError) {
+              rollbackErrors.push({
+                cellId: "__read_only_state__",
+                error: "Could not verify read-only editor state after rollback: " +
+                  (readOnlyRollbackError && readOnlyRollbackError.message ? String(readOnlyRollbackError.message) : String(readOnlyRollbackError))
+              });
+            }
+          }
           if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) rollbackErrors.push({ cellId: "__undo_history__", error: "The failed batch rollback could not preserve the native Undo/Redo history stack." });
           failure.batchResults = batchResults; failure.failedIndex = failedIndex; failure.rollbackErrors = rollbackErrors; failure.batchRolledBack = rollbackErrors.length === 0;
           throw failure;
