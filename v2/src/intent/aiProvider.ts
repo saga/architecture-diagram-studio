@@ -228,13 +228,13 @@ export async function requestAIIntentPlan(
     });
   } catch (error) {
     const timedOut = error instanceof DOMException && error.name === "TimeoutError";
-    recordDiagnostic("copilot.agent.request.failed", "Could not reach the Copilot SDK service", {
+    recordDiagnostic(timedOut ? "copilot.agent.request.timeout" : "copilot.agent.request.unreachable", timedOut ? "The Copilot intent request exceeded its 300-second client deadline" : "The local Copilot HTTP endpoint could not be reached", {
       durationMs: Date.now() - startedAt, timedOut,
       errorName: error instanceof Error ? error.name : typeof error
     }, "error");
     throw new Error(timedOut
       ? "The Copilot SDK request exceeded 300 seconds and was aborted. Check the local agent service and Copilot login state."
-      : "Could not reach the local Copilot SDK service. Confirm that V2 was started with npm run dev.");
+      : "Could not reach the local Copilot HTTP endpoint. Confirm that V2 was started with npm run dev.");
   }
 
   const payload: unknown = await response.json().catch(() => null);
