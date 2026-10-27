@@ -23,6 +23,8 @@ Each assertion includes a non-empty `cellId` and concrete, typed facts. An asser
 
 Assertion-shape failures and actual XML mismatches are distinct outcomes, using the stable diagnostic kinds `invalid-result`, `invalid-assertion`, `invalid-document`, and `mismatch`. Diagnostics carry the assertion index, cell ID, field, reason, expected value, and actual value when available. The existing boolean helper remains as a compatibility wrapper; code needing a useful receipt uses the detailed validator.
 
+Cell assertions cannot prove changes to Draw.io page structure or ordering. Until a dedicated page-assertion contract exists, page creation/removal/rename/reorder must fail closed as changed-but-unverified; the native bridge must not label those outcomes applied-and-verified.
+
 ### 2. Make the native API guidance executable and concrete
 
 The local contract, on-demand reference, tool description, and always-on prompt must agree on common method signatures. For an edge, use `edge.getTerminal(true/false)` or `model.getTerminal(edge, true/false)`; do not invent `getSource()` or `getTarget()`. `model.getChildCount(parent)` counts direct children only. Scripts that need a recursive count must traverse the tree and should not assert a guessed total number of cells for a local edit.

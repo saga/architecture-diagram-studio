@@ -466,6 +466,33 @@ describe("native edit XML confirmation", () => {
       expect(result.violations).toContainEqual(expect.objectContaining({ kind: "changed", cellId: "shared", pageId: "p2" }));
     });
 
+    it("rejects a page rename because cell assertions cannot verify page metadata", () => {
+      const renamedPage = before.replace('name="Overview"', 'name="Overview Renamed"');
+      const result = findUndeclaredNativeScriptChanges(before, renamedPage, scriptResult([
+        { cellId: "api", exists: true, kind: "vertex", label: "Old API" }
+      ]), 20, "p1");
+      expect(result.ok).toBe(false);
+      expect(result.violations).toContainEqual(expect.objectContaining({
+        kind: "unproven-change", cellId: "__pages__", changedFields: ["page-renamed:p1:Overview->Overview Renamed"]
+      }));
+    });
+
+    it("rejects page reordering even when every cell remains unchanged", () => {
+      const secondPage = '<diagram id="p2" name="Second"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+        '<mxCell id="second-only" value="Second" vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell>' +
+        '</root></mxGraphModel></diagram>';
+      const multiPage = before.replace("</mxfile>", secondPage + "</mxfile>");
+      const swapped = multiPage.replace(/(<diagram id="p1"[\s\S]*?<\/diagram>)(<diagram id="p2"[\s\S]*?<\/diagram>)/,
+        "$2$1");
+      const result = findUndeclaredNativeScriptChanges(multiPage, swapped, scriptResult([
+        { cellId: "api", exists: true, kind: "vertex", label: "Old API" }
+      ]), 20, "p1");
+      expect(result.ok).toBe(false);
+      expect(result.violations).toContainEqual(expect.objectContaining({
+        kind: "unproven-change", cellId: "__pages__", changedFields: ["page-order-changed"]
+      }));
+    });
+
     it("rejects an accidental edit to a cell the script never declared", () => {
       const withStrayRename = insertionOnly.replace('value="Database"', 'value="Warehouse"');
       const result = findUndeclaredNativeScriptChanges(before, withStrayRename, scriptResult([

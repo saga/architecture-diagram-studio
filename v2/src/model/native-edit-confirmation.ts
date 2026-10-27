@@ -959,6 +959,20 @@ export function findUndeclaredNativeScriptChanges(
   // A removed page takes its cells with it; page-level operations are not cell edits.
   const removedPages = new Set((diff.pagesRemoved ?? []).map((pageId) => String(pageId)));
   const violations: NativeScriptScopeViolation[] = [];
+  // Cell assertions cannot prove page-level changes. Until a dedicated page assertion contract
+  // exists, fail closed on page creation/removal/rename/reorder instead of claiming an edit passed.
+  const pageChanges = [
+    ...(diff.pagesAdded ?? []).map((pageId) => "page-added:" + pageId),
+    ...(diff.pagesRemoved ?? []).map((pageId) => "page-removed:" + pageId),
+    ...(diff.pagesRenamed ?? []).map((page) => "page-renamed:" + page.id + ":" + page.before + "->" + page.after),
+    ...(diff.pageOrderChanged ? ["page-order-changed"] : [])
+  ];
+  if (pageChanges.length) {
+    violations.push({
+      kind: "unproven-change", cellId: "__pages__", pageId: null, label: "Draw.io pages",
+      changedFields: pageChanges.slice(0, 20)
+    });
+  }
   for (const cell of diff.cellsAdded ?? []) {
     if (!isDeclaredOnExpectedPage(cell)) {
       violations.push({ kind: "added", cellId: cell.id, pageId: cell.pageId, label: cell.label, changedFields: ["created"] });
