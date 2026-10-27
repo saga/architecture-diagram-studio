@@ -509,13 +509,18 @@ function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string,
 }
 
 describe("Copilot intent route result and revision contract", () => {
-  it("fails closed when the model calls more than one terminal tool in the same turn", async () => {
+  it("dispatches the first valid edit when a later terminal report conflicts", async () => {
     const harness = await createServer({ copilot: conflictingCopilot() });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
-    expect(response.status).toBe(502);
-    expect(body.outcome).toBe("failed");
-    expect(harness.acknowledgements.pending.size).toBe(0);
-    expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(true);
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
+      entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
+    expect(harness.logs.some((entry) => entry.event === "tool.terminal-intent.rejected" &&
+      entry.fields?.requestedKind === "no_mutation" && entry.fields?.registeredKind === "native_edit")).toBe(true);
   });
 
   it("auto-dispatches a small typed below-and-connect batch without a script proposal", async () => {
@@ -551,7 +556,10 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("catalogue misses do not prove absence");
     expect(prompt).toContain("run_drawio_script");
     expect(prompt).toContain("Scripts receive live ui/editor/graph/model/inspectRuntime bindings");
+    expect(prompt).toContain("exactly one terminal action per turn");
     expect(prompt.length).toBeLessThan(2800);
+    const firstRequest = JSON.parse((copilot as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
+    expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
   });
 
   it("dispatches insertion-only native scripts without a confirmation step", async () => {

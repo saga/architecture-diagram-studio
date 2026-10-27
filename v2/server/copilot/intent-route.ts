@@ -455,10 +455,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       },
       handler: async (args: { outcome?: unknown; reply?: unknown; question?: unknown; reason?: unknown }) => {
         if (args.outcome !== "answered" && args.outcome !== "needs_clarification" && args.outcome !== "unsupported") {
-          throw new Error("The no-mutation outcome must be answered, needs_clarification, or unsupported");
+          const error = "The no-mutation outcome must be answered, needs_clarification, or unsupported.";
+          await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_outcome" });
+          return { recorded: false, accepted: false, reason: "invalid_outcome", error, instructions: "Use one of the supported outcomes and do not claim that a diagram edit was applied." };
         }
         if (typeof args.reply !== "string" || !args.reply.trim() || args.reply.length > 2000) {
-          throw new Error("A no-mutation outcome requires a user-facing reply of 1–2000 characters");
+          const error = "A no-mutation outcome requires a user-facing reply of 1–2000 characters.";
+          await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_reply" });
+          return { recorded: false, accepted: false, reason: "invalid_reply", error, instructions: "Provide a concise non-empty reply up to 2000 characters; no terminal outcome was registered." };
         }
         const report: ReportedNoEditOutcome = {
           outcome: args.outcome,
@@ -501,7 +505,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-          throw new Error("Shape search requires a query from 2 to 120 characters.");
+          const error = "Shape search requires a query from 2 to 120 characters.";
+          await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
+          return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape name or concept in English or Chinese." };
         }
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
         const c4Directory = isC4DirectoryQuery(args.query);
@@ -540,7 +546,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     },
     handler: async (args: { query?: unknown; limit?: unknown }) => {
       if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-        throw new Error("Live Draw.io shape search requires a query from 2 to 120 characters.");
+        const error = "Live Draw.io shape search requires a query from 2 to 120 characters.";
+        await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
+        return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape class, library or concept keyword." };
       }
       const current = contextBySession.get(sessionId);
       const context = current && typeof current === "object" ? current as { runtimeInspection?: { liveShapeClasses?: unknown; drawioVersion?: unknown; documentRevision?: unknown } } : {};
@@ -579,7 +587,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
-          throw new Error("Element search requires a non-empty query no longer than 120 characters.");
+          const error = "Element search requires a non-empty query no longer than 120 characters.";
+          await deps.writeLog("tool.search_drawio_elements.rejected", { sessionId, reason: "invalid_query" });
+          return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with an ID, label, native shape key or geometry fragment." };
         }
         const current = contextBySession.get(sessionId);
         const context = current && typeof current === "object"
@@ -686,21 +696,21 @@ function createDrawioElementSearchTool(sessionId: string) {
         }> : [];
         const query = typeof args.query === "string" ? args.query.trim().toLocaleLowerCase() : "";
         const shapeQuery = typeof args.shape === "string" ? args.shape.trim().toLocaleLowerCase() : "";
-        if (args.query !== undefined && (!query || query.length > 120)) throw new Error("Graph inspection query must be 1–120 characters.");
-        if (args.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) throw new Error("Shape filter must be 1–180 characters.");
-        if (args.cellType !== undefined && args.cellType !== "vertex" && args.cellType !== "edge") throw new Error("cellType must be vertex or edge.");
-        if (args.unlabeled !== undefined && typeof args.unlabeled !== "boolean") throw new Error("unlabeled must be a boolean.");
+        if (args.query !== undefined && (!query || query.length > 120)) return { ok: false, reason: "invalid_query", error: "Graph inspection query must be 1–120 characters.", results: [] };
+        if (args.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) return { ok: false, reason: "invalid_shape_filter", error: "Shape filter must be 1–180 characters.", results: [] };
+        if (args.cellType !== undefined && args.cellType !== "vertex" && args.cellType !== "edge") return { ok: false, reason: "invalid_cell_type", error: "cellType must be vertex or edge.", results: [] };
+        if (args.unlabeled !== undefined && typeof args.unlabeled !== "boolean") return { ok: false, reason: "invalid_unlabeled_filter", error: "unlabeled must be a boolean.", results: [] };
         const point = args.point;
         if (point !== undefined && (!point || typeof point !== "object" || Array.isArray(point) ||
             typeof (point as { x?: unknown }).x !== "number" || !Number.isFinite((point as { x: number }).x) ||
             typeof (point as { y?: unknown }).y !== "number" || !Number.isFinite((point as { y: number }).y))) {
-          throw new Error("point requires finite x and y coordinates.");
+          return { ok: false, reason: "invalid_point", error: "point requires finite x and y coordinates.", results: [] };
         }
         const bounds = args.bounds as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | undefined;
         if (bounds !== undefined && (!bounds || typeof bounds !== "object" || Array.isArray(bounds) ||
             ![bounds.x, bounds.y, bounds.width, bounds.height].every((value) => typeof value === "number" && Number.isFinite(value)) ||
             (bounds.width as number) < 0 || (bounds.height as number) < 0)) {
-          throw new Error("bounds requires finite x/y and non-negative width/height.");
+          return { ok: false, reason: "invalid_bounds", error: "bounds requires finite x/y and non-negative width/height.", results: [] };
         }
         const offset = typeof args.offset === "number" && Number.isInteger(args.offset)
           ? Math.max(0, Math.min(20000, args.offset)) : 0;
@@ -777,7 +787,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       },
       handler: async (args: { topic?: unknown }) => {
         const topic = args.topic;
-        if (!isDrawioReferenceTopic(topic)) throw new Error("Select a valid Draw.io reference topic.");
+        if (!isDrawioReferenceTopic(topic)) {
+          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
+        }
         return { topic, reference: await readDrawioAgentReference(topic) };
       }
     });
@@ -798,13 +810,13 @@ function createDrawioElementSearchTool(sessionId: string) {
       },
       handler: async (args: { summary?: unknown; script?: unknown; mode?: unknown }) => {
         if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000) {
-          throw new Error("run_drawio_script requires a summary from 1 to 1000 characters");
+          return { accepted: false, terminal: false, result_available: false, reason: "invalid_summary", error: "run_drawio_script requires a summary from 1 to 1000 characters." };
         }
         if (typeof args.script !== "string" || !args.script.trim() || args.script.length > 50000) {
-          throw new Error("run_drawio_script requires a non-empty JavaScript program no longer than 50000 characters");
+          return { accepted: false, terminal: false, result_available: false, reason: "invalid_script", error: "run_drawio_script requires a non-empty JavaScript program no longer than 50000 characters." };
         }
         if (args.mode !== undefined && args.mode !== "read" && args.mode !== "mutate") {
-          throw new Error("run_drawio_script mode must be read or mutate");
+          return { accepted: false, terminal: false, result_available: false, reason: "invalid_mode", error: "run_drawio_script mode must be read or mutate." };
         }
         const mode = args.mode === "read" ? "read" : "mutate";
         if (mode === "read") {
@@ -822,9 +834,15 @@ function createDrawioElementSearchTool(sessionId: string) {
         const parsed = parseNativeEditOperations([{
           op: "run_drawio_script", target: "active_page", summary: args.summary, script: args.script, mode
         }]);
-        if (!parsed.ok) throw new Error(parsed.error);
+        if (!parsed.ok) {
+          await deps.writeLog("tool.run_drawio_script.rejected", { sessionId, reason: "invalid_native_script", error: parsed.error });
+          return { accepted: false, terminal: false, result_available: false, reason: "invalid_native_script", error: parsed.error, instructions: "Correct the script operation payload. No script was queued or executed." };
+        }
         const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
-        if (!resolved.ok) throw new Error(resolved.error);
+        if (!resolved.ok) {
+          await deps.writeLog("tool.run_drawio_script.rejected", { sessionId, reason: "unresolved_target", error: resolved.error });
+          return { accepted: false, terminal: false, result_available: false, reason: "unresolved_target", error: resolved.error, instructions: "Use the current page context and exact native IDs or uniquely resolved labels. No script was queued or executed." };
+        }
         const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
         const registration = registerTerminalIntent(sessionId, "native_edit");
         if (!registration.accepted) {
@@ -881,13 +899,13 @@ function createDrawioElementSearchTool(sessionId: string) {
       handler: async (args: { operations?: unknown }) => {
         const parsed = parseNativeEditOperations(args?.operations);
         if (!parsed.ok) {
-          await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, error: parsed.error });
-          throw new Error(parsed.error);
+          await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, reason: "invalid_native_edit_batch", error: parsed.error });
+          return { accepted: false, reason: "invalid_native_edit_batch", error: parsed.error, instructions: "Correct the operations payload to match the tool schema. No edit was queued." };
         }
         const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
         if (!resolved.ok) {
-          await deps.writeLog("tool.propose_native_edits.unresolved", { sessionId, operations: parsed.operations, error: resolved.error });
-          throw new Error(resolved.error);
+          await deps.writeLog("tool.propose_native_edits.unresolved", { sessionId, operations: parsed.operations, reason: "unresolved_targets", error: resolved.error });
+          return { accepted: false, reason: "unresolved_targets", error: resolved.error, instructions: "Use current-page IDs or a unique exact label from the supplied context. No edit was queued." };
         }
         const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
         const registration = registerTerminalIntent(sessionId, "native_edit");
@@ -1316,7 +1334,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; Studio compares the before/after XML itself. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve edit targets inside the script by label (model.getValue(cell) compared with the requested text, throwing when none or several match) and trust a cell ID only when selectedCell or diagram.cells gives it; never infer that a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
+          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; Studio compares the before/after XML itself. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve edit targets by comparing model.getValue(cell) with the requested label, rejecting zero or ambiguous matches. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
         });
         await sendAttempt(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1508,7 +1526,18 @@ function createSelectDiagramElementTool(sessionId: string) {
             typeof cell.name === "string" && cell.name.trim().toLocaleLowerCase() === target.toLocaleLowerCase()
           );
       if (matches.length !== 1 || typeof matches[0]?.id !== "string") {
-        throw new Error(matches.length > 1 ? "The element label is ambiguous; provide its exact cell ID." : "The element was not found in the supplied diagram context. No selection changed.");
+        const ambiguous = matches.length > 1;
+        const error = ambiguous
+          ? "The element label is ambiguous; provide its exact cell ID."
+          : "The element was not found in the supplied diagram context. No selection changed.";
+        return {
+          selected: false, accepted: false,
+          reason: ambiguous ? "ambiguous_target" : "target_not_found",
+          error,
+          instructions: ambiguous
+            ? "Use an exact ID returned for the current documentRevision, or a unique exact label."
+            : "Search the current diagram using search_drawio_elements or inspect_drawio_graph; do not guess an ID."
+        };
       }
       const selected = { cellId: matches[0].id, pageId: typeof source.activePageId === "string" ? source.activePageId : typeof source.selectedCell?.pageId === "string" ? source.selectedCell.pageId : null, label: typeof matches[0].name === "string" ? matches[0].name : matches[0].id };
       const registration = registerTerminalIntent(sessionId, "selection");
