@@ -144,7 +144,11 @@ function reportingCopilot(
   return copilot;
 }
 
-function elementSearchingCopilot() {
+function elementSearchingCopilot(
+  query = "Payment Orchestrator",
+  toolName = "search_drawio_elements",
+  toolArgs?: Record<string, unknown>
+) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
   let searchResult: unknown = null;
@@ -166,9 +170,9 @@ function elementSearchingCopilot() {
       get session() { return activeSession; },
       send: async () => {
         const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
-        const search = tools.find((candidate) => candidate.name === "search_drawio_elements");
-        if (!search?.handler) throw new Error("search_drawio_elements tool was not registered");
-        searchResult = await search.handler({ query: "Payment Orchestrator", limit: 5 });
+        const search = tools.find((candidate) => candidate.name === toolName);
+        if (!search?.handler) throw new Error(toolName + " tool was not registered");
+        searchResult = await search.handler(toolArgs ?? { query, limit: 5 });
         const report = tools.find((candidate) => candidate.name === "report_intent_outcome");
         if (!report?.handler) throw new Error("report_intent_outcome tool was not registered");
         await report.handler({ outcome: "answered", reply: "Element search completed." });
@@ -715,8 +719,70 @@ describe("Copilot intent route result and revision contract", () => {
     const searchResult = (copilot as { searchResult?: { found: boolean; matchCount: number; results: Array<{ id: string; label: string }> } }).searchResult;
     expect(searchResult?.found).toBe(true);
     expect(searchResult?.matchCount).toBe(1);
-    expect(searchResult?.results).toEqual([{ id: "payment-orchestrator", label: "Payment Orchestrator", cellType: expect.any(String) }]);
+    expect(searchResult?.results).toMatchObject([{
+      id: "payment-orchestrator", label: "Payment Orchestrator", cellType: expect.any(String),
+      geometry: { x: 1, y: 1, width: 20, height: 20 }, parentId: "1"
+    }]);
     expect(harness.logs.some((entry) => entry.event === "tool.search_drawio_elements.completed")).toBe(true);
+    expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("searches unlabeled floor-plan furniture using a single Chinese character", async () => {
+    const furniture = '<mxCell id="table-north" value="桌子" style="shape=mxgraph.floorplan.table;" vertex="1" parent="1">' +
+      '<mxGeometry x="300" y="210" width="82" height="42" as="geometry"/></mxCell>';
+    const floorplanXml = XML.replace("</root>", furniture + "</root>");
+    const copilot = elementSearchingCopilot("桌");
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: floorplanXml, revision: workspaceRevision(floorplanXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "搜索桌",
+      diagramXml: floorplanXml,
+      documentRevision: workspaceRevision(floorplanXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const result = (copilot as { searchResult?: { matchCount: number; results: Array<Record<string, unknown>> } }).searchResult;
+    expect(result?.matchCount).toBe(1);
+    expect(result?.results[0]).toMatchObject({
+      id: "table-north", label: "桌子", shape: "mxgraph.floorplan.table",
+      geometry: { x: 300, y: 210, width: 82, height: 42 }
+    });
+  });
+
+  it("inspects unnamed furniture by native shape and paginates without ending the turn", async () => {
+    const tableA = '<mxCell id="table-a" value="" style="shape=mxgraph.floorplan.table;" vertex="1" parent="1">' +
+      '<mxGeometry x="300" y="210" width="82" height="42" as="geometry"/></mxCell>';
+    const tableB = '<mxCell id="table-b" value="" style="shape=mxgraph.floorplan.table;" vertex="1" parent="1">' +
+      '<mxGeometry x="430" y="210" width="82" height="42" as="geometry"/></mxCell>';
+    const floorplanXml = XML.replace("</root>", tableA + tableB + "</root>");
+    const copilot = elementSearchingCopilot("", "inspect_drawio_graph", {
+      shape: "mxgraph.floorplan.table", unlabeled: true, offset: 0, limit: 1
+    });
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: floorplanXml, revision: workspaceRevision(floorplanXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "Inspect unnamed table shapes",
+      diagramXml: floorplanXml,
+      documentRevision: workspaceRevision(floorplanXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const result = (copilot as { searchResult?: Record<string, unknown> }).searchResult;
+    expect(result).toMatchObject({
+      source: "native-drawio-xml", pageId: "p1", totalCount: 2,
+      offset: 0, limit: 1, returnedCount: 1, nextOffset: 1, truncated: true,
+      results: [{
+        id: "table-a", label: "", cellType: "vertex", shape: "mxgraph.floorplan.table",
+        geometry: { x: 300, y: 210, width: 82, height: 42 }, parentId: "1"
+      }]
+    });
+    expect(harness.logs.some((entry) => entry.event === "tool.inspect_drawio_graph.completed")).toBe(true);
     expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
