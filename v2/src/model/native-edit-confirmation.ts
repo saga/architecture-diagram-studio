@@ -74,10 +74,28 @@ function elementSignature(element: Element): unknown {
   return [element.nodeName, attributes, text, elementChildren(element).map(elementSignature)];
 }
 
+/**
+ * mxGraphModel.dx/dy describe the current viewport translation, not diagram content.
+ * Draw.io may rewrite them during export after the user pans the canvas; ignoring these
+ * two root attributes prevents a read-only script from appearing to mutate the document.
+ * Keep every nested cell, geometry, style and metadata attribute in the signature.
+ */
+function modelSemanticSignature(model: Element): unknown {
+  const attributes = Array.from(model.attributes)
+    .filter((attribute) => attribute.name !== "dx" && attribute.name !== "dy")
+    .map((attribute) => [attribute.name, attribute.value] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  const text = Array.from(model.childNodes)
+    .filter((child) => child.nodeType === 3 || child.nodeType === 4)
+    .map((child) => (child.nodeValue || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return [model.nodeName, attributes, text, elementChildren(model).map(elementSignature)];
+}
+
 function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   const document = parseDrawioXml(xml);
   const root = document.documentElement;
-  if (root.nodeName !== "mxfile") return JSON.stringify(elementSignature(root));
+  if (root.nodeName !== "mxfile") return JSON.stringify(root.nodeName === "mxGraphModel" ? modelSemanticSignature(root) : elementSignature(root));
   const pages = elementChildren(root).filter((child) => child.nodeName === "diagram");
   const page = pageId != null ? pages.find((candidate) => candidate.getAttribute("id") === pageId) : null;
   if (pageId != null) {
@@ -87,7 +105,7 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
     return JSON.stringify({
       pageId,
       pageName: page.getAttribute("name") || null,
-      model: matchingModel ? elementSignature(matchingModel.model) : null
+      model: matchingModel ? modelSemanticSignature(matchingModel.model) : null
     });
   }
   const models = modelRoots(xml);
