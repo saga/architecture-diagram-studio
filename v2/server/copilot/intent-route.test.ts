@@ -1191,7 +1191,8 @@ describe("Copilot native-edit acknowledgement route", () => {
       appliedAck(pending, { applicationState: "changed-unverified" }));
     expect(response.status).toBe(400);
     expect(body.outcome).toBe("failed");
-    expect(String(body.error)).toContain("valid status");
+    expect(body.reason).toBe("editor_state_not_verified");
+    expect(String(body.error)).toContain("applied-and-verified");
     expect(store.pending.size).toBe(1);
     expect(store.getReceipt(pending.requestId)).toBeNull();
   });
