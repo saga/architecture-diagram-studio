@@ -301,4 +301,14 @@ return { accepted: false, reason: "terminal_intent_already_registered",
 | read 模式注册终局 | `v2/server/copilot/intent-route.ts:781-806` |
 | read 结果的聊天渲染 | `v2/src/hooks/useCopilotIntent.ts:242-270` |
 
-**本次未修改任何代码。**
+## 13. 实施记录（2026-10-27）
+
+已按本报告修复并提交：
+
+- `run_drawio_script(mode:"read")` 现在返回 `accepted:false`、`result_available:false`、`terminal:false`，明确告知“脚本不会在本轮执行，也没有返回数据”，并引导模型调用非终局的 `inspect_drawio_graph` / `search_drawio_elements`。它不会创建待执行脚本，也不会占用终局名额。
+- `registerTerminalIntent` 不再通过抛异常表达冲突。后续终局调用得到结构化拒绝，因此 SDK 不会把它压成无信息的 `Tool execution failed`。
+- 已排队的 `native_edit` 优先保留；后续 selection/report/其他 edit 会收到结构化拒绝，第一条合法编辑仍会派发。若先注册的是较弱的 `selection` 或 `no_mutation`，随后出现已解析的真实 `native_edit`，则升级为编辑意图并清除先前的待处理状态。
+- 常驻指令和工具说明明确区分“本轮可用的只读查询”与“本轮结束后才执行的终局脚本”；避免模型把异步脚本返回的 `accepted` 当成已经读到数据。
+- `intent-route.test.ts` 新增回归覆盖：read → 中文 `set_label` → report；report → 中文编辑升级；重复编辑只保留第一条，并验证不会再走整轮 `conflicting_terminal_tools` 失败分支。
+
+代码与测试已提交至 `main`。V2 CI 运行状态以最新提交的 GitHub Actions 为准；不把尚未结束的 E2E 声称为通过。
