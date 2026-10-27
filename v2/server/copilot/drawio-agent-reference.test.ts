@@ -8,6 +8,16 @@ describe("on-demand Draw.io reference", () => {
     expect(content).toContain("not exhaustive");
     expect(content).not.toContain("### Enumerate all cells");
   });
+  it("includes C4 one-query style recipes in shape discovery and recipes references", async () => {
+    const shapeDiscovery = await readDrawioAgentReference("shape_discovery");
+    const recipes = await readDrawioAgentReference("recipes");
+    expect(shapeDiscovery).toContain("C4 shape recipes");
+    expect(shapeDiscovery).toContain("shape=mxgraph.c4.person2");
+    expect(shapeDiscovery).toContain("C4 Software System");
+    expect(shapeDiscovery).toContain("C4 Container");
+    expect(recipes).toContain("C4 shape recipes");
+    expect(recipes).toContain("fontColor=#ffffff");
+  });
   it("bounds full-reference responses", () => {
     const huge = "# Reference\n" + "x".repeat(20_000);
     expect(selectDrawioReferenceSections(huge, "all").length).toBeLessThanOrEqual(18_100);
