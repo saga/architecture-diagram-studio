@@ -1346,7 +1346,7 @@ function createDrawioElementSearchTool(sessionId: string) {
             // already-accepted action; the browser still has to verify native XML and persistence.
             if (requestCancelled || res.destroyed || !terminalKind) throw error;
             terminalIntentModelFailure = { attempt, error: errorMessage.slice(0, 1000) };
-            await deps.writeLog("turn.model-call.failed-after-terminal-intent", {
+            await deps.writeLog("turn.model-call.failed-after-terminal-intent.failed", {
               requestId, sessionId, attempt, terminalKind,
               errorName: error instanceof Error ? error.name : typeof error,
               errorMessage: errorMessage.slice(0, 1000),
@@ -1406,8 +1406,12 @@ function createDrawioElementSearchTool(sessionId: string) {
         ? (plan.capturedNativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
             ? ["run_drawio_script"] : ["propose_native_edits"])
         : plan.capturedSelection ? ["select_diagram_element"] : [];
+      const terminalIntentWarning = plan.terminalIntentModelFailure
+        ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
+        : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
+        ...(plan.terminalIntentModelFailure ? { modelTurnWarning: plan.terminalIntentModelFailure.error } : {}),
         reasoningEffort: plan.session.reasoningEffort || "model-default",
         provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed,
         ...(plan.usage ? { usage: plan.usage } : {}),
@@ -1428,7 +1432,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           };
           const response = {
             outcome: "proposal_required" as const,
-            reply: confirmationReviewMessage(nativeEdits.operations),
+            reply: terminalIntentWarning + confirmationReviewMessage(nativeEdits.operations),
             proposal,
             ...shared
           };
@@ -1449,9 +1453,9 @@ function createDrawioElementSearchTool(sessionId: string) {
           // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
           outcome: "command_ready" as const,
           commands: [],
-          reply: nativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
+          reply: terminalIntentWarning + (nativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
             ? "执行原生 Draw.io 脚本：" + nativeEdits.summary + "。等待编辑器序列化和保存确认。"
-            : nativeEdits.summary,
+            : nativeEdits.summary),
           selection,
           nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
           ...shared
@@ -1459,13 +1463,14 @@ function createDrawioElementSearchTool(sessionId: string) {
         await deps.writeLog("turn.completed.with-native-edits", {
           requestId, sessionId, durationMs: Date.now() - startedAt,
           operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
-          selection: selection ?? null, operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) })), usage: plan.usage
+          selection: selection ?? null, modelTurnWarning: plan.terminalIntentModelFailure ?? null,
+          operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) })), usage: plan.usage
         });
         res.json(response);
         return;
       }
       if (selection) {
-        const response = { outcome: "selected" as const, commands: [], reply: modelReply || "Selected diagram element: " + selection.label, selection, ...shared };
+        const response = { outcome: "selected" as const, commands: [], reply: terminalIntentWarning + (modelReply || "Selected diagram element: " + selection.label), selection, ...shared };
         await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response, usage: plan.usage });
         res.json(response);
         return;
@@ -1475,7 +1480,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         await deps.writeLog("turn.completed.without-native-edit", {
           requestId, sessionId, outcome: reported.outcome, reply: reported.reply, usage: plan.usage
         });
-        res.json({ ...reported, ...shared });
+        res.json({ ...reported, reply: terminalIntentWarning + reported.reply, ...shared });
         return;
       }
       await deps.writeLog("turn.completed.without-native-edit", {
