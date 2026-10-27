@@ -901,6 +901,18 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
+  it("accepts a single Chinese character in curated shape search", async () => {
+    const copilot = shapeSearchingCopilot("桌");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "查找桌子形状"
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    expect((copilot as { searchResponse?: Record<string, unknown> }).searchResponse).toBeTruthy();
+    expect(harness.logs.some((entry) => entry.event === "tool.search_drawio_shapes.rejected")).toBe(false);
+  });
+
   it("searches unlabeled floor-plan furniture using a single Chinese character", async () => {
     const furniture = '<mxCell id="table-north" value="桌子" style="shape=mxgraph.floorplan.table;" vertex="1" parent="1">' +
       '<mxGeometry x="300" y="210" width="82" height="42" as="geometry"/></mxCell>';
