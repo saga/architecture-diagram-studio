@@ -821,6 +821,26 @@ function normalizePlan(
     const port = { x, y: direction > 0 ? bounds.y + bounds.height : bounds.y };
     return { port, escape: { x, y: port.y + direction * terminalEscapeDistance } };
   };
+  const terminalEscapeCandidates = (
+    bounds: { x: number; y: number; width: number; height: number },
+    toward: Point,
+    selfLoopSide?: "left" | "right" | "top" | "bottom"
+  ): Array<{ port: Point; escape: Point }> => {
+    const preferred = selfLoopSide
+      ? terminalEscapeOnSide(bounds, selfLoopSide)
+      : terminalEscape(bounds, toward);
+    const alternatives = (["right", "left", "bottom", "top"] as const).map((side) =>
+      terminalEscapeOnSide(bounds, side)
+    );
+    const result: Array<{ port: Point; escape: Point }> = [];
+    for (const candidate of [preferred, ...alternatives]) {
+      if (!result.some((item) =>
+        Math.abs(item.escape.x - candidate.escape.x) <= routeAxisEpsilon &&
+        Math.abs(item.escape.y - candidate.escape.y) <= routeAxisEpsilon
+      )) result.push(candidate);
+    }
+    return result;
+  };
   const escapeFromBoundary = (
     ownerId: string,
     boundary: Point
@@ -914,17 +934,20 @@ function normalizePlan(
     const innerClearance = 6;
     const preferred = orthogonalizeRoute([start, boundary]);
     if (isOrthogonalRouteClear(preferred, internalObstacles, innerClearance, ownerBounds)) return preferred;
-    const routed = routeOrthogonalAvoidingObstacles(start, boundary, internalObstacles, {
-      clearance: innerClearance,
-      bendPenalty: 18,
-      maxPoints: 60,
-      bounds: ownerBounds
-    });
-    if (!routed || !isOrthogonalRouteClear(routed, internalObstacles, innerClearance, ownerBounds)) {
-      throw new Error("No safe internal route could be found through group " + ownerId +
-        " for connector terminal " + terminalId + ".");
+    for (const clearance of [innerClearance, 3, 0]) {
+      const routed = routeOrthogonalAvoidingObstacles(start, boundary, internalObstacles, {
+        clearance,
+        bendPenalty: 18,
+        maxPoints: 60,
+        bounds: ownerBounds
+      });
+      if (routed && isOrthogonalRouteClear(routed, internalObstacles, clearance, ownerBounds)) {
+        return orthogonalizeRoute(routed);
+      }
     }
-    return orthogonalizeRoute(routed);
+    // A dense pre-existing group can have no corridor with the requested clearance. Keep
+    // layout usable and emit the shortest right-angle transition instead of aborting all nodes.
+    return preferred;
   };
 
   for (const edge of projection.edges) {
@@ -954,16 +977,14 @@ function normalizePlan(
       const targetGroupExit = targetBoundary && edge.layoutTargetId
         ? escapeFromBoundary(edge.layoutTargetId, targetBoundary)
         : null;
-      const sourcePort = sourceGroupExit
-        ? { port: sourceGroupExit.boundary, escape: sourceGroupExit.escape }
-        : selfLoop
-          ? terminalEscapeOnSide(sourceBounds!, "right")
-          : terminalEscape(sourceBounds!, translated[0] ?? targetCenter);
-      const targetPort = targetGroupExit
-        ? { port: targetGroupExit.boundary, escape: targetGroupExit.escape }
-        : selfLoop
-          ? terminalEscapeOnSide(targetBounds!, "top")
-          : terminalEscape(targetBounds!, translated[translated.length - 1] ?? sourceCenter);
+      const sourceCandidates = sourceGroupExit
+        ? [{ port: sourceGroupExit.boundary, escape: sourceGroupExit.escape }]
+        : terminalEscapeCandidates(sourceBounds!, translated[0] ?? targetCenter, selfLoop ? "right" : undefined);
+      const targetCandidates = targetGroupExit
+        ? [{ port: targetGroupExit.boundary, escape: targetGroupExit.escape }]
+        : terminalEscapeCandidates(targetBounds!, translated[translated.length - 1] ?? sourceCenter, selfLoop ? "top" : undefined);
+      const sourcePort = sourceCandidates[0];
+      const targetPort = targetCandidates[0];
       const sourceInnerRoute = sourceGroupExit && edge.sourceId && edge.layoutSourceId && edge.targetId
         ? routeInsideOwner(edge.sourceId, edge.layoutSourceId, sourceGroupExit.boundary, edge.targetId)
         : [];
@@ -981,25 +1002,38 @@ function normalizePlan(
       ]);
       let points = isOrthogonalRouteClear(preferred, obstacles, routeClearance) ? preferred : null;
       if (!points) {
-        const routed = routeOrthogonalAvoidingObstacles(
-          sourcePort.escape,
-          targetPort.escape,
-          obstacles,
-          { clearance: routeClearance, bendPenalty: 32, maxPoints: 90 }
-        );
-        if (routed) {
-          const candidate = orthogonalizeRoute([
-            ...sourceInnerRoute,
-            ...routed,
-            ...reversedTargetInnerRoute
-          ]);
-          if (isOrthogonalRouteClear(candidate, obstacles, routeClearance)) points = candidate;
+        const seenPairs = new Set<string>();
+        for (const clearance of [routeClearance, 8, 4, 0]) {
+          for (const sourceCandidate of sourceCandidates) {
+            for (const targetCandidate of targetCandidates) {
+              const pairKey = [sourceCandidate.escape.x, sourceCandidate.escape.y, targetCandidate.escape.x, targetCandidate.escape.y].join(":");
+              if (seenPairs.has(pairKey)) continue;
+              seenPairs.add(pairKey);
+              const routed = routeOrthogonalAvoidingObstacles(
+                sourceCandidate.escape,
+                targetCandidate.escape,
+                obstacles,
+                { clearance, bendPenalty: 32, maxPoints: 90 }
+              );
+              if (!routed) continue;
+              const candidate = orthogonalizeRoute([
+                ...sourceInnerRoute,
+                ...routed,
+                ...reversedTargetInnerRoute
+              ]);
+              if (isOrthogonalRouteClear(candidate, obstacles, clearance)) {
+                points = candidate;
+                break;
+              }
+            }
+            if (points) break;
+          }
+          if (points) break;
         }
       }
-      if (!points) {
-        throw new Error("No safe orthogonal route could be found for connector " + edge.id +
-          ". Move overlapping nodes farther apart and retry the layout.");
-      }
+      // Overlapping node bounds can make a fully clear route mathematically impossible.
+      // Keep the layout operation usable with its orthogonalized solver path in that case.
+      if (!points) points = preferred;
       if (points.length > 100 ||
           points.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y)) ||
           points.some((point, index) => index > 0 &&
@@ -1082,7 +1116,9 @@ function normalizePlan(
       }
     }
     if (!points) {
-      throw new Error("No safe orthogonal route could be found for internal region connector " + edge.id + ".");
+      // Keep the translated waypoints in difficult, overlapping regions rather than failing
+      // the entire layout; the planner still enforces orthogonality before returning the plan.
+      points = orthogonalizeRoute(translated);
     }
     nativeRoutes.push({ cellId: edge.id, points });
   }
