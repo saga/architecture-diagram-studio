@@ -265,4 +265,16 @@ sample: {"id":"50","label":"","cellType":"vertex"}
 
 ---
 
-**本次未修改任何代码。** 建议按 P0-2 → P0-1(a) → P1-1 的顺序推进：P0-2 只有几行，能立刻把误报消掉；P0-1(a) 能让只读脚本不再被当成失败；P1-1 决定了下一次"按形状找目标"能不能不靠脚本。
+**实施记录（2026-10-27）**
+
+已按上述根因直接修改 `main`：
+
+- **P0-2**：页面语义签名在比较 `mxGraphModel` 时忽略 `dx/dy`，cell、style、geometry 和其余模型属性仍参与比较；新增压缩/展开 XML 的视口平移回归测试。
+- **P0-1**：`run_drawio_script` 增加 `mode: read | mutate`，默认仍为 mutate。只读脚本有独立的模型/编辑器快照检测和一组只读 API 防护；若改动内容则拒绝结果。读取结果不再要求伪造 edit postconditions。
+- **P0-1(b)**：新增非终结式 `inspect_drawio_graph`，按 shape、无标签、cell 类型、点/矩形范围过滤，并支持分页，返回当前页面的真实 native cell ID、shape、geometry、rotation、parent ID。它的结果可以继续供当前 Agent turn 规划修改，不需要把测绘伪装成一次编辑。
+- **P1-1 / P1-2**：普通元素搜索支持单字中文，并检索 shape、geometry、rotation、parent ID；prompt 的私有目标索引与工具返回值提供几何信息，但前 80 个 prompt target 的输出仍然受控，完整索引留给检索工具。
+- **P2**：当只读脚本未改变语义 XML 时，Studio 不调用文件/工作区持久化，不新建 History 版本，也不会将视口平移产生的临时序列化 XML覆盖用户文件。最终确认仍记录只读结果，但不声称图已修改。
+- **诊断准确性**：未运行的 undeclared-change 范围校验会记为 `null`，不会误报为通过；失败文案区分脚本断言失败与范围校验未执行。
+
+新增/更新的测试覆盖视口变化、只读脚本 dispatch/ack、形状/几何上下文、单字中文检索、无标签图元过滤和分页。最终构建与原生画布 E2E 状态以最近一次 V2 CI 结果为准。
+
