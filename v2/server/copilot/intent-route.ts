@@ -854,11 +854,9 @@ function createDrawioElementSearchTool(sessionId: string) {
           drawioVersion: context.runtimeInspection?.drawioVersion ?? PINNED_DRAWIO_VERSION
         });
         return {
-          accepted: true, execution: "after_model_turn", summary, mode,
+          accepted: true, execution: "after_model_turn", summary, mode: "mutate",
           scriptLength: args.script.length, terminal: true,
-          instructions: mode === "read"
-            ? "No script was executed and no data was returned because scripts run after the model turn. This is not a terminal action. Use inspect_drawio_graph/search_drawio_elements for read-only data available now; then continue with the requested edit."
-            : "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Return and verify postconditions plus XML assertions; do not claim success before serialization and persistence are confirmed."
+          instructions: "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Return and verify postconditions plus XML assertions; do not claim success before serialization and persistence are confirmed."
         };
       }
     });
@@ -1515,10 +1513,6 @@ function createSelectDiagramElementTool(sessionId: string) {
       const selected = { cellId: matches[0].id, pageId: typeof source.activePageId === "string" ? source.activePageId : typeof source.selectedCell?.pageId === "string" ? source.selectedCell.pageId : null, label: typeof matches[0].name === "string" ? matches[0].name : matches[0].id };
       const registration = registerTerminalIntent(sessionId, "selection");
       if (!registration.accepted) {
-        await deps.writeLog("tool.terminal-intent.rejected", {
-          sessionId, requestedKind: "selection", registeredKind: registration.registeredKind,
-          reason: "terminal_action_already_registered"
-        });
         return {
           selected: false, accepted: false, reason: "terminal_action_already_registered",
           registeredKind: registration.registeredKind,
