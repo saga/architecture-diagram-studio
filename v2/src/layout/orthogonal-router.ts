@@ -17,6 +17,8 @@ export interface OrthogonalRouteOptions {
   bendPenalty?: number;
   /** Maximum number of points returned after collinear simplification. */
   maxPoints?: number;
+  /** Optional rectangle that every route point and segment must remain inside. */
+  bounds?: { x: number; y: number; width: number; height: number };
 }
 
 interface ExpandedObstacle {
@@ -157,6 +159,22 @@ export function routeOrthogonalAvoidingObstacles(
   const clearance = Math.max(0, options.clearance ?? 10);
   const bendPenalty = Math.max(0, options.bendPenalty ?? 24);
   const maxPoints = Math.max(2, options.maxPoints ?? 100);
+  const bounds = options.bounds && [options.bounds.x, options.bounds.y, options.bounds.width, options.bounds.height].every(Number.isFinite) &&
+      options.bounds.width > 0 && options.bounds.height > 0
+    ? {
+        left: options.bounds.x,
+        top: options.bounds.y,
+        right: options.bounds.x + options.bounds.width,
+        bottom: options.bounds.y + options.bounds.height
+      }
+    : undefined;
+  if (options.bounds && !bounds) return null;
+  if (bounds && (
+    start.x < bounds.left - EPSILON || start.x > bounds.right + EPSILON ||
+    start.y < bounds.top - EPSILON || start.y > bounds.bottom + EPSILON ||
+    end.x < bounds.left - EPSILON || end.x > bounds.right + EPSILON ||
+    end.y < bounds.top - EPSILON || end.y > bounds.bottom + EPSILON
+  )) return null;
   const obstacles = sourceObstacles
     .filter((obstacle) =>
       [obstacle.x, obstacle.y, obstacle.width, obstacle.height].every(Number.isFinite) &&
@@ -171,14 +189,20 @@ export function routeOrthogonalAvoidingObstacles(
 
   if (isInsideObstacle(start, obstacles) || isInsideObstacle(end, obstacles)) return null;
 
+  const clippedX = obstacles.flatMap((obstacle) => [obstacle.left, obstacle.right])
+    .map((value) => bounds ? Math.max(bounds.left, Math.min(bounds.right, value)) : value);
+  const clippedY = obstacles.flatMap((obstacle) => [obstacle.top, obstacle.bottom])
+    .map((value) => bounds ? Math.max(bounds.top, Math.min(bounds.bottom, value)) : value);
   const xs = uniqueSorted([
     start.x, end.x,
-    ...obstacles.flatMap((obstacle) => [obstacle.left, obstacle.right])
-  ]);
+    ...(bounds ? [bounds.left, bounds.right] : []),
+    ...clippedX
+  ]).filter((value) => !bounds || (value >= bounds.left - EPSILON && value <= bounds.right + EPSILON));
   const ys = uniqueSorted([
     start.y, end.y,
-    ...obstacles.flatMap((obstacle) => [obstacle.top, obstacle.bottom])
-  ]);
+    ...(bounds ? [bounds.top, bounds.bottom] : []),
+    ...clippedY
+  ]).filter((value) => !bounds || (value >= bounds.top - EPSILON && value <= bounds.bottom + EPSILON));
   const xIndex = new Map(xs.map((value, index) => [value, index] as const));
   const yIndex = new Map(ys.map((value, index) => [value, index] as const));
   const startX = xIndex.get(start.x);
@@ -247,7 +271,10 @@ export function routeOrthogonalAvoidingObstacles(
     for (const candidate of candidates) {
       const nextNode = candidate.y * xCount + candidate.x;
       const nextPoint = pointAt(nextNode);
-      if (isInsideObstacle(nextPoint, obstacles) || !segmentIsClear(here, nextPoint, obstacles)) continue;
+      if (isInsideObstacle(nextPoint, obstacles) ||
+          (bounds && (nextPoint.x < bounds.left - EPSILON || nextPoint.x > bounds.right + EPSILON ||
+            nextPoint.y < bounds.top - EPSILON || nextPoint.y > bounds.bottom + EPSILON)) ||
+          !segmentIsClear(here, nextPoint, obstacles)) continue;
       const distance = Math.abs(nextPoint.x - here.x) + Math.abs(nextPoint.y - here.y);
       enqueue(state, nextNode, candidate.direction, distance);
     }
@@ -268,9 +295,14 @@ export function routeOrthogonalAvoidingObstacles(
 export function isOrthogonalRouteClear(
   points: OrthogonalRoutePoint[],
   sourceObstacles: OrthogonalRouteObstacle[],
-  clearance = 0
+  clearance = 0,
+  bounds?: { x: number; y: number; width: number; height: number }
 ): boolean {
   if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
+  if (bounds && points.some((point) =>
+    point.x < bounds.x - EPSILON || point.x > bounds.x + bounds.width + EPSILON ||
+    point.y < bounds.y - EPSILON || point.y > bounds.y + bounds.height + EPSILON
+  )) return false;
   const obstacles = sourceObstacles.map((obstacle) => ({
     left: obstacle.x - clearance,
     top: obstacle.y - clearance,
