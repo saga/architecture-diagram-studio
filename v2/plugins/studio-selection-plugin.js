@@ -1153,7 +1153,11 @@
           throw failure;
         } finally {
           activeBatchCreatedCells = previousBatchCreatedCells; activeModel.endUpdate();
-          try { if (typeof activeGraph.refresh === "function") activeGraph.refresh(); if (activeGraph.view && typeof activeGraph.view.validate === "function") activeGraph.view.validate(); } catch (_) {}
+          // A successful read-only inspection has not changed model content, so do not
+          // trigger rendering/validation paths that can mark the editor as modified.
+          if (!readOnlyScriptBatch || batchResults.some(function (result) { return result.success === false; })) {
+            try { if (typeof activeGraph.refresh === "function") activeGraph.refresh(); if (activeGraph.view && typeof activeGraph.view.validate === "function") activeGraph.view.validate(); } catch (_) {}
+          }
         }
         if (!readOnlyScriptBatch) {
           if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
