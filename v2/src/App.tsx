@@ -2064,6 +2064,7 @@ export default function App() {
                   if (timerId !== undefined) window.clearTimeout(timerId);
                   nativeEditWatchdogsRef.current.delete(requestId);
                   const resolver = nativeEditResolversRef.current.get(requestId);
+                  setCellEditRequest((current) => current?.requestId === requestId ? null : current);
                   if (result.path === "cell:batch") {
                     // Persistence/revision processing failed after the iframe returned. The
                     // actual edit may already be in the live XML, so keep the no-retry lock.
@@ -2089,9 +2090,17 @@ export default function App() {
                     }
                     return;
                   }
-                  if (result.path === "cell:select" && resolver) {
-                    nativeEditResolversRef.current.delete(requestId);
-                    resolver({ success: false, error: "Studio could not confirm the Draw.io selection: " + errorMessage });
+                  if (result.path === "cell:select") {
+                    if (resolver) {
+                      nativeEditResolversRef.current.delete(requestId);
+                      resolver({ success: false, error: "Studio could not confirm the Draw.io selection: " + errorMessage });
+                    }
+                    if (lateNativeSelectionRequestsRef.current.delete(requestId)) {
+                      const selectionFailure = "Studio could not reconcile the late Draw.io selection result: " + errorMessage;
+                      setLastAction(selectionFailure);
+                      const selectionFailureMessage: ChatMessage = { role: "assistant", id: Date.now(), text: selectionFailure };
+                      setMessages((items) => [...items, selectionFailureMessage].slice(-300));
+                    }
                   }
                 }
               }
