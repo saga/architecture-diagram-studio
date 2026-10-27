@@ -909,6 +909,107 @@
       return result;
     }
 
+    function parseNativeScriptPayload(rawValue) {
+      var raw = String(rawValue == null ? "" : rawValue);
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+            typeof parsed.script === "string" && (parsed.mode === "read" || parsed.mode === "mutate")) {
+          return { mode: parsed.mode, script: parsed.script };
+        }
+      } catch (_) {}
+      // Legacy persisted batches carried raw JavaScript and remain mutation-mode by default.
+      return { mode: "mutate", script: raw };
+    }
+
+    function nativeReadOnlyCellSignature(cell) {
+      var value = cell && cell.value;
+      if (value && typeof value === "object" && value.nodeType === 1) value = value.outerHTML || value.textContent || "";
+      else if (value !== null && typeof value === "object") {
+        try { value = JSON.stringify(value); } catch (_) { value = Object.prototype.toString.call(value); }
+      }
+      var geometry = cell && cell.geometry;
+      var points = geometry && Array.isArray(geometry.points)
+        ? geometry.points.map(function (point) { return point ? [Number(point.x), Number(point.y)] : null; })
+        : null;
+      return JSON.stringify({
+        id: cell && cell.id,
+        value: value == null ? value : String(value),
+        style: cell && cell.style,
+        vertex: Boolean(cell && cell.vertex),
+        edge: Boolean(cell && cell.edge),
+        parentId: runtimeCellId(cell && cell.parent),
+        parentIndex: cell && cell.parent && typeof cell.parent.getIndex === "function" ? cell.parent.getIndex(cell) : -1,
+        sourceId: runtimeCellId(cell && cell.source),
+        targetId: runtimeCellId(cell && cell.target),
+        visible: cell && cell.visible,
+        collapsed: cell && cell.collapsed,
+        connectable: cell && cell.connectable,
+        geometry: geometry ? {
+          x: Number(geometry.x), y: Number(geometry.y),
+          width: Number(geometry.width), height: Number(geometry.height),
+          relative: Boolean(geometry.relative),
+          offset: geometry.offset ? [Number(geometry.offset.x), Number(geometry.offset.y)] : null,
+          points: points
+        } : null,
+        childCount: cell && typeof cell.getChildCount === "function" ? cell.getChildCount() : null
+      });
+    }
+
+    function captureNativeReadOnlyState(activeGraph, activeModel) {
+      var root = activeModel.getRoot();
+      var rows = [];
+      var visited = new Set();
+      function collect(parent) {
+        var count = activeModel.getChildCount(parent);
+        for (var i = 0; i < count; i++) {
+          var cell = activeModel.getChildAt(parent, i);
+          if (!cell || visited.has(cell)) continue;
+          visited.add(cell);
+          rows.push({ cell: cell, id: cell.id, signature: nativeReadOnlyCellSignature(cell) });
+          collect(cell);
+        }
+      }
+      collect(root);
+      var selectedIds = typeof activeGraph.getSelectionCells === "function"
+        ? activeGraph.getSelectionCells().map(runtimeCellId)
+        : [];
+      var pageMetadata = Array.isArray(ui.pages) ? ui.pages.map(function (page) {
+        if (!page || typeof page !== "object") return String(page);
+        return {
+          id: page.id == null ? null : String(page.id),
+          name: page.name == null ? null : String(page.name),
+          title: page.title == null ? null : String(page.title),
+          xml: typeof page.xml === "string" ? page.xml : null
+        };
+      }) : null;
+      return {
+        graph: activeGraph,
+        model: activeGraph && typeof activeGraph.getModel === "function" ? activeGraph.getModel() : activeModel,
+        root: root,
+        pageId: currentPageId(),
+        background: activeGraph.background == null ? null : String(activeGraph.background),
+        selectedIds: JSON.stringify(selectedIds),
+        pageMetadata: JSON.stringify(pageMetadata),
+        rows: rows
+      };
+    }
+
+    function nativeReadOnlyStateChanged(before, activeGraph, activeModel) {
+      var after;
+      try { after = captureNativeReadOnlyState(activeGraph, activeModel); }
+      catch (_) { return true; }
+      if (before.graph !== after.graph || before.model !== after.model || before.root !== after.root ||
+          before.pageId !== after.pageId || before.background !== after.background ||
+          before.selectedIds !== after.selectedIds || before.pageMetadata !== after.pageMetadata ||
+          before.rows.length !== after.rows.length) return true;
+      for (var i = 0; i < before.rows.length; i++) {
+        if (before.rows[i].cell !== after.rows[i].cell || before.rows[i].id !== after.rows[i].id ||
+            before.rows[i].signature !== after.rows[i].signature) return true;
+      }
+      return false;
+    }
+
     function editCell(request) {
       var activeGraph = currentGraph();
       var activeModel = typeof activeGraph.getModel === "function" ? activeGraph.getModel() : model;
@@ -970,14 +1071,26 @@
             visible: item.visible, collapsed: item.collapsed, connectable: item.connectable,
             ownsConnectable: Object.prototype.hasOwnProperty.call(item, "connectable"), paths: (pathsById[item.id] || []).slice(), restoreAll: Boolean(restoreAllIds[item.id]) };
         });
-        var batchResults = []; var batchScriptResult = null; var failedIndex = -1; var batchCreatedCells = []; var previousBatchCreatedCells = activeBatchCreatedCells; activeBatchCreatedCells = batchCreatedCells; var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
+        var batchResults = []; var batchScriptResult = null; var batchScriptMode = "mutate"; var readOnlyScriptBatch = operations.length === 1 &&
+          operations[0] && operations[0].path === "cell:execute-script" &&
+          parseNativeScriptPayload(operations[0].value).mode === "read";
+        var failedIndex = -1; var batchCreatedCells = []; var previousBatchCreatedCells = activeBatchCreatedCells; activeBatchCreatedCells = batchCreatedCells; var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
         activeModel.beginUpdate();
         try {
           operations.forEach(function (operation, index) {
             failedIndex = index;
             if (!operation || typeof operation.cellId !== "string" || typeof operation.path !== "string" || typeof operation.value !== "string" || operation.path === "cell:batch" || operation.cellId === "__batch__" || operation.cellId === "__selection__") throw new Error("Batch operation " + (index + 1) + " has an invalid or nested operation payload");
+            var readOnlyStateBefore = operation.path === "cell:execute-script" && readOnlyScriptBatch
+              ? captureNativeReadOnlyState(activeGraph, activeModel)
+              : null;
             var operationResult = editCell({ cellId: operation.cellId, pageId: request.pageId, path: operation.path, value: operation.value });
-            if (operation.path === "cell:execute-script") batchScriptResult = operationResult && operationResult.scriptResult || null;
+            if (operation.path === "cell:execute-script") {
+              batchScriptResult = operationResult && operationResult.scriptResult || null;
+              batchScriptMode = operationResult && operationResult.scriptMode === "read" ? "read" : "mutate";
+              if (readOnlyScriptBatch && nativeReadOnlyStateChanged(readOnlyStateBefore, activeGraph, activeModel)) {
+                throw new Error("Read-only inspection script mutated the Draw.io document or editor state; the batch will be rolled back.");
+              }
+            }
             batchResults.push({ index: index + 1, cellId: operation.cellId, path: operation.path, value: operation.value, success: true });
           });
         } catch (error) {
@@ -1042,9 +1155,11 @@
           activeBatchCreatedCells = previousBatchCreatedCells; activeModel.endUpdate();
           try { if (typeof activeGraph.refresh === "function") activeGraph.refresh(); if (activeGraph.view && typeof activeGraph.view.validate === "function") activeGraph.view.validate(); } catch (_) {}
         }
-        if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
-        if (typeof activeGraph.refresh === "function") activeGraph.refresh();
-        return { batchResults: batchResults, scriptResult: batchScriptResult };
+        if (!readOnlyScriptBatch) {
+          if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+          if (typeof activeGraph.refresh === "function") activeGraph.refresh();
+        }
+        return { batchResults: batchResults, scriptResult: batchScriptResult, scriptMode: batchScriptMode };
       }
       if (request.cellId === "__selection__" && /^(cell:align:|cell:distribute:|cell:group$|cell:ungroup$)/.test(selectionOperation)) {
         var selected = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
@@ -1090,19 +1205,30 @@
         return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
       }
       if (request.cellId === "__active_page__" && selectionOperation === "cell:execute-script") {
-        var script = String(request.value || "");
+        var scriptPayload = parseNativeScriptPayload(request.value);
+        var script = scriptPayload.script;
+        var scriptMode = scriptPayload.mode;
         if (!script.trim()) throw new Error("The native Draw.io script is empty");
         if (script.length > 50000) throw new Error("The native Draw.io script exceeds 50000 characters");
         var executeNativeScript; var expressionSource = script.replace(/;\s*$/, "");
         try { executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\nreturn (\n' + expressionSource + '\n);'); }
         catch (compileError) { if (!compileError || compileError.name !== "SyntaxError") throw compileError; executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script); }
+        var readOnlyStateBeforeScript = scriptMode === "read" ? captureNativeReadOnlyState(activeGraph, activeModel) : null;
         var scriptResult = executeNativeScriptSynchronously(script, activeModel, function () {
           return executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
             return inspectDrawioRuntime(ui, activeGraph, activeModel, options);
           });
         });
         if (scriptResult && typeof scriptResult.then === "function") throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
-        return { executed: true, resultType: scriptResult === null ? "null" : typeof scriptResult, scriptResult: serializeScriptResult(scriptResult) };
+        if (scriptMode === "read" && nativeReadOnlyStateChanged(readOnlyStateBeforeScript, activeGraph, activeModel)) {
+          throw new Error("Read-only inspection script mutated the Draw.io document or editor state.");
+        }
+        return {
+          executed: true,
+          scriptMode: scriptMode,
+          resultType: scriptResult === null ? "null" : typeof scriptResult,
+          scriptResult: serializeScriptResult(scriptResult)
+        };
       }
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
@@ -1210,7 +1336,7 @@
         try { var inspectGraph = currentGraph(); var inspectModel = typeof inspectGraph.getModel === "function" ? inspectGraph.getModel() : model; var inspection = inspectDrawioRuntime(ui, inspectGraph, inspectModel, { documentRevision: typeof request.documentRevision === "string" ? request.documentRevision : "", drawioVersion: typeof request.drawioVersion === "string" ? request.drawioVersion : "unknown", maxCells: request.maxCells, maxRenderedEdges: request.maxRenderedEdges, jsShapeClassNames: request.jsShapeClassNames }); publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: true, inspection: inspection }); }
         catch (inspectionError) { publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: false, error: inspectionError && inspectionError.message ? String(inspectionError.message) : String(inspectionError) }); }
       } else if (request.event === "studioPropertyEditRequest") {
-        try { var editResult = editCell(request); publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path, batchResults: editResult && editResult.batchResults || null, scriptResult: editResult && editResult.scriptResult || null }); }
+        try { var editResult = editCell(request); publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path, batchResults: editResult && editResult.batchResults || null, scriptResult: editResult && editResult.scriptResult || null, scriptMode: editResult && editResult.scriptMode || null }); }
         catch (error) { publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path, error: error && error.message ? String(error.message) : String(error), errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null, batchResults: error && error.batchResults || null, failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null, rollbackErrors: error && error.rollbackErrors || [], batchRolledBack: error && typeof error.batchRolledBack === "boolean" ? error.batchRolledBack : null }); }
       } else if (request.event === "studioSetBackground") {
         var backgroundGraph = currentGraph();
