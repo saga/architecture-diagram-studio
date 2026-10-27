@@ -115,7 +115,7 @@ function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsuppo
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
     getPreparedSystemMessage: () => prepared.systemMessage,
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
@@ -146,7 +146,7 @@ function elementSearchingCopilot() {
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
     getPreparedSystemMessage: () => prepared.systemMessage,
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
@@ -180,7 +180,7 @@ function renamingCopilot() {
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
@@ -210,7 +210,7 @@ function belowNodesCopilot() {
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
     getPreparedSystemMessage: () => prepared.systemMessage,
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
@@ -242,7 +242,7 @@ function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "d
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
@@ -271,7 +271,7 @@ function scriptProposingCopilot(script = "return { checked: true };", summary = 
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
@@ -331,7 +331,7 @@ function conflictingCopilot() {
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
       prepared = await request.prepare();
       activeSession = {
         sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
