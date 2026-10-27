@@ -372,6 +372,13 @@ describe("native edit XML confirmation", () => {
     expect(summarizeNativeDiagramXmlDiff(bareBefore, bareAfter)).toMatchObject({
       available: true, changed: false, pagesChanged: [], cellsChanged: []
     });
+
+    const noPageIdBefore = before.replace('<diagram id="p1" name="Overview">', '<diagram name="Overview">')
+      .replace("<mxGraphModel>", '<mxGraphModel dx="1086" dy="613">');
+    const noPageIdAfter = noPageIdBefore.replace('dx="1086"', 'dx="2566"').replace('dy="613"', 'dy="1314"');
+    expect(summarizeNativeDiagramXmlDiff(noPageIdBefore, noPageIdAfter)).toMatchObject({
+      available: true, changed: false, pagesChanged: [], cellsAdded: [], cellsRemoved: [], cellsChanged: []
+    });
   });
 
   it("summarizes native Draw.io cell changes and page changes for execution traces", () => {
