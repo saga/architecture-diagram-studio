@@ -351,6 +351,29 @@ describe("native edit XML confirmation", () => {
     expect(wrongDirection).toBe(false);
   });
 
+  it("ignores viewport-only dx/dy changes in compressed or expanded Draw.io models", () => {
+    const beforeViewport = before.replace("<mxGraphModel>", '<mxGraphModel dx="1086" dy="613">');
+    const afterViewport = beforeViewport
+      .replace('dx="1086"', 'dx="2566"')
+      .replace('dy="613"', 'dy="1314"');
+    expect(summarizeNativeDiagramXmlDiff(beforeViewport, afterViewport)).toMatchObject({
+      available: true,
+      changed: false,
+      pagesChanged: [],
+      cellsAdded: [],
+      cellsRemoved: [],
+      cellsChanged: []
+    });
+
+    const bareBefore = '<mxGraphModel dx="800" dy="400"><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="10" y="10" width="30" height="20" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel>';
+    const bareAfter = bareBefore.replace('dx="800"', 'dx="1600"').replace('dy="400"', 'dy="900"');
+    expect(summarizeNativeDiagramXmlDiff(bareBefore, bareAfter)).toMatchObject({
+      available: true, changed: false, pagesChanged: [], cellsChanged: []
+    });
+  });
+
   it("summarizes native Draw.io cell changes and page changes for execution traces", () => {
     const after = before
       .replace('id="p1" name="Overview"', 'id="p1" name="Architecture"')
