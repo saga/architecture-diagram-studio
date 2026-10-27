@@ -62,13 +62,13 @@ test.describe("工作区导航与外观", () => {
     await expect(configCard).toBeVisible();
     const beforeResponse = await request.get("/api/workspace/configuration");
     expect(beforeResponse.ok()).toBe(true);
-    const before = await beforeResponse.json() as { revisions: number; config: { model: string; reasoningEffort: "high" | "max" } };
-    const nextEffort = before.config.reasoningEffort === "high" ? "max" : "high";
+    const before = await beforeResponse.json() as { revisions: number; config: { model: string; reasoningEffort: "low" | "medium" | "high" | "max" } };
+    const nextEffort = before.config.reasoningEffort === "medium" ? "high" : "medium";
     const savedResponse = await request.put("/api/workspace/configuration", {
       data: { config: { model: before.config.model, reasoningEffort: nextEffort } }
     });
     expect(savedResponse.status()).toBe(200);
-    const saved = await savedResponse.json() as { config: { model: string; reasoningEffort: "high" | "max" } };
+    const saved = await savedResponse.json() as { config: { model: string; reasoningEffort: "low" | "medium" | "high" | "max" } };
     expect(saved.config.model).toBe(before.config.model);
     expect(saved.config.reasoningEffort).toBe(nextEffort);
     const verified = await (await request.get("/api/workspace/configuration")).json() as { revisions: number; config: { reasoningEffort: string } };
