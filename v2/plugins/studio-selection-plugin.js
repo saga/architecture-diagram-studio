@@ -778,8 +778,10 @@
       }
       if (/\b(?:setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback|queueMicrotask|fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|BroadcastChannel|MutationObserver|IntersectionObserver|ResizeObserver|importScripts|addEventListener|attachEvent|postMessage|eval|Function|setImmediate)\b/.test(executable) ||
           /\bimport\s*\(/.test(executable) ||
+          /\bPromise\b/.test(executable) ||
           /\.(?:\s*)(?:then|catch|finally|addListener|addEventListener)\s*\(/.test(executable) ||
-          /\bglobalThis\b|\b(?:window|self)\s*\.\s*(?:parent|top)\b/.test(executable)) {
+          /\bglobalThis\b|\b(?:window|self)\s*\.\s*(?:parent|top)\b/.test(executable) ||
+          /\b(?:window|self)\s*\[\s*['"](?:setTimeout|setInterval|requestAnimationFrame|queueMicrotask|fetch|postMessage|eval|Function)['"]\s*\]/.test(String(source || ""))) {
         throw new Error("Native Draw.io scripts cannot schedule asynchronous work, register deferred callbacks, or access parent/global execution contexts");
       }
     }
@@ -828,26 +830,9 @@
       }
 
       try {
-        [
-          "setTimeout", "setInterval", "clearTimeout", "clearInterval", "requestAnimationFrame",
-          "cancelAnimationFrame", "requestIdleCallback", "cancelIdleCallback", "queueMicrotask",
-          "fetch", "XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker",
-          "BroadcastChannel", "MutationObserver", "IntersectionObserver", "ResizeObserver",
-          "importScripts", "addEventListener", "attachEvent", "postMessage", "eval", "Function", "setImmediate"
-        ].forEach(function (name) {
-          install(window, name, function () {
-            throw new Error("Asynchronous or deferred work is not supported in native Draw.io scripts");
-          });
-        });
-        if (typeof Promise === "function" && Promise.prototype) {
-          ["then", "catch", "finally"].forEach(function (name) {
-            if (typeof Promise.prototype[name] === "function") {
-              install(Promise.prototype, name, function () {
-                throw new Error("Promise callbacks are not supported in synchronous native Draw.io scripts");
-              });
-            }
-          });
-        }
+        // Do not patch window timers or Promise.prototype while Draw.io APIs run.
+        // mxGraph itself schedules timers as part of insert/render operations; global monkey patches
+        // rejected valid synchronous edits. The source guard above rejects explicit user scheduling.
         wrappedBegin = function () {
           var value = originalBegin.apply(this, arguments);
           scriptUpdateDepth += 1;
