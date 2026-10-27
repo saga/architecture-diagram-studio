@@ -1452,7 +1452,6 @@ function createDrawioElementSearchTool(sessionId: string) {
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);
-      conflictingTerminalIntents.delete(sessionId);
       const message = error instanceof Error ? error.message : String(error);
       if (requestCancelled || res.destroyed) {
         await deps.writeLog("turn.cancelled", { requestId, sessionId, stage: "client-disconnected", errorMessage: message.slice(0, 300) });
