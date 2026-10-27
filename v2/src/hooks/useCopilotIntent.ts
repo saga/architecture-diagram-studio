@@ -483,7 +483,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const selection = plan.selection;
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
         if ((selection.pageId ?? null) !== (activePageId ?? null)) throw new Error("The selection result targets a different Draw.io page; no selection changed.");
-        applyNativeCellEdit(selection.cellId, "cell:select", selection.pageId || "");
+        await applyNativeCellEdit(selection.cellId, "cell:select", selection.pageId || "");
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: "Selected “" + selection.label + "”. The diagram itself was not changed."
