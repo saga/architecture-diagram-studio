@@ -270,6 +270,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             failedAction &&
             hasActionableExecutionError &&
             execution.rolledBack &&
+            execution.failureStage !== "persistence" &&
             execution.applicationState !== "changed-unverified" &&
             execution.applicationState !== "unknown" &&
             JSON.stringify(operations).length <= 12_000 &&
