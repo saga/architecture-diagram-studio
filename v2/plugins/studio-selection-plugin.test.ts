@@ -385,18 +385,18 @@ describe("native Draw.io script bridge", () => {
     expect(harness.rootEdge.style).toBe(beforeStyle);
   });
 
-  it("blocks computed timer references at runtime even when static scanning cannot see the API name", () => {
+  it("rejects computed timer references without patching Draw.io's runtime globals", () => {
     const harness = createHarness();
     const beforeStyle = harness.rootEdge.style;
     const result = harness.runScript(
       "var schedulerName = ['set', 'Timeout'].join(''); window[schedulerName](function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }, 1); return { ok: true };"
     );
     expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toContain("Asynchronous or deferred work");
+    expect(String(result.error)).toMatch(/asynchronous|deferred/i);
     expect(harness.rootEdge.style).toBe(beforeStyle);
   });
 
-  it("blocks computed Promise continuation references at runtime", () => {
+  it("rejects computed Promise continuation references statically", () => {
     const harness = createHarness();
     const beforeStyle = harness.rootEdge.style;
     const result = harness.runScript(
