@@ -10,11 +10,53 @@ import {
 } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
+import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { calculateNativeAutoLayout } from "../layout/native-layout";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string; script?: string } };
 type Workspace = { id: string } | null;
+
+function assertCopilotRequestContextFresh(
+  stage: string,
+  source: CopilotRequestDiagramState,
+  current: CopilotRequestDiagramState,
+  guidance: string
+): void {
+  const comparison = compareCopilotRequestContext(source, current);
+  if (!comparison.stale) return;
+
+  recordDiagnostic(
+    "copilot.request.stale-context",
+    "Aborted a Copilot action because the source document or active page changed semantically",
+    {
+      stage,
+      staleField: comparison.staleField,
+      before: {
+        pageId: source.selectedNativePageId,
+        selectedCellId: source.selectedNativeCellId,
+        xmlLength: source.drawioXml.length
+      },
+      after: {
+        pageId: current.selectedNativePageId,
+        selectedCellId: current.selectedNativeCellId,
+        xmlLength: current.drawioXml.length
+      },
+      xmlChanged: comparison.xmlChanged,
+      pageChanged: comparison.pageChanged,
+      selectionChanged: comparison.selectionChanged,
+      semanticDocumentChanged: comparison.semanticDocumentChanged,
+      semanticDiffAvailable: comparison.semanticDiffAvailable,
+      semanticDiffSummary: comparison.semanticDiffSummary ?? null
+    },
+    "warn"
+  );
+
+  const reason = comparison.staleField === "page"
+    ? "The active Draw.io page changed"
+    : "The diagram content changed";
+  throw new Error(reason + " " + guidance);
+}
 
 function describeNativeExecutionState(execution: NativeEditExecution): string {
   if (execution.applicationState === "changed-unverified") {
@@ -87,7 +129,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
       const requestState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
       const sourceXml = requestState.drawioXml;
-      const sourceSelectedCellId = requestState.selectedNativeCellId;
+      let sourceSelectedCellId = requestState.selectedNativeCellId;
       const sourcePageId = requestState.selectedNativePageId;
       let documentRevision = await calculateDrawioXmlRevision(sourceXml);
       if (!standaloneMode) {
@@ -99,10 +141,15 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         documentRevision = saved.workspaceRevision;
       }
       const stateBeforeSend = getCurrentDiagramState?.() ?? { drawioXml: drawioXml, selectedNativeCellId, selectedNativePageId };
-      if (stateBeforeSend.drawioXml !== sourceXml || stateBeforeSend.selectedNativePageId !== sourcePageId ||
-          stateBeforeSend.selectedNativeCellId !== sourceSelectedCellId) {
-        throw new Error("The diagram, page, or selection changed before Copilot started. Send the request again against the current state.");
-      }
+      assertCopilotRequestContextFresh(
+        "before-agent-request",
+        { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+        stateBeforeSend,
+        "before the Agent request. No request was sent; retry against the current state."
+      );
+      // Selection is prompt context only. Take the latest selection before assembling the Agent
+      // context, but do not let a later selection change invalidate a label/ID-based edit.
+      sourceSelectedCellId = stateBeforeSend.selectedNativeCellId;
 
       let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
       try {
@@ -115,7 +162,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
       const nativePage = getNativeDiagramPageInfo(sourceXml, sourcePageId);
       const activePageId = nativePage.id || sourcePageId;
-      const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
+      let selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       let runtimeInspection: DrawioRuntimeInspection | undefined;
       if (getRuntimeInspection) {
         const requestedJsShapeClassNames = new Set<string>();
@@ -129,10 +176,14 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           throw new Error("The live Draw.io inspection did not match the source XML revision and active page. No Agent request was sent.");
         }
         const afterInspection = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-        if (afterInspection.drawioXml !== sourceXml || afterInspection.selectedNativePageId !== sourcePageId ||
-            afterInspection.selectedNativeCellId !== sourceSelectedCellId) {
-          throw new Error("The diagram, page, or selection changed during runtime inspection. No Agent request was sent; retry against the current state.");
-        }
+        assertCopilotRequestContextFresh(
+          "during-runtime-inspection",
+          { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+          afterInspection,
+          "during runtime inspection. No Agent request was sent; retry against the current state."
+        );
+        sourceSelectedCellId = afterInspection.selectedNativeCellId;
+        selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       }
       const plan = await requestAIIntentPlan(
         { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
@@ -152,10 +203,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       );
 
       const stateAfterResponse = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-      if (stateAfterResponse.drawioXml !== sourceXml || stateAfterResponse.selectedNativePageId !== sourcePageId ||
-          (sourceSelectedCellId && stateAfterResponse.selectedNativeCellId !== sourceSelectedCellId)) {
-        throw new Error("The diagram, page, or selected target changed while Copilot was responding. No edit was sent to Draw.io; retry against the current state.");
-      }
+      assertCopilotRequestContextFresh(
+        "during-agent-response",
+        { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+        stateAfterResponse,
+        "while Copilot was responding. No edit was sent to Draw.io; retry against the current state."
+      );
 
       if (plan.sessionId && plan.sessionId !== copilotSessionId) {
         setCopilotSessionId(plan.sessionId);
@@ -216,9 +269,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           : undefined;
         if (layoutOperation) {
           const currentState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-          if (currentState.drawioXml !== sourceXml || currentState.selectedNativePageId !== sourcePageId) {
-            throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
-          }
+          assertCopilotRequestContextFresh(
+            "during-layout-calculation",
+            { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+            currentState,
+            "while Studio was calculating the layout. Nothing was applied; retry."
+          );
         }
         const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId, layoutPlan);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
@@ -319,9 +375,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             requestText.length <= 1_500 &&
             getRuntimeInspection &&
             runtimeInspection &&
-            repairState.drawioXml === sourceXml &&
-            repairState.selectedNativePageId === sourcePageId &&
-            repairState.selectedNativeCellId === sourceSelectedCellId
+            !compareCopilotRequestContext(
+              { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+              repairState
+            ).stale
           );
           if (shouldTryScriptRepair && failedAction) {
             const boundedError = (executionErrorStep?.error || reason).slice(0, 1200);
@@ -569,17 +626,23 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         cells: nativeTargets
       };
       const beforeConfirm = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-      if (beforeConfirm.drawioXml !== sourceXml || beforeConfirm.selectedNativePageId !== sourcePageId) {
-        throw new Error("The diagram or active page changed before proposal confirmation. Request a fresh proposal.");
-      }
+      assertCopilotRequestContextFresh(
+        "before-proposal-confirmation",
+        { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+        beforeConfirm,
+        "before proposal confirmation. Request a fresh proposal."
+      );
       const plan = await confirmAIIntentProposal({
         model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
         diagramXml: sourceXml, documentRevision
       }, proposalId, requestContext);
       const afterConfirm = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-      if (afterConfirm.drawioXml !== sourceXml || afterConfirm.selectedNativePageId !== sourcePageId) {
-        throw new Error("The diagram or active page changed while confirming the proposal. No operation was sent to Draw.io.");
-      }
+      assertCopilotRequestContextFresh(
+        "during-proposal-confirmation",
+        { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+        afterConfirm,
+        "while confirming the proposal. No operation was sent to Draw.io."
+      );
       if (plan.outcome !== "command_ready") {
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply || "The proposal could not be confirmed; the diagram was not changed." }]);
         return;
@@ -596,9 +659,12 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         : undefined;
       if (layoutOperation) {
         const stateAfterLayout = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-        if (stateAfterLayout.drawioXml !== sourceXml || stateAfterLayout.selectedNativePageId !== sourcePageId) {
-          throw new Error("The diagram or active page changed while Studio was calculating the confirmed layout. Nothing was applied; retry.");
-        }
+        assertCopilotRequestContextFresh(
+          "during-confirmed-layout-calculation",
+          { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+          stateAfterLayout,
+          "while Studio was calculating the confirmed layout. Nothing was applied; retry."
+        );
       }
       const cellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId, layoutPlan);
       if (!cellPlan.ok) throw new Error("The confirmed proposal is no longer valid: " + cellPlan.error);
