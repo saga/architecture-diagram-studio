@@ -257,3 +257,19 @@ App 侧 `setSelectedNativeCellId(cellId)` 是**无条件覆盖**（`App.tsx:1966
 | 保存事件（用于反证 xml 未变） | `v2/src/components/DrawioFrame.tsx:1082-1085` |
 
 **本次未修改任何代码。**
+
+---
+
+## 11. 修复记录（2026-10-28）
+
+本次按上述分析修复了 stale-context 误中止路径：
+
+1. 新增 `v2/src/model/copilot-stale-context.ts`。它使用既有的 `summarizeNativeDiagramXmlDiff` 比较文档语义，而不是比较 XML 字符串。仅 `mxGraphModel.dx/dy` 这类视口元数据变化不会使请求 stale；语义 diff 无法计算时仍 fail-closed。
+2. `v2/src/hooks/useCopilotIntent.ts` 将请求发出前、运行时检查后、模型响应后、自动布局计算后，以及 proposal 确认前后等 8 个守卫统一到同一判定函数。选中项变化单独记录为上下文漂移信息，但不再中止依赖显式 ID/label 的编辑。
+3. 新增诊断事件 `copilot.request.stale-context`，包括 `stage`、`staleField`、前后页面/选中项、`xmlChanged`、`pageChanged`、`selectionChanged`、语义 diff 是否可用及有界摘要。真正的文档语义变化或页面变化仍会在 dispatch 前拦截。
+4. `v2/plugins/studio-selection-plugin.js` 中，模型变更监听现在只刷新 History 状态，不再重新发布选中项；真实选中模型事件和页面切换仍会同步选择。这避免内部模型更新把选中项短暂清空并污染 App 状态。
+5. 新增 `v2/src/model/copilot-stale-context.test.ts`，覆盖选中项变化、视口平移导致的 `dx/dy` 变化、真实 cell 内容/style 变化、页面切换以及语义 diff 失败时 fail-closed。
+
+**安全边界：** 不会把旧 plan 自动套用到已发生真实语义变化的图上。只有选中项变化或视口元数据变化时，守卫才不再误中止；真实文档内容和页面变化仍要求重新针对当前状态生成/确认动作。
+
+**验证状态：** 已添加回归测试，但本次没有执行本地 `npm test` / `npm run typecheck`；当前写入通过 GitHub 仓库接口完成，没有可运行该仓库依赖的本地 checkout。提交状态查询未返回 CI checks，因此不声称测试已通过。
