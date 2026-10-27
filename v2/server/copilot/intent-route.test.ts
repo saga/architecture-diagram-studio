@@ -1139,6 +1139,32 @@ describe("Copilot native-edit acknowledgement route", () => {
     expect(harness.logs.filter((entry) => entry.event === "turn.native-edit.final-outcome")).toHaveLength(1);
   });
 
+  it("closes a pending receipt when Studio rejects a command before editor dispatch", async () => {
+    const store = new NativeExecutionAcknowledgements();
+    const pending = seedAck(store);
+    const harness = await createServer({ acknowledgements: store });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", {
+      requestId: pending.requestId,
+      sessionId: pending.sessionId,
+      standalone: pending.standalone,
+      documentRevision: pending.documentRevision,
+      outcome: "failed",
+      editorAcknowledged: false,
+      applicationState: "unknown",
+      persistenceStatus: "not_attempted",
+      persistedRevision: null,
+      versionId: null,
+      failureStage: null,
+      error: "A previous native edit is still awaiting reconciliation; this command was not dispatched."
+    });
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("failed");
+    expect(store.pending.has(pending.requestId)).toBe(false);
+    expect(store.getReceipt(pending.requestId)?.body.outcome).toBe("failed");
+    expect(harness.logs.some((entry) => entry.event === "turn.native-edit.final-outcome" &&
+      entry.fields?.outcome === "failed")).toBe(true);
+  });
+
   it("acknowledges a read-only inspection without requiring a persisted XML version", async () => {
     const store = new NativeExecutionAcknowledgements();
     const pending = seedAck(store, {
