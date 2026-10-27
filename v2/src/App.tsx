@@ -583,7 +583,7 @@ export default function App() {
           error: "A previous native edit is still awaiting a final editor result. No new edit was dispatched.",
           rolledBack: false,
           applicationState: "unknown",
-          auditWarning: "Inspect the current diagram and History. If no late result arrives, reload the document before submitting another edit.",
+          auditWarning: "Inspect the current diagram and History. If no late result arrives, refresh/reload the Studio browser page and reopen the latest saved document; opening another file in the same page will not clear the in-memory pending state.",
           steps: []
         });
       }
