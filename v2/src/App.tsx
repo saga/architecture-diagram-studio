@@ -2072,7 +2072,8 @@ export default function App() {
                     setCellEditRequest((current) => current?.requestId === requestId ? null : current);
                     const unresolved = "Studio could not finish verifying/saving the native Draw.io result. The document may already have changed; do not retry. Inspect the current diagram and History, then reload the document before editing again.";
                     setLastAction(unresolved);
-                    setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: unresolved }].slice(-300));
+                    const unresolvedMessage: ChatMessage = { role: "assistant", id: Date.now(), text: unresolved };
+                    setMessages((items) => [...items, unresolvedMessage].slice(-300));
                     if (resolver) {
                       nativeEditResolversRef.current.delete(requestId);
                       resolver({
