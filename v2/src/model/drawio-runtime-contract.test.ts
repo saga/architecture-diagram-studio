@@ -38,6 +38,7 @@ function inspection(overrides: Record<string, unknown> = {}) {
       sourceId: null, targetId: null, connectable: true, visible: true, collapsed: false,
       childCount: 0, geometry: { x: 10, y: 20, width: 100, height: 60, relative: false, points: [] }
     }],
+    liveShapeClasses: ["mxgraph.c4.person2", "mxgraph.flowchart.start", "constructor", "invalid name"],
     renderedEdges: [],
     truncated: false,
     ...overrides
@@ -53,6 +54,7 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.capabilityManifest.scriptSupported).toBe(true);
     expect(result?.capabilityManifest.jsShapeClasses.registered["mxgraph.c4.person2"]).toBe(true);
     expect(result?.cells[0]?.geometry).toMatchObject({ x: 10, y: 20, width: 100, height: 60 });
+    expect(result?.liveShapeClasses).toEqual(["mxgraph.c4.person2", "mxgraph.flowchart.start"]);
   });
 
   it("normalizes shape registration queries independently from stencil lookup", () => {
