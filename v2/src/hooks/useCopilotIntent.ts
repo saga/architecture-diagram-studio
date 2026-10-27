@@ -40,7 +40,7 @@ interface CopilotIntentOptions {
   workspaceContentReady: boolean;
   drawioXml: string;
   aiModel: string;
-  reasoningEffort: "high" | "max";
+  reasoningEffort: "low" | "medium" | "high" | "max";
   copilotSessionId: string;
   selectedNativeCellId: string | null;
   selectedNativePageId: string | null;
