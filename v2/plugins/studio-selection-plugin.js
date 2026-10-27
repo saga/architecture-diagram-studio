@@ -141,7 +141,7 @@
         try { activeHistoryModel.removeListener(activeHistoryListener); } catch (_) {}
       }
       activeHistoryModel = selectedModel;
-      activeHistoryListener = typeof activeHistoryModel.addListener === "function" ? publishSelection : null;
+      activeHistoryListener = typeof activeHistoryModel.addListener === "function" ? publishHistoryState : null;
       if (activeHistoryListener) activeHistoryModel.addListener("change", activeHistoryListener);
     }
 
