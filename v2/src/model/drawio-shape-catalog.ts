@@ -17,6 +17,9 @@ export interface DrawioShapeSearchResult extends Omit<DrawioShapeCatalogEntry, "
   matchedTags: string[];
 }
 const SHAPE_CATALOG: readonly DrawioShapeCatalogEntry[] = [
+  { id: "c4.person", title: "C4 Person (person2)", category: "C4", kind: "vertex", style: "shape=mxgraph.c4.person2;whiteSpace=wrap;html=1;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];fillColor=#08427b;fontColor=#ffffff;strokeColor=#073763;fontSize=11;", width: 200, height: 180, tags: ["c4", "person", "person2", "actor", "user", "customer", "人员", "用户", "人物", "c4 person"] },
+  { id: "c4.software-system", title: "C4 Software System", category: "C4", kind: "vertex", style: "rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#1168bd;strokeColor=#0D5091;fontSize=11;", width: 240, height: 120, tags: ["c4", "software system", "system", "application", "internal system", "软件系统", "系统", "应用", "内部系统"] },
+  { id: "c4.container", title: "C4 Container", category: "C4", kind: "vertex", style: "rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#23a2d9;strokeColor=#0E7DAD;fontSize=11;", width: 240, height: 120, tags: ["c4", "container", "web app", "api", "service", "database", "容器", "应用容器", "服务", "数据库"] },
   { id: "basic.rectangle", title: "Rectangle / Process", category: "Basic", kind: "vertex", style: "whiteSpace=wrap;html=1;", width: 140, height: 60, tags: ["rectangle", "rect", "box", "process", "service", "component", "矩形", "方框", "流程", "流程节点"] },
   { id: "basic.rounded-rectangle", title: "Rounded Rectangle", category: "Basic", kind: "vertex", style: "rounded=1;whiteSpace=wrap;html=1;", width: 140, height: 60, tags: ["rounded", "rounded rectangle", "application", "service", "圆角矩形", "圆角", "服务", "应用"] },
   { id: "basic.ellipse", title: "Ellipse / Circle", category: "Basic", kind: "vertex", style: "ellipse;whiteSpace=wrap;html=1;", width: 80, height: 80, tags: ["ellipse", "circle", "oval", "start", "end", "椭圆", "圆形", "开始", "结束"] },
@@ -54,4 +57,4 @@ export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeS
       style: entry.style, width: entry.width, height: entry.height, matchedTags
     }));
 }
-export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-1";
+export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-2";
