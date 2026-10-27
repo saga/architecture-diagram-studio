@@ -515,7 +515,7 @@ describe("native edit XML confirmation", () => {
       expect(undeclared.violations).toContainEqual(expect.objectContaining({ kind: "removed", cellId: "db" }));
     });
 
-    it("ignores cells that disappeared with a removed page", () => {
+    it("fails closed when a page is removed because cell assertions cannot prove a page-level edit", () => {
       const twoPages = before.replace("</mxfile>",
         '<diagram id="p2" name="Second"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
         '<mxCell id="solo" value="Solo" vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell>' +
@@ -527,7 +527,24 @@ describe("native edit XML confirmation", () => {
       const result = findUndeclaredNativeScriptChanges(twoPages, pageRemoved, scriptResult([
         { cellId: "api", exists: true, label: "Old API" }
       ]));
-      expect(result.ok).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.violations).toContainEqual(expect.objectContaining({
+        kind: "unproven-change", cellId: "__pages__", changedFields: expect.arrayContaining(["page-removed:p2"])
+      }));
+    });
+
+    it("fails closed when a page is added without a dedicated page assertion contract", () => {
+      const pageAdded = before.replace("</mxfile>",
+        '<diagram id="p2" name="Second"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+        '<mxCell id="solo" value="Solo" vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell>' +
+        '</root></mxGraphModel></diagram></mxfile>');
+      const result = findUndeclaredNativeScriptChanges(before, pageAdded, scriptResult([
+        { cellId: "api", exists: true, label: "Old API" }
+      ]));
+      expect(result.ok).toBe(false);
+      expect(result.violations).toContainEqual(expect.objectContaining({
+        kind: "unproven-change", cellId: "__pages__", changedFields: expect.arrayContaining(["page-added:p2"])
+      }));
     });
 
     it("fails closed when the comparison itself is unavailable", () => {
