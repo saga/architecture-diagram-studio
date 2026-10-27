@@ -138,8 +138,8 @@ interface Props {
   confirmProposal: (proposalId: string) => void;
   aiModel: string;
   setAiModel: (value: string) => void;
-  reasoningEffort: "high" | "max";
-  setReasoningEffort: (value: "high" | "max") => void;
+  reasoningEffort: "low" | "medium" | "high" | "max";
+  setReasoningEffort: (value: "low" | "medium" | "high" | "max") => void;
   saveAISettings: () => void;
   clearAISettings: () => void;
   traceEntries: DiagnosticEntry[];
@@ -423,9 +423,9 @@ export default function WorkspacePages(props: Props) {
               </p>
             )}
             <label className="settings-field">Thinking effort
-              <Select value={reasoningEffort} onChange={(value: "high" | "max") => setReasoningEffort(value)} options={[{ value: "max", label: "Max — highest reasoning effort (default)" }, { value: "high", label: "High — high reasoning effort" }]} style={{ width: "100%" }} />
+              <Select value={reasoningEffort} onChange={(value: "low" | "medium" | "high" | "max") => setReasoningEffort(value)} options={[{ value: "medium", label: "Medium — balanced speed and reasoning (default)" }, { value: "low", label: "Low — faster for simple edits" }, { value: "high", label: "High — complex edits" }, { value: "max", label: "Max — highest reasoning effort" }]} style={{ width: "100%" }} />
             </label>
-            <p className="settings-description">Passed to the Copilot SDK as reasoningEffort. It only applies when the selected model supports that level; the server falls back to a compatible level based on the SDK model capabilities.</p>
+            <p className="settings-description">Passed to the Copilot SDK as reasoningEffort. Medium is the default for routine diagram edits; use High/Max for complex transformations. The server maps the requested level to capabilities advertised by the selected model.</p>
             <div className="settings-security-note"><strong>Agent capabilities and boundaries</strong><span>The agent uses typed operations for common edits and run_drawio_script for full native Draw.io API access. Scripts run in a separate-origin sandboxed iframe, not in Node.js; this is browser-origin isolation, not an OS-level sandbox. Use trusted local model providers for sensitive diagrams. The browser accepts changes only after native XML serialization and save/version acknowledgement. Model credentials never pass through the browser.</span></div>
             <div className="settings-card-actions"><UiButton type="button" className="button button-quiet" onClick={() => setModelsRefreshKey((key) => key + 1)}>Reload models</UiButton><UiButton type="button" className="button button-quiet" onClick={clearAISettings}>Clear model settings</UiButton><UiButton type="button" className="button button-primary" onClick={saveAISettings}>Save settings</UiButton></div>
           </section>
