@@ -618,7 +618,7 @@ describe("Copilot intent route result and revision contract", () => {
       recorded: false, accepted: false, reason: "terminal_action_already_registered", registeredKind: "native_edit"
     });
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(harness.logs.some((entry) => entry.event === "tool.run_drawio_script.read-rejected")).toBe(true);
+    expect(harness.logs.some((entry) => entry.event === "tool.run_drawio_script.read.rejected")).toBe(true);
     expect(harness.logs.some((entry) => entry.event === "tool.terminal-intent.rejected" &&
       entry.fields?.requestedKind === "no_mutation" && entry.fields?.registeredKind === "native_edit")).toBe(true);
     expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
