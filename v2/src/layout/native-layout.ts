@@ -884,6 +884,48 @@ function normalizePlan(
       })
       .filter((obstacle): obstacle is { x: number; y: number; width: number; height: number; cellId: string } => obstacle !== null);
   };
+  const routeInsideOwner = (
+    terminalId: string,
+    ownerId: string,
+    boundary: Point,
+    oppositeTerminalId: string
+  ): Point[] => {
+    const terminalBounds = absoluteBoundsForCell(terminalId);
+    const ownerBounds = absoluteBoundsForCell(ownerId);
+    if (!terminalBounds || !ownerBounds) {
+      throw new Error("The route through group " + ownerId + " is missing terminal geometry.");
+    }
+    const port = terminalEscape(terminalBounds, boundary);
+    const insideBounds = (point: Point) =>
+      point.x >= ownerBounds.x - routeAxisEpsilon &&
+      point.x <= ownerBounds.x + ownerBounds.width + routeAxisEpsilon &&
+      point.y >= ownerBounds.y - routeAxisEpsilon &&
+      point.y <= ownerBounds.y + ownerBounds.height + routeAxisEpsilon;
+    const start = insideBounds(port.escape) ? port.escape : port.port;
+    if (!insideBounds(start)) {
+      throw new Error("The connector has no safe escape point inside group " + ownerId + ".");
+    }
+    const internalObstacles = projection.allCells
+      .filter((cell) => cell.kind === "vertex" && cell.hasGeometry && cell.width > 0 && cell.height > 0 &&
+        isInsideVisibleLayoutLayer(cell.id) && cell.id !== ownerId && cell.id !== terminalId &&
+        cell.id !== oppositeTerminalId && belongsToRegionOwner(cell.id, ownerId))
+      .map((cell) => absoluteBoundsForCell(cell.id))
+      .filter((bounds): bounds is { x: number; y: number; width: number; height: number } => bounds !== null);
+    const innerClearance = 6;
+    const preferred = orthogonalizeRoute([start, boundary]);
+    if (isOrthogonalRouteClear(preferred, internalObstacles, innerClearance, ownerBounds)) return preferred;
+    const routed = routeOrthogonalAvoidingObstacles(start, boundary, internalObstacles, {
+      clearance: innerClearance,
+      bendPenalty: 18,
+      maxPoints: 60,
+      bounds: ownerBounds
+    });
+    if (!routed || !isOrthogonalRouteClear(routed, internalObstacles, innerClearance, ownerBounds)) {
+      throw new Error("No safe internal route could be found through group " + ownerId +
+        " for connector terminal " + terminalId + ".");
+    }
+    return orthogonalizeRoute(routed);
+  };
 
   for (const edge of projection.edges) {
     // The solver waypoints are retained when safe; obstacle routing only replaces a path
@@ -922,13 +964,20 @@ function normalizePlan(
         : selfLoop
           ? terminalEscapeOnSide(targetBounds!, "top")
           : terminalEscape(targetBounds!, translated[translated.length - 1] ?? sourceCenter);
+      const sourceInnerRoute = sourceGroupExit && edge.sourceId && edge.layoutSourceId && edge.targetId
+        ? routeInsideOwner(edge.sourceId, edge.layoutSourceId, sourceGroupExit.boundary, edge.targetId)
+        : [];
+      const targetInnerRoute = targetGroupExit && edge.targetId && edge.layoutTargetId && edge.sourceId
+        ? routeInsideOwner(edge.targetId, edge.layoutTargetId, targetGroupExit.boundary, edge.sourceId)
+        : [];
       const obstacles = routingObstaclesFor(edge);
+      const reversedTargetInnerRoute = targetInnerRoute.slice().reverse();
       const preferred = orthogonalizeRoute([
-        ...(sourceGroupExit ? [sourceGroupExit.boundary] : []),
+        ...sourceInnerRoute,
         sourcePort.escape,
         ...translated,
         targetPort.escape,
-        ...(targetGroupExit ? [targetGroupExit.boundary] : [])
+        ...reversedTargetInnerRoute
       ]);
       let points = isOrthogonalRouteClear(preferred, obstacles, routeClearance) ? preferred : null;
       if (!points) {
@@ -940,9 +989,9 @@ function normalizePlan(
         );
         if (routed) {
           const candidate = orthogonalizeRoute([
-            ...(sourceGroupExit ? [sourceGroupExit.boundary] : []),
+            ...sourceInnerRoute,
             ...routed,
-            ...(targetGroupExit ? [targetGroupExit.boundary] : [])
+            ...reversedTargetInnerRoute
           ]);
           if (isOrthogonalRouteClear(candidate, obstacles, routeClearance)) points = candidate;
         }
