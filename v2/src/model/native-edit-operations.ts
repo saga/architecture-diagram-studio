@@ -54,7 +54,7 @@ export interface NativeEditExecution {
   scriptResult?: unknown;
   /** Semantic before/after XML result for a validated native script. */
   semanticChanged?: boolean;
-  /** Distinguishes a verified edit from a changed document whose requested postconditions remain unknown. 
+  /** Distinguishes a verified edit from a changed document whose requested postconditions remain unknown. */
   applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
   rolledBack: boolean;
   steps: NativeBatchStepResult[];
