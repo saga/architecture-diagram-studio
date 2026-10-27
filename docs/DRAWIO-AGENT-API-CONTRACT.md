@@ -35,6 +35,8 @@ A catalogue miss is inconclusive. If a query tool returns no matches repeatedly,
 
 ### C4 shape recipes (bundled Draw.io v32.0.2)
 
+A failed `run_drawio_script` result is fed back to the model as structured tool-result context (`toolName`, `success: false`, editor error/stack, failed path and rollback status). When the editor and serialized XML confirm rollback and the source revision/page/selection remain unchanged, Studio makes one bounded automatic repair call with that failure result and the same runtime inspection; the model must correct the cause and call `run_drawio_script` again. If rollback is not confirmed or the document state changed/is unknown, Studio must not automatically retry because that could duplicate edits. The retry limit is one attempt.
+
 For C4 requests, first call `search_drawio_shapes` once with the alias `C4 directory`. It returns all three curated recipes—Person, Software System, and Container—in one result, reducing tool round-trips. The result returns vetted `style`, `width`, and `height`; use those exact values in the same `run_drawio_script` call to create the cells. Search an individual element name only when you need a focused lookup. These are native Draw.io styles, not an application-side C4 conversion preset.
 
 | C4 element | Native style recipe | Default size |
