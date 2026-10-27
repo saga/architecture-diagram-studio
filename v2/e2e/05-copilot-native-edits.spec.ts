@@ -675,3 +675,152 @@ test("Copilot bulk destructive edits execute without a confirmation proposal", a
   }, { timeout: 20_000 }).toBe(true);
 });
 
+test("Read-only Copilot inspection returns native results without changing XML or history", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
+  await openStudio(page);
+  await waitForNativeEditor(page);
+
+  const xmlBefore = await readWorkspaceXml(workspace);
+  const versionsBefore = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
+  let acknowledgement: Record<string, unknown> | null = null;
+
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
+  await page.route("**/api/copilot/intent", async (route) => {
+    const body = JSON.parse(route.request().postData() || "{}") as {
+      sessionId?: string; documentRevision?: unknown; context?: { activePageId?: string | null };
+    };
+    const script = [
+      "var total = 0;",
+      "function walk(parent) {",
+      "  var count = model.getChildCount(parent);",
+      "  for (var i = 0; i < count; i++) { var cell = model.getChildAt(parent, i); total++; walk(cell); }",
+      "}",
+      "walk(model.getRoot());",
+      "return { cellCount: total, pageId: " + JSON.stringify(body.context?.activePageId ?? null) + " };"
+    ].join("\\n");
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "command_ready",
+        reply: "Inspect the native diagram without changing it.",
+        nativeEdits: {
+          operations: [{
+            op: "run_drawio_script", target: "active_page", mode: "read",
+            summary: "Inspect native cell count", script,
+            cellId: "__active_page__", targetLabel: "active Draw.io page"
+          }],
+          summary: "Inspect native cell count",
+          requestId: "77777777-7777-4777-8777-777777777777",
+          pageId: body.context?.activePageId ?? null,
+          documentRevision: String(body.documentRevision ?? "")
+        },
+        sessionId: body.sessionId || "e2e-read-only-inspection",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
+        toolsUsed: ["run_drawio_script"]
+      })
+    });
+  });
+
+  await page.getByRole("tab", { name: "Copilot" }).click();
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
+  await input.fill("Inspect the native cell count without changing the diagram");
+  await input.press("Enter");
+
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("Read-only inspection completed");
+  await expect(resultMessage).toContainText("cellCount");
+  await expect(resultMessage).not.toContainText("diagram has changed");
+  await expect.poll(async () => await readWorkspaceXml(workspace)).toBe(xmlBefore);
+  const versionsAfter = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
+  expect(versionsAfter.versions).toHaveLength(versionsBefore.versions.length);
+  expect(acknowledgement).toMatchObject({
+    outcome: "applied", applicationState: "not-applied", persistenceStatus: "read_only_no_change",
+    serializedXmlRevision: null, persistedRevision: null, versionId: null
+  });
+});
+
+test("Read-only Copilot scripts cannot mutate the native model", async ({ page, request }) => {
+  const workspace = await createWorkspace(request);
+  await openStudio(page);
+  await waitForNativeEditor(page);
+
+  const xmlBefore = await readWorkspaceXml(workspace);
+  const versionsBefore = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
+  const marker = "READ_ONLY_MUTATION_MUST_NOT_APPLY";
+  let acknowledgement: Record<string, unknown> | null = null;
+
+  await page.route("**/api/copilot/intent/ack", async (route) => {
+    acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: acknowledgement.outcome,
+        requestId: acknowledgement.requestId,
+        documentRevision: acknowledgement.serializedXmlRevision ?? null,
+        persistedRevision: acknowledgement.persistedRevision ?? null,
+        versionId: acknowledgement.versionId ?? null
+      })
+    });
+  });
+  await page.route("**/api/copilot/intent", async (route) => {
+    const body = JSON.parse(route.request().postData() || "{}") as {
+      sessionId?: string; documentRevision?: unknown; context?: { activePageId?: string | null };
+    };
+    const script = [
+      "var target = model.getCell('database');",
+      "if (!target) throw new Error('known test vertex is absent');",
+      "model.setValue(target, '" + marker + "');",
+      "return { changed: true };"
+    ].join("\\n");
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        outcome: "command_ready",
+        reply: "Attempt an invalid mutation in read-only mode.",
+        nativeEdits: {
+          operations: [{
+            op: "run_drawio_script", target: "active_page", mode: "read",
+            summary: "Verify read-only mutation guard", script,
+            cellId: "__active_page__", targetLabel: "active Draw.io page"
+          }],
+          summary: "Verify read-only mutation guard",
+          requestId: "88888888-8888-4888-8888-888888888888",
+          pageId: body.context?.activePageId ?? null,
+          documentRevision: String(body.documentRevision ?? "")
+        },
+        sessionId: body.sessionId || "e2e-read-only-mutation-guard",
+        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
+        toolsUsed: ["run_drawio_script"]
+      })
+    });
+  });
+
+  await page.getByRole("tab", { name: "Copilot" }).click();
+  const input = page.locator('textarea[placeholder^="Describe the change"]');
+  await input.fill("Verify that read-only mode blocks model writes");
+  await input.press("Enter");
+
+  const resultMessage = page.locator(".gemini-message.assistant").last();
+  await expect(resultMessage).toContainText("No document change was detected");
+  await expect(resultMessage).not.toContainText("diagram has changed");
+  await expect.poll(async () => await readWorkspaceXml(workspace)).toBe(xmlBefore);
+  const versionsAfter = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
+  expect(versionsAfter.versions).toHaveLength(versionsBefore.versions.length);
+  expect(acknowledgement).toMatchObject({
+    outcome: "failed", applicationState: "not-applied", persistenceStatus: "read_only_no_change",
+    serializedXmlRevision: null, persistedRevision: null, versionId: null
+  });
+  expect(xmlBefore).not.toContain(marker);
+});
