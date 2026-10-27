@@ -670,10 +670,12 @@ function normalizePlan(
           const middle = result[result.length - 1];
           const collinearHorizontally =
             Math.abs(before.y - middle.y) <= routeAxisEpsilon &&
-            Math.abs(middle.y - point.y) <= routeAxisEpsilon;
+            Math.abs(middle.y - point.y) <= routeAxisEpsilon &&
+            (middle.x - before.x) * (point.x - middle.x) > 0;
           const collinearVertically =
             Math.abs(before.x - middle.x) <= routeAxisEpsilon &&
-            Math.abs(middle.x - point.x) <= routeAxisEpsilon;
+            Math.abs(middle.x - point.x) <= routeAxisEpsilon &&
+            (middle.y - before.y) * (point.y - middle.y) > 0;
           if (collinearHorizontally || collinearVertically) result.pop();
         }
       }
