@@ -1060,6 +1060,9 @@ export function describeCopilotFailure(message: string, context: FailureContext 
   }
   if (/not logged in|authentication|401|unauthorized/i.test(message)) return "The local Copilot identity is signed out or expired, so this request was not executed. Run copilot login in a terminal first.";
   if (/model/i.test(message) && /not (found|supported|available)/i.test(message)) return "The selected model is unavailable, so this request was not executed. Pick another model under Settings.";
+  if (/Copilot request cancelled by client/i.test(message)) {
+    return "The browser cancelled this Copilot request before the server returned a validated result. Check the browser request timeout and the matching requestId in the server trace; cancellation does not prove that an edit was applied or rolled back.";
+  }
   if (/no SDK progress.*idle timeout/i.test(message)) {
     return "Copilot stopped making observable progress before the idle deadline, so no edit was dispatched. Check provider/runtime health and retry; the server trace records the last event, phase, and progress counters.";
   }
