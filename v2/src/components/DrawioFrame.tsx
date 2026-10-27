@@ -1011,9 +1011,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     success: false,
                     applicationState,
                     error: applicationState === "changed-unverified"
-                      ? (undeclaredChangesPassed
-                          ? "The document changed, but native script assertions were invalid or did not match the serialized XML."
-                          : "The document changed beyond the cells the script declared: it also modified existing cells that no assertion covered.") + detail
+                      ? (undeclaredChangesPassed === false
+                          ? "The document changed beyond the cells the script declared: it also modified existing cells that no assertion covered."
+                          : "The document changed, but native script assertions were invalid or did not match the serialized XML.") + detail
                       : applicationState === "not-applied"
                         ? "The script did not confirm its requested postconditions and the document appears unchanged." + detail
                         : "The script result could not be verified against the serialized document." + detail,
