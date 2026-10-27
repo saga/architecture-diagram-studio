@@ -1998,7 +1998,8 @@ export default function App() {
                   ? "The native selection completed after the waiting period. The requested element is now selected; the diagram was not changed."
                   : "The native selection returned after the waiting period but failed: " + (finalResult.error || "Draw.io rejected the selection.");
                 setLastAction(reconciledText);
-                setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: reconciledText }].slice(-300));
+                const reconciledMessage: ChatMessage = { role: "assistant", id: Date.now(), text: reconciledText };
+                setMessages((items) => [...items, reconciledMessage].slice(-300));
                 recordDiagnostic("copilot.selection.acknowledgement.late-reconciled",
                   "Reconciled a native selection result after the UI wait expired",
                   { requestId, cellId: finalResult.cellId, success: finalResult.success, error: finalResult.error ?? null },
