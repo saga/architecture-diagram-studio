@@ -178,7 +178,7 @@ export default function App() {
 
   const [chatBusy, setChatBusy] = useState(false);
   const [aiModel, setAiModel] = useState("");
-  const [reasoningEffort, setReasoningEffort] = useState<"high" | "max">("max");
+  const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high" | "max">("medium");
   // Transcripts persisted by older sessions may open with a greeting that no longer exists;
   // drop it so a restored conversation starts with real content.
   const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the change you want"];
@@ -243,12 +243,12 @@ export default function App() {
     void fetch("/api/workspace/configuration")
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not read the server model configuration");
-        return response.json() as Promise<{ config?: { model?: string; reasoningEffort?: "high" | "max" } }>;
+        return response.json() as Promise<{ config?: { model?: string; reasoningEffort?: "low" | "medium" | "high" | "max" } }>;
       })
       .then((payload) => {
         if (!active || !payload.config) return;
         setAiModel(typeof payload.config.model === "string" ? payload.config.model : "");
-        setReasoningEffort(payload.config.reasoningEffort === "high" ? "high" : "max");
+        setReasoningEffort(["low", "medium", "high", "max"].includes(String(payload.config.reasoningEffort)) ? payload.config.reasoningEffort as "low" | "medium" | "high" | "max" : "medium");
       })
       .catch((error) => {
         if (active) recordDiagnostic("settings.configuration.load.failed", "Could not load the server model configuration", {
@@ -754,7 +754,7 @@ export default function App() {
     const next = { model: aiModel.trim(), reasoningEffort };
     try {
       const response = await fetch("/api/workspace/configuration", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ config: next }) });
-      const payload = await response.json() as { config?: { model?: string; reasoningEffort?: "high" | "max"; revisionId?: string }; error?: string };
+      const payload = await response.json() as { config?: { model?: string; reasoningEffort?: "low" | "medium" | "high" | "max"; revisionId?: string }; error?: string };
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiModel(payload.config.model || "");
       setReasoningEffort(payload.config.reasoningEffort || "max");
