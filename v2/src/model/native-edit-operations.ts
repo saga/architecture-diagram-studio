@@ -66,6 +66,12 @@ export interface NativeEditTarget {
   id: string;
   name: string;
   cellType: "vertex" | "edge";
+  /** Native mxGraph shape style key, e.g. mxgraph.floorplan.table. */
+  shape?: string;
+  /** Rounded native geometry in the active page coordinate system. */
+  geometry?: { x: number; y: number; width: number; height: number };
+  rotation?: number;
+  parentId?: string;
 }
 
 export interface NativeDiagramPageInfo {
@@ -154,7 +160,40 @@ export function extractNativeEditTargets(xml: string, pageId?: string | null): N
           : cell.hasAttribute("value")
             ? cell.getAttribute("value") ?? ""
             : cell.getAttribute("label") ?? "";
-    result.push({ id, name: plainNativeLabel(rawLabel), cellType: vertex ? "vertex" : "edge" });
+    const style = cell.getAttribute("style") || "";
+    const styleValue = (key: string): string | null => {
+      let value: string | null = null;
+      for (const part of style.split(";")) {
+        const equalsAt = part.indexOf("=");
+        if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) value = part.slice(equalsAt + 1).trim();
+      }
+      return value;
+    };
+    const geometryElement = Array.from(cell.children).find((child) => child.nodeName === "mxGeometry") ?? null;
+    const geometryValue = (key: string): number => {
+      const raw = geometryElement?.getAttribute(key);
+      const value = raw === null || raw === undefined || raw.trim() === "" ? 0 : Number(raw);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const shape = styleValue("shape") || wrapper?.getAttribute("shape") || "";
+    const rawRotation = styleValue("rotation") ?? wrapper?.getAttribute("rotation") ?? cell.getAttribute("rotation");
+    const rotationValue = rawRotation === null || rawRotation === undefined || rawRotation.trim() === ""
+      ? 0 : Number(rawRotation);
+    const geometry = geometryElement ? {
+      x: Math.round(geometryValue("x")),
+      y: Math.round(geometryValue("y")),
+      width: Math.round(geometryValue("width")),
+      height: Math.round(geometryValue("height"))
+    } : undefined;
+    result.push({
+      id,
+      name: plainNativeLabel(rawLabel),
+      cellType: vertex ? "vertex" : "edge",
+      ...(shape ? { shape: shape.slice(0, 180) } : {}),
+      ...(geometry ? { geometry } : {}),
+      ...(Number.isFinite(rotationValue) && rotationValue !== 0 ? { rotation: Math.round(rotationValue) } : {}),
+      ...(cell.getAttribute("parent") ? { parentId: cell.getAttribute("parent")! } : {})
+    });
   }
   return result;
 }
