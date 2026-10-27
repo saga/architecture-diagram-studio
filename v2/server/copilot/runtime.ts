@@ -41,7 +41,7 @@ export interface RuntimeSession {
   observedModel?: string;
   configRevisionId: string;
   /** Effort the caller asked for; part of the cache key. */
-  requestedEffort: "high" | "max";
+  requestedEffort: "low" | "medium" | "high" | "max";
   /** Effort the runtime actually accepted for this model. */
   reasoningEffort?: string;
   workspaceId?: string;
