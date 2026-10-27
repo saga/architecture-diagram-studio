@@ -67,6 +67,8 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   const nestedService = makeCell("nested-service", { vertex: true });
   const nestedEdge = makeCell("edge-nested", { edge: true, style: "edgeStyle=elbowEdgeStyle;html=1;endArrow=block;" });
   const byId = new Map<string, MockCell>();
+  let internalTimerCalls = 0;
+  let windowMock: Record<string, any> = { setTimeout: () => undefined };
 
   function append(parent: MockCell, child: MockCell): void {
     parent.children.push(child);
@@ -137,6 +139,8 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     background: null as string | null,
     view: { validateBackground() {} },
     insertVertex: (parent: MockCell, _id: string | null, value: string, x: number, y: number, width: number, height: number, style?: string | null) => {
+      // Real mxGraph/Draw.io insert and render paths may schedule internal timers.
+      windowMock.setTimeout(() => undefined, 0);
       const created = makeCell("created-" + (++generatedCellCount), { vertex: true, style: style ?? "drawio-default-vertex-style;" });
       created.value = value;
       created.geometry = mockGeometry(x, y, width, height);
@@ -174,7 +178,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     postMessage: (message: string) => messages.push(JSON.parse(message) as Record<string, any>)
   };
   let messageHandler: ((event: Record<string, any>) => void) | null = null;
-  const windowMock = {
+  windowMock = {
     Draw: { loadPlugin: (callback: (ui: Record<string, any>) => void) => callback({
       editor: { graph, setModified: () => { editorModifiedCalls += 1; } },
       addListener: () => undefined
@@ -187,7 +191,7 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     },
     mxCellRenderer: { defaultShapes: shapeRegistry },
     addEventListener: (_name: string, callback: (event: Record<string, any>) => void) => { messageHandler = callback; },
-    setTimeout: () => undefined
+    setTimeout: (callback: () => void) => { internalTimerCalls += 1; return undefined; }
   };
 
   const source = readFileSync(new URL("./studio-selection-plugin.js", import.meta.url), "utf8");
@@ -251,7 +255,8 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
     getBackground: () => graph.background,
     setBackground: (value: string | null) => { graph.background = value; },
     getCreatedCells: () => [...byId.values()].filter((cell) => cell.id.startsWith("created-")),
-    getEditorModifiedCalls: () => editorModifiedCalls, getGraphRefreshCalls: () => graphRefreshCalls };
+    getEditorModifiedCalls: () => editorModifiedCalls, getGraphRefreshCalls: () => graphRefreshCalls,
+    getInternalTimerCalls: () => internalTimerCalls };
 }
 
 const curveAllConnectorsScript = [
@@ -330,6 +335,19 @@ describe("native Draw.io script bridge", () => {
 
     expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
     expect(harness.getCreatedCells()).toHaveLength(0);
+  });
+
+  it("does not patch Draw.io internal timers while executing native insertion", () => {
+    const harness = createHarness();
+    const beforeTimerCalls = harness.getInternalTimerCalls();
+    const result = harness.runScript(
+      "var created = graph.insertVertex(graph.getDefaultParent(), null, 'Timer-safe node', 100, 200, 80, 40, 'rounded=1;'); " +
+      "return { ok: true, postconditions: { created: !!created && created.vertex }, " +
+      "xmlAssertions: [{ cellId: created.id, exists: true, kind: 'vertex', label: 'Timer-safe node' }] };"
+    );
+    expect(result).toMatchObject({ success: true });
+    expect(harness.getInternalTimerCalls()).toBe(beforeTimerCalls + 1);
+    expect(harness.getCreatedCells()).toHaveLength(1);
   });
 
   it("executes whole-page curved-edge changes including connectors inside groups", () => {
