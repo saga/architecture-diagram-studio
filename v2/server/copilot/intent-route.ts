@@ -368,8 +368,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const readOnlyNoChange = pending.operations.some((operation) =>
       operation.op === "run_drawio_script" && operation.mode === "read"
     ) && applicationState === "not-applied" && persistenceStatus === "read_only_no_change";
-    if (!outcome || (outcome === "applied" && (!editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange))) ||
-        (outcome === "failed" && !errorMessage && !failureStage)) {
+    if (!outcome || (outcome === "applied" && (
+          !editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange) ||
+          (!readOnlyNoChange && applicationState !== "applied-and-verified")
+        )) || (outcome === "failed" && !errorMessage && !failureStage)) {
       res.status(400).json({ outcome: "failed", reply: "The final edit result was incomplete.", error: "A final outcome must include a valid status, and failures must include a failure stage or error." });
       return;
     }
