@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { findUndeclaredNativeScriptChanges, nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml, type NativeScriptXmlValidationResult } from "../model/native-edit-confirmation";
+import { findUndeclaredNativeScriptChanges, nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml, type NativeScriptScopeViolation, type NativeScriptXmlAssertionFailure, type NativeScriptXmlValidationResult } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import type { NativePalettePlan } from "../model/drawio-theme";
@@ -77,6 +77,9 @@ type NativeEditResult = {
   auditWarning?: string;
   /** Bounded JSON-safe value returned by a native script. */
   scriptResult?: unknown;
+  /** Field-level verification failures used in diagnostics and safe repair context. */
+  assertionFailures?: NativeScriptXmlAssertionFailure[];
+  scopeViolations?: NativeScriptScopeViolation[];
   scriptMode?: "read" | "mutate";
   /** Semantic before/after XML result for a validated script; false means no semantic change occurred. */
   semanticChanged?: boolean;
@@ -1017,6 +1020,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     ...acknowledgement,
                     success: false,
                     applicationState,
+                    assertionFailures: assertionValidation.failures.slice(0, 25),
+                    scopeViolations: scriptScope && !scriptScope.ok ? scriptScope.violations.slice(0, 25) : [],
                     error: applicationState === "changed-unverified"
                       ? (undeclaredChangesPassed === false
                           ? "The document changed beyond the declared assertions: it created or removed cells, or modified existing cells, that no assertion covered."

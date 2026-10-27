@@ -1,5 +1,6 @@
 import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
+import type { NativeScriptScopeViolation, NativeScriptXmlAssertionFailure } from "./native-edit-confirmation";
 import { z } from "zod";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_AUTO_LAYOUT_ALGORITHMS, defaultNativeLayoutAlgorithm, nativeLayoutSupportsAlgorithm, type NativeAutoLayoutEngine, type NativeLayoutPlan } from "../layout/native-layout";
 
@@ -54,6 +55,10 @@ export interface NativeEditExecution {
   scriptResult?: unknown;
   /** Semantic before/after XML result for a validated native script. */
   semanticChanged?: boolean;
+  /** Bounded field-level XML assertion failures from native script verification. */
+  assertionFailures?: NativeScriptXmlAssertionFailure[];
+  /** Bounded undeclared/unproven native cell changes from the before/after XML diff. */
+  scopeViolations?: NativeScriptScopeViolation[];
   /** Distinguishes a verified edit from a changed document whose requested postconditions remain unknown. */
   applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
   rolledBack: boolean;

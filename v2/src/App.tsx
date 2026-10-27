@@ -141,7 +141,14 @@ export default function App() {
       : 75_000;
   })();
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
-  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; semanticChanged?: boolean; applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string }) => void>());
+  const nativeEditResolversRef = useRef(new Map<number, (result: {
+    success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string;
+    batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
+    batchRolledBack?: boolean | null; scriptResult?: unknown; semanticChanged?: boolean;
+    applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string;
+    assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string; expected?: unknown; actual?: unknown }>;
+    scopeViolations?: Array<{ kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[] }>;
+  }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const lateNativeEditRequestsRef = useRef(new Set<number>());
   const lateNativeSelectionRequestsRef = useRef(new Set<number>());
@@ -2024,7 +2031,8 @@ export default function App() {
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
+                assertionFailures: finalResult.assertionFailures ?? [], scopeViolations: finalResult.scopeViolations ?? []
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
               if (isLateNativeSelection && requestId !== null && lateNativeSelectionRequestsRef.current.delete(requestId)) {
                 const reconciledText = finalResult.success

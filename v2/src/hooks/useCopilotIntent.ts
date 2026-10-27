@@ -332,7 +332,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               error: boundedError,
               ...(boundedStack ? { stack: boundedStack.slice(0, 8000) } : {}),
               rollbackConfirmed: execution.rolledBack,
-              failedPath: executionErrorStep?.path || "native-edit"
+              failedPath: executionErrorStep?.path || "native-edit",
+              ...(execution.assertionFailures?.length ? { assertionFailures: execution.assertionFailures.slice(0, 25) } : {}),
+              ...(execution.scopeViolations?.length ? { scopeViolations: execution.scopeViolations.slice(0, 25) } : {})
             };
             const failedActionPayload = failedScriptOperation && failedScriptOperation.op === "run_drawio_script" ? failedScriptOperation.script : JSON.stringify(operations);
             recordDiagnostic("copilot.native-edit-repair.started", "Starting one automatic native edit repair attempt after an editor-reported failure and confirmed rollback", {
@@ -340,6 +342,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               error: boundedError,
               errorStack: boundedStack?.slice(0, 8000) ?? null,
               toolResult,
+              assertionFailures: toolResult.assertionFailures ?? [],
+              scopeViolations: toolResult.scopeViolations ?? [],
               failedActionTool: toolResult.toolName,
               failedActionLength: failedActionPayload.length,
               rollbackConfirmed: execution.rolledBack,

@@ -836,6 +836,7 @@ function createDrawioElementSearchTool(sessionId: string) {
       handler: async (args: { topic?: unknown }) => {
         const topic = args?.topic;
         if (!isDrawioReferenceTopic(topic)) {
+          await deps.writeLog("tool.get_drawio_reference.rejected", { sessionId, reason: "invalid_reference_topic" });
           return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
         }
         try {
@@ -1158,7 +1159,12 @@ function createDrawioElementSearchTool(sessionId: string) {
     const suppliedRepair = (requestedContext as { scriptRepair?: unknown }).scriptRepair;
     let scriptRepair: {
       originalRequest: string; failedScript: string; error: string; stack?: string;
-      toolResult: { toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string; rollbackConfirmed: boolean; failedPath: string };
+      toolResult: {
+        toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string;
+        rollbackConfirmed: boolean; failedPath: string;
+        assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string }>;
+        scopeViolations?: Array<{ kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[] }>;
+      };
     } | undefined;
     if (suppliedRepair !== undefined) {
       if (!suppliedRepair || typeof suppliedRepair !== "object" || Array.isArray(suppliedRepair)) {
@@ -1178,7 +1184,9 @@ function createDrawioElementSearchTool(sessionId: string) {
           typeof toolResult.error !== "string" || !toolResult.error.trim() || toolResult.error.length > 1200 ||
           typeof toolResult.rollbackConfirmed !== "boolean" ||
           typeof toolResult.failedPath !== "string" || toolResult.failedPath.length > 80 ||
-          (toolResult.stack !== undefined && (typeof toolResult.stack !== "string" || toolResult.stack.length > 8000))) {
+          (toolResult.stack !== undefined && (typeof toolResult.stack !== "string" || toolResult.stack.length > 8000)) ||
+          (toolResult.assertionFailures !== undefined && (!Array.isArray(toolResult.assertionFailures) || toolResult.assertionFailures.length > 25)) ||
+          (toolResult.scopeViolations !== undefined && (!Array.isArray(toolResult.scopeViolations) || toolResult.scopeViolations.length > 25))) {
         res.status(400).json({ outcome: "failed", reply: "The native edit repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, failed action <=12000 chars, error <=1200 chars, and a bounded failed native tool result", documentRevision, requestId, sessionId });
         return;
       }
@@ -1193,7 +1201,37 @@ function createDrawioElementSearchTool(sessionId: string) {
           error: (toolResult as Record<string, unknown>).error as string,
           ...(typeof toolResult.stack === "string" ? { stack: toolResult.stack.slice(0, 8000) } : {}),
           rollbackConfirmed: toolResult.rollbackConfirmed as boolean,
-          failedPath: toolResult.failedPath as string
+          failedPath: toolResult.failedPath as string,
+          ...(Array.isArray(toolResult.assertionFailures) ? {
+            assertionFailures: toolResult.assertionFailures.slice(0, 25).flatMap((raw) => {
+              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+              const item = raw as Record<string, unknown>;
+              if (typeof item.field !== "string" || typeof item.reason !== "string" ||
+                  !["invalid-result", "invalid-assertion", "invalid-document", "mismatch"].includes(String(item.kind))) return [];
+              return [{
+                kind: String(item.kind),
+                index: typeof item.index === "number" && Number.isInteger(item.index) ? item.index : null,
+                ...(typeof item.cellId === "string" ? { cellId: item.cellId.slice(0, 200) } : {}),
+                field: item.field.slice(0, 120), reason: item.reason.slice(0, 400)
+              }];
+            })
+          } : {}),
+          ...(Array.isArray(toolResult.scopeViolations) ? {
+            scopeViolations: toolResult.scopeViolations.slice(0, 25).flatMap((raw) => {
+              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+              const item = raw as Record<string, unknown>;
+              if (typeof item.kind !== "string" || typeof item.cellId !== "string" ||
+                  typeof item.label !== "string" || (item.pageId !== null && typeof item.pageId !== "string")) return [];
+              const changedFields = Array.isArray(item.changedFields)
+                ? item.changedFields.filter((field): field is string => typeof field === "string").slice(0, 20).map((field) => field.slice(0, 120))
+                : undefined;
+              return [{
+                kind: item.kind.slice(0, 40), cellId: item.cellId.slice(0, 200),
+                pageId: item.pageId as string | null, label: item.label.slice(0, 200),
+                ...(changedFields?.length ? { changedFields } : {})
+              }];
+            })
+          } : {})
         }
       };
       await deps.writeLog("request.script-repair.received", {

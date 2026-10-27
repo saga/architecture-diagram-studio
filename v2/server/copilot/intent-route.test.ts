@@ -147,7 +147,7 @@ function reportingCopilot(
 function elementSearchingCopilot(
   query = "Payment Orchestrator",
   toolName = "search_drawio_elements",
-  toolArgs?: Record<string, unknown>
+  toolArgs?: unknown
 ) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
@@ -172,7 +172,7 @@ function elementSearchingCopilot(
         const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
         const search = tools.find((candidate) => candidate.name === toolName);
         if (!search?.handler) throw new Error(toolName + " tool was not registered");
-        searchResult = await search.handler(toolArgs ?? { query, limit: 5 });
+        searchResult = await search.handler(toolArgs !== undefined ? toolArgs : { query, limit: 5 });
         const report = tools.find((candidate) => candidate.name === "report_intent_outcome");
         if (!report?.handler) throw new Error("report_intent_outcome tool was not registered");
         await report.handler({ outcome: "answered", reply: "Element search completed." });
@@ -972,6 +972,20 @@ describe("Copilot intent route result and revision contract", () => {
     }]);
     expect(harness.logs.some((entry) => entry.event === "tool.search_drawio_elements.completed")).toBe(true);
     expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("returns a structured rejection when the reference tool receives null arguments", async () => {
+    const copilot = elementSearchingCopilot("", "get_drawio_reference", null);
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "Read the Draw.io API reference"
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    expect((copilot as { searchResult?: Record<string, unknown> }).searchResult).toMatchObject({
+      accepted: false, reason: "invalid_reference_topic"
+    });
+    expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(false);
   });
 
   it("accepts a single Chinese character in curated shape search", async () => {
