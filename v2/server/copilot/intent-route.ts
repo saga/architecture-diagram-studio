@@ -1302,7 +1302,7 @@ function createDrawioElementSearchTool(sessionId: string) {
             configRevisionId: latestConfig.revisionId,
             systemMessage: await buildSystemMessage(standalone),
             tools: [
-              createSelectDiagramElementTool(sessionId),
+              createSelectDiagramElementTool(sessionId, deps.writeLog),
               createDrawioShapeSearchTool(sessionId),
               createDrawioRuntimeShapeSearchTool(sessionId),
               createDrawioElementSearchTool(sessionId),
@@ -1588,7 +1588,7 @@ function createDrawioElementSearchTool(sessionId: string) {
   });
 }
 
-function createSelectDiagramElementTool(sessionId: string) {
+function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDependencies["writeLog"]) {
   return defineTool("select_diagram_element", {
     description: "Queue a focus/selection action for one existing native Draw.io element. This is the terminal action for the turn and runs after the model turn ends; the tool result confirms only that selection was queued, not that the canvas has selected it. Use exact IDs or a unique exact label from current diagram context; do not guess.",
     parameters: {
@@ -1600,7 +1600,7 @@ function createSelectDiagramElementTool(sessionId: string) {
     handler: async (args: { target: string }) => {
       if (typeof args?.target !== "string" || !args.target.trim() || args.target.length > 200) {
         const error = "Element selection requires a non-empty target no longer than 200 characters.";
-        await deps.writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
+        await writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
         return {
           selected: false, accepted: false, reason: "invalid_target", error,
           instructions: "Provide a non-empty exact cell ID or unique element label from the current diagram context. No selection was queued."
