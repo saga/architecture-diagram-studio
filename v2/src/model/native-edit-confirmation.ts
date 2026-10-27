@@ -476,6 +476,96 @@ function nativeAssertionStyleValue(style: string, key: string): Array<string | n
   return matches.length ? matches.map((entry) => entry.value) : null;
 }
 
+function nativeEffectiveStyleMap(style: string | null): Map<string, string | null> {
+  const effective = new Map<string, string | null>();
+  for (const part of (style || "").split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const separator = trimmed.indexOf("=");
+    const key = (separator < 0 ? trimmed : trimmed.slice(0, separator)).trim();
+    if (!key) continue;
+    effective.set(key, separator < 0 ? null : trimmed.slice(separator + 1).trim());
+  }
+  return effective;
+}
+
+function numericOrNull(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function numericXmlAttribute(element: Element | null, name: string): number | null {
+  if (!element || !element.hasAttribute(name)) return null;
+  const value = Number(element.getAttribute(name));
+  return Number.isFinite(value) ? value : null;
+}
+
+function nativeGeometryPoint(point: Element): { x: number | null; y: number | null } {
+  return { x: numericXmlAttribute(point, "x"), y: numericXmlAttribute(point, "y") };
+}
+
+/** Structured geometry evidence uses native XML coordinates, not a reconstructed graph model. */
+function nativeGeometryAssertionValue(geometry: Element | null, key: string): unknown {
+  if (["x", "y", "width", "height"].includes(key)) return numericXmlAttribute(geometry, key);
+  if (key === "relative") {
+    if (!geometry || !geometry.hasAttribute("relative")) return null;
+    const value = (geometry.getAttribute("relative") || "").toLowerCase();
+    return value === "1" || value === "true";
+  }
+  if (!geometry) return null;
+  if (key === "points") {
+    const array = elementChildren(geometry).find((child) => child.nodeName === "Array" && child.getAttribute("as") === "points");
+    return array ? elementChildren(array).filter((child) => child.nodeName === "mxPoint").map(nativeGeometryPoint) : null;
+  }
+  if (key === "offset" || key === "sourcePoint" || key === "targetPoint") {
+    const point = elementChildren(geometry).find((child) => child.nodeName === "mxPoint" && child.getAttribute("as") === key);
+    return point ? nativeGeometryPoint(point) : null;
+  }
+  return undefined;
+}
+
+function numericEvidenceMatches(expected: unknown, actual: unknown): boolean {
+  if (expected === null) return actual === null;
+  return typeof expected === "number" && typeof actual === "number" &&
+    Number.isFinite(expected) && Number.isFinite(actual) && Math.abs(expected - actual) <= 0.01;
+}
+
+function pointEvidenceMatches(expected: unknown, actual: unknown): boolean {
+  if (expected === null) return actual === null;
+  if (!expected || typeof expected !== "object" || Array.isArray(expected) ||
+      !actual || typeof actual !== "object" || Array.isArray(actual)) return false;
+  const requested = expected as Record<string, unknown>;
+  const observed = actual as Record<string, unknown>;
+  return ["x", "y"].every((axis) => axis in requested && numericEvidenceMatches(requested[axis], observed[axis]));
+}
+
+function geometryEvidenceMatches(key: string, expected: unknown, actual: unknown): boolean {
+  if (key === "relative") return expected === actual;
+  if (key === "points") {
+    if (expected === null) return actual === null;
+    if (!Array.isArray(expected) || !Array.isArray(actual) || expected.length !== actual.length) return false;
+    return expected.every((point, index) => pointEvidenceMatches(point, actual[index]));
+  }
+  if (key === "offset" || key === "sourcePoint" || key === "targetPoint") return pointEvidenceMatches(expected, actual);
+  return numericEvidenceMatches(expected, actual);
+}
+
+function nativeGeometryChangedFields(before: Element | null, after: Element | null): string[] {
+  if (!before || !after) return ["geometry"];
+  const changed: string[] = [];
+  for (const key of ["x", "y", "width", "height", "relative", "points", "offset", "sourcePoint", "targetPoint"]) {
+    const left = nativeGeometryAssertionValue(before, key);
+    const right = nativeGeometryAssertionValue(after, key);
+    if (JSON.stringify(left) !== JSON.stringify(right)) changed.push(key === "relative" ? "geometry.relative" : "geometry." + key);
+  }
+  const recognizedChildren = (geometry: Element) => elementChildren(geometry).filter((child) =>
+    !(child.nodeName === "Array" && child.getAttribute("as") === "points") &&
+    !(child.nodeName === "mxPoint" && ["offset", "sourcePoint", "targetPoint"].includes(child.getAttribute("as") || ""))
+  );
+  if (JSON.stringify(recognizedChildren(before).map(elementSignature)) !==
+      JSON.stringify(recognizedChildren(after).map(elementSignature))) changed.push("geometry.other-children");
+  return changed;
+}
+
 /**
  * Independently verifies script-declared native-cell evidence against serialized XML.
  * Boolean postconditions express what the script checked in the live editor; xmlAssertions
@@ -524,7 +614,7 @@ export function validateNativeScriptResultAgainstXml(
       return finish();
     }
     const allowedFields = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
-    const geometryFields = new Set(["x", "y", "width", "height", "relative"]);
+    const geometryFields = new Set(["x", "y", "width", "height", "relative", "points", "offset", "sourcePoint", "targetPoint"]);
 
     const attributeMatches = (cell: Element, key: "parent" | "source" | "target", expected: unknown): boolean => {
       if (expected !== null && typeof expected !== "string") return false;
@@ -621,7 +711,24 @@ export function validateNativeScriptResultAgainstXml(
                 invalid("geometry.relative", "relative must be a boolean or null.", ["boolean", "null"], expected);
                 shapeInvalid = true;
               }
-            } else if (expected !== null && (typeof expected !== "number" || !Number.isFinite(expected))) {
+            } else if (key === "points") {
+              if (expected !== null && (!Array.isArray(expected) || expected.some((point) =>
+                !point || typeof point !== "object" || Array.isArray(point) ||
+                !("x" in (point as Record<string, unknown>)) || !("y" in (point as Record<string, unknown>)) ||
+                !numericOrNull((point as Record<string, unknown>).x) || !numericOrNull((point as Record<string, unknown>).y)
+              ))) {
+                invalid("geometry.points", "points must be null or an array of {x, y} finite-number/null coordinates.", "Array<{x:number|null,y:number|null}> | null", expected);
+                shapeInvalid = true;
+              }
+            } else if (key === "offset" || key === "sourcePoint" || key === "targetPoint") {
+              if (expected !== null && (!expected || typeof expected !== "object" || Array.isArray(expected) ||
+                !("x" in (expected as Record<string, unknown>)) || !("y" in (expected as Record<string, unknown>)) ||
+                !numericOrNull((expected as Record<string, unknown>).x) || !numericOrNull((expected as Record<string, unknown>).y)
+              )) {
+                invalid("geometry." + key, key + " must be null or an {x, y} object with finite-number/null coordinates.", "{x:number|null,y:number|null} | null", expected);
+                shapeInvalid = true;
+              }
+            } else if (!numericOrNull(expected)) {
               invalid("geometry." + key, "Coordinate and size expectations must be finite numbers or null.", "finite number or null", expected);
               shapeInvalid = true;
             }
@@ -684,21 +791,11 @@ export function validateNativeScriptResultAgainstXml(
         if (!record.geometry) {
           invalid("geometry", "The serialized cell has no geometry element.", assertion.geometry, null, "mismatch");
         } else {
-          const geometry = assertion.geometry as Record<string, number | boolean | null>;
-          for (const key of ["x", "y", "width", "height"] as const) {
-            if (!(key in geometry)) continue;
-            const expected = geometry[key];
-            const actualRaw = record.geometry.getAttribute(key);
-            const actual = actualRaw === null || !Number.isFinite(Number(actualRaw)) ? null : Number(actualRaw);
-            if (expected === null ? actualRaw !== null : actual === null || Math.abs(actual - (expected as number)) > 0.01) {
+          const geometry = assertion.geometry as Record<string, unknown>;
+          for (const [key, expected] of Object.entries(geometry)) {
+            const actual = nativeGeometryAssertionValue(record.geometry, key);
+            if (!geometryEvidenceMatches(key, expected, actual)) {
               invalid("geometry." + key, "Serialized geometry value did not match.", expected, actual, "mismatch");
-            }
-          }
-          if ("relative" in geometry) {
-            const expected = geometry.relative;
-            const actualRaw = record.geometry.getAttribute("relative");
-            if (expected === null ? actualRaw !== null : (actualRaw === "1") !== expected) {
-              invalid("geometry.relative", "Serialized relative flag did not match.", expected, actualRaw === null ? null : actualRaw === "1", "mismatch");
             }
           }
         }
