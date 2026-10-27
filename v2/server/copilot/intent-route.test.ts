@@ -556,7 +556,10 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("catalogue misses do not prove absence");
     expect(prompt).toContain("run_drawio_script");
     expect(prompt).toContain("Scripts receive live ui/editor/graph/model/inspectRuntime bindings");
+    expect(prompt).toContain("exactly one terminal action per turn");
     expect(prompt.length).toBeLessThan(2800);
+    const firstRequest = JSON.parse((copilot as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
+    expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
   });
 
   it("dispatches insertion-only native scripts without a confirmation step", async () => {
