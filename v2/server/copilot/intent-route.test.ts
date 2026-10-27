@@ -745,6 +745,23 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
+  it("does not classify model and SDK errors by English message wording", async () => {
+    const failures = [
+      "The requested model was not found among configured providers.",
+      "The provider is not supported by this SDK version."
+    ];
+    for (const failureMessage of failures) {
+      const copilot = reportingCopilot("answered", "This response should not be reached.");
+      copilot.withTurn = async () => { throw new Error(failureMessage); };
+      const harness = await createServer({ copilot });
+      const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+      expect(response.status).toBe(502);
+      expect(body.outcome).toBe("failed");
+      expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
+        String(entry.fields?.errorMessage).includes(failureMessage))).toBe(true);
+    }
+  });
+
   it("returns stale_context when the selected native cell no longer exists", async () => {
     const harness = await createServer();
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({

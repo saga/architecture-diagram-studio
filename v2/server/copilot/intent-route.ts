@@ -226,25 +226,6 @@ function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): s
   return "This batch is broad and requires review before it can be applied.";
 }
 
-function classifyNoMutationFailure(message: string): ReportedNoEditOutcome | null {
-  const safeMessage = message.trim().slice(0, 1500);
-  if (/ambiguous|was not found|not found among|missing required|target.*required|no native draw\.io cells to target/i.test(safeMessage)) {
-    return {
-      outcome: "needs_clarification",
-      reply: "No diagram changes were applied. " + safeMessage,
-      question: safeMessage
-    };
-  }
-  if (/unsupported operation|not supported|requires a vertex|not a vertex|unsupported color|outside the supported native-edit/i.test(safeMessage)) {
-    return {
-      outcome: "unsupported",
-      reply: "No diagram changes were applied. " + safeMessage,
-      reason: safeMessage
-    } as ReportedNoEditOutcome;
-  }
-  return null;
-}
-
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   const acknowledgements = deps.acknowledgements ?? acknowledgementsDefault;
   app.post("/api/copilot/intent/confirm", async (req, res) => {
@@ -1554,16 +1535,9 @@ function createDrawioElementSearchTool(sessionId: string) {
         return;
       }
       const actualModel = deps.copilot.lastObservedModel(sessionId);
-      const noMutationOutcome = classifyNoMutationFailure(message);
-      if (noMutationOutcome) {
-        await deps.writeLog("turn.completed.without-native-edit", {
-          requestId, sessionId, outcome: noMutationOutcome.outcome, reply: noMutationOutcome.reply,
-          model, actualModel: actualModel ?? null, durationMs: Date.now() - startedAt,
-          errorName: error instanceof Error ? error.name : typeof error, errorMessage: message
-        });
-        res.status(200).json({ ...noMutationOutcome, requestId, sessionId, model: actualModel || model, provider: "github-copilot-sdk" });
-        return;
-      }
+      // Clarification/unsupported are model-intent outcomes and must be reported via
+      // report_intent_outcome. Never infer them from SDK/runtime exception wording:
+      // e.g. "model was not found" is infrastructure failure, not user ambiguity.
       await deps.writeLog("turn.failed", {
         requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, actualModel: actualModel ?? null,
         provider: deps.copilot.providerInfo.mode, providerHost: deps.copilot.providerInfo.host ?? null,
