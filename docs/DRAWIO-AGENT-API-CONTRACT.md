@@ -32,6 +32,20 @@ There are three different concepts; do not conflate them:
 
 A catalogue miss is inconclusive. Do not invent style IDs or silently substitute a different notation. Application-owned hard-conversion presets are not a fallback; use verified native definitions or report the limitation. For a notation or shape change to an existing element, use `run_drawio_script` and the native Draw.io palette or a verified native example. Do not silently replace the original shape, label, metadata or geometry based on inferred semantics. Prefer adding the verified native element and preserving the original and its connections unless the user explicitly requests replacement. An empty label stays empty; a cell ID is an internal reference, not display text. Do not invent a relation label. If the native definition is unclear, inspect the bundled editor/reference or report the limitation rather than guessing.
 
+### C4 shape recipes (bundled Draw.io v32.0.2)
+
+For C4 requests, call `search_drawio_shapes` with the specific element name (for example, `C4 Person`, `C4 Software System`, or `C4 Container`). The result returns a vetted `style`, `width`, and `height`; use those exact values in the same `run_drawio_script` call to create the cells. These are native Draw.io styles, not an application-side C4 conversion preset.
+
+| C4 element | Native style recipe | Default size |
+|---|---|---:|
+| Person | `shape=mxgraph.c4.person2;whiteSpace=wrap;html=1;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];fillColor=#08427b;fontColor=#ffffff;strokeColor=#073763;fontSize=11;` | 200 × 180 |
+| Software System | `rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#1168bd;strokeColor=#0D5091;fontSize=11;` | 240 × 120 |
+| Container | `rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#23a2d9;strokeColor=#0E7DAD;fontSize=11;` | 240 × 120 |
+
+Use the C4 label convention: element name on the first line, `[Person]`, `[Software System]`, or `[Container: technology]` on the second line, and an optional short responsibility/description on a later line. In Draw.io HTML labels, use `&lt;br&gt;` between lines and escape user-provided label text before embedding it in HTML. A Container represents an application or data store that runs or stores data; it is not a generic visual grouping. Use a separate dashed system boundary when the diagram needs to show ownership/scope. Use the exact Person `person2` style only when the bundled C4 shape is available in the current editor; do not silently substitute a UML actor. The styles and dimensions are a recipe, not proof that a particular shape library is loaded. If rendering is uncertain, inspect an existing native C4 element or the live runtime before creating it.
+
+For a common C4 diagram, one shape search per element type is enough to retrieve exact styles; then create all vertices and relationships in a single synchronous script. Keep relationships as native edges, label only the protocol/action supplied by the architecture, and verify each new cell and edge terminal after mutation.
+
 ## Validation and postconditions
 
 A successful API call or changed XML revision is not proof of the requested outcome. Verify the native model state and, when visual appearance matters, the rendered state.
