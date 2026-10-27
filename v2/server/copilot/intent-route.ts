@@ -146,10 +146,45 @@ function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): Te
 const contextBySession = new Map<string, unknown>();
 
 const ACK_TTL_MS = 10 * 60_000;
+const MAX_PENDING_NATIVE_PROPOSALS = 500;
 const EMPTY_QUERY_WARNING_THRESHOLD = 3;
 const EMPTY_QUERY_STREAK_TTL_MS = 30 * 60_000;
 const EMPTY_QUERY_STREAK_MAX_KEYS = 1_000;
 const emptyQueryStreaks = new Map<string, { count: number; query: string; tool: string; updatedAt: number }>();
+
+function prunePendingNativeProposals(
+  now: number, reservedSlots = 0
+): { expired: Array<{ id: string; proposal: PendingNativeProposal }>; evicted: Array<{ id: string; proposal: PendingNativeProposal }> } {
+  const expired: Array<{ id: string; proposal: PendingNativeProposal }> = [];
+  const evicted: Array<{ id: string; proposal: PendingNativeProposal }> = [];
+  for (const [id, proposal] of pendingNativeProposals) {
+    if (now - proposal.createdAt < ACK_TTL_MS) continue;
+    pendingNativeProposals.delete(id);
+    expired.push({ id, proposal });
+  }
+  while (pendingNativeProposals.size + Math.max(0, reservedSlots) > MAX_PENDING_NATIVE_PROPOSALS) {
+    const oldest = pendingNativeProposals.entries().next().value as [string, PendingNativeProposal] | undefined;
+    if (!oldest) break;
+    pendingNativeProposals.delete(oldest[0]);
+    evicted.push({ id: oldest[0], proposal: oldest[1] });
+  }
+  return { expired, evicted };
+}
+
+async function logPendingProposalSweep(
+  sweep: ReturnType<typeof prunePendingNativeProposals>,
+  writeLog: IntentDependencies["writeLog"]
+): Promise<void> {
+  for (const item of sweep.expired) {
+    await writeLog("turn.native-edit.proposal-expired", { proposalId: item.id, sessionId: item.proposal.sessionId });
+  }
+  for (const item of sweep.evicted) {
+    await writeLog("turn.native-edit.proposal-evicted", {
+      proposalId: item.id, sessionId: item.proposal.sessionId,
+      reason: "pending_proposal_capacity", maxPending: MAX_PENDING_NATIVE_PROPOSALS
+    });
+  }
+}
 
 function pruneEmptyQueryStreaks(now: number): void {
   // Map insertion order is refreshed below whenever a streak is updated, so stale entries
@@ -232,6 +267,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
     const proposalId = typeof body.proposalId === "string" ? body.proposalId : "";
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+    await logPendingProposalSweep(prunePendingNativeProposals(Date.now()), deps.writeLog);
     const proposal = pendingNativeProposals.get(proposalId);
     if (!proposal || Date.now() - proposal.createdAt >= ACK_TTL_MS) {
       pendingNativeProposals.delete(proposalId);
@@ -1300,16 +1336,10 @@ function createDrawioElementSearchTool(sessionId: string) {
 
     const startedAt = Date.now();
     const turnTimeoutMs = resolveCopilotTurnTimeoutMs();
-    const expiredBefore = Date.now() - ACK_TTL_MS;
     for (const id of acknowledgements.expire(Date.now(), ACK_TTL_MS)) {
       await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
     }
-    for (const [id, proposal] of pendingNativeProposals) {
-      if (proposal.createdAt < expiredBefore) {
-        pendingNativeProposals.delete(id);
-        await deps.writeLog("turn.native-edit.proposal-expired", { proposalId: id, sessionId: proposal.sessionId });
-      }
-    }
+    await logPendingProposalSweep(prunePendingNativeProposals(Date.now()), deps.writeLog);
     const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.label.slice(0, 120), cellType: cell.cellType }));
     await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, cellCount: (context.cells as unknown[]).length, cells });
     try {
@@ -1521,6 +1551,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         const nativeEdits = plan.capturedNativeEdits;
         if (requiresExplicitConfirmation(nativeEdits.operations, Boolean(context.scriptRepair))) {
           const proposalId = randomUUID();
+          await logPendingProposalSweep(prunePendingNativeProposals(Date.now(), 1), deps.writeLog);
           pendingNativeProposals.set(proposalId, {
             id: proposalId, sessionId, standalone, documentRevision, pageId: context.activePageId,
             operations: nativeEdits.operations, summary: nativeEdits.summary, createdAt: Date.now()
