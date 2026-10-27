@@ -1716,6 +1716,9 @@ export default function App() {
               const isLateNativeBatch = result.path === "cell:batch" && requestId !== null &&
                 !resolver && lateNativeEditRequestsRef.current.has(requestId);
               const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
+              const readOnlyNoChange = result.path === "cell:batch" &&
+                result.scriptMode === "read" && result.applicationState === "not-applied" &&
+                (result.success === true || result.batchRolledBack === true);
               let finalResult = result;
               let serializedXmlRevision: string | null = null;
               let persistedRevision: string | null = null;
@@ -1723,7 +1726,11 @@ export default function App() {
               let persistenceStatus = "not_attempted";
               const lateResultHasSnapshot = typeof result.serializedXml === "string" ||
                 result.batchRolledBack === true || result.applicationState === "not-applied";
-              if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
+              if (readOnlyNoChange) {
+                // An inspection receipt is terminal for the agent turn, but it is not a file edit.
+                // Do not hash/export its transient serialized XML, rewrite a standalone file, or create a workspace version.
+                persistenceStatus = "read_only_no_change";
+              } else if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
                 if (typeof result.serializedXml !== "string") {
                   if (result.success) {
                     finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
@@ -1825,7 +1832,7 @@ export default function App() {
                     error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
                   } | null;
                   const expectedOutcome = finalResult.success ? "applied" : "failed";
-                  const appliedReceiptMismatch = finalResult.success && (
+                  const appliedReceiptMismatch = finalResult.success && !readOnlyNoChange && (
                     ackBody?.documentRevision !== serializedXmlRevision ||
                     ackBody?.persistedRevision !== persistedRevision ||
                     ackBody?.versionId !== persistedVersionId
@@ -1879,7 +1886,11 @@ export default function App() {
                   { requestId, applicationState: finalResult.applicationState ?? null, rollbackConfirmed: finalResult.batchRolledBack === true }, "error");
                 return;
               }
-              const status = (finalResult.success
+              const status = readOnlyNoChange
+                ? (finalResult.success
+                    ? "Read-only inspection completed; the diagram, source file and History were left unchanged."
+                    : "Read-only inspection failed; the diagram, source file and History were left unchanged: " + (finalResult.error || "Unknown error"))
+                : (finalResult.success
                 ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
                   (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
                     ? "; workspace save confirmed."
