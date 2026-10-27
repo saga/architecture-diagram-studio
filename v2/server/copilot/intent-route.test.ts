@@ -509,13 +509,18 @@ function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string,
 }
 
 describe("Copilot intent route result and revision contract", () => {
-  it("fails closed when the model calls more than one terminal tool in the same turn", async () => {
+  it("dispatches the first valid edit when a later terminal report conflicts", async () => {
     const harness = await createServer({ copilot: conflictingCopilot() });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
-    expect(response.status).toBe(502);
-    expect(body.outcome).toBe("failed");
-    expect(harness.acknowledgements.pending.size).toBe(0);
-    expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(true);
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "set_label", cellId: "db", targetLabel: "Database", label: "Data Store" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
+      entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
+    expect(harness.logs.some((entry) => entry.event === "tool.terminal-intent.rejected" &&
+      entry.fields?.requestedKind === "no_mutation" && entry.fields?.registeredKind === "native_edit")).toBe(true);
   });
 
   it("auto-dispatches a small typed below-and-connect batch without a script proposal", async () => {
