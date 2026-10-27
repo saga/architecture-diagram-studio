@@ -427,7 +427,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       if (persistenceStatus !== "saved" || !persistedRevision || !versionId ||
           persistedRevision !== serializedXmlRevision || !savedVersion ||
           savedVersion.versionId !== versionId || savedVersion.revision !== serializedXmlRevision) {
-        const responseBody = { outcome: "stale_context", reply: "The saved XML revision does not match its immutable version.", error: "The claimed immutable workspace version does not contain the acknowledged XML revision.", documentRevision: savedVersion?.revision ?? null, versionId: savedVersion?.versionId ?? null };
+        const responseBody = { outcome: "stale_context", reply: "The saved XML revision does not match its immutable version.", error: "The claimed immutable workspace version does not contain the acknowledged XML revision.", documentRevision: savedVersion?.revision ?? null, versionId: null };
         await deps.writeLog("turn.native-edit.ack-rejected", {
           requestId, sessionId, reason: "workspace_version_revision_mismatch",
           serializedXmlRevision, persistedRevision, claimedVersionId: versionId,
