@@ -16,6 +16,23 @@ test.beforeEach(async ({ page, request }) => {
   await expect(nativeFrame(page).getByText("API Service", { exact: true })).toBeVisible();
 });
 
+/** Put role-based fills on a sentinel so these tests verify palette application, not fixture/palette coincidence. */
+function setCategoryFillsForThemeTest(document: Document): void {
+  for (const cell of Array.from(document.getElementsByTagName("mxCell"))) {
+    const style = cell.getAttribute("style") || "";
+    if (!/studioColorRole=category-\d+(?:;|$)/.test(style)) continue;
+    const entries = style.split(";").filter(Boolean);
+    let hasFill = false;
+    const normalized = entries.map((entry) => {
+      if (!entry.startsWith("fillColor=")) return entry;
+      hasFill = true;
+      return "fillColor=#123456";
+    });
+    if (!hasFill) normalized.push("fillColor=#123456");
+    cell.setAttribute("style", normalized.join(";") + ";");
+  }
+}
+
 /** Reads geometry from native mxCells, handling both compressed and uncompressed Draw.io pages. */
 function cellPosition(xml: string, fragment: string): { x: number; y: number } | null {
   try {
@@ -239,6 +256,7 @@ test.describe("原生画布", () => {
     const models = sourceDocument.getElementsByTagName("mxGraphModel");
     expect(models.length).toBeGreaterThan(0);
     models.item(0)?.setAttribute("background", "#FFFF66");
+    setCategoryFillsForThemeTest(sourceDocument);
     const documentXml = serializeDrawioXml(sourceDocument);
     const savedFixture = await request.put("/api/workspace/document", {
       data: { drawioXml: documentXml, label: "E2E unset canvas fixture", baseRevision: state.workspaceRevision }
@@ -303,6 +321,7 @@ test.describe("原生画布", () => {
     const models = sourceDocument.getElementsByTagName("mxGraphModel");
     expect(models.length).toBeGreaterThan(0);
     models.item(0)?.setAttribute("background", "#FFFF66");
+    setCategoryFillsForThemeTest(sourceDocument);
     const savedFixture = await request.put("/api/workspace/document", {
       data: { drawioXml: serializeDrawioXml(sourceDocument), label: "E2E undo canvas fixture", baseRevision: state.workspaceRevision }
     });
