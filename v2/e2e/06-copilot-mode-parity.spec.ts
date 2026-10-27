@@ -263,7 +263,7 @@ test("Standalone read-only inspection leaves the browser-owned file and local Hi
       "}",
       "walk(model.getRoot());",
       "return { cellCount: total, pageId: " + JSON.stringify(body.context?.activePageId ?? null) + " };"
-    ].join("\\n");
+    ].join("\n");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
