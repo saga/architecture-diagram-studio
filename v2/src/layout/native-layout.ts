@@ -788,6 +788,21 @@ function normalizePlan(
     y: bounds.y + bounds.height / 2
   });
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+  const terminalEscapeOnSide = (
+    bounds: { x: number; y: number; width: number; height: number },
+    side: "left" | "right" | "top" | "bottom"
+  ): { port: Point; escape: Point } => {
+    const center = centerOf(bounds);
+    if (side === "left" || side === "right") {
+      const port = {
+        x: side === "right" ? bounds.x + bounds.width : bounds.x,
+        y: center.y
+      };
+      return { port, escape: { x: port.x + (side === "right" ? terminalEscapeDistance : -terminalEscapeDistance), y: port.y } };
+    }
+    const port = { x: center.x, y: side === "bottom" ? bounds.y + bounds.height : bounds.y };
+    return { port, escape: { x: port.x, y: port.y + (side === "bottom" ? terminalEscapeDistance : -terminalEscapeDistance) } };
+  };
   const terminalEscape = (
     bounds: { x: number; y: number; width: number; height: number },
     toward: Point
@@ -884,10 +899,11 @@ function normalizePlan(
     if (options.edgeRouting === "ORTHOGONAL" && hasResolvableTerminals) {
       const sourceCenter = centerOf(sourceBounds!);
       const targetCenter = centerOf(targetBounds!);
-      const sourceBoundary = edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId
+      const selfLoop = edge.sourceId === edge.targetId;
+      const sourceBoundary = !selfLoop && edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId
         ? groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId)
         : null;
-      const targetBoundary = edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId
+      const targetBoundary = !selfLoop && edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId
         ? groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId)
         : null;
       const sourceGroupExit = sourceBoundary && edge.layoutSourceId
@@ -898,10 +914,14 @@ function normalizePlan(
         : null;
       const sourcePort = sourceGroupExit
         ? { port: sourceGroupExit.boundary, escape: sourceGroupExit.escape }
-        : terminalEscape(sourceBounds!, translated[0] ?? targetCenter);
+        : selfLoop
+          ? terminalEscapeOnSide(sourceBounds!, "right")
+          : terminalEscape(sourceBounds!, translated[0] ?? targetCenter);
       const targetPort = targetGroupExit
         ? { port: targetGroupExit.boundary, escape: targetGroupExit.escape }
-        : terminalEscape(targetBounds!, translated[translated.length - 1] ?? sourceCenter);
+        : selfLoop
+          ? terminalEscapeOnSide(targetBounds!, "top")
+          : terminalEscape(targetBounds!, translated[translated.length - 1] ?? sourceCenter);
       const obstacles = routingObstaclesFor(edge);
       const preferred = orthogonalizeRoute([
         ...(sourceGroupExit ? [sourceGroupExit.boundary] : []),
