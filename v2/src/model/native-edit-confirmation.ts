@@ -713,6 +713,86 @@ export function nativeScriptResultMatchesXml(
 }
 
 
+export interface NativeScriptScopeViolation {
+  kind: "changed" | "removed";
+  cellId: string;
+  pageId: string | null;
+  label: string;
+  changedFields?: string[];
+}
+
+export interface NativeScriptScopeResult {
+  ok: boolean;
+  available: boolean;
+  declaredCellIds: string[];
+  violations: NativeScriptScopeViolation[];
+  error?: string;
+}
+
+/** Cell IDs the script itself declared in `xmlAssertions`; `exists: false` declares a removal. */
+export function declaredNativeScriptCellIds(scriptResult: unknown): string[] {
+  if (!scriptResult || typeof scriptResult !== "object" || Array.isArray(scriptResult)) return [];
+  const value = (scriptResult as Record<string, unknown>).value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const assertions = (value as Record<string, unknown>).xmlAssertions;
+  if (!Array.isArray(assertions)) return [];
+  const ids = assertions.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const cellId = (raw as { cellId?: unknown }).cellId;
+    return typeof cellId === "string" && cellId.trim() ? [cellId.trim()] : [];
+  });
+  return [...new Set(ids)];
+}
+
+/**
+ * A passing assertion proves the declared cells changed; it does not prove that nothing else did.
+ * Compare the before/after XML and require every existing cell that changed or disappeared to be
+ * declared by the script, so an accidental edit cannot ride along with a verified insertion.
+ */
+export function findUndeclaredNativeScriptChanges(
+  beforeXml: string,
+  afterXml: string,
+  scriptResult: unknown,
+  maxViolations = 20
+): NativeScriptScopeResult {
+  const declaredCellIds = declaredNativeScriptCellIds(scriptResult);
+  const diff = summarizeNativeDiagramXmlDiff(beforeXml, afterXml, 500);
+  if (!diff.available || typeof diff.changed !== "boolean") {
+    return {
+      ok: false, available: false, declaredCellIds, violations: [],
+      error: diff.error || "The before/after native XML could not be compared."
+    };
+  }
+  if (diff.truncated) {
+    return {
+      ok: false, available: false, declaredCellIds, violations: [],
+      error: "The before/after native XML change set is too large to verify every untouched cell."
+    };
+  }
+  const declared = new Set(declaredCellIds);
+  // A removed page takes its cells with it; page-level operations are not cell edits.
+  const removedPages = new Set((diff.pagesRemoved ?? []).map((pageId) => String(pageId)));
+  const violations: NativeScriptScopeViolation[] = [];
+  for (const cell of diff.cellsRemoved ?? []) {
+    if (cell.pageId !== null && removedPages.has(String(cell.pageId))) continue;
+    if (declared.has(cell.id)) continue;
+    violations.push({ kind: "removed", cellId: cell.id, pageId: cell.pageId, label: cell.label });
+  }
+  for (const cell of diff.cellsChanged ?? []) {
+    if (declared.has(cell.id)) continue;
+    violations.push({
+      kind: "changed", cellId: cell.id, pageId: cell.pageId,
+      label: cell.labelAfter || cell.labelBefore, changedFields: cell.changedFields
+    });
+  }
+  const limit = Math.max(1, Math.floor(maxViolations) || 20);
+  return {
+    ok: violations.length === 0, available: true, declaredCellIds,
+    violations: violations.slice(0, limit),
+    ...(violations.length > limit ? { error: violations.length + " undeclared cells changed; only the first " + limit + " are listed." } : {})
+  };
+}
+
 export interface NativeDiagramXmlDiffSummary {
   available: boolean;
   changed?: boolean;

@@ -15,7 +15,8 @@ describe("native diagram always-on instructions", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("style must be a non-empty key/value object");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("curveGeometry");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("model.getChildCount counts direct children only");
-    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("one xmlAssertion per cell you created or changed");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("one xmlAssertion per created or changed cell");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("fails any edit that changes an undeclared existing cell");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("model.getValue(cell)");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("diagram.cells {id,label}");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("no reference lookup");

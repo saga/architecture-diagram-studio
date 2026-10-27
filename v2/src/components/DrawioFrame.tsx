@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml, type NativeScriptXmlValidationResult } from "../model/native-edit-confirmation";
+import { findUndeclaredNativeScriptChanges, nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml, type NativeScriptXmlValidationResult } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import type { NativePalettePlan } from "../model/drawio-theme";
@@ -891,22 +891,39 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     reason: "The script did not return passing, verifiable postconditions."
                   }] };
                 const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
+                const scriptScope = serializedAssertionsPassed
+                  ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult)
+                  : null;
+                const undeclaredChangesPassed = scriptScope === null || scriptScope.ok;
                 const assertionDiagnostic = assertionValidation.failures.slice(0, 8)
                   .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
                     "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
-                if (serializedAssertionsPassed) {
+                const scopeDiagnostic = scriptScope && !scriptScope.ok
+                  ? (scriptScope.available
+                      ? scriptScope.violations.slice(0, 8).map((violation) =>
+                          violation.kind + " cell " + violation.cellId +
+                          (violation.label ? " (" + violation.label.slice(0, 80) + ")" : "") +
+                          (violation.changedFields?.length ? " [" + violation.changedFields.join(",") + "]" : "")
+                        ).join("; ")
+                      : scriptScope.error || "The before/after XML could not be compared.")
+                  : "";
+                if (serializedAssertionsPassed && undeclaredChangesPassed) {
                   acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
                 } else {
                   const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
-                  const detail = assertionDiagnostic
-                    ? " Assertion diagnostics: " + assertionDiagnostic
-                    : "";
+                  const diagnosticParts = [
+                    assertionDiagnostic ? "Assertion diagnostics: " + assertionDiagnostic : "",
+                    scopeDiagnostic ? "Undeclared changes: " + scopeDiagnostic : ""
+                  ].filter(Boolean).join(" ");
+                  const detail = diagnosticParts ? " " + diagnosticParts : "";
                   acknowledgement = {
                     ...acknowledgement,
                     success: false,
                     applicationState,
                     error: applicationState === "changed-unverified"
-                      ? "The document changed, but native script assertions were invalid or did not match the serialized XML." + detail
+                      ? (undeclaredChangesPassed
+                          ? "The document changed, but native script assertions were invalid or did not match the serialized XML."
+                          : "The document changed beyond the cells the script declared: it also modified existing cells that no assertion covered.") + detail
                       : applicationState === "not-applied"
                         ? "The script did not confirm its requested postconditions and the document appears unchanged." + detail
                         : "The script result could not be verified against the serialized document." + detail,
@@ -919,9 +936,19 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   recordDiagnostic("drawio.script.postcondition.xml-mismatch",
                     "The script's native-cell assertions were invalid or did not match the serialized native XML",
                     { requestId, applicationState, booleanPostconditionsPassed: scriptChecksPassed,
-                      serializedAssertionsPassed, assertionFailureCount: assertionValidation.failures.length,
+                      serializedAssertionsPassed, undeclaredChangesPassed,
+                      undeclaredViolations: scriptScope?.violations.slice(0, 25) ?? [],
+                      undeclaredScopeAvailable: scriptScope?.available ?? null,
+                      assertionFailureCount: assertionValidation.failures.length,
                       assertionFailures: assertionValidation.failures.slice(0, 25),
                       xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
+                  if (scriptScope && !scriptScope.ok) {
+                    recordDiagnostic("drawio.script.postcondition.undeclared-change",
+                      "The serialized document changed existing cells that the script did not declare in xmlAssertions",
+                      { requestId, applicationState, declaredCellIds: scriptScope.declaredCellIds.slice(0, 25),
+                        violations: scriptScope.violations.slice(0, 25), available: scriptScope.available,
+                        error: scriptScope.error ?? null }, "warn");
+                  }
                 }
               } else if (acknowledgement.success) {
                 acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };

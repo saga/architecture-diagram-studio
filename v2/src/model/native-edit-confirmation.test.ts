@@ -1,6 +1,9 @@
 import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { nativeEditIsReflectedInXml, nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml } from "./native-edit-confirmation";
+import {
+  declaredNativeScriptCellIds, findUndeclaredNativeScriptChanges, nativeEditIsReflectedInXml,
+  nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml
+} from "./native-edit-confirmation";
 
 const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
@@ -362,6 +365,73 @@ describe("native edit XML confirmation", () => {
     expect(diff.cellsChanged).toContainEqual(expect.objectContaining({
       id: "api", labelBefore: "Old API", labelAfter: "Primary API", changedFields: expect.arrayContaining(["label"])
     }));
+  });
+
+  describe("undeclared script changes", () => {
+    const added = '<mxCell id="ddd" value="ddd" vertex="1" parent="1"><mxGeometry x="10" y="120" width="100" height="40" as="geometry"/></mxCell>' +
+      '<mxCell id="api-ddd" edge="1" parent="1" source="api" target="ddd"><mxGeometry relative="1" as="geometry"/></mxCell>';
+    const insertionOnly = before.replace("</root>", added + "</root>");
+    const scriptResult = (assertions: unknown[]) => ({ available: true, value: { ok: true, postconditions: { inserted: true }, xmlAssertions: assertions } });
+
+    it("accepts a script whose existing cells are untouched", () => {
+      const result = findUndeclaredNativeScriptChanges(before, insertionOnly, scriptResult([
+        { cellId: "ddd", exists: true, kind: "vertex", label: "ddd" },
+        { cellId: "api-ddd", exists: true, kind: "edge", sourceId: "api", targetId: "ddd" }
+      ]));
+      expect(result).toMatchObject({ ok: true, available: true });
+      expect(result.violations).toEqual([]);
+    });
+
+    it("rejects an accidental edit to a cell the script never declared", () => {
+      const withStrayRename = insertionOnly.replace('value="Database"', 'value="Warehouse"');
+      const result = findUndeclaredNativeScriptChanges(before, withStrayRename, scriptResult([
+        { cellId: "ddd", exists: true, kind: "vertex", label: "ddd" }
+      ]));
+      expect(result.ok).toBe(false);
+      expect(result.available).toBe(true);
+      expect(result.violations).toContainEqual(expect.objectContaining({ kind: "changed", cellId: "db", changedFields: expect.arrayContaining(["label"]) }));
+    });
+
+    it("treats a declared removal as intended and an undeclared one as a violation", () => {
+      const withoutDatabase = before.replace(/<mxCell id="db"[^\n]*?<\/mxCell>/, "");
+      expect(findUndeclaredNativeScriptChanges(before, withoutDatabase, scriptResult([
+        { cellId: "db", exists: false }
+      ]))).toMatchObject({ ok: true, violations: [] });
+      const undeclared = findUndeclaredNativeScriptChanges(before, withoutDatabase, scriptResult([
+        { cellId: "api", exists: true, label: "Old API" }
+      ]));
+      expect(undeclared.ok).toBe(false);
+      expect(undeclared.violations).toContainEqual(expect.objectContaining({ kind: "removed", cellId: "db" }));
+    });
+
+    it("ignores cells that disappeared with a removed page", () => {
+      const twoPages = before.replace("</mxfile>",
+        '<diagram id="p2" name="Second"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+        '<mxCell id="solo" value="Solo" vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell>' +
+        '</root></mxGraphModel></diagram></mxfile>');
+      const pageRemoved = before;
+      const pageDiff = summarizeNativeDiagramXmlDiff(twoPages, pageRemoved);
+      expect(pageDiff.pagesRemoved).toContain("p2");
+      expect(pageDiff.cellsRemoved?.some((cell) => cell.id === "solo")).toBe(true);
+      const result = findUndeclaredNativeScriptChanges(twoPages, pageRemoved, scriptResult([
+        { cellId: "api", exists: true, label: "Old API" }
+      ]));
+      expect(result.ok).toBe(true);
+    });
+
+    it("fails closed when the comparison itself is unavailable", () => {
+      const result = findUndeclaredNativeScriptChanges(before, "not xml", scriptResult([{ cellId: "api", exists: true, label: "Old API" }]));
+      expect(result).toMatchObject({ ok: false, available: false });
+      expect(result.error).toBeTruthy();
+    });
+
+    it("reads declared cell IDs only from well-formed assertions", () => {
+      expect(declaredNativeScriptCellIds(scriptResult([
+        { cellId: "ddd" }, { cellId: " ddd " }, { cellId: "" }, { nope: true }, "junk"
+      ]))).toEqual(["ddd"]);
+      expect(declaredNativeScriptCellIds(null)).toEqual([]);
+      expect(declaredNativeScriptCellIds({ available: true, value: { ok: true } })).toEqual([]);
+    });
   });
 
 });
