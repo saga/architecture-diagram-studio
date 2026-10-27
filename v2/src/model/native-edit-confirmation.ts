@@ -790,8 +790,15 @@ export function findUndeclaredNativeScriptChanges(
     };
   }
   const declared = new Set(declaredCellIds);
+  // A bare mxGraphModel has no page envelope, although the editor still has an active page ID.
+  // The validator deliberately treats a single bare model as unambiguous for that page.
+  const beforeModels = modelRoots(beforeXml);
+  const afterModels = modelRoots(afterXml);
+  const isStandaloneModelPair = beforeModels.length === 1 && beforeModels[0].standalone &&
+    afterModels.length === 1 && afterModels[0].standalone;
+  const scopedExpectedPageId = isStandaloneModelPair ? null : expectedPageId;
   const isDeclaredOnExpectedPage = (cell: { id: string; pageId: string | null }) =>
-    declared.has(cell.id) && (expectedPageId === undefined || cell.pageId === expectedPageId);
+    declared.has(cell.id) && (expectedPageId === undefined || cell.pageId === scopedExpectedPageId);
   // A removed page takes its cells with it; page-level operations are not cell edits.
   const removedPages = new Set((diff.pagesRemoved ?? []).map((pageId) => String(pageId)));
   const violations: NativeScriptScopeViolation[] = [];

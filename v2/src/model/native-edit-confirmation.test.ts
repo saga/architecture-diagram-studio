@@ -417,6 +417,16 @@ describe("native edit XML confirmation", () => {
     const insertionOnly = before.replace("</root>", added + "</root>");
     const scriptResult = (assertions: unknown[]) => ({ available: true, value: { ok: true, postconditions: { inserted: true }, xmlAssertions: assertions } });
 
+    it("accepts declared cell edits in a bare mxGraphModel bound to an editor page ID", () => {
+      const bareBefore = before.replace('<mxfile><diagram id="p1" name="Overview">', "")
+        .replace("</diagram></mxfile>", "");
+      const bareAfter = bareBefore.replace('value="Old API"', 'value="New API"');
+      const result = findUndeclaredNativeScriptChanges(bareBefore, bareAfter, scriptResult([
+        { cellId: "api", exists: true, label: "New API" }
+      ]), 20, "p1");
+      expect(result).toMatchObject({ ok: true, available: true, declaredCellIds: ["api"], violations: [] });
+    });
+
     it("accepts a script whose existing cells are untouched", () => {
       const result = findUndeclaredNativeScriptChanges(before, insertionOnly, scriptResult([
         { cellId: "ddd", exists: true, kind: "vertex", label: "ddd" },
