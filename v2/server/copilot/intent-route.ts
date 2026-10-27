@@ -147,7 +147,23 @@ const contextBySession = new Map<string, unknown>();
 
 const ACK_TTL_MS = 10 * 60_000;
 const EMPTY_QUERY_WARNING_THRESHOLD = 3;
-const emptyQueryStreaks = new Map<string, { count: number; query: string; tool: string }>();
+const EMPTY_QUERY_STREAK_TTL_MS = 30 * 60_000;
+const EMPTY_QUERY_STREAK_MAX_KEYS = 1_000;
+const emptyQueryStreaks = new Map<string, { count: number; query: string; tool: string; updatedAt: number }>();
+
+function pruneEmptyQueryStreaks(now: number): void {
+  // Map insertion order is refreshed below whenever a streak is updated, so stale entries
+  // can be removed from the front without scanning every session.
+  for (const [key, streak] of emptyQueryStreaks) {
+    if (now - streak.updatedAt <= EMPTY_QUERY_STREAK_TTL_MS) break;
+    emptyQueryStreaks.delete(key);
+  }
+  while (emptyQueryStreaks.size > EMPTY_QUERY_STREAK_MAX_KEYS) {
+    const oldest = emptyQueryStreaks.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    emptyQueryStreaks.delete(oldest);
+  }
+}
 const acknowledgementsDefault = new NativeExecutionAcknowledgements();
 
 async function logQueryResult(
@@ -157,14 +173,19 @@ async function logQueryResult(
   resultCount: number,
   writeLog: IntentDependencies["writeLog"]
 ): Promise<{ warning?: string }> {
+  const now = Date.now();
+  pruneEmptyQueryStreaks(now);
   const key = sessionId + ":" + tool;
   if (resultCount > 0) {
     emptyQueryStreaks.delete(key);
     return {};
   }
   const previous = emptyQueryStreaks.get(key);
-  const count = previous ? previous.count + 1 : 1;
-  emptyQueryStreaks.set(key, { count, query, tool });
+  const count = previous && now - previous.updatedAt <= EMPTY_QUERY_STREAK_TTL_MS ? previous.count + 1 : 1;
+  // Delete/reinsert refreshes Map order so the least-recently-updated key stays first.
+  emptyQueryStreaks.delete(key);
+  emptyQueryStreaks.set(key, { count, query, tool, updatedAt: now });
+  pruneEmptyQueryStreaks(now);
   if (count < EMPTY_QUERY_WARNING_THRESHOLD) return {};
   const warning = `The ${tool} query has returned no results ${count} consecutive times. Stop repeating near-identical searches; broaden or change the query, inspect the live Draw.io runtime, or explain the limitation.`;
   if (count === EMPTY_QUERY_WARNING_THRESHOLD || count % EMPTY_QUERY_WARNING_THRESHOLD === 0) {
