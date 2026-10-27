@@ -1051,8 +1051,8 @@ export function findUndeclaredNativeScriptChanges(
     }
     const assertion = assertionForCell(cell.id);
     const hasLabelEvidence = matchesField(assertion, "label") ||
-      (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
-      (typeof assertion.chineseTitle === "string" && Boolean(assertion.chineseTitle.trim()));
+      (typeof assertion?.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
+      (typeof assertion?.chineseTitle === "string" && Boolean(assertion.chineseTitle.trim()));
     const missing = cell.kind === "vertex"
       ? ["kind"].filter((field) => !matchesField(assertion, field)).concat(hasLabelEvidence ? [] : ["label"])
       : cell.kind === "edge"
