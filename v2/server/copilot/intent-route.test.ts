@@ -344,6 +344,67 @@ function scriptProposingCopilot(
   };
 }
 
+function terminalConflictCopilot(
+  scenario: "read-edit-report" | "report-edit" | "duplicate-edit"
+) {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  const toolResults: Record<string, Record<string, unknown>> = {};
+  const copilot: Record<string, unknown> = {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tools = prepared.tools.map((candidate) => candidate as {
+          name?: string; handler?: (args: unknown) => Promise<unknown>
+        });
+        const invoke = async (name: string, args: unknown) => {
+          const tool = tools.find((candidate) => candidate.name === name);
+          if (!tool?.handler) throw new Error(name + " tool was not registered");
+          const suffix = Object.keys(toolResults).filter((key) => key === name || key.startsWith(name + "#")).length;
+          toolResults[suffix === 0 ? name : name + "#" + suffix] =
+            await tool.handler(args) as Record<string, unknown>;
+        };
+        const propose = async (label: string) => invoke("propose_native_edits", {
+          operations: [{ op: "set_label", target: "Database", label }]
+        });
+        const report = async () => invoke("report_intent_outcome", {
+          outcome: "answered", reply: "No diagram changes are needed."
+        });
+        if (scenario === "read-edit-report") {
+          await invoke("run_drawio_script", {
+            summary: "Inspect existing labels before translation",
+            script: "return { labels: ['Database'] };",
+            mode: "read"
+          });
+          await propose("数据库");
+          await report();
+        } else if (scenario === "report-edit") {
+          await report();
+          await propose("数据库");
+        } else {
+          await propose("第一版");
+          await propose("第二版");
+        }
+        return { message: { data: { content: "The native edit request was processed." } }, modelCallUsages: [] };
+      }
+    })
+  };
+  Object.defineProperty(copilot, "toolResults", { get: () => toolResults });
+  return copilot;
+}
+
 function compatibleRuntimeInspection() {
   const revision = workspaceRevision(XML);
   return {
@@ -511,23 +572,63 @@ describe("Copilot intent route result and revision contract", () => {
       entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === SAFE_CREATION_SCRIPT
     )).toBe(true);
   });
-  it("dispatches explicitly read-only native scripts without edit postcondition requirements", async () => {
-    const harness = await createServer({
-      copilot: scriptProposingCopilot("return { tableCount: 3, labels: [\"Desk\", \"Dining table\"] };", "Inspect table shapes", "read")
-    });
-    const requestContext = {
-      kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
-      runtimeInspection: compatibleRuntimeInspection()
-    };
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
+  it("does not let a deferred read script consume the terminal slot before a Chinese label edit", async () => {
+    const copilot = terminalConflictCopilot("read-edit-report");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("command_ready");
     expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
-      .toMatchObject([{ op: "run_drawio_script", mode: "read", script: "return { tableCount: 3, labels: [\"Desk\", \"Dining table\"] };" }]);
+      .toMatchObject([{ op: "set_label", cellId: "db", label: "数据库", targetLabel: "Database" }]);
+    const results = (copilot as { toolResults: Record<string, Record<string, unknown>> }).toolResults;
+    expect(results.run_drawio_script).toMatchObject({
+      accepted: false, mode: "read", result_available: false, terminal: false,
+      reason: "deferred_script_has_no_current_turn_result"
+    });
+    expect(results.propose_native_edits).toMatchObject({ accepted: true, operationCount: 1 });
+    expect(results.report_intent_outcome).toMatchObject({
+      recorded: false, accepted: false, reason: "terminal_action_already_registered", registeredKind: "native_edit"
+    });
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(harness.logs.some((entry) =>
-      entry.event === "tool.run_drawio_script.accepted" && entry.fields?.mode === "read"
-    )).toBe(true);
+    expect(harness.logs.some((entry) => entry.event === "tool.run_drawio_script.read-rejected")).toBe(true);
+    expect(harness.logs.some((entry) => entry.event === "tool.terminal-intent.rejected" &&
+      entry.fields?.requestedKind === "no_mutation" && entry.fields?.registeredKind === "native_edit")).toBe(true);
+    expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
+      entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
+  });
+
+  it("promotes a concrete native edit over a premature no-mutation report", async () => {
+    const copilot = terminalConflictCopilot("report-edit");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "set_label", cellId: "db", label: "数据库" }]);
+    const results = (copilot as { toolResults: Record<string, Record<string, unknown>> }).toolResults;
+    expect(results.report_intent_outcome).toMatchObject({ recorded: true, accepted: true });
+    expect(results.propose_native_edits).toMatchObject({ accepted: true, operationCount: 1 });
+    expect(harness.logs.some((entry) => entry.event === "tool.terminal-intent.promoted-to-edit" &&
+      entry.fields?.replacedKind === "no_mutation")).toBe(true);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+  });
+
+  it("keeps the first valid edit when a second terminal edit is attempted", async () => {
+    const copilot = terminalConflictCopilot("duplicate-edit");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "set_label", cellId: "db", label: "第一版" }]);
+    const results = (copilot as { toolResults: Record<string, Record<string, unknown>> }).toolResults;
+    expect(results.propose_native_edits).toMatchObject({ accepted: true, operationCount: 1 });
+    expect(results["propose_native_edits#1"]).toMatchObject({
+      accepted: false, reason: "terminal_action_already_registered", registeredKind: "native_edit"
+    });
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
+      entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
   });
 
   it("dispatches no-op scripts without requiring manifest approval or confirmation", async () => {
