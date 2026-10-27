@@ -112,7 +112,7 @@ function semanticDiagramSignature(xml: string, pageId?: string | null): string {
   return JSON.stringify(pages.map((candidate) => {
     const candidateId = candidate.getAttribute("id") || null;
     const matchingModel = models.find((entry) => entry.pageId === candidateId);
-    return { pageId: candidateId, pageName: candidate.getAttribute("name") || null, model: matchingModel ? elementSignature(matchingModel.model) : null };
+    return { pageId: candidateId, pageName: candidate.getAttribute("name") || null, model: matchingModel ? modelSemanticSignature(matchingModel.model) : null };
   }));
 }
 
