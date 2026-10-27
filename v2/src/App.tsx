@@ -1895,9 +1895,11 @@ export default function App() {
                       method: "POST", headers: { "content-type": "application/json" },
                       body: acknowledgementBody
                     });
-                    const body = await response.json().catch(() => null) as typeof ackBody;
+                    const parsedAckBody: {
+                      error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
+                    } | null = await response.json().catch(() => null);
                     ackResponse = response;
-                    ackBody = body;
+                    ackBody = parsedAckBody;
                     ackTransportError = null;
                     if (response.ok || response.status < 500 || attempt === maxAcknowledgementAttempts) break;
                     recordDiagnostic("copilot.native-edit.acknowledgement.retry",
