@@ -430,7 +430,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createDrawioShapeSearchTool() {
     return defineTool("search_drawio_shapes", {
-      description: "Search a curated local Draw.io shape catalogue for exact vetted styles and dimensions. Read-only and non-exhaustive: a miss does not prove a shape is unavailable. For C4, use the bundled Draw.io palette or inspect an existing native C4 element; do not guess a substitute.",
+      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes C4 Person (person2), Software System and Container recipes; query each element type separately, then use the returned style and dimensions directly in one native script. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
         type: "object",
         properties: {
