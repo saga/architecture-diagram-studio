@@ -131,6 +131,34 @@ function hasVerifiedScriptPostconditions(scriptResult: unknown): boolean {
   return value.ok === true && allPostconditionsTrue(value.postconditions);
 }
 
+function failedPostconditionPaths(value: unknown, prefix = "postconditions"): string[] {
+  if (value === true) return [];
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [prefix + " must not be empty"];
+    return value.flatMap((condition, index) => failedPostconditionPaths(condition, prefix + "[" + index + "]"));
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return [prefix + " must not be empty"];
+    return entries.flatMap(([name, condition]) => failedPostconditionPaths(condition, prefix + "." + name));
+  }
+  return [prefix + " expected true but received " + (value === undefined ? "missing" : String(value))];
+}
+
+function scriptPostconditionFailureReason(scriptResult: unknown): string {
+  if (!isRecord(scriptResult) || scriptResult.available !== true || !isRecord(scriptResult.value)) {
+    return "The script did not return an available JSON result with passing postconditions.";
+  }
+  const value = scriptResult.value;
+  const failures = value.ok === true ? [] : [
+    "ok expected true but received " + (value.ok === undefined ? "missing" : String(value.ok))
+  ];
+  failures.push(...failedPostconditionPaths(value.postconditions));
+  return failures.length
+    ? "The script did not satisfy its declared postconditions: " + failures.slice(0, 8).join("; ") + "."
+    : "The script did not return passing, verifiable postconditions.";
+}
+
 function classifyUnverifiedSnapshot(beforeXml: string, xml: string): "changed-unverified" | "not-applied" | "unknown" {
   const diff = summarizeNativeDiagramXmlDiff(beforeXml, xml);
   if (!diff.available || typeof diff.changed !== "boolean") return "unknown";
@@ -981,19 +1009,24 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               } else if (acknowledgement.success && isScriptBatchValue(pending.value)) {
                 const scriptResult = pending.scriptResult ?? acknowledgement.scriptResult;
                 const scriptChecksPassed = hasVerifiedScriptPostconditions(scriptResult);
-                const assertionValidation: NativeScriptXmlValidationResult = scriptChecksPassed
-                  ? validateNativeScriptResultAgainstXml(scriptResult, data.xml, pending.pageId)
-                  : { ok: false, failures: [{
-                    kind: "invalid-result", index: null, field: "postconditions",
-                    reason: "The script did not return passing, verifiable postconditions."
-                  }] };
-                const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
-                // Scope comparison is independent evidence: run it even when assertion shape
-                // validation fails, so schema mistakes cannot hide undeclared document changes.
-                const scriptScope = scriptChecksPassed
-                  ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult, 20, pending.pageId)
-                  : null;
-                const undeclaredChangesPassed = scriptScope === null ? null : scriptScope.ok;
+                // XML assertions and the before/after scope audit are independent evidence. A
+                // false live-model postcondition must not suppress checks against serialized XML:
+                // those checks can identify the exact cells the script silently skipped.
+                const xmlAssertionValidation = validateNativeScriptResultAgainstXml(scriptResult, data.xml, pending.pageId);
+                const postconditionFailures = scriptChecksPassed ? [] : [{
+                  kind: "invalid-result" as const, index: null, field: "postconditions",
+                  reason: scriptPostconditionFailureReason(scriptResult)
+                }];
+                const assertionValidation: NativeScriptXmlValidationResult = {
+                  ok: xmlAssertionValidation.ok && scriptChecksPassed,
+                  failures: [...xmlAssertionValidation.failures, ...postconditionFailures],
+                  ...(xmlAssertionValidation.warnings ? { warnings: xmlAssertionValidation.warnings } : {})
+                };
+                const serializedAssertionsPassed = xmlAssertionValidation.ok;
+                const scriptScope = findUndeclaredNativeScriptChanges(
+                  pending.beforeXml, data.xml, scriptResult, 20, pending.pageId
+                );
+                const undeclaredChangesPassed = scriptScope.ok;
                 // When the entire assertion contract fails, promote ignored-key warnings into
                 // the repair diagnostics so the model sees the allowed field list. If supported
                 // evidence passes, keep advisory metadata as warnings only.
@@ -1006,8 +1039,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const summarizedAssertionFailures = [...new Map(deduplicatedAssertionFailures.map((failure) => [
                   [failure.kind, failure.field].join("::"), failure
                 ] as const)).values()];
-                const assertionDiagnostic = summarizedAssertionFailures.slice(0, 8)
-                  .map((failure) => "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
+                const assertionDiagnostic = deduplicatedAssertionFailures.slice(0, 8)
+                  .map((failure) => "[" + failure.kind + "]" +
+                    (failure.cellId ? " cell " + failure.cellId : "") + " " + failure.field + ": " + failure.reason)
+                  .join("; ");
                 const rawAssertionWarnings = assertionValidation.warnings || [];
                 const deduplicatedAssertionWarnings = [...new Map(rawAssertionWarnings.map((warning) => [
                   warning.field, warning
@@ -1035,7 +1070,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                         ).join("; ")
                       : scriptScope.error || "The before/after XML could not be compared.")
                   : "";
-                if (serializedAssertionsPassed && undeclaredChangesPassed === true) {
+                if (scriptChecksPassed && serializedAssertionsPassed && undeclaredChangesPassed === true) {
                   acknowledgement = {
                     ...acknowledgement, applicationState: "applied-and-verified",
                     ...(typeof scriptScope?.changed === "boolean" ? { semanticChanged: scriptScope.changed } : {})
@@ -1047,19 +1082,36 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     scopeDiagnostic ? "Undeclared changes: " + scopeDiagnostic : ""
                   ].filter(Boolean).join(" ");
                   const detail = diagnosticParts ? " " + diagnosticParts : "";
+                  const postconditionFailed = deduplicatedAssertionFailures.some((failure) => failure.field === "postconditions");
+                  const mismatchFailures = deduplicatedAssertionFailures.filter((failure) => failure.kind === "mismatch");
+                  const contractFailures = deduplicatedAssertionFailures.filter((failure) =>
+                    failure.kind === "invalid-assertion" || failure.kind === "invalid-document" ||
+                    (failure.kind === "invalid-result" && failure.field !== "postconditions")
+                  );
+                  const mismatchTargets = [...new Set(mismatchFailures.map((failure) =>
+                    failure.cellId ? failure.cellId + " (" + failure.field + ")" : failure.field
+                  ))].slice(0, 8);
+                  const failureHeadlines = [
+                    ...(postconditionFailed ? ["The script's own postconditions failed"] : []),
+                    ...(mismatchTargets.length ? ["Serialized XML did not match declared assertions for " + mismatchTargets.join(", ")] : []),
+                    ...(contractFailures.length ? ["The native script assertion contract is invalid"] : []),
+                    ...(undeclaredChangesPassed === false ? ["The document changed beyond the declared assertions"] : []),
+                    ...(scriptScope && !scriptScope.available ? ["The before/after scope audit could not verify the changes"] : [])
+                  ];
+                  const verificationFailure = (failureHeadlines.length
+                    ? failureHeadlines.join(". ") + "."
+                    : "The script result could not be verified against the serialized document.");
                   acknowledgement = {
                     ...acknowledgement,
                     success: false,
                     applicationState,
                     assertionFailures: deduplicatedAssertionFailures.slice(0, 25),
-                    scopeViolations: scriptScope && !scriptScope.ok ? scriptScope.violations.slice(0, 25) : [],
-                    error: applicationState === "changed-unverified"
-                      ? (undeclaredChangesPassed === false
-                          ? "The document changed beyond the declared assertions: it created or removed cells, or modified existing cells, that no assertion covered."
-                          : "The document changed, but native script assertions were invalid or did not match the serialized XML.") + detail
+                    scopeViolations: !scriptScope.ok ? scriptScope.violations.slice(0, 25) : [],
+                    error: (applicationState === "changed-unverified"
+                      ? verificationFailure
                       : applicationState === "not-applied"
-                        ? "The script did not confirm its requested postconditions and the document appears unchanged." + detail
-                        : "The script result could not be verified against the serialized document." + detail,
+                        ? verificationFailure + " The document appears unchanged."
+                        : verificationFailure + " The serialized document state is uncertain.") + detail,
                     auditWarning: applicationState === "changed-unverified"
                       ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
                       : applicationState === "unknown"
