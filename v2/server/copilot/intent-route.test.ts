@@ -311,7 +311,11 @@ function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "d
   };
 }
 
-function scriptProposingCopilot(script = "return { checked: true };", summary = "Read-only runtime script for confirmation-gate test") {
+function scriptProposingCopilot(
+  script = "return { checked: true };",
+  summary = "Read-only runtime script for confirmation-gate test",
+  mode: "read" | "mutate" = "mutate"
+) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -333,7 +337,7 @@ function scriptProposingCopilot(script = "return { checked: true };", summary = 
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
           .find((candidate) => candidate.name === "run_drawio_script");
         if (!tool?.handler) throw new Error("run_drawio_script tool was not registered");
-        await tool.handler({ summary, script });
+        await tool.handler({ summary, script, mode });
         return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
       }
     })
@@ -507,6 +511,25 @@ describe("Copilot intent route result and revision contract", () => {
       entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === SAFE_CREATION_SCRIPT
     )).toBe(true);
   });
+  it("dispatches explicitly read-only native scripts without edit postcondition requirements", async () => {
+    const harness = await createServer({
+      copilot: scriptProposingCopilot("return { tableCount: 3, labels: [\"Desk\", \"Dining table\"] };", "Inspect table shapes", "read")
+    });
+    const requestContext = {
+      kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
+      runtimeInspection: compatibleRuntimeInspection()
+    };
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "run_drawio_script", mode: "read", script: "return { tableCount: 3, labels: [\"Desk\", \"Dining table\"] };" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.logs.some((entry) =>
+      entry.event === "tool.run_drawio_script.accepted" && entry.fields?.mode === "read"
+    )).toBe(true);
+  });
+
   it("dispatches no-op scripts without requiring manifest approval or confirmation", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot() });
     const requestContext = {
