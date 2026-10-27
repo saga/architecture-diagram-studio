@@ -492,7 +492,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
         return {
           recorded: true, accepted: true, terminal: true, outcome: report.outcome,
-          instructions: "This no-mutation outcome is recorded as the terminal action for the current turn. Do not call another terminal tool; Studio will return the validated outcome to the user."
+          replaceableByNativeEdit: true,
+          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one native edit instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit two native edits."
         };
       }
     });
@@ -1608,9 +1609,9 @@ function createSelectDiagramElementTool(sessionId: string) {
       pendingAgentSelections.set(sessionId, selected);
       return {
         accepted: true, queued: true, execution: "after_model_turn", terminal: true,
-        result_available: false, action: "select_diagram_element",
+        replaceableByNativeEdit: true, result_available: false, action: "select_diagram_element",
         ...selected, documentChanged: false,
-        instructions: "The selection is queued and has not happened yet. This completes the terminal action for the turn. Do not call another terminal tool or claim the canvas has selected the element; Studio will apply the focus request after this turn and report bridge success or failure."
+        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, submit exactly one native edit instead; Studio will promote that concrete edit over this provisional selection. Never submit two native edits."
       };
     }
   });
