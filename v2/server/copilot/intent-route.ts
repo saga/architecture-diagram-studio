@@ -489,7 +489,46 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     });
   }
 
-  function createDrawioElementSearchTool(sessionId: string) {
+  function createDrawioRuntimeShapeSearchTool(sessionId: string) {
+  return defineTool("search_drawio_runtime_shapes", {
+    description: "Search the live shape-class registry reported by the active Draw.io iframe, not only the curated server catalogue. Read-only. Results are JavaScript renderer registrations, not proof of sidebar visibility or stencil compatibility; verify a representative native cell before relying on one.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 2, maxLength: 120, description: "Shape class, library or concept keyword, e.g. c4, person, uml." },
+        limit: { type: "integer", minimum: 1, maximum: 30, default: 15 }
+      },
+      required: ["query"],
+      additionalProperties: false
+    },
+    handler: async (args: { query?: unknown; limit?: unknown }) => {
+      if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
+        throw new Error("Live Draw.io shape search requires a query from 2 to 120 characters.");
+      }
+      const current = contextBySession.get(sessionId);
+      const context = current && typeof current === "object" ? current as { runtimeInspection?: { liveShapeClasses?: unknown; drawioVersion?: unknown; documentRevision?: unknown } } : {};
+      const inspection = context.runtimeInspection;
+      const classes = Array.isArray(inspection?.liveShapeClasses) ? inspection.liveShapeClasses.filter((name): name is string => typeof name === "string") : [];
+      const query = args.query.trim().toLocaleLowerCase();
+      const matches = classes.filter((name) => name.toLocaleLowerCase().includes(query));
+      const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.max(1, Math.min(30, Math.floor(args.limit))) : 15;
+      const results = matches.slice(0, limit);
+      await deps.writeLog("tool.search_drawio_runtime_shapes.completed", { sessionId, query: args.query.trim(), registryCount: classes.length, matchCount: matches.length, returnedCount: results.length, truncated: matches.length > results.length, drawioVersion: inspection?.drawioVersion ?? null, documentRevision: inspection?.documentRevision ?? null });
+      return {
+        source: "live-mxCellRenderer.defaultShapes",
+        liveSnapshotAvailable: classes.length > 0,
+        drawioVersion: inspection?.drawioVersion ?? null,
+        matchCount: matches.length,
+        truncated: matches.length > results.length,
+        results,
+        ...(classes.length ? {} : { guidance: "No live shape registry snapshot is available for this turn. Refresh the active editor runtime inspection before concluding that a shape is unavailable." }),
+        ...(classes.length && matches.length === 0 ? { guidance: "No registered JavaScript shape class matched this query. This does not exclude built-in mxGraph shapes, stencil libraries, sidebar search entries, or lazily loaded libraries; inspect live sidebar/library APIs and verify a native cell before falling back." } : {})
+      };
+    }
+  });
+}
+
+function createDrawioElementSearchTool(sessionId: string) {
     return defineTool("search_drawio_elements", {
       description: "Search every native cell on the active Draw.io page, including cells omitted from the compact prompt context. Read-only. Use before editing when the requested target is not visible or the diagram is large; resolve ambiguous labels by exact ID.",
       parameters: {
@@ -945,6 +984,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             tools: [
               createSelectDiagramElementTool(sessionId),
               createDrawioShapeSearchTool(sessionId),
+              createDrawioRuntimeShapeSearchTool(sessionId),
               createDrawioElementSearchTool(sessionId),
               createDrawioReferenceTool(),
               createRunDrawioScriptTool(sessionId),
@@ -966,7 +1006,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         // Keep the complete server-derived target index private to tools. The model-facing context is
         // intentionally capped for prompt size, but target uniqueness must be checked against every cell
         // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
-        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: pageInfo.id, cells: allNativeCells });
+        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: pageInfo.id, cells: allNativeCells, runtimeInspection: context.runtimeInspection });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
