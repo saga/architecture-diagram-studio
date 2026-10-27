@@ -784,7 +784,7 @@
       }
     }
 
-    function executeNativeScriptSynchronously(source, activeModel, execute) {
+    function executeNativeScriptSynchronously(source, activeModel, execute, readOnlyGuardTargets) {
       assertNativeScriptSynchronous(source);
       var patches = [];
       var scriptUpdateDepth = 0;
@@ -861,6 +861,27 @@
         };
         install(activeModel, "beginUpdate", wrappedBegin);
         install(activeModel, "endUpdate", wrappedEnd);
+        if (Array.isArray(readOnlyGuardTargets)) {
+          readOnlyGuardTargets.forEach(function (entry) {
+            var target = entry && entry.target;
+            var matcher = entry && entry.matcher;
+            if (!target || !(matcher instanceof RegExp)) return;
+            var methodNames = new Set();
+            var prototype = target;
+            var depth = 0;
+            while (prototype && prototype !== Object.prototype && depth < 6) {
+              Object.getOwnPropertyNames(prototype).forEach(function (name) { methodNames.add(name); });
+              try { prototype = Object.getPrototypeOf(prototype); } catch (_) { prototype = null; }
+              depth += 1;
+            }
+            methodNames.forEach(function (name) {
+              if (!matcher.test(name) || name === "constructor" || typeof target[name] !== "function") return;
+              install(target, name, function () {
+                throw new Error("Read-only inspection cannot call mutating API " + name + "(). Use inspect_drawio_graph for diagram discovery.");
+              });
+            });
+          });
+        }
         result = execute();
         if (activeModel.beginUpdate !== wrappedBegin || activeModel.endUpdate !== wrappedEnd) {
           throw new Error("Native Draw.io scripts must not replace the model transaction methods");
@@ -1218,11 +1239,16 @@
         try { executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\nreturn (\n' + expressionSource + '\n);'); }
         catch (compileError) { if (!compileError || compileError.name !== "SyntaxError") throw compileError; executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script); }
         var readOnlyStateBeforeScript = scriptMode === "read" ? captureNativeReadOnlyState(activeGraph, activeModel) : null;
+        var readOnlyGuardTargets = scriptMode === "read" ? [
+          { target: activeModel, matcher: /^(?:set|add|remove|clear|merge|execute|create|update|cellsAdded|cellsRemoved|beginUpdate|endUpdate|maintain)/i },
+          { target: activeGraph, matcher: /^(?:set|add|remove|insert|delete|move|resize|connect|group|ungroup|fold|align|distribute|flip|rotate|order|split|collapse|expand|toggle|refresh|startEditing|stopEditing|fireEvent|import|duplicate|clone|clear)/i },
+          { target: ui.editor, matcher: /^(?:set|add|remove|insert|delete|open|save|close|rename|create|execute|undo|redo|select|fire|reset|new|setModified)/i }
+        ] : null;
         var scriptResult = executeNativeScriptSynchronously(script, activeModel, function () {
           return executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
             return inspectDrawioRuntime(ui, activeGraph, activeModel, options);
           });
-        });
+        }, readOnlyGuardTargets);
         if (scriptResult && typeof scriptResult.then === "function") throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
         if (scriptMode === "read" && nativeReadOnlyStateChanged(readOnlyStateBeforeScript, activeGraph, activeModel)) {
           throw new Error("Read-only inspection script mutated the Draw.io document or editor state.");
