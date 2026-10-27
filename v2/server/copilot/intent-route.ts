@@ -785,12 +785,12 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createRunDrawioScriptTool(sessionId: string) {
     return defineTool("run_drawio_script", {
-      description: "Execute JavaScript against the live native Draw.io editor. Prefer inspect_drawio_graph for non-terminal read-only surveys, especially when locating unnamed shapes by geometry. This tool is terminal for the current model turn. mode=read is a guarded inspection: it must not mutate the document and does not require postconditions; Studio verifies the semantic XML diff and suppresses no-op persistence. mode=mutate changes the diagram and requires ok=true, non-empty true postconditions, and xmlAssertions for every changed cell. The iframe is sandboxed on a separate origin; do not access the Studio parent DOM, local APIs or network side effects. Do not replace saved mxfile XML. For mutations use native Draw.io APIs and do not call graph.refresh(), graph.view.validate() or graph.view.getState() after mutation/endUpdate.",
+      description: "Execute a synchronous JavaScript mutation against the live native Draw.io editor. This is a terminal action that runs only after the model turn ends. Do not use mode=read for discovery: it returns no data and is rejected because deferred scripts cannot feed inspection results into the same turn. Use inspect_drawio_graph/search_drawio_elements for non-terminal read-only data, then make the requested edit. Mutation scripts require ok=true, non-empty true postconditions, and xmlAssertions for every changed cell. The iframe is sandboxed on a separate origin; do not access the Studio parent DOM, local APIs or network side effects. Do not replace saved mxfile XML. Do not call graph.refresh(), graph.view.validate() or graph.view.getState() after mutation/endUpdate.",
       parameters: {
         type: "object",
         properties: {
           summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the inspection or requested change." },
-          mode: { type: "string", enum: ["read", "mutate"], default: "mutate", description: "read for strictly non-mutating inspection without postconditions; mutate for edits that must return verifiable postconditions and XML assertions." },
+          mode: { type: "string", enum: ["read", "mutate"], default: "mutate", description: "Use mutate for edits. read is retained only for compatibility and returns an explicit rejection with no data; use inspect_drawio_graph for same-turn inspection." },
           script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript source with live ui, editor, graph, model and inspectRuntime bindings. For mutate mode, return { ok:true, postconditions:{checkName:true}, xmlAssertions:[...] }; each assertion must contain cellId and concrete evidence. style must be a non-empty key/value object; geometry must contain at least one explicit field. All postcondition values must be true booleans. For read mode, return compact JSON results and do not mutate any graph/model/page state." }
         },
         required: ["summary", "script"],
@@ -857,7 +857,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           accepted: true, execution: "after_model_turn", summary, mode,
           scriptLength: args.script.length, terminal: true,
           instructions: mode === "read"
-            ? "This is a terminal read-only script call. It must not mutate any document/editor state and may return a JSON result without postconditions. Studio checks the semantic XML diff and will not persist a no-op serialization. Do not claim any diagram change."
+            ? "No script was executed and no data was returned because scripts run after the model turn. This is not a terminal action. Use inspect_drawio_graph/search_drawio_elements for read-only data available now; then continue with the requested edit."
             : "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Return and verify postconditions plus XML assertions; do not claim success before serialization and persistence are confirmed."
         };
       }
@@ -1327,7 +1327,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script as the primary full-capability path for non-trivial native edits or whenever direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. No second confirmation is required in local single-user mode. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and the required persistence acknowledgement are complete.",
+            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script for non-trivial native edits or when direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. Never use run_drawio_script(mode:read) for discovery: it is deferred and returns no data. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. No second confirmation is required in local single-user mode. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
             diagram: context
           });
           await sendAttempt(2, retryPrompt, "the first response did not invoke a native editor tool");
