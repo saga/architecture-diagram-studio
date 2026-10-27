@@ -730,6 +730,9 @@ function createDrawioElementSearchTool(sessionId: string) {
         query?: unknown; shape?: unknown; cellType?: unknown; unlabeled?: unknown;
         point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
       }) => {
+        if (!args || typeof args !== "object" || Array.isArray(args)) {
+          return { ok: false, reason: "invalid_arguments", error: "Graph inspection requires an object of valid filters.", results: [] };
+        }
         const current = contextBySession.get(sessionId);
         const context = current && typeof current === "object"
           ? current as { cells?: unknown; documentRevision?: unknown; activePageId?: unknown }
