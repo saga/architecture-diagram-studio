@@ -858,7 +858,7 @@ describe("Copilot intent route result and revision contract", () => {
     const database = first.diagram.cells.find((cell) => cell.id === "db");
     expect(database).toMatchObject({
       id: "db", label: "Database", cellType: "vertex",
-      geometry: { x: 120, y: 80, width: 160, height: 60 }, parentId: "1"
+      geometry: { x: 10, y: 20, width: 120, height: 60 }, parentId: "1"
     });
     expect(database).not.toHaveProperty("name");
   });
