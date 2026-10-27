@@ -467,21 +467,47 @@
         if (!route || typeof route.cellId !== "string" || !Array.isArray(route.points) || routesById[route.cellId]) fail("The layout plan contains a duplicate or invalid connector route.", true);
         if (!liveById[route.cellId] || !liveById[route.cellId].edge || !liveById[route.cellId].geometry) fail("A layout plan references a missing connector: " + route.cellId, true);
         if (route.points.length > 100 || route.points.some(function (point) { return !point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.abs(point.x) > 1000000 || Math.abs(point.y) > 1000000; })) fail("The layout plan contains invalid connector waypoints.", true);
+        if (route.points.some(function (point, index) {
+          if (index === 0) return false;
+          var previous = route.points[index - 1];
+          return Math.abs(point.x - previous.x) > 0.5 && Math.abs(point.y - previous.y) > 0.5;
+        })) fail("The layout plan contains a non-orthogonal connector segment: " + route.cellId, true);
         routesById[route.cellId] = route.points;
       });
       var expectedEdgeIds = plan.expectedCells.filter(function (item) { return item.kind === "edge"; }).map(function (item) { return item.cellId; }).sort();
       var plannedEdgeIds = Object.keys(routesById).sort();
       if (expectedEdgeIds.length !== plannedEdgeIds.length || expectedEdgeIds.some(function (id, index) { return id !== plannedEdgeIds[index]; })) fail("The layout plan does not contain a route result for every targeted connector.", true);
-      var snapshots = plan.expectedCells.map(function (expected) { var cell = liveById[expected.cellId]; return { cell: cell, geometry: cell.geometry.clone() }; });
+      var snapshots = plan.expectedCells.map(function (expected) {
+        var cell = liveById[expected.cellId];
+        return { cell: cell, geometry: cell.geometry.clone(), style: cell.style };
+      });
       var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
       var changedVertices = 0; var changedEdges = 0;
       activeModel.beginUpdate();
       try {
         plan.positions.forEach(function (item) { var cell = liveById[item.cellId]; var geometry = cell.geometry.clone(); geometry.x = item.x; geometry.y = item.y; activeModel.setGeometry(cell, geometry); changedVertices++; });
-        plan.edgeRoutes.forEach(function (route) { var cell = liveById[route.cellId]; var geometry = cell.geometry.clone(); geometry.points = route.points.length ? route.points.map(function (point) { return typeof window.mxPoint === "function" ? new window.mxPoint(point.x, point.y) : { x: point.x, y: point.y }; }) : null; activeModel.setGeometry(cell, geometry); changedEdges++; });
+        plan.edgeRoutes.forEach(function (route) {
+          var cell = liveById[route.cellId];
+          var geometry = cell.geometry.clone();
+          geometry.points = route.points.length ? route.points.map(function (point) {
+            return typeof window.mxPoint === "function" ? new window.mxPoint(point.x, point.y) : { x: point.x, y: point.y };
+          }) : null;
+          activeModel.setGeometry(cell, geometry);
+          var routeStyle = setStyleValue(cell.style, "orthogonal", "1");
+          routeStyle = setStyleValue(routeStyle, "curved", plan.edgeRouting === "SPLINES" ? "1" : "0");
+          if (routeStyle !== cell.style) activeModel.setStyle(cell, routeStyle);
+          changedEdges++;
+        });
       } catch (mutationError) {
         var rollbackErrors = [];
-        snapshots.forEach(function (snapshot) { try { activeModel.setGeometry(snapshot.cell, snapshot.geometry); } catch (rollbackError) { rollbackErrors.push(rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError)); } });
+        snapshots.forEach(function (snapshot) {
+          try {
+            activeModel.setGeometry(snapshot.cell, snapshot.geometry);
+            if (snapshot.cell.style !== snapshot.style) activeModel.setStyle(snapshot.cell, snapshot.style);
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError));
+          }
+        });
         if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) rollbackErrors.push("Native Undo/Redo history could not be restored to its pre-layout checkpoint.");
         fail("Studio auto layout failed while applying geometry: " + (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) + (rollbackErrors.length ? "; geometry/history rollback was incomplete: " + rollbackErrors.join("; ") : "; prior geometry and native history were restored."), rollbackErrors.length === 0);
       } finally { activeModel.endUpdate(); }
@@ -497,6 +523,20 @@
         if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) found = part.slice(equalsAt + 1).trim();
       });
       return found;
+    }
+    function setStyleValue(style, key, value) {
+      var parts = String(style || "").split(";").filter(function (part) { return part.trim().length > 0; });
+      var found = false;
+      parts = parts.map(function (part) {
+        var equalsAt = part.indexOf("=");
+        if (equalsAt > 0 && part.slice(0, equalsAt).trim() === key) {
+          found = true;
+          return key + "=" + value;
+        }
+        return part;
+      });
+      if (!found) parts.push(key + "=" + value);
+      return parts.join(";") + ";";
     }
     function stencilPayloadFromStyle(style) {
       var shape = paletteStyleValue(style, "shape");
