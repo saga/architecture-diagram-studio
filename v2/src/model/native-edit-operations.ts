@@ -355,7 +355,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
-    case "run_drawio_script": return (operation.mode === "read" ? "Inspect native Draw.io diagram: " : "Run native Draw.io script: ") + operation.summary;
+    case "run_drawio_script": return operation.mode === "read" ? "Inspect native Draw.io diagram: " + operation.summary : operation.summary;
     case "auto_layout": {
       const engineLabels: Record<NativeAutoLayoutEngine, string> = {
         elk: "ELK", dagre: "Dagre", graphviz: "Graphviz", msagl: "MSAGL.js", cytoscape: "Cytoscape.js", d3: "D3"
