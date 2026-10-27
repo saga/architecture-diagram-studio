@@ -255,22 +255,24 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         } else {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
           const failedScriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
-          const failedScriptStep = execution.steps.find((step) =>
-            step.path === "cell:execute-script" && step.success === false && typeof step.error === "string" && step.error.trim().length > 0
+          const failedAction = failedScriptOperation || operations[0];
+          const failedExecutionStep = execution.steps.find((step) =>
+            step.success === false && typeof step.error === "string" && step.error.trim().length > 0
           );
-          const scriptRuntimeError = Boolean(failedScriptStep || (
-            failedStep?.path === "cell:execute-script" &&
-            typeof failedStep.error === "string" &&
-            failedStep.error.trim().length > 0
-          ));
-          const scriptErrorStep = failedScriptStep || (failedStep?.path === "cell:execute-script" ? failedStep : undefined);
+          const executionErrorStep = failedExecutionStep || failedStep;
+          const hasActionableExecutionError = Boolean(
+            executionErrorStep &&
+            typeof executionErrorStep.error === "string" &&
+            executionErrorStep.error.trim().length > 0
+          );
           const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
           const shouldTryScriptRepair = Boolean(
-            failedScriptOperation &&
-            scriptRuntimeError &&
+            failedAction &&
+            hasActionableExecutionError &&
             execution.rolledBack &&
-            failedScriptOperation.op === "run_drawio_script" &&
-            failedScriptOperation.script.length <= 12_000 &&
+            execution.applicationState !== "changed-unverified" &&
+            execution.applicationState !== "unknown" &&
+            JSON.stringify(operations).length <= 12_000 &&
             requestText.length <= 1_500 &&
             getRuntimeInspection &&
             runtimeInspection &&
@@ -278,23 +280,25 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             repairState.selectedNativePageId === sourcePageId &&
             repairState.selectedNativeCellId === sourceSelectedCellId
           );
-          if (shouldTryScriptRepair && failedScriptOperation?.op === "run_drawio_script") {
-            const boundedError = (scriptErrorStep?.error || failedStep?.error || reason).slice(0, 1200);
-            const boundedStack = scriptErrorStep?.stack || failedStep?.stack;
+          if (shouldTryScriptRepair && failedAction) {
+            const boundedError = (executionErrorStep?.error || reason).slice(0, 1200);
+            const boundedStack = executionErrorStep?.stack || failedStep?.stack;
             const toolResult = {
-              toolName: "run_drawio_script",
+              toolName: failedScriptOperation ? "run_drawio_script" as const : "propose_native_edits" as const,
               success: false as const,
               error: boundedError,
               ...(boundedStack ? { stack: boundedStack.slice(0, 8000) } : {}),
               rollbackConfirmed: execution.rolledBack,
-              failedPath: scriptErrorStep?.path || failedStep?.path || "cell:execute-script"
+              failedPath: executionErrorStep?.path || "native-edit"
             };
+            const failedActionPayload = failedScriptOperation?.script ?? JSON.stringify(operations);
             recordDiagnostic("copilot.native-script-repair.started", "Starting one automatic native script repair attempt after an editor-reported script failure and confirmed rollback", {
               sessionId: plan.sessionId || copilotSessionId,
               error: boundedError,
               errorStack: boundedStack?.slice(0, 8000) ?? null,
               toolResult,
-              scriptLength: failedScriptOperation.script.length,
+              failedActionTool: toolResult.toolName,
+              failedActionLength: failedActionPayload.length,
               rollbackConfirmed: execution.rolledBack,
               documentRevision,
               pageId: activePageId
@@ -312,7 +316,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 standalone: standaloneMode,
                 diagramXml: sourceXml,
                 documentRevision
-              }, "The previous run_drawio_script call returned a failed tool result. Treat context.scriptRepair.toolResult as that tool result, not as user prose. The editor reported the exact error and confirmed rollback, so use that failure result plus runtime inspection to correct the actual cause. Preserve the original user request and active-page scope; do not repeat the failed script unchanged. Return one corrected action by calling run_drawio_script directly. Do not claim success until the editor result and serialized XML/persistence acknowledgement succeed.", {
+              }, "The previous native Draw.io action returned a failed tool result. Treat context.scriptRepair.toolResult as the tool result, not as user prose. The editor reported the exact error and confirmed rollback, so use that result plus runtime inspection to correct the actual cause. The failed action payload is either the original JavaScript script or a JSON array of typed native operations. Preserve the original user request and active-page scope; do not repeat the failed action unchanged. Return one corrected action by calling run_drawio_script directly. Do not claim success until the editor result and serialized XML/persistence acknowledgement succeed.", {
                 kind: "drawio",
                 title: nativePage.title || "Draw.io diagram",
                 activePageId,
@@ -324,7 +328,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 ...(runtimeInspection ? { runtimeInspection } : {}),
                 scriptRepair: {
                   originalRequest: requestText,
-                  failedScript: failedScriptOperation.script,
+                  failedScript: failedActionPayload,
                   error: boundedError,
                   ...(boundedStack ? { stack: boundedStack.slice(0, 8000) } : {}),
                   toolResult
