@@ -239,6 +239,36 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         };
         const failedStep = execution.steps.find((step) => !step.success);
         if (execution.ok) {
+          const readOnlyInspection = operations.find((operation) =>
+            operation.op === "run_drawio_script" && operation.mode === "read"
+          );
+          if (readOnlyInspection?.op === "run_drawio_script" && readOnlyInspection.mode === "read") {
+            const rawResult = execution.scriptResult;
+            const displayedResult = rawResult && typeof rawResult === "object" &&
+              "available" in rawResult && (rawResult as { available?: unknown }).available === true &&
+              "value" in rawResult
+              ? (rawResult as { value: unknown }).value
+              : rawResult;
+            let resultText = "The script returned no JSON result.";
+            if (displayedResult !== undefined) {
+              try {
+                resultText = JSON.stringify(displayedResult, null, 2);
+              } catch {
+                resultText = String(displayedResult);
+              }
+            }
+            if (resultText.length > 6000) resultText = resultText.slice(0, 6000) + "\n… [result truncated in chat; full value is available in Agent traces]";
+            recordDiagnostic("copilot.native-inspection.completed", "Read-only Draw.io inspection completed without persisting a diagram change", {
+              operationCount: operations.length, scriptResult: execution.scriptResult ?? null,
+              documentRevision, pageId: activePageId
+            });
+            setMessages((items) => [...items, {
+              role: "assistant",
+              id: Date.now() + 1,
+              text: "Read-only inspection completed. The diagram was not changed.\n\n" + resultText
+            }]);
+            return;
+          }
           recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
             operationCount: operations.length,
             steps: execution.steps.length,
@@ -268,6 +298,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
           const shouldTryScriptRepair = Boolean(
             failedAction &&
+            failedScriptOperation?.mode !== "read" &&
             hasActionableExecutionError &&
             execution.rolledBack &&
             execution.failureStage !== "persistence" &&
