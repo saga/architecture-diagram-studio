@@ -35,7 +35,10 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
   } else if (topic === "postconditions") {
     selected = getSection(markdown, "Validation and postconditions");
   } else if (topic === "recipes") {
-    selected = getSection(markdown, "Recipes");
+    const shapeDiscovery = getSection(markdown, "Shape discovery");
+    const c4Start = shapeDiscovery.indexOf("### C4 shape recipes");
+    const c4Recipes = c4Start >= 0 ? shapeDiscovery.slice(c4Start) : "";
+    selected = [getSection(markdown, "Recipes"), c4Recipes].filter(Boolean).join("\n\n");
   } else {
     selected = [
       "# Draw.io Agent Reference (overview)",
