@@ -943,6 +943,17 @@
       return { mode: "mutate", script: raw };
     }
 
+    function nativeScriptModeForBatchValue(rawValue) {
+      try {
+        var operations = JSON.parse(String(rawValue == null ? "" : rawValue));
+        if (!Array.isArray(operations)) return null;
+        var operation = operations.find(function (item) { return item && item.path === "cell:execute-script"; });
+        return operation ? parseNativeScriptPayload(operation.value).mode : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
     function nativeReadOnlyCellSignature(cell) {
       var value = cell && cell.value;
       if (value && typeof value === "object" && value.nodeType === 1) value = value.outerHTML || value.textContent || "";
@@ -1367,7 +1378,7 @@
         catch (inspectionError) { publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: false, error: inspectionError && inspectionError.message ? String(inspectionError.message) : String(inspectionError) }); }
       } else if (request.event === "studioPropertyEditRequest") {
         try { var editResult = editCell(request); publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path, batchResults: editResult && editResult.batchResults || null, scriptResult: editResult && editResult.scriptResult || null, scriptMode: editResult && editResult.scriptMode || null }); }
-        catch (error) { publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path, error: error && error.message ? String(error.message) : String(error), errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null, batchResults: error && error.batchResults || null, failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null, rollbackErrors: error && error.rollbackErrors || [], batchRolledBack: error && typeof error.batchRolledBack === "boolean" ? error.batchRolledBack : null }); }
+        catch (error) { publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path, error: error && error.message ? String(error.message) : String(error), errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null, batchResults: error && error.batchResults || null, failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null, rollbackErrors: error && error.rollbackErrors || [], batchRolledBack: error && typeof error.batchRolledBack === "boolean" ? error.batchRolledBack : null, scriptMode: request.path === "cell:batch" ? nativeScriptModeForBatchValue(request.value) : null }); }
       } else if (request.event === "studioSetBackground") {
         var backgroundGraph = currentGraph();
         if (!hasOriginalBackground) { originalBackground = typeof request.restoreBackground === "string" ? request.restoreBackground : backgroundGraph.background; hasOriginalBackground = true; }
