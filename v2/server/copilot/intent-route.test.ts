@@ -345,7 +345,7 @@ function scriptProposingCopilot(
 }
 
 function terminalConflictCopilot(
-  scenario: "read-edit-report" | "report-edit" | "duplicate-edit"
+  scenario: "read-edit-report" | "report-edit" | "duplicate-edit" | "throw-after-edit"
 ) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -393,6 +393,9 @@ function terminalConflictCopilot(
         } else if (scenario === "report-edit") {
           await report();
           await propose("数据库");
+        } else if (scenario === "throw-after-edit") {
+          await propose("数据库");
+          throw new Error("Synthetic SDK stream failure after native edit was accepted");
         } else {
           await propose("第一版");
           await propose("第二版");
@@ -603,6 +606,23 @@ describe("Copilot intent route result and revision contract", () => {
       entry.fields?.requestedKind === "no_mutation" && entry.fields?.registeredKind === "native_edit")).toBe(true);
     expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
       entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
+  });
+
+  it("preserves an accepted native edit when the SDK stream fails afterward", async () => {
+    const copilot = terminalConflictCopilot("throw-after-edit");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("command_ready");
+    expect(String(body.reply)).toContain("model stream failed after a terminal action was accepted");
+    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+      .toMatchObject([{ op: "set_label", cellId: "db", targetLabel: "Database", label: "数据库" }]);
+    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.logs.some((entry) => entry.event === "turn.model-call.failed-after-terminal-intent.failed" &&
+      entry.fields?.terminalKind === "native_edit" && entry.fields?.acceptedNativeEdit === true &&
+      String(entry.fields?.errorMessage).includes("Synthetic SDK stream failure"))).toBe(true);
+    expect(harness.logs.some((entry) => entry.event === "turn.failed")).toBe(false);
   });
 
   it("promotes a concrete native edit over a premature no-mutation report", async () => {
