@@ -829,7 +829,7 @@ export function nativeScriptResultMatchesXml(
 
 
 export interface NativeScriptScopeViolation {
-  kind: "added" | "changed" | "removed";
+  kind: "added" | "changed" | "removed" | "unproven-change";
   cellId: string;
   pageId: string | null;
   label: string;
@@ -896,23 +896,110 @@ export function findUndeclaredNativeScriptChanges(
   const scopedExpectedPageId = isStandaloneModelPair ? null : expectedPageId;
   const isDeclaredOnExpectedPage = (cell: { id: string; pageId: string | null }) =>
     declared.has(cell.id) && (expectedPageId === undefined || cell.pageId === scopedExpectedPageId);
+  const envelope = scriptResult && typeof scriptResult === "object" && !Array.isArray(scriptResult)
+    ? (scriptResult as Record<string, unknown>).value
+    : null;
+  const assertionRows = envelope && typeof envelope === "object" && !Array.isArray(envelope) &&
+    Array.isArray((envelope as Record<string, unknown>).xmlAssertions)
+    ? ((envelope as Record<string, unknown>).xmlAssertions as unknown[]).filter((raw): raw is Record<string, unknown> =>
+        Boolean(raw) && typeof raw === "object" && !Array.isArray(raw) && typeof (raw as Record<string, unknown>).cellId === "string")
+    : [];
+  const assertionForCell = (cellId: string): Record<string, unknown> | null => {
+    const matches = assertionRows.filter((assertion) => String(assertion.cellId).trim() === cellId);
+    if (!matches.length) return null;
+    return Object.assign({}, ...matches);
+  };
+  const matchesField = (record: Record<string, unknown> | null, field: string): boolean =>
+    Boolean(record && Object.prototype.hasOwnProperty.call(record, field));
+  const findRecord = (models: ModelRecords[], pageId: string | null, cellId: string): CellRecord | null => {
+    const matches = models.flatMap((model) => model.cells.filter((cell) => cell.pageId === pageId && cell.id === cellId));
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const beforeCells = cellsForXml(beforeXml);
+  const afterCells = cellsForXml(afterXml);
+  const missingEvidenceForChange = (
+    oldRecord: CellRecord | null, nextRecord: CellRecord | null, changedFields: string[], assertion: Record<string, unknown> | null
+  ): string[] => {
+    if (!oldRecord || !nextRecord || !assertion) return ["cell assertion"];
+    const missing: string[] = [];
+    if (changedFields.includes("label") && !matchesField(assertion, "label")) missing.push("label");
+    if (changedFields.includes("parent") && !matchesField(assertion, "parentId")) missing.push("parentId");
+    if (changedFields.includes("source") && !matchesField(assertion, "sourceId")) missing.push("sourceId");
+    if (changedFields.includes("target") && !matchesField(assertion, "targetId")) missing.push("targetId");
+    if ((changedFields.includes("vertex") || changedFields.includes("edge")) && !matchesField(assertion, "kind")) missing.push("kind");
+    if (changedFields.includes("style")) {
+      const beforeStyle = nativeEffectiveStyleMap(oldRecord.cell.getAttribute("style"));
+      const afterStyle = nativeEffectiveStyleMap(nextRecord.cell.getAttribute("style"));
+      const changedKeys = new Set([...beforeStyle.keys(), ...afterStyle.keys()]);
+      const assertionStyle = assertion.style && typeof assertion.style === "object" && !Array.isArray(assertion.style)
+        ? assertion.style as Record<string, unknown> : {};
+      for (const key of changedKeys) {
+        if (beforeStyle.has(key) === afterStyle.has(key) && beforeStyle.get(key) === afterStyle.get(key)) continue;
+        if (!Object.prototype.hasOwnProperty.call(assertionStyle, key)) missing.push("style." + key);
+      }
+    }
+    if (changedFields.includes("geometry")) {
+      const changedGeometry = nativeGeometryChangedFields(oldRecord.geometry, nextRecord.geometry);
+      for (const field of changedGeometry) {
+        if (field === "geometry") {
+          if (!matchesField(assertion, "geometry")) missing.push("geometry");
+          continue;
+        }
+        const key = field.startsWith("geometry.") ? field.slice("geometry.".length) : field;
+        const assertionGeometry = assertion.geometry && typeof assertion.geometry === "object" && !Array.isArray(assertion.geometry)
+          ? assertion.geometry as Record<string, unknown> : {};
+        if (!Object.prototype.hasOwnProperty.call(assertionGeometry, key)) missing.push(field);
+      }
+    }
+    if (changedFields.includes("attributes-or-children")) missing.push("custom attributes/children (no assertion field exists)");
+    return [...new Set(missing)];
+  };
   // A removed page takes its cells with it; page-level operations are not cell edits.
   const removedPages = new Set((diff.pagesRemoved ?? []).map((pageId) => String(pageId)));
   const violations: NativeScriptScopeViolation[] = [];
   for (const cell of diff.cellsAdded ?? []) {
-    if (isDeclaredOnExpectedPage(cell)) continue;
-    violations.push({ kind: "added", cellId: cell.id, pageId: cell.pageId, label: cell.label, changedFields: ["created"] });
+    if (!isDeclaredOnExpectedPage(cell)) {
+      violations.push({ kind: "added", cellId: cell.id, pageId: cell.pageId, label: cell.label, changedFields: ["created"] });
+      continue;
+    }
+    const assertion = assertionForCell(cell.id);
+    const missing = cell.kind === "vertex"
+      ? ["kind", "label"].filter((field) => !matchesField(assertion, field))
+      : cell.kind === "edge"
+        ? ["kind", "sourceId", "targetId"].filter((field) => !matchesField(assertion, field))
+        : ["kind (unsupported cell type)"];
+    if (missing.length) violations.push({
+      kind: "unproven-change", cellId: cell.id, pageId: cell.pageId, label: cell.label,
+      changedFields: ["created", ...missing.map((field) => "assertion." + field)]
+    });
   }
   for (const cell of diff.cellsRemoved ?? []) {
     if (cell.pageId !== null && removedPages.has(String(cell.pageId))) continue;
-    if (isDeclaredOnExpectedPage(cell)) continue;
-    violations.push({ kind: "removed", cellId: cell.id, pageId: cell.pageId, label: cell.label });
+    if (!isDeclaredOnExpectedPage(cell)) {
+      violations.push({ kind: "removed", cellId: cell.id, pageId: cell.pageId, label: cell.label });
+      continue;
+    }
+    const assertion = assertionForCell(cell.id);
+    if (assertion?.exists !== false) violations.push({
+      kind: "unproven-change", cellId: cell.id, pageId: cell.pageId, label: cell.label,
+      changedFields: ["assertion.exists=false"]
+    });
   }
   for (const cell of diff.cellsChanged ?? []) {
-    if (isDeclaredOnExpectedPage(cell)) continue;
-    violations.push({
-      kind: "changed", cellId: cell.id, pageId: cell.pageId,
-      label: cell.labelAfter || cell.labelBefore, changedFields: cell.changedFields
+    if (!isDeclaredOnExpectedPage(cell)) {
+      violations.push({
+        kind: "changed", cellId: cell.id, pageId: cell.pageId,
+        label: cell.labelAfter || cell.labelBefore, changedFields: cell.changedFields
+      });
+      continue;
+    }
+    const assertion = assertionForCell(cell.id);
+    const oldRecord = findRecord(beforeCells, cell.pageId, cell.id);
+    const nextRecord = findRecord(afterCells, cell.pageId, cell.id);
+    const missing = missingEvidenceForChange(oldRecord, nextRecord, cell.changedFields, assertion);
+    if (missing.length) violations.push({
+      kind: "unproven-change", cellId: cell.id, pageId: cell.pageId,
+      label: cell.labelAfter || cell.labelBefore, changedFields: missing
     });
   }
   const limit = Math.max(1, Math.floor(maxViolations) || 20);
