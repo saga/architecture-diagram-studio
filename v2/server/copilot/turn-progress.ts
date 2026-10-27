@@ -81,7 +81,7 @@ export class CopilotTurnProgress {
     this.lastEventType = eventType;
 
     const inputDelta = typeof data.inputDelta === "string" ? data.inputDelta : undefined;
-    const delta = firstString(data, ["delta", "inputDelta", "textDelta", "contentDelta"]);
+    const delta = firstString(data, ["deltaContent", "delta", "inputDelta", "textDelta", "contentDelta"]);
     const hasDelta = /delta/i.test(eventType) || inputDelta !== undefined;
     const reasoningDelta = /reasoning/i.test(type) && hasDelta;
     const toolArgumentDelta = inputDelta !== undefined || (/tool/i.test(type) && /(delta|input|argument)/i.test(type));
