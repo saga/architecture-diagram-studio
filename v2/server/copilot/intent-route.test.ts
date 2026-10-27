@@ -548,6 +548,7 @@ function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string,
     persistenceStatus: "saved",
     persistedRevision: savedRevision,
     versionId: "version-1",
+    applicationState: "applied-and-verified",
     failureStage: null,
     error: null,
     ...overrides
@@ -1180,6 +1181,19 @@ describe("Copilot native-edit acknowledgement route", () => {
     expect(conflict.response.status).toBe(409);
     expect(conflict.body.outcome).toBe("stale_context");
     expect(harness.logs.filter((entry) => entry.event === "turn.native-edit.final-outcome")).toHaveLength(1);
+  });
+
+  it("rejects an applied acknowledgement when editor verification is incomplete", async () => {
+    const store = new NativeExecutionAcknowledgements();
+    const pending = seedAck(store);
+    const harness = await createServer({ acknowledgements: store });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack",
+      appliedAck(pending, { applicationState: "changed-unverified" }));
+    expect(response.status).toBe(400);
+    expect(body.outcome).toBe("failed");
+    expect(String(body.error)).toContain("valid status");
+    expect(store.pending.size).toBe(1);
+    expect(store.getReceipt(pending.requestId)).toBeNull();
   });
 
   it("rejects an applied acknowledgement when persistence revision differs from serialized XML", async () => {
