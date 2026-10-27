@@ -144,6 +144,7 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string; batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null; batchRolledBack?: boolean | null; scriptResult?: unknown; applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const lateNativeEditRequestsRef = useRef(new Set<number>());
+  const lateNativeSelectionRequestsRef = useRef(new Set<number>());
   const nativeEditWatchdogsRef = useRef(new Map<number, number>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
   const [uiTheme] = useState<UiTheme>(() => loadSavedTheme());
@@ -568,8 +569,14 @@ export default function App() {
           nativeEditWatchdogsRef.current.delete(requestId);
           nativeEditResolversRef.current.delete(requestId);
           setCellEditRequest((current) => current?.requestId === requestId ? null : current);
+          lateNativeSelectionRequestsRef.current.add(requestId);
+          while (lateNativeSelectionRequestsRef.current.size > 100) {
+            const oldest = lateNativeSelectionRequestsRef.current.values().next().value as number | undefined;
+            if (oldest === undefined) break;
+            lateNativeSelectionRequestsRef.current.delete(oldest);
+          }
           const error = "Draw.io did not acknowledge the requested selection within 10 seconds; the focus result is unknown.";
-          recordDiagnostic("copilot.selection.timeout", error, { requestId, cellId, pageId: selectedNativePageId }, "warn");
+          recordDiagnostic("copilot.selection.timeout", error, { requestId, cellId, pageId: selectedNativePageId, reconciliationPending: true }, "warn");
           reject(new Error(error));
         }, watchdogTimeoutMs);
         nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
@@ -1755,6 +1762,8 @@ export default function App() {
               const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
               const isLateNativeBatch = result.path === "cell:batch" && requestId !== null &&
                 !resolver && lateNativeEditRequestsRef.current.has(requestId);
+              const isLateNativeSelection = result.path === "cell:select" && requestId !== null &&
+                !resolver && lateNativeSelectionRequestsRef.current.has(requestId);
               const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
               const readOnlyNoChange = result.path === "cell:batch" &&
                 result.scriptMode === "read" && result.applicationState === "not-applied" &&
@@ -1984,6 +1993,17 @@ export default function App() {
                 failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
                 batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
+              if (isLateNativeSelection && requestId !== null && lateNativeSelectionRequestsRef.current.delete(requestId)) {
+                const reconciledText = finalResult.success
+                  ? "The native selection completed after the waiting period. The requested element is now selected; the diagram was not changed."
+                  : "The native selection returned after the waiting period but failed: " + (finalResult.error || "Draw.io rejected the selection.");
+                setLastAction(reconciledText);
+                setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: reconciledText }].slice(-300));
+                recordDiagnostic("copilot.selection.acknowledgement.late-reconciled",
+                  "Reconciled a native selection result after the UI wait expired",
+                  { requestId, cellId: finalResult.cellId, success: finalResult.success, error: finalResult.error ?? null },
+                  finalResult.success ? "warn" : "error");
+              }
             }}
             onSelectionChange={(cellId, pageId) => {
               setSelectedNativeCellId(cellId);
