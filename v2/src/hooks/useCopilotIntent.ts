@@ -292,7 +292,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               rollbackConfirmed: execution.rolledBack,
               failedPath: executionErrorStep?.path || "native-edit"
             };
-            const failedActionPayload = failedScriptOperation?.script ?? JSON.stringify(operations);
+            const failedActionPayload = failedScriptOperation && failedScriptOperation.op === "run_drawio_script" ? failedScriptOperation.script : JSON.stringify(operations);
             recordDiagnostic("copilot.native-edit-repair.started", "Starting one automatic native edit repair attempt after an editor-reported failure and confirmed rollback", {
               sessionId: plan.sessionId || copilotSessionId,
               error: boundedError,
