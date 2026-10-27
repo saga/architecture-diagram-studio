@@ -636,13 +636,15 @@ export function validateNativeScriptResultAgainstXml(
       }
       const record = candidates[0];
 
-      if (assertion.kind !== undefined && record.cell.getAttribute(assertion.kind) !== "1") {
-        invalid("kind", "Serialized cell kind did not match.", assertion.kind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell", "mismatch");
+      const assertionKind = typeof assertion.kind === "string" ? assertion.kind : undefined;
+      if (assertionKind !== undefined && record.cell.getAttribute(assertionKind) !== "1") {
+        invalid("kind", "Serialized cell kind did not match.", assertionKind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell", "mismatch");
       }
-      if (assertion.label !== undefined) {
+      const assertionLabel = typeof assertion.label === "string" ? assertion.label : undefined;
+      if (assertionLabel !== undefined) {
         const actual = findText(record);
-        if (!(actual === assertion.label || normalizeLabel(actual) === normalizeLabel(assertion.label))) {
-          invalid("label", "Serialized label did not match.", assertion.label, actual, "mismatch");
+        if (!(actual === assertionLabel || normalizeLabel(actual) === normalizeLabel(assertionLabel))) {
+          invalid("label", "Serialized label did not match.", assertionLabel, actual, "mismatch");
         }
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
