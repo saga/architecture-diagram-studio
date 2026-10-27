@@ -1954,7 +1954,7 @@ export default function App() {
                 const unresolvedText = "A native edit timed out without a final serialized result. The diagram state is still unknown; do not retry. Inspect the current document and History, then reload the document before submitting another edit.";
                 setLastAction(unresolvedText);
                 const unresolvedMessage: ChatMessage = { role: "assistant", id: Date.now(), text: unresolvedText };
-  setMessages((items) => [...items, unresolvedMessage].slice(-300));
+                setMessages((items) => [...items, unresolvedMessage].slice(-300));
                 recordDiagnostic("copilot.native-edit.acknowledgement.late-unresolved",
                   "A timed-out native edit returned without enough evidence to reconcile its outcome",
                   { requestId, applicationState: finalResult.applicationState ?? null, rollbackConfirmed: finalResult.batchRolledBack === true }, "error");
@@ -1984,7 +1984,7 @@ export default function App() {
                 const reconciledText = "A native edit returned after the waiting period. " + status +
                   " Its final result has now been reconciled; do not repeat the operation.";
                 const reconciledMessage: ChatMessage = { role: "assistant", id: Date.now(), text: reconciledText };
-  setMessages((items) => [...items, reconciledMessage].slice(-300));
+                setMessages((items) => [...items, reconciledMessage].slice(-300));
                 recordDiagnostic("copilot.native-edit.acknowledgement.late-reconciled",
                   "Reconciled the user-visible outcome after a native edit returned past its wait timeout",
                   { requestId, success: finalResult.success, applicationState: finalResult.applicationState ?? null,
