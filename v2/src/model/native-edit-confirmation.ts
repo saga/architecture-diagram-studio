@@ -464,6 +464,8 @@ export interface NativeScriptXmlAssertionFailure {
 export interface NativeScriptXmlValidationResult {
   ok: boolean;
   failures: NativeScriptXmlAssertionFailure[];
+  /** Unknown metadata fields are reported here without masking verifiable, supported evidence. */
+  warnings?: NativeScriptXmlAssertionFailure[];
 }
 
 function nativeAssertionStyleValue(style: string, key: string): Array<string | null> | null {
@@ -578,11 +580,19 @@ export function validateNativeScriptResultAgainstXml(
   pageId: string | null
 ): NativeScriptXmlValidationResult {
   const failures: NativeScriptXmlAssertionFailure[] = [];
+  const warnings: NativeScriptXmlAssertionFailure[] = [];
   const maxFailures = 100;
   const fail = (failure: NativeScriptXmlAssertionFailure) => {
     if (failures.length < maxFailures) failures.push(failure);
   };
-  const finish = (): NativeScriptXmlValidationResult => ({ ok: failures.length === 0, failures });
+  const warn = (warning: NativeScriptXmlAssertionFailure) => {
+    if (warnings.length < maxFailures) warnings.push(warning);
+  };
+  const finish = (): NativeScriptXmlValidationResult => ({
+    ok: failures.length === 0,
+    failures,
+    ...(warnings.length ? { warnings } : {})
+  });
 
   try {
     if (!scriptResult || typeof scriptResult !== "object" || Array.isArray(scriptResult)) {
@@ -613,7 +623,16 @@ export function validateNativeScriptResultAgainstXml(
       fail({ kind: "invalid-document", index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
       return finish();
     }
-    const allowedFields = new Set(["cellId", "exists", "kind", "label", "parentId", "sourceId", "targetId", "style", "geometry"]);
+    // labelContains/chineseTitle/labelContainsTitle accept the earlier predicate-style
+    // assertions used by the title-translation workflow. Unknown extra keys are warnings,
+    // not a reason to discard otherwise independently verifiable facts.
+    const allowedFields = new Set([
+      "cellId", "exists", "kind", "label", "labelContains", "chineseTitle", "labelContainsTitle",
+      "parentId", "sourceId", "targetId", "style", "geometry"
+    ]);
+    const evidenceFieldsAllowed = new Set([
+      "kind", "label", "labelContains", "chineseTitle", "parentId", "sourceId", "targetId", "style", "geometry"
+    ]);
     const geometryFields = new Set(["x", "y", "width", "height", "relative", "points", "offset", "sourcePoint", "targetPoint"]);
 
     const attributeMatches = (cell: Element, key: "parent" | "source" | "target", expected: unknown): boolean => {
@@ -648,8 +667,16 @@ export function validateNativeScriptResultAgainstXml(
       let shapeInvalid = false;
       for (const key of Object.keys(assertion)) {
         if (!allowedFields.has(key)) {
-          invalid(key, "Unknown assertion field.", [...allowedFields], key);
-          shapeInvalid = true;
+          warn({
+            kind: "invalid-assertion",
+            index: assertionIndex,
+            ...(cellId ? { cellId } : {}),
+            field: key,
+            reason: "Unknown assertion field '" + key + "' was ignored. Supported evidence fields: " +
+              [...allowedFields].join(", ") + ".",
+            expected: [...allowedFields],
+            actual: key
+          });
         }
       }
       if (!cellId) {
@@ -666,6 +693,25 @@ export function validateNativeScriptResultAgainstXml(
       }
       if (assertion.label !== undefined && typeof assertion.label !== "string") {
         invalid("label", "label must be a string; an empty string is valid.", "string", assertion.label);
+        shapeInvalid = true;
+      }
+      for (const key of ["labelContains", "chineseTitle"] as const) {
+        if (assertion[key] !== undefined &&
+            (typeof assertion[key] !== "string" || !assertion[key].trim())) {
+          invalid(key, key + " must be a non-empty string that the serialized label is expected to contain.",
+            "non-empty string", assertion[key]);
+          shapeInvalid = true;
+        }
+      }
+      if (assertion.labelContainsTitle !== undefined && typeof assertion.labelContainsTitle !== "boolean") {
+        invalid("labelContainsTitle", "labelContainsTitle must be a boolean checked against the serialized label.",
+          "boolean", assertion.labelContainsTitle);
+        shapeInvalid = true;
+      }
+      if (assertion.labelContainsTitle !== undefined &&
+          typeof assertion.chineseTitle !== "string" && typeof assertion.labelContains !== "string") {
+        invalid("labelContainsTitle", "labelContainsTitle requires chineseTitle or labelContains as the expected title.",
+          "chineseTitle or labelContains", assertion.labelContainsTitle);
         shapeInvalid = true;
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
@@ -737,7 +783,10 @@ export function validateNativeScriptResultAgainstXml(
       }
 
       const expectedExists = assertion.exists === undefined ? true : assertion.exists;
-      const evidenceFields = Object.keys(assertion).filter((key) => key !== "cellId" && key !== "exists");
+      // Unknown advisory fields (for example bodyTailPreserved) never count as evidence.
+      const evidenceFields = Object.keys(assertion).filter((key) =>
+        key !== "cellId" && key !== "exists" && evidenceFieldsAllowed.has(key)
+      );
       if (expectedExists !== false && evidenceFields.length === 0) {
         invalid("assertion", "An assertion for an existing cell must include concrete property evidence; exists: true alone is too weak to verify the requested edit.", "kind, label, relationship, style or geometry expectation", assertion);
         shapeInvalid = true;
@@ -765,11 +814,30 @@ export function validateNativeScriptResultAgainstXml(
       if (assertionKind !== undefined && record.cell.getAttribute(assertionKind) !== "1") {
         invalid("kind", "Serialized cell kind did not match.", assertionKind, record.cell.getAttribute("vertex") === "1" ? "vertex" : record.cell.getAttribute("edge") === "1" ? "edge" : "cell", "mismatch");
       }
+      const actualLabel = findText(record);
+      const normalizedActualLabel = normalizeLabel(actualLabel);
       const assertionLabel = typeof assertion.label === "string" ? assertion.label : undefined;
-      if (assertionLabel !== undefined) {
-        const actual = findText(record);
-        if (!(actual === assertionLabel || normalizeLabel(actual) === normalizeLabel(assertionLabel))) {
-          invalid("label", "Serialized label did not match.", assertionLabel, actual, "mismatch");
+      if (assertionLabel !== undefined &&
+          !(actualLabel === assertionLabel || normalizedActualLabel === normalizeLabel(assertionLabel))) {
+        invalid("label", "Serialized label did not match.", assertionLabel, actualLabel, "mismatch");
+      }
+      const titleExpectations = [
+        ["labelContains", assertion.labelContains],
+        ["chineseTitle", assertion.chineseTitle]
+      ] as const;
+      for (const [field, expected] of titleExpectations) {
+        if (typeof expected !== "string") continue;
+        if (!normalizedActualLabel.includes(normalizeLabel(expected))) {
+          invalid(field, "Serialized label did not contain the expected title text.", expected, actualLabel, "mismatch");
+        }
+      }
+      if (typeof assertion.labelContainsTitle === "boolean") {
+        const expectedTitle = typeof assertion.chineseTitle === "string" ? assertion.chineseTitle : assertion.labelContains;
+        const actualContainsTitle = typeof expectedTitle === "string" &&
+          normalizedActualLabel.includes(normalizeLabel(expectedTitle));
+        if (assertion.labelContainsTitle !== actualContainsTitle) {
+          invalid("labelContainsTitle", "The serialized label title-containment result did not match.",
+            assertion.labelContainsTitle, actualContainsTitle, "mismatch");
         }
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
@@ -924,7 +992,10 @@ export function findUndeclaredNativeScriptChanges(
   ): string[] => {
     if (!oldRecord || !nextRecord || !assertion) return ["cell assertion"];
     const missing: string[] = [];
-    if (changedFields.includes("label") && !matchesField(assertion, "label")) missing.push("label");
+    const hasLabelEvidence = matchesField(assertion, "label") ||
+      (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
+      (typeof assertion.chineseTitle === "string" && Boolean(assertion.chineseTitle.trim()));
+    if (changedFields.includes("label") && !hasLabelEvidence) missing.push("label");
     if (changedFields.includes("parent") && !matchesField(assertion, "parentId")) missing.push("parentId");
     if (changedFields.includes("source") && !matchesField(assertion, "sourceId")) missing.push("sourceId");
     if (changedFields.includes("target") && !matchesField(assertion, "targetId")) missing.push("targetId");
@@ -979,8 +1050,11 @@ export function findUndeclaredNativeScriptChanges(
       continue;
     }
     const assertion = assertionForCell(cell.id);
+    const hasLabelEvidence = matchesField(assertion, "label") ||
+      (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
+      (typeof assertion.chineseTitle === "string" && Boolean(assertion.chineseTitle.trim()));
     const missing = cell.kind === "vertex"
-      ? ["kind", "label"].filter((field) => !matchesField(assertion, field))
+      ? ["kind"].filter((field) => !matchesField(assertion, field)).concat(hasLabelEvidence ? [] : ["label"])
       : cell.kind === "edge"
         ? ["kind", "sourceId", "targetId"].filter((field) => !matchesField(assertion, field))
         : ["kind (unsupported cell type)"];
