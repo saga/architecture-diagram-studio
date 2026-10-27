@@ -455,10 +455,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       },
       handler: async (args: { outcome?: unknown; reply?: unknown; question?: unknown; reason?: unknown }) => {
         if (args.outcome !== "answered" && args.outcome !== "needs_clarification" && args.outcome !== "unsupported") {
-          throw new Error("The no-mutation outcome must be answered, needs_clarification, or unsupported");
+          const error = "The no-mutation outcome must be answered, needs_clarification, or unsupported.";
+          await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_outcome" });
+          return { recorded: false, accepted: false, reason: "invalid_outcome", error, instructions: "Use one of the supported outcomes and do not claim that a diagram edit was applied." };
         }
         if (typeof args.reply !== "string" || !args.reply.trim() || args.reply.length > 2000) {
-          throw new Error("A no-mutation outcome requires a user-facing reply of 1–2000 characters");
+          const error = "A no-mutation outcome requires a user-facing reply of 1–2000 characters.";
+          await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_reply" });
+          return { recorded: false, accepted: false, reason: "invalid_reply", error, instructions: "Provide a concise non-empty reply up to 2000 characters; no terminal outcome was registered." };
         }
         const report: ReportedNoEditOutcome = {
           outcome: args.outcome,
@@ -501,7 +505,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-          throw new Error("Shape search requires a query from 2 to 120 characters.");
+          const error = "Shape search requires a query from 2 to 120 characters.";
+          await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
+          return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape name or concept in English or Chinese." };
         }
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
         const c4Directory = isC4DirectoryQuery(args.query);
@@ -540,7 +546,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     },
     handler: async (args: { query?: unknown; limit?: unknown }) => {
       if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-        throw new Error("Live Draw.io shape search requires a query from 2 to 120 characters.");
+        const error = "Live Draw.io shape search requires a query from 2 to 120 characters.";
+        await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
+        return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape class, library or concept keyword." };
       }
       const current = contextBySession.get(sessionId);
       const context = current && typeof current === "object" ? current as { runtimeInspection?: { liveShapeClasses?: unknown; drawioVersion?: unknown; documentRevision?: unknown } } : {};
@@ -579,7 +587,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
-          throw new Error("Element search requires a non-empty query no longer than 120 characters.");
+          const error = "Element search requires a non-empty query no longer than 120 characters.";
+          await deps.writeLog("tool.search_drawio_elements.rejected", { sessionId, reason: "invalid_query" });
+          return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with an ID, label, native shape key or geometry fragment." };
         }
         const current = contextBySession.get(sessionId);
         const context = current && typeof current === "object"
@@ -777,7 +787,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       },
       handler: async (args: { topic?: unknown }) => {
         const topic = args.topic;
-        if (!isDrawioReferenceTopic(topic)) throw new Error("Select a valid Draw.io reference topic.");
+        if (!isDrawioReferenceTopic(topic)) {
+          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
+        }
         return { topic, reference: await readDrawioAgentReference(topic) };
       }
     });
