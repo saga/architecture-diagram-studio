@@ -53,7 +53,7 @@ interface CopilotIntentOptions {
   setChatInput: (value: string) => void;
   setChatBusy: (busy: boolean) => void;
   setCopilotSessionId: (id: string) => void;
-  applyNativeCellEdit?: (cellId: string, path: string, value: string) => void;
+  applyNativeCellEdit?: (cellId: string, path: string, value: string) => void | Promise<void>;
   /** Executes an atomic batch and correlates its final editor/persistence result back to the server. */
   applyNativeCellEdits?: (edits: NativeCellEdit[], pageId: string | null, acknowledgement: {
     requestId: string; sessionId: string; standalone: boolean; documentRevision: string;
