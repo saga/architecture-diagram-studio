@@ -36,6 +36,28 @@ const industrialIotXml = readFileSync(
 const industrialIotPageId = "SXgX17sldJI9QkPeDldp";
 
 describe("Studio-owned native-cell layout", () => {
+  it.each([
+    ["dagre", "layered"],
+    ["elk", "layered"],
+    ["graphviz", "dot"],
+    ["msagl", "layered"],
+    ["cytoscape", "breadthfirst"],
+    ["d3", "tree"]
+  ] as const)(
+    "normalizes plain connector routes to orthogonal segments for %s / %s",
+    async (engine, algorithm) => {
+      const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
+        ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine, algorithm, direction: "RIGHT"
+      } as NativeAutoLayoutOptions);
+      expect(plan.edgeRoutes).toHaveLength(2);
+      for (const route of plan.edgeRoutes) {
+        expect(route.points.every((point, index) => index === 0 ||
+          Math.abs(point.x - route.points[index - 1].x) <= 0.5 ||
+          Math.abs(point.y - route.points[index - 1].y) <= 0.5)).toBe(true);
+      }
+    }
+  );
+
   it("moves spatial region members as one atomic block and translates explicit internal waypoints", async () => {
     const regionXml = `<mxfile host="test"><diagram id="region-page" name="Region"><mxGraphModel><root>
       <mxCell id="0"/><mxCell id="1" parent="0"/>
@@ -139,6 +161,9 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.coverage.spatialRegionCount).toBe(2);
     expect(plan.coverage.spatialRegionMemberCount).toBe(8);
     expect(route?.points.length).toBeGreaterThanOrEqual(2);
+    expect(route?.points.every((point, index) => index === 0 ||
+      Math.abs(point.x - route!.points[index - 1].x) <= 0.5 ||
+      Math.abs(point.y - route!.points[index - 1].y) <= 0.5)).toBe(true);
     expect(route?.points[0].x).toBeCloseTo(left!.x + 500, 2);
     expect(route?.points[route.points.length - 1].x).toBeCloseTo(right!.x, 2);
     expect(plan.expectedCells.find((cell) => cell.cellId === "edge-between-regions"))
@@ -197,6 +222,9 @@ describe("Studio-owned native-cell layout", () => {
       const plan = await calculateNativeAutoLayout(regionXml, "engine-matrix", revision, {
         ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine, algorithm, direction: "RIGHT"
       } as NativeAutoLayoutOptions);
+      expect(plan.edgeRoutes.every((route) => route.points.every((point, index) => index === 0 ||
+        Math.abs(point.x - route.points[index - 1].x) <= 0.5 ||
+        Math.abs(point.y - route.points[index - 1].y) <= 0.5))).toBe(true);
       const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
       const region = positions.get("region");
       expect(region).toBeDefined();
