@@ -368,11 +368,46 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const readOnlyNoChange = pending.operations.some((operation) =>
       operation.op === "run_drawio_script" && operation.mode === "read"
     ) && applicationState === "not-applied" && persistenceStatus === "read_only_no_change";
-    if (!outcome || (outcome === "applied" && (
-          !editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange) ||
-          (!readOnlyNoChange && applicationState !== "applied-and-verified")
-        )) || (outcome === "failed" && !errorMessage && !failureStage)) {
-      res.status(400).json({ outcome: "failed", reply: "The final edit result was incomplete.", error: "A final outcome must include a valid status, and failures must include a failure stage or error." });
+    if (!outcome) {
+      await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "invalid_outcome", receivedOutcome: body.outcome ?? null });
+      res.status(400).json({
+        outcome: "failed", reason: "invalid_outcome",
+        reply: "The final edit result has an invalid outcome.",
+        error: "outcome must be either applied or failed."
+      });
+      return;
+    }
+    if (outcome === "applied" && (!editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange))) {
+      await deps.writeLog("turn.native-edit.ack-rejected", {
+        requestId, sessionId, reason: "incomplete_applied_evidence",
+        editorAcknowledged, serializedXmlRevision, persistenceStatus
+      });
+      res.status(400).json({
+        outcome: "failed", reason: "incomplete_applied_evidence",
+        reply: "The editor result is incomplete and cannot be accepted as applied.",
+        error: "An applied outcome requires native-editor acknowledgement and a serialized XML revision."
+      });
+      return;
+    }
+    if (outcome === "applied" && !readOnlyNoChange && applicationState !== "applied-and-verified") {
+      await deps.writeLog("turn.native-edit.ack-rejected", {
+        requestId, sessionId, reason: "editor_state_not_verified", applicationState,
+        failureStage, serializedXmlRevision
+      });
+      res.status(400).json({
+        outcome: "failed", reason: "editor_state_not_verified",
+        reply: "The native editor state is not verified; the server will not record this as a successful edit.",
+        error: "A mutating operation may be acknowledged as applied only when applicationState is applied-and-verified."
+      });
+      return;
+    }
+    if (outcome === "failed" && !errorMessage && !failureStage) {
+      await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "missing_failure_evidence" });
+      res.status(400).json({
+        outcome: "failed", reason: "missing_failure_evidence",
+        reply: "The failed edit result is incomplete.",
+        error: "A failed outcome must include a failure stage or error message."
+      });
       return;
     }
     if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server" && !readOnlyNoChange) {
