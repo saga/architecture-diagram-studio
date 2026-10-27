@@ -709,7 +709,7 @@ test("Read-only Copilot inspection returns native results without changing XML o
       "}",
       "walk(model.getRoot());",
       "return { cellCount: total, pageId: " + JSON.stringify(body.context?.activePageId ?? null) + " };"
-    ].join("\\n");
+    ].join("\n");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
@@ -783,7 +783,7 @@ test("Read-only Copilot scripts cannot mutate the native model", async ({ page, 
       "if (!target) throw new Error('known test vertex is absent');",
       "model.setValue(target, '" + marker + "');",
       "return { changed: true };"
-    ].join("\\n");
+    ].join("\n");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
