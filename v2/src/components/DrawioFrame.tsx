@@ -997,19 +997,24 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const deduplicatedAssertionFailures = [...new Map(assertionValidation.failures.map((failure) => [
                   [failure.cellId || "", failure.field, failure.kind].join("::"), failure
                 ] as const)).values()];
-                const assertionDiagnostic = deduplicatedAssertionFailures.slice(0, 8)
-                  .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
-                    "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
-                const deduplicatedAssertionWarnings = [...new Map((assertionValidation.warnings || []).map((warning) => [
-                  [warning.cellId || "", warning.field].join("::"), warning
+                const summarizedAssertionFailures = [...new Map(deduplicatedAssertionFailures.map((failure) => [
+                  [failure.kind, failure.field].join("::"), failure
+                ] as const)).values()];
+                const assertionDiagnostic = summarizedAssertionFailures.slice(0, 8)
+                  .map((failure) => "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
+                const rawAssertionWarnings = assertionValidation.warnings || [];
+                const deduplicatedAssertionWarnings = [...new Map(rawAssertionWarnings.map((warning) => [
+                  warning.field, warning
                 ] as const)).values()];
                 if (deduplicatedAssertionWarnings.length) {
                   recordDiagnostic("drawio.script.postcondition.assertion-metadata-ignored",
                     "Ignored non-contract assertion metadata while validating independently supported XML evidence",
                     {
                       requestId,
+                      rawWarningCount: rawAssertionWarnings.length,
                       warningCount: deduplicatedAssertionWarnings.length,
                       warningFields: deduplicatedAssertionWarnings.map((warning) => warning.field).slice(0, 20),
+                      sampleCellIds: deduplicatedAssertionWarnings.map((warning) => warning.cellId ?? null).slice(0, 20),
                       warnings: deduplicatedAssertionWarnings.slice(0, 20).map((warning) => ({
                         cellId: warning.cellId ?? null, field: warning.field, reason: warning.reason
                       }))
@@ -1063,6 +1068,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                       undeclaredScopeAvailable: scriptScope?.available ?? null,
                       assertionFailureCount: assertionValidation.failures.length,
                       uniqueAssertionFailureCount: deduplicatedAssertionFailures.length,
+                      uniqueAssertionFailureFields: summarizedAssertionFailures.map((failure) => failure.field).slice(0, 25),
                       assertionFailures: deduplicatedAssertionFailures.slice(0, 25),
                       xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
                   if (scriptScope && !scriptScope.ok) {
