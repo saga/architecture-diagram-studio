@@ -4,11 +4,11 @@ import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions"
 describe("native diagram always-on instructions", () => {
   it("keeps rare runtime recipes out of the permanent prompt", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS.length).toBeLessThan(2500);
-    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("never silently replace the original shape");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("Never silently replace the original shape");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("set_c4_type");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("search_drawio_shapes");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("get_drawio_reference");
-    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("serialized the resulting XML");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("serialized resulting XML");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("mxCell has no getSource/getTarget");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("style must be a non-empty key/value object");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("curveGeometry");
