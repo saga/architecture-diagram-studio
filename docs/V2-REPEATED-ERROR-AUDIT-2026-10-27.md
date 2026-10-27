@@ -184,3 +184,7 @@ if (scriptResult && typeof scriptResult.then === "function") {
 ### 验证边界
 
 以上代码与测试已直接提交到 `main`。按用户要求，本轮没有等待最新 CI 完成；因此新增与修改的回归用例是已提交、尚未由本轮最新 CI 证明通过的测试，不能表述为“全部测试通过”。最终合并/发布前仍需在本地或 CI 环境运行 V2 的 typecheck、unit tests、build 及 native-canvas Playwright E2E。
+
+### Follow-up: page-level changes fail closed
+
+The most recent completed quality run exposed a stale test expectation: removing an entire page was expected to ignore every cell in that page. The current scope validator deliberately rejects page additions, removals, renames and reordering as unproven changes because there is no page-level assertion contract. The removed-page test now expects that rejection, and a new test covers page addition. The native-canvas E2E job in that earlier run succeeded. Per the user's instruction, this audit does not wait for another CI run; the latest test result is therefore unverified.
