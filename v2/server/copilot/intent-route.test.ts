@@ -849,14 +849,17 @@ describe("Copilot intent route result and revision contract", () => {
     expect(result.guidance).toBeUndefined();
   });
 
-  it("hands the model {id,label} cells rather than raw snapshot names", async () => {
+  it("hands the model native shape and geometry metadata instead of raw snapshot names", async () => {
     const copilot = reportingCopilot("answered", "No diagram changes are needed.");
     const harness = await createServer({ copilot });
     await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     const prompts = (copilot as unknown as { prompts: string[] }).prompts;
     const first = JSON.parse(prompts[0]) as { diagram: { cells: Array<Record<string, unknown>> } };
     const database = first.diagram.cells.find((cell) => cell.id === "db");
-    expect(database).toEqual({ id: "db", label: "Database", cellType: "vertex" });
+    expect(database).toMatchObject({
+      id: "db", label: "Database", cellType: "vertex",
+      geometry: { x: 120, y: 80, width: 160, height: 60 }, parentId: "1"
+    });
     expect(database).not.toHaveProperty("name");
   });
 });
@@ -879,6 +882,45 @@ describe("Copilot native-edit acknowledgement route", () => {
       { cellId: "api", label: "API Service" }
     ]);
     expect(harness.logs.filter((entry) => entry.event === "turn.native-edit.final-outcome")).toHaveLength(1);
+  });
+
+  it("acknowledges a read-only inspection without requiring a persisted XML version", async () => {
+    const store = new NativeExecutionAcknowledgements();
+    const pending = seedAck(store, {
+      operationCount: 1,
+      summary: "Inspect floor-plan furniture",
+      operations: [{
+        op: "run_drawio_script", target: "active_page", summary: "Inspect floor-plan furniture",
+        script: "return { tableCount: 3 };", mode: "read",
+        cellId: "__active_page__", targetLabel: "active Draw.io page"
+      } as ResolvedNativeEditOperation]
+    });
+    const harness = await createServer({
+      acknowledgements: store,
+      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "unexpected-version" })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", {
+      requestId: pending.requestId,
+      sessionId: pending.sessionId,
+      standalone: false,
+      documentRevision: pending.documentRevision,
+      outcome: "applied",
+      editorAcknowledged: true,
+      serializedXmlRevision: null,
+      persistenceStatus: "read_only_no_change",
+      persistedRevision: null,
+      versionId: null,
+      applicationState: "not-applied",
+      failureStage: null,
+      error: null
+    });
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      outcome: "applied", applicationState: "not-applied",
+      persistenceStatus: "read_only_no_change", documentRevision: null, versionId: null
+    });
+    expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
   it("makes an exact acknowledgement replay idempotent but rejects a conflicting replay", async () => {
