@@ -3,7 +3,7 @@
 - 日期：2026-10-27
 - 范围：`v2/src/App.tsx`、`v2/src/layout/native-layout.ts`、`v2/plugins/studio-selection-plugin.js`、draw.io mxGraph 源码
 - 样本：`~/Downloads/drawio-diagrams-dev/examples/citrix_network2.drawio`（37 节点 / 25 连线 / 5 个区域块）
-- 状态：**只分析，未改任何代码**
+- 状态：分析与实施记录；代码修改结果见文末（2026-10-27）
 
 ---
 
@@ -377,3 +377,30 @@ ORTHOGONAL  totalWaypoints=47
 POLYLINE    totalWaypoints=21
 SPLINES     totalWaypoints=53
 ```
+
+
+---
+
+# 四、实施结果（2026-10-27）
+
+## 4.1 画布提示消息
+
+已移除画布顶部的持久化布局横幅，不再把覆盖率、分组策略、区域名称和排除统计拼成多行消息。布局成功后，底部状态栏只保留一行结果摘要，例如：
+
+`Auto layout applied: 37/37 nodes, 16/25 connectors; 0 nodes and 9 connectors left unchanged.`
+
+完整的 `coverage`、布局引擎/算法、参数和区域分析计数继续写入 Diagnostics trace，不丢失排障信息。失败时仍在底部状态显示失败原因。由于横幅状态已删除，也不存在切换文档后把上一张图的横幅带到下一张图的问题。
+
+## 4.2 连线路由与渲染
+
+已在 `normalizePlan()` 的公共路径中增加正交路由归一化，覆盖 ELK、Dagre、Graphviz、MSAGL、Cytoscape、D3 及区域内部的显式 waypoints。归一化会吸附近似共轴点、为斜段插入一个直角拐点，并合并重复点和连续共线的小台阶；节点坐标和尺寸不由该步骤改写。
+
+分组/空间区域代理边界点现在与求解器首尾拐点显式对齐：源端先沿边界方向形成直角过渡，目标端先对齐至边界再进入分组。规划器对输出再次断言不存在斜向 waypoint 段；Draw.io 插件应用前也执行同一约束校验，防止不合格路由直接写入画布。
+
+应用布局时只更新被布局连线的 `orthogonal=1` 和 `curved` 样式键，保留现有 `edgeStyle`、颜色、箭头等其他键。选择 `SPLINES` 时写入 `curved=1`，其他模式写入 `curved=0`。样式与几何一并进入回滚快照；应用失败时恢复原始样式和几何。
+
+## 4.3 回归覆盖
+
+新增布局引擎矩阵测试，覆盖不含分组的普通连线，以及含空间区域/跨边界连线的六种引擎输出；断言每相邻两个 waypoint 至少有一个坐标轴对齐。双区域连接也增加了正交路由断言。
+
+此次没有切换到全局 `orthogonalEdgeStyle`，也没有让 Draw.io 在应用后重新求解全部通道，因此保留 Studio 求解器已决定的路径和用户现有边样式。圆角外观不在本次强制覆盖范围内。
