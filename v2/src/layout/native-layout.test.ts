@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { detectSpatialRegionsForLayout } from "./spatial-region-analysis";
+import { isOrthogonalRouteClear } from "./orthogonal-router";
 import {
   calculateNativeAutoLayout,
   DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
@@ -36,6 +37,28 @@ const industrialIotXml = readFileSync(
 const industrialIotPageId = "SXgX17sldJI9QkPeDldp";
 
 describe("Studio-owned native-cell layout", () => {
+  it("routes an orthogonal connector around an unrelated node obstacle", async () => {
+    const obstacleXml = `<mxfile host="test"><diagram id="obstacle-page" name="Obstacle routing"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="source" value="Source" vertex="1" parent="1"><mxGeometry x="0" y="100" width="80" height="50" as="geometry"/></mxCell>
+      <mxCell id="obstacle" value="Unrelated" vertex="1" parent="1"><mxGeometry x="150" y="90" width="80" height="70" as="geometry"/></mxCell>
+      <mxCell id="target" value="Target" vertex="1" parent="1"><mxGeometry x="320" y="100" width="80" height="50" as="geometry"/></mxCell>
+      <mxCell id="edge" edge="1" parent="1" source="source" target="target"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(obstacleXml, "obstacle-page", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "elk",
+      algorithm: "fixed",
+      edgeRouting: "ORTHOGONAL",
+      margin: 0
+    });
+    const route = plan.edgeRoutes.find((item) => item.cellId === "edge");
+    expect(route).toBeDefined();
+    expect(route!.points.length).toBeGreaterThan(2);
+    expect(isOrthogonalRouteClear(route!.points, [{ x: 150, y: 90, width: 80, height: 70 }], 12)).toBe(true);
+    expect(route!.points.some((point) => point.y <= 78.01 || point.y >= 171.99)).toBe(true);
+  });
+
   it.each([
     ["dagre", "layered"],
     ["elk", "layered"],
