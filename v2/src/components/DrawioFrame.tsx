@@ -994,7 +994,13 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult, 20, pending.pageId)
                   : null;
                 const undeclaredChangesPassed = scriptScope === null ? null : scriptScope.ok;
-                const deduplicatedAssertionFailures = [...new Map(assertionValidation.failures.map((failure) => [
+                // When the entire assertion contract fails, promote ignored-key warnings into
+                // the repair diagnostics so the model sees the allowed field list. If supported
+                // evidence passes, keep advisory metadata as warnings only.
+                const assertionIssues = assertionValidation.failures.length
+                  ? [...assertionValidation.failures, ...(assertionValidation.warnings || [])]
+                  : assertionValidation.failures;
+                const deduplicatedAssertionFailures = [...new Map(assertionIssues.map((failure) => [
                   [failure.cellId || "", failure.field, failure.kind].join("::"), failure
                 ] as const)).values()];
                 const summarizedAssertionFailures = [...new Map(deduplicatedAssertionFailures.map((failure) => [
@@ -1067,7 +1073,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                       undeclaredViolations: scriptScope?.violations.slice(0, 25) ?? [],
                       undeclaredScopeAvailable: scriptScope?.available ?? null,
                       assertionFailureCount: assertionValidation.failures.length,
-                      uniqueAssertionFailureCount: deduplicatedAssertionFailures.length,
+                      unknownAssertionWarningCount: rawAssertionWarnings.length,
+                      uniqueAssertionFailureCount: summarizedAssertionFailures.length,
                       uniqueAssertionFailureFields: summarizedAssertionFailures.map((failure) => failure.field).slice(0, 25),
                       assertionFailures: deduplicatedAssertionFailures.slice(0, 25),
                       xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
