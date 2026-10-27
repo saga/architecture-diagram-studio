@@ -541,6 +541,46 @@ export default function App() {
     }
   }, [messages]);
 
+  const reportNativeEditNotDispatched = (
+    acknowledgement: { requestId: string; sessionId: string; standalone: boolean; documentRevision: string },
+    reason: string
+  ): void => {
+    const payload = {
+      requestId: acknowledgement.requestId,
+      sessionId: acknowledgement.sessionId,
+      standalone: acknowledgement.standalone,
+      documentRevision: acknowledgement.documentRevision,
+      outcome: "failed",
+      editorAcknowledged: false,
+      applicationState: "unknown",
+      persistenceStatus: "not_attempted",
+      persistedRevision: null,
+      versionId: null,
+      failureStage: null,
+      error: reason.slice(0, 1000)
+    };
+    // The server has already registered this requestId before returning command_ready.
+    // If Studio refuses to dispatch locally, close that pending receipt explicitly instead
+    // of leaving an orphan entry that looks like an editor operation is still in flight.
+    void fetch("/api/copilot/intent/ack", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(async (response) => {
+      const body = await response.json().catch(() => null) as { outcome?: string; error?: string } | null;
+      if (!response.ok || body?.outcome !== "failed") {
+        throw new Error(body?.error || "HTTP " + response.status + " while closing a not-dispatched edit receipt");
+      }
+      recordDiagnostic("copilot.native-edit.not-dispatched.receipt-closed",
+        "Closed the server's pending edit receipt because Studio rejected the command before dispatch",
+        { requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId, reason: reason.slice(0, 500) }, "warn");
+    }).catch((error) => {
+      recordDiagnostic("copilot.native-edit.not-dispatched.receipt-close-failed",
+        "Studio rejected the command before dispatch, but could not close its server acknowledgement receipt",
+        { requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
+          reason: reason.slice(0, 500), error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }, "error");
+    });
+  };
+
   const { sendIntent, confirmProposal } = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
@@ -592,16 +632,22 @@ export default function App() {
     },
     applyNativeCellEdits: async (edits, pageId, acknowledgement) => {
       if (lateNativeEditRequestsRef.current.size > 0) {
+        const error = "A previous native edit is still awaiting a final editor result. No new edit was dispatched.";
+        reportNativeEditNotDispatched(acknowledgement, error);
         return Promise.resolve({
           ok: false,
-          error: "A previous native edit is still awaiting a final editor result. No new edit was dispatched.",
+          error,
           rolledBack: false,
           applicationState: "unknown",
           auditWarning: "Inspect the current diagram and History. If no late result arrives, refresh/reload the Studio browser page and reopen the latest saved document; opening another file in the same page will not clear the in-memory pending state.",
           steps: []
         });
       }
-      if (!edits.length) return Promise.resolve({ ok: false, error: "No native edits were supplied", rolledBack: false, steps: [] });
+      if (!edits.length) {
+        const error = "No native edits were supplied; the command was not dispatched.";
+        reportNativeEditNotDispatched(acknowledgement, error);
+        return Promise.resolve({ ok: false, error, rolledBack: false, applicationState: "not-applied", steps: [] });
+      }
       const requestId = ++cellEditRequestSequenceRef.current;
       const containsReadOnlyScript = edits.length === 1 && edits[0].path === "cell:execute-script" && (() => {
         try {
