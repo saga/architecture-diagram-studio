@@ -757,7 +757,7 @@ export default function App() {
       const payload = await response.json() as { config?: { model?: string; reasoningEffort?: "low" | "medium" | "high" | "max"; revisionId?: string }; error?: string };
       if (!response.ok || !payload.config) throw new Error(payload.error || "Saving the server config failed");
       setAiModel(payload.config.model || "");
-      setReasoningEffort(payload.config.reasoningEffort || "max");
+      setReasoningEffort(payload.config.reasoningEffort || "medium");
       recordDiagnostic("settings.model.saved", "Model and reasoning effort written to a new server config revision", { model: next.model || "server-default", reasoningEffort: next.reasoningEffort, revisionId: payload.config.revisionId });
       setLastAction(next.model ? "Copilot SDK model settings saved as a new revision" : "Server default model selected in a new config revision");
     } catch (error) {
