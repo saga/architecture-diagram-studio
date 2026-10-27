@@ -816,7 +816,20 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!isDrawioReferenceTopic(topic)) {
           return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
         }
-        return { topic, reference: await readDrawioAgentReference(topic) };
+        try {
+          return { accepted: true, topic, reference: await readDrawioAgentReference(topic) };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await deps.writeLog("tool.get_drawio_reference.failed", {
+            sessionId, topic, errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: errorMessage.slice(0, 1000)
+          });
+          return {
+            accepted: false, reason: "reference_unavailable", topic,
+            error: errorMessage.slice(0, 1000),
+            instructions: "The local reference could not be loaded; this is not a Draw.io bridge failure. Continue using the core instructions and native inspection tools, or choose another reference topic."
+          };
+        }
       }
     });
   }
