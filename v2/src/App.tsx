@@ -1767,6 +1767,8 @@ export default function App() {
         <div className="canvas-stage">
                       <DrawioFrame ref={drawioFrameRef} xml={drawioXml}
             onNativeEditResult={async (result) => {
+              let resultFinalizationReached = false;
+              try {
               const requestId = result.requestId;
               const watchdogTimerId = requestId === null ? undefined : nativeEditWatchdogsRef.current.get(requestId);
               if (requestId !== null && watchdogTimerId !== undefined) {
@@ -1946,6 +1948,7 @@ export default function App() {
                   auditWarning: "The edit remains unresolved. Do not retry; inspect History and reload the document before another edit."
                 };
               }
+              resultFinalizationReached = true;
               if (resolver && requestId !== null) {
                 if (nativeEditResolversRef.current.get(requestId) !== resolver) {
                   recordDiagnostic("copilot.native-edit.acknowledgement.late", "A native edit result arrived after its wait timed out; no late success was shown", { requestId, success: finalResult.success }, "warn");
@@ -2045,6 +2048,51 @@ export default function App() {
                   "Reconciled a native selection result after the UI wait expired",
                   { requestId, cellId: finalResult.cellId, success: finalResult.success, error: finalResult.error ?? null },
                   finalResult.success ? "warn" : "error");
+              }
+              } catch (error) {
+                const errorMessage = (error instanceof Error ? error.message : String(error)).slice(0, 1200);
+                try {
+                  recordDiagnostic("copilot.native-edit.finalization.failed",
+                    "Studio received a native Draw.io result but could not finish processing the host-side acknowledgement path",
+                    { requestId: result.requestId, path: result.path, resultFinalizationReached,
+                      errorName: error instanceof Error ? error.name : typeof error, errorMessage }, "error");
+                } catch { /* Diagnostics must not strand the request resolver. */ }
+                if (resultFinalizationReached) return;
+                const requestId = result.requestId;
+                if (requestId !== null) {
+                  const timerId = nativeEditWatchdogsRef.current.get(requestId);
+                  if (timerId !== undefined) window.clearTimeout(timerId);
+                  nativeEditWatchdogsRef.current.delete(requestId);
+                  const resolver = nativeEditResolversRef.current.get(requestId);
+                  if (result.path === "cell:batch") {
+                    // Persistence/revision processing failed after the iframe returned. The
+                    // actual edit may already be in the live XML, so keep the no-retry lock.
+                    lateNativeEditRequestsRef.current.add(requestId);
+                    nativeEditAckContextsRef.current.delete(requestId);
+                    setCellEditRequest((current) => current?.requestId === requestId ? null : current);
+                    const unresolved = "Studio could not finish verifying/saving the native Draw.io result. The document may already have changed; do not retry. Inspect the current diagram and History, then reload the document before editing again.";
+                    setLastAction(unresolved);
+                    setMessages((items) => [...items, { role: "assistant", id: Date.now(), text: unresolved }].slice(-300));
+                    if (resolver) {
+                      nativeEditResolversRef.current.delete(requestId);
+                      resolver({
+                        success: false,
+                        error: "Host-side finalization failed after the editor returned: " + errorMessage,
+                        failureStage: "persistence",
+                        batchRolledBack: result.batchRolledBack ?? null,
+                        applicationState: result.applicationState === "not-applied" ? "not-applied" : "unknown",
+                        auditWarning: "The final native XML/persistence result could not be reconciled. Do not retry.",
+                        assertionFailures: result.assertionFailures,
+                        scopeViolations: result.scopeViolations
+                      });
+                    }
+                    return;
+                  }
+                  if (result.path === "cell:select" && resolver) {
+                    nativeEditResolversRef.current.delete(requestId);
+                    resolver({ success: false, error: "Studio could not confirm the Draw.io selection: " + errorMessage });
+                  }
+                }
               }
             }}
             onSelectionChange={(cellId, pageId) => {
