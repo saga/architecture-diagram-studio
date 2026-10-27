@@ -89,3 +89,12 @@ grep 'turn.model-call.completed' ~/.architecture-diagram-studio/logs/copilot-ses
 - 服务端终端现在会显示经过白名单筛选的 request、model-call start/end、progress 和 timeout 摘要；即使开启 `STUDIO_LOG_LEVEL=info`，原始 `sdk.event` 也不会逐条刷终端。SDK 事件记录仍保留在 JSONL trace 中，但单条事件的 detail 有长度限制。
 
 仍应单独评估、不要与 timeout patch 混改的项目：长会话的 context compaction/rotation（需决定摘要注入与 history/replay 语义）、按任务调低 reasoning effort（需有配置与质量验证），以及 C4 领域配方/typed operation 扩展（属于编辑契约，不是 watchdog 修复）。
+
+
+## 300 秒端到端超时对齐（2026-10-27）
+
+针对 2026-10-27 的请求失败日志，前端 `v2/src/intent/aiProvider.ts` 原先使用 `AbortSignal.timeout(90_000)`，短于服务端 `STUDIO_COPILOT_TURN_TIMEOUT_MS` 的默认 300000 ms 总回合预算。前端会先取消请求，并把超时显示成 SDK 服务不可达，造成超时来源不清晰。
+
+本次将前端 intent 请求超时统一为 300000 ms，并将超时提示同步改为 300 秒。服务端 300 秒总回合上限保持不变；服务端 90000 ms idle watchdog 仍保留，用于在没有有意义的 SDK 进展时提前终止。**因此“统一 300 秒”指端到端请求的绝对上限对齐，不是取消服务端空闲保护。**
+
+本次只对齐 intent 请求，不改变 proposal confirmation 的 30000 ms 超时，也不调整 reasoning effort、会话上下文或工具执行策略。
