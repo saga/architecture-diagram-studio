@@ -15,7 +15,7 @@ import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../s
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
-import { searchDrawioShapeCatalog, DRAWIO_SHAPE_CATALOG_VERSION } from "../../src/model/drawio-shape-catalog";
+import { searchDrawioShapeCatalog, C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -458,7 +458,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createDrawioShapeSearchTool(sessionId: string) {
     return defineTool("search_drawio_shapes", {
-      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes together; use the returned styles and dimensions directly in one native script. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
+      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a minimal script skeleton; use those exact styles and dimensions directly in one native script. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
         type: "object",
         properties: {
@@ -473,13 +473,19 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           throw new Error("Shape search requires a query from 2 to 120 characters.");
         }
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
-        const results = searchDrawioShapeCatalog(args.query, limit);
+        const c4Directory = isC4DirectoryQuery(args.query);
+        // The C4 alias is a bundle: never truncate the relationship recipe out of it.
+        const results = searchDrawioShapeCatalog(args.query, c4Directory ? Math.max(limit, 4) : limit);
         const queryStatus = await logQueryResult(sessionId, "search_drawio_shapes", args.query.trim(), results.length, deps.writeLog);
         return {
           found: results.length > 0,
           catalogueVersion: DRAWIO_SHAPE_CATALOG_VERSION,
           exhaustive: false,
           results,
+          ...(c4Directory ? {
+            scriptTemplate: C4_DIRECTORY_SCRIPT_TEMPLATE,
+            guidance: "These recipes answer the whole C4 creation turn: build the script now. Replace the *_STYLE placeholders with the exact style strings above and keep their width/height; assert only the cells you create (one xmlAssertion each, at most 3 postconditions). Do not call get_drawio_reference or repeat this search in this turn."
+          } : {}),
           ...(results.length ? {} : {
             guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified.",
             ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
@@ -619,12 +625,12 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createRunDrawioScriptTool(sessionId: string) {
     return defineTool("run_drawio_script", {
-      description: "Execute JavaScript directly against the live local Draw.io editor runtime. This is the primary full-capability path for native graph operations. Use the actual runtime objects and APIs; inspect the runtime or get_drawio_reference when useful, execute without a confirmation step, and let Studio persist the resulting native XML/version. You may create/reconnect edges, alter geometry and routing, choose shapes/styles, group/reparent cells, manage pages/layers, and use other available native editor capabilities without requesting new typed operations. The iframe is on a separate sandboxed origin: do not access the Studio parent DOM, call Studio local APIs, or use network requests for side effects. CSP permits requests to the local Draw.io origin for bundled resources but blocks cross-origin network requests and remote image loads. This is a terminal action for the current model turn: after calling it, do not call another terminal or mutating tool. The actual editor action happens after this model call ends; do not claim success in the tool-call turn. The script executes in the editor frame, not in Node.js. For mutations, use graph.insertVertex/insertEdge and verify postconditions through model/cell properties only. Never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(); let the editor/bridge own rendering.",
+      description: "Execute JavaScript directly against the live local Draw.io editor runtime. This is the primary full-capability path for native graph operations. Use the actual runtime objects and APIs; inspect the runtime or get_drawio_reference when useful, execute without a confirmation step, and let Studio persist the resulting native XML/version. You may create/reconnect edges, alter geometry and routing, choose shapes/styles, group/reparent cells, manage pages/layers, and use other available native editor capabilities without requesting new typed operations. The iframe is on a separate sandboxed origin: do not access the Studio parent DOM, call Studio local APIs, or use network requests for side effects. CSP permits requests to the local Draw.io origin for bundled resources but blocks cross-origin network requests and remote image loads. This is a terminal action for the current model turn: after calling it, do not call another terminal or mutating tool. The actual editor action happens after this model call ends; do not claim success in the tool-call turn. The script executes in the editor frame, not in Node.js. Resolve edit targets inside the script by label (model.getValue(cell)) and trust a cell ID only from selectedCell or diagram.cells. For mutations, use graph.insertVertex/insertEdge and verify postconditions through model/cell properties only; assert only the cells you created or changed — one xmlAssertion each, at most 3 postconditions, no assertions for untouched cells. Never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(); let the editor/bridge own rendering.",
       parameters: {
         type: "object",
         properties: {
           summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the requested change." },
-          script: { type: "string", minLength: 1, maxLength: 50000, description: "JavaScript source executed against the live native Draw.io runtime. Available arguments: ui, editor, graph, model, inspectRuntime. For every modifying script, return { ok: true, postconditions: { checkName: true }, xmlAssertions: [...] } after checking the result in the live model. Each xmlAssertions item must include cellId and concrete evidence; style must be a non-empty key/value object (never a full style string or {}), and geometry must contain at least one explicit field. Use cell.getTerminal(true/false) or model.getTerminal(edge, true/false); mxCell has no getSource/getTarget. model.getChildCount(parent) counts direct children only; recurse for totals and never guess whole-diagram cell counts. All postcondition values must be true booleans. Use native APIs rather than replacing the saved mxfile XML. For mutation scripts, do not call graph.refresh(), graph.view.validate(), or graph.view.getState() after mutation/endUpdate; check existence, value, style, geometry and terminals through the model/cells and use xmlAssertions for host verification." }
+          script: { type: "string", minLength: 1, maxLength: 50000, description: "JavaScript source executed against the live native Draw.io runtime. Available arguments: ui, editor, graph, model, inspectRuntime. For every modifying script, return { ok: true, postconditions: { checkName: true }, xmlAssertions: [...] } after checking the result in the live model. Keep the evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and no assertions for untouched cells; Studio compares the before/after XML itself. Each xmlAssertions item must include cellId and concrete evidence; style must be a non-empty key/value object (never a full style string or {}), and geometry must contain at least one explicit field. Use cell.getTerminal(true/false) or model.getTerminal(edge, true/false); mxCell has no getSource/getTarget. model.getChildCount(parent) counts direct children only; recurse for totals and never guess whole-diagram cell counts. All postcondition values must be true booleans. Use native APIs rather than replacing the saved mxfile XML. For mutation scripts, do not call graph.refresh(), graph.view.validate(), or graph.view.getState() after mutation/endUpdate; check existence, value, style, geometry and terminals through the model/cells and use xmlAssertions for host verification." }
         },
         required: ["summary", "script"],
         additionalProperties: false
@@ -920,6 +926,9 @@ function createDrawioElementSearchTool(sessionId: string) {
         expectedRevision: computedRevision, expectedPageId: pageInfo.id, expectedDrawioVersion: PINNED_DRAWIO_VERSION
       });
     }
+    // The model-facing list is {id,label}: a label survives revisions, and an ID is trustworthy only
+    // when this list or the selection supplied it. Cell tools keep the private name-based index.
+    const promptCells = visibleCells.map((cell) => ({ id: cell.id, label: cell.name, cellType: cell.cellType }));
     const context = {
       kind: "drawio",
       title: typeof (requestedContext as { title?: unknown }).title === "string"
@@ -927,7 +936,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         : pageInfo.title || "Draw.io diagram",
       activePageId: pageInfo.id,
       selectedCell,
-      cells: visibleCells,
+      cells: promptCells,
       ...(runtimeInspection ? { runtimeInspection } : {}),
       ...(scriptRepair ? { scriptRepair } : {})
     };
@@ -970,7 +979,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         await deps.writeLog("turn.native-edit.proposal-expired", { proposalId: id, sessionId: proposal.sessionId });
       }
     }
-    const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.name.slice(0, 120), cellType: cell.cellType }));
+    const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.label.slice(0, 120), cellType: cell.cellType }));
     await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, cellCount: (context.cells as unknown[]).length, cells });
     try {
       if (!standalone) await deps.persistSessionId(sessionId);
@@ -1095,7 +1104,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` once to retrieve Person (person2), Software System and Container recipes together, then create the requested cells/edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve targets to exact existing cell IDs or unique labels; never infer that a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
+          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; Studio compares the before/after XML itself. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve edit targets inside the script by label (model.getValue(cell) compared with the requested text, throwing when none or several match) and trust a cell ID only when selectedCell or diagram.cells gives it; never infer that a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
         });
         await sendAttempt(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;

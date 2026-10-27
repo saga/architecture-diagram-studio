@@ -20,6 +20,7 @@ const SHAPE_CATALOG: readonly DrawioShapeCatalogEntry[] = [
   { id: "c4.person", title: "C4 Person (person2)", category: "C4", kind: "vertex", style: "shape=mxgraph.c4.person2;whiteSpace=wrap;html=1;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];fillColor=#08427b;fontColor=#ffffff;strokeColor=#073763;fontSize=11;", width: 200, height: 180, tags: ["c4", "directory", "c4 directory", "c4 diagram", "c4 notation", "person", "person2", "actor", "user", "customer", "人员", "用户", "人物", "c4 person"] },
   { id: "c4.software-system", title: "C4 Software System", category: "C4", kind: "vertex", style: "rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#1168bd;strokeColor=#0D5091;fontSize=11;", width: 240, height: 120, tags: ["c4", "directory", "c4 directory", "c4 diagram", "c4 notation", "software system", "system", "application", "internal system", "软件系统", "系统", "应用", "内部系统"] },
   { id: "c4.container", title: "C4 Container", category: "C4", kind: "vertex", style: "rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#23a2d9;strokeColor=#0E7DAD;fontSize=11;", width: 240, height: 120, tags: ["c4", "directory", "c4 directory", "c4 diagram", "c4 notation", "container", "web app", "api", "service", "database", "容器", "应用容器", "服务"] },
+  { id: "c4.relationship", title: "C4 Relationship (edge)", category: "C4", kind: "edge", style: "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#707070;fontColor=#404040;fontSize=10;", width: 0, height: 0, tags: ["c4", "directory", "c4 directory", "c4 diagram", "c4 notation", "relationship", "relationships", "edge", "connector", "arrow", "关系", "连线", "依赖"] },
   { id: "basic.rectangle", title: "Rectangle / Process", category: "Basic", kind: "vertex", style: "whiteSpace=wrap;html=1;", width: 140, height: 60, tags: ["rectangle", "rect", "box", "process", "service", "component", "矩形", "方框", "流程", "流程节点"] },
   { id: "basic.rounded-rectangle", title: "Rounded Rectangle", category: "Basic", kind: "vertex", style: "rounded=1;whiteSpace=wrap;html=1;", width: 140, height: 60, tags: ["rounded", "rounded rectangle", "application", "service", "圆角矩形", "圆角", "服务", "应用"] },
   { id: "basic.ellipse", title: "Ellipse / Circle", category: "Basic", kind: "vertex", style: "ellipse;whiteSpace=wrap;html=1;", width: 80, height: 80, tags: ["ellipse", "circle", "oval", "start", "end", "椭圆", "圆形", "开始", "结束"] },
@@ -57,4 +58,43 @@ export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeS
       style: entry.style, width: entry.width, height: entry.height, matchedTags
     }));
 }
-export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-3";
+export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-4";
+
+/**
+ * `C4 directory` answers a complete C4 creation turn: the three element recipes, the
+ * relationship edge recipe, and this script skeleton. A C4 creation request therefore needs one
+ * catalogue query and no reference lookup.
+ */
+export const C4_DIRECTORY_SCRIPT_TEMPLATE = [
+  "const parent = graph.getDefaultParent();",
+  "const created = [];",
+  "const add = (label, style, width, height, x, y) => {",
+  "  const cell = graph.insertVertex(parent, null, label, x, y, width, height, style);",
+  "  created.push(cell);",
+  "  return cell;",
+  "};",
+  "const link = (source, target, label, style) => {",
+  "  const edge = graph.insertEdge(parent, null, label, source, target, style);",
+  "  created.push(edge);",
+  "  return edge;",
+  "};",
+  "// Paste the exact style string and dimensions returned for each recipe; do not rewrite them.",
+  "const person = add(\"Person\", PERSON_STYLE, 200, 180, 40, 40);",
+  "const system = add(\"System\", SYSTEM_STYLE, 240, 120, 320, 60);",
+  "// Keep the edge label empty unless the request supplies the protocol or action.",
+  "const relationship = link(person, system, \"\", RELATIONSHIP_STYLE);",
+  "return {",
+  "  ok: true,",
+  "  postconditions: { created: created.length > 0 },",
+  "  xmlAssertions: [",
+  "    { cellId: person.id, exists: true, kind: \"vertex\", label: \"Person\" },",
+  "    { cellId: system.id, exists: true, kind: \"vertex\", label: \"System\" },",
+  "    { cellId: relationship.id, exists: true, kind: \"edge\", sourceId: person.id, targetId: system.id }",
+  "  ]",
+  "};"
+].join("\n");
+
+export function isC4DirectoryQuery(query: string): boolean {
+  const tokens = tokenize(query);
+  return tokens.includes("c4") && tokens.includes("directory");
+}

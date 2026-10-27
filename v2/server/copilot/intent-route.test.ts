@@ -107,10 +107,14 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsupported", reply: string) {
+function reportingCopilot(
+  outcome: "answered" | "needs_clarification" | "unsupported",
+  reply: string
+): Record<string, unknown> & { getPreparedSystemMessage: () => string } {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
-  return {
+  const prompts: string[] = [];
+  const copilot = {
     providerInfo: { mode: "byok", host: null },
     resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
     lastObservedModel: vi.fn(() => "test-model"),
@@ -126,7 +130,8 @@ function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsuppo
     },
     withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
       get session() { return activeSession; },
-      send: async () => {
+      send: async (input: { prompt: string }) => {
+        prompts.push(input.prompt);
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
           .find((candidate) => candidate.name === "report_intent_outcome");
         if (!tool?.handler) throw new Error("report_intent_outcome tool was not registered");
@@ -135,6 +140,8 @@ function reportingCopilot(outcome: "answered" | "needs_clarification" | "unsuppo
       }
     })
   };
+  Object.defineProperty(copilot, "prompts", { get: () => prompts });
+  return copilot;
 }
 
 function elementSearchingCopilot() {
@@ -170,6 +177,42 @@ function elementSearchingCopilot() {
     })
   };
   Object.defineProperty(copilot, "searchResult", { get: () => searchResult });
+  return copilot;
+}
+
+function shapeSearchingCopilot(query: string) {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
+  let searchResponse: Record<string, unknown> = {};
+  const copilot: Record<string, unknown> = {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    getPreparedSystemMessage: () => prepared.systemMessage,
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
+        const search = tools.find((candidate) => candidate.name === "search_drawio_shapes");
+        if (!search?.handler) throw new Error("search_drawio_shapes tool was not registered");
+        searchResponse = (await search.handler({ query })) as Record<string, unknown>;
+        const report = tools.find((candidate) => candidate.name === "report_intent_outcome");
+        if (!report?.handler) throw new Error("report_intent_outcome tool was not registered");
+        await report.handler({ outcome: "answered", reply: "Shape search completed." });
+        return { message: { data: { content: "Shape search completed." } }, modelCallUsages: [] };
+      }
+    })
+  };
+  Object.defineProperty(copilot, "searchResponse", { get: () => searchResponse });
   return copilot;
 }
 
@@ -421,7 +464,7 @@ describe("Copilot intent route result and revision contract", () => {
       { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(copilot.getPreparedSystemMessage()).toContain("typed operations are shortcuts, not an allowlist");
+    expect(String(copilot.getPreparedSystemMessage())).toContain("typed operations are shortcuts, not limits");
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
@@ -432,13 +475,13 @@ describe("Copilot intent route result and revision contract", () => {
     }));
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
-    const prompt = copilot.getPreparedSystemMessage();
+    const prompt = String(copilot.getPreparedSystemMessage());
     expect(prompt).toContain("Preserve rename text verbatim");
     expect(prompt).toContain("up/left negative, down/right positive");
     expect(prompt).toContain("selectedCell.cellId");
     expect(prompt).toContain("catalogue misses do not prove absence");
     expect(prompt).toContain("run_drawio_script");
-    expect(prompt).toContain("Scripts receive live ui, editor, graph, model and inspectRuntime bindings");
+    expect(prompt).toContain("Scripts receive live ui/editor/graph/model/inspectRuntime bindings");
     expect(prompt.length).toBeLessThan(2800);
   });
 
@@ -693,6 +736,39 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("needs_clarification");
     expect(String(body.reply)).toContain("ambiguous");
     expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("answers the whole C4 discovery turn from one C4 directory query", async () => {
+    const copilot = shapeSearchingCopilot("C4 directory");
+    const harness = await createServer({ copilot });
+    const { response } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ prompt: "Create a C4 diagram" }));
+    expect(response.status).toBe(200);
+    const result = (copilot as { searchResponse?: Record<string, unknown> }).searchResponse ?? {};
+    const ids = (result.results as Array<{ id: string }>).map((entry) => entry.id);
+    expect(ids).toContain("c4.person");
+    expect(ids).toContain("c4.relationship");
+    expect(String(result.scriptTemplate)).toContain("xmlAssertions");
+    expect(String(result.guidance)).toContain("Do not call get_drawio_reference");
+  });
+
+  it("keeps the C4 bundle off single-shape queries", async () => {
+    const copilot = shapeSearchingCopilot("database");
+    const harness = await createServer({ copilot });
+    await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ prompt: "Add a database" }));
+    const result = (copilot as { searchResponse?: Record<string, unknown> }).searchResponse ?? {};
+    expect(result.scriptTemplate).toBeUndefined();
+    expect(result.guidance).toBeUndefined();
+  });
+
+  it("hands the model {id,label} cells rather than raw snapshot names", async () => {
+    const copilot = reportingCopilot("answered", "No diagram changes are needed.");
+    const harness = await createServer({ copilot });
+    await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    const prompts = (copilot as unknown as { prompts: string[] }).prompts;
+    const first = JSON.parse(prompts[0]) as { diagram: { cells: Array<Record<string, unknown>> } };
+    const database = first.diagram.cells.find((cell) => cell.id === "db");
+    expect(database).toEqual({ id: "db", label: "Database", cellType: "vertex" });
+    expect(database).not.toHaveProperty("name");
   });
 });
 

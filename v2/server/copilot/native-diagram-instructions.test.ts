@@ -3,7 +3,9 @@ import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions"
 
 describe("native diagram always-on instructions", () => {
   it("keeps rare runtime recipes out of the permanent prompt", () => {
-    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS.length).toBeLessThan(2500);
+    // The budget covers always-on correctness rules (target resolution, evidence budget); API
+    // recipes still belong in the on-demand reference.
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS.length).toBeLessThan(2800);
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("Never silently replace the original shape");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("set_c4_type");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("search_drawio_shapes");
@@ -13,5 +15,9 @@ describe("native diagram always-on instructions", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("style must be a non-empty key/value object");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).not.toContain("curveGeometry");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("model.getChildCount counts direct children only");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("one xmlAssertion per cell you created or changed");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("model.getValue(cell)");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("diagram.cells {id,label}");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("no reference lookup");
   });
 });

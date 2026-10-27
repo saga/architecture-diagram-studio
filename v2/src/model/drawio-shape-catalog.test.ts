@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DRAWIO_SHAPE_CATALOG_VERSION, searchDrawioShapeCatalog } from "./drawio-shape-catalog";
+import {
+  C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog
+} from "./drawio-shape-catalog";
 
 describe("curated Draw.io shape catalogue", () => {
   it("returns vetted styles and dimensions for Chinese and English queries", () => {
@@ -12,8 +14,8 @@ describe("curated Draw.io shape catalogue", () => {
       id: "uml.lifeline", style: "shape=umlLifeline;perimeter=lifelinePerimeter;size=16;"
     });
   });
-  it("returns native C4 style recipes for Person, Software System, and Container", () => {
-    expect(searchDrawioShapeCatalog("C4 directory").map((entry) => entry.id).sort()).toEqual(["c4.container", "c4.person", "c4.software-system"]);
+  it("returns native C4 style recipes for Person, Software System, Container, and relationships", () => {
+    expect(searchDrawioShapeCatalog("C4 directory").map((entry) => entry.id).sort()).toEqual(["c4.container", "c4.person", "c4.relationship", "c4.software-system"]);
     expect(searchDrawioShapeCatalog("C4 Person")[0]).toMatchObject({
       id: "c4.person", category: "C4", width: 200, height: 180,
       style: "shape=mxgraph.c4.person2;whiteSpace=wrap;html=1;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];fillColor=#08427b;fontColor=#ffffff;strokeColor=#073763;fontSize=11;"
@@ -26,10 +28,27 @@ describe("curated Draw.io shape catalogue", () => {
       id: "c4.container", width: 240, height: 120,
       style: "rounded=1;arcSize=10;html=1;whiteSpace=wrap;fontColor=#ffffff;fillColor=#23a2d9;strokeColor=#0E7DAD;fontSize=11;"
     });
+    expect(searchDrawioShapeCatalog("C4 directory").find((entry) => entry.id === "c4.relationship")).toMatchObject({
+      kind: "edge",
+      style: "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#707070;fontColor=#404040;fontSize=10;"
+    });
+  });
+  it("ships a C4 creation template with a parseable, minimal assertion set", () => {
+    const template = C4_DIRECTORY_SCRIPT_TEMPLATE;
+    expect(() => new Function("ui", "editor", "graph", "model", "inspectRuntime", template)).not.toThrow();
+    expect(template).toContain("xmlAssertions");
+    expect(template.split("cellId:").length - 1).toBeLessThanOrEqual(3);
+    expect(template).toContain("postconditions: { created: created.length > 0 }");
+  });
+  it("recognises the C4 directory alias only for that bundle", () => {
+    expect(isC4DirectoryQuery("C4 directory")).toBe(true);
+    expect(isC4DirectoryQuery("c4  directory")).toBe(true);
+    expect(isC4DirectoryQuery("C4 Person")).toBe(false);
+    expect(isC4DirectoryQuery("container directory")).toBe(false);
   });
   it("does not imply exhaustive availability when there is no match", () => {
     expect(searchDrawioShapeCatalog("aws transit gateway")).toEqual([]);
-    expect(DRAWIO_SHAPE_CATALOG_VERSION).toBe("drawio-v32.0.2-curated-3");
+    expect(DRAWIO_SHAPE_CATALOG_VERSION).toBe("drawio-v32.0.2-curated-4");
   });
   it("caps the result count", () => {
     expect(searchDrawioShapeCatalog("service", 100).length).toBeLessThanOrEqual(8);

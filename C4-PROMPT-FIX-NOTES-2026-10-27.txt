@@ -1,0 +1,20 @@
+截图内容转录（2026-10-27，C4 创建链路三条改进项）
+
+◆ 这三条的具体做法（已对照代码确认）：
+
+1. 查询轮次：intent-route.ts:1098 已经要求"只调一次 search_drawio_shapes("C4 directory")，把
+   Person、System、Container 配方一次取回"，但模型实际调了三个工具，还多读了 postconditions 和
+   recipes 两个 reference。应该把 C4 directory 的返回内容扩充为同时包含连线（relationship/edge）
+   样式和脚本的最小模板。然后在 prompt 里明确写"C4 创建只允许这一次查询，不要再调
+   get_drawio_reference"，这样第 1 轮就能直接写脚本。
+
+2. 脚本太长：服务端只要求 postconditions 非空、xmlAssertions 至少一项
+   （native-edit-confirmation.ts:493），12 项检查和 yyy 的快照比对是模型自己加的。应在
+   NATIVE_DIAGRAM_CORE_INSTRUCTIONS 和脚本工具的 description 里写明"只对新建的单元格各写 1
+   条断言，最多 3 个 postconditions，不要检查未改动的单元格"；"原单元格未变"由 Studio
+   在执行后用修改前后的 XML 对比统一检查。
+
+3. 硬编码 ID：在 prompt 中要求"目标必须先在脚本内用 model.getValue 按 label 查找（找不到或有
+   多个时抛错），ID 只在用户选中或上下文明确给出时才使用"。同时，Studio 在每次请求的上下文里
+   附上当前画布的 {id, label} 列表（这次的 nativeCellCount: 2 说明已有类似数据），这样即使
+   ID 过期也能被识别，而不是直接抛错。
