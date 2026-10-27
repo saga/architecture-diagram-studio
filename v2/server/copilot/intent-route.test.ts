@@ -345,7 +345,7 @@ function scriptProposingCopilot(
 }
 
 function terminalConflictCopilot(
-  scenario: "read-edit-report" | "report-edit" | "duplicate-edit" | "throw-after-edit"
+  scenario: "read-edit-report" | "report-edit" | "duplicate-edit" | "throw-after-edit" | "select-only"
 ) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -396,6 +396,8 @@ function terminalConflictCopilot(
         } else if (scenario === "throw-after-edit") {
           await propose("数据库");
           throw new Error("Synthetic SDK stream failure after native edit was accepted");
+        } else if (scenario === "select-only") {
+          await invoke("select_diagram_element", { target: "Database" });
         } else {
           await propose("第一版");
           await propose("第二版");
@@ -583,6 +585,21 @@ describe("Copilot intent route result and revision contract", () => {
       entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === SAFE_CREATION_SCRIPT
     )).toBe(true);
   });
+  it("reports a queued selection without claiming the canvas has selected it", async () => {
+    const copilot = terminalConflictCopilot("select-only");
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ prompt: "Select Database" }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("selected");
+    expect(body.selection).toMatchObject({ cellId: "db", label: "Database", pageId: "p1" });
+    const results = (copilot as { toolResults: Record<string, Record<string, unknown>> }).toolResults;
+    expect(results.select_diagram_element).toMatchObject({
+      accepted: true, queued: true, execution: "after_model_turn",
+      terminal: true, result_available: false, action: "select_diagram_element"
+    });
+    expect(results.select_diagram_element).not.toHaveProperty("selected", true);
+  });
+
   it("does not let a deferred read script consume the terminal slot before a Chinese label edit", async () => {
     const copilot = terminalConflictCopilot("read-edit-report");
     const harness = await createServer({ copilot });
