@@ -1321,11 +1321,12 @@ export default function App() {
       });
       const serializedXml = await frame.applyAutoLayout(nativePlan);
       if (!isDrawioXmlDocument(serializedXml)) throw new Error("Draw.io did not return a valid serialized XML document.");
-      const untouchedSummary = coverage.untouchedVertexCount > 0 || coverage.untouchedEdgeCount > 0
-        ? "; " + coverage.untouchedVertexCount + " nodes and " + coverage.untouchedEdgeCount + " connectors left unchanged"
-        : "";
-      setLastAction("Auto layout applied: " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
-        " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary + ".");
+      const untouchedParts: string[] = [];
+      if (coverage.untouchedVertexCount > 0) untouchedParts.push(coverage.untouchedVertexCount + " nodes");
+      if (coverage.untouchedEdgeCount > 0) untouchedParts.push(coverage.untouchedEdgeCount + " connectors");
+      const untouchedSummary = untouchedParts.length ? " · " + untouchedParts.join(", ") + " untouched" : "";
+      setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
+        " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
