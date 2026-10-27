@@ -64,7 +64,7 @@ export function getCachedNativeDiagramSnapshot(
       revision,
       requestedPageId,
       pageInfo,
-      targets: extractNativeEditTargets(xml, pageInfo.id)
+      targets: extractNativeEditTargets(xml, pageInfo.id, { includeGeometry: true })
     };
     entry.pages.set(requestedPageId ?? "", snapshot);
     while (entry.pages.size > MAX_PAGES_PER_REVISION) {
