@@ -436,7 +436,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("Preserve rename text verbatim");
     expect(prompt).toContain("up/left negative, down/right positive");
     expect(prompt).toContain("selectedCell.cellId");
-    expect(prompt).toContain("a missing curated shape result is not proof of absence");
+    expect(prompt).toContain("catalogue misses do not prove absence");
     expect(prompt).toContain("run_drawio_script");
     expect(prompt).toContain("Scripts receive live ui, editor, graph, model and inspectRuntime bindings");
     expect(prompt.length).toBeLessThan(2800);
