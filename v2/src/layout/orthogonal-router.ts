@@ -203,13 +203,26 @@ export function routeOrthogonalAvoidingObstacles(
     ...(bounds ? [bounds.top, bounds.bottom] : []),
     ...clippedY
   ]).filter((value) => !bounds || (value >= bounds.top - EPSILON && value <= bounds.bottom + EPSILON));
-  const xIndex = new Map(xs.map((value, index) => [value, index] as const));
-  const yIndex = new Map(ys.map((value, index) => [value, index] as const));
-  const startX = xIndex.get(start.x);
-  const startY = yIndex.get(start.y);
-  const endX = xIndex.get(end.x);
-  const endY = yIndex.get(end.y);
+  const nearestCoordinateIndex = (values: number[], target: number): number | undefined => {
+    let low = 0;
+    let high = values.length - 1;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const value = values[middle];
+      if (Math.abs(value - target) <= EPSILON) return middle;
+      if (value < target) low = middle + 1;
+      else high = middle - 1;
+    }
+    return undefined;
+  };
+  // Coincident obstacle edges can be merged with an endpoint at sub-pixel precision.
+  // Resolve such coordinates by proximity rather than failing the entire layout.
+  const startX = nearestCoordinateIndex(xs, start.x);
+  const startY = nearestCoordinateIndex(ys, start.y);
+  const endX = nearestCoordinateIndex(xs, end.x);
+  const endY = nearestCoordinateIndex(ys, end.y);
   if (startX === undefined || startY === undefined || endX === undefined || endY === undefined) return null;
+  const snappedEnd = { x: xs[endX], y: ys[endY] };
 
   const xCount = xs.length;
   const yCount = ys.length;
@@ -230,7 +243,7 @@ export function routeOrthogonalAvoidingObstacles(
   });
   const heuristic = (node: number): number => {
     const point = pointAt(node);
-    return Math.abs(point.x - end.x) + Math.abs(point.y - end.y);
+    return Math.abs(point.x - snappedEnd.x) + Math.abs(point.y - snappedEnd.y);
   };
   const enqueue = (fromState: number, nextNode: number, direction: 1 | 2, distance: number): void => {
     const oldDirection = fromState % 3;
