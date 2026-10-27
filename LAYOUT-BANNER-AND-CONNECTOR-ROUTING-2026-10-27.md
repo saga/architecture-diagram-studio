@@ -387,7 +387,7 @@ SPLINES     totalWaypoints=53
 
 已移除画布顶部的持久化布局横幅，不再把覆盖率、分组策略、区域名称和排除统计拼成多行消息。布局成功后，底部状态栏只保留一行结果摘要，例如：
 
-`Auto layout applied: 37/37 nodes, 16/25 connectors; 0 nodes and 9 connectors left unchanged.`
+`Auto layout · 37/37 nodes, 16/25 connectors · 9 connectors untouched`
 
 完整的 `coverage`、布局引擎/算法、参数和区域分析计数继续写入 Diagnostics trace，不丢失排障信息。失败时仍在底部状态显示失败原因。由于横幅状态已删除，也不存在切换文档后把上一张图的横幅带到下一张图的问题。
 
