@@ -350,6 +350,16 @@
         documentRevision: typeof options.documentRevision === "string" ? options.documentRevision : "",
         pageId: currentPageId(), capabilities: capabilities, capabilityManifest: buildCapabilityManifest(capabilities, options.jsShapeClassNames),
         counts: { cells: allCells.length, vertices: vertexCount, edges: edgeCount }, cells: cells, renderedEdges: renderedEdges,
+        // Live native JavaScript shape classes from the exact editor bundle. Discovery metadata only;
+        // registration does not guarantee a usable stencil or visible sidebar entry.
+        liveShapeClasses: (function () {
+          var registry = window.mxCellRenderer && window.mxCellRenderer.defaultShapes;
+          if (!registry || typeof registry !== "object") return [];
+          return Object.keys(registry).filter(function (name) {
+            return /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) && typeof registry[name] === "function" &&
+              name !== "__proto__" && name !== "constructor" && name !== "prototype";
+          }).sort().slice(0, 2000);
+        })(),
         truncated: scanTruncated || allCells.length > cells.length || edgeCount > renderedEdges.length
       };
     }
