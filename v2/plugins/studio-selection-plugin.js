@@ -776,12 +776,13 @@
       if (/\b(?:async|await)\b/.test(executable)) {
         throw new Error("Native Draw.io scripts must be synchronous; async functions and await are not supported");
       }
+      if (/\bPromise\b/.test(executable)) {
+        throw new Error("Promise callbacks are not supported in synchronous native Draw.io scripts");
+      }
       if (/\b(?:setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback|queueMicrotask|fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|BroadcastChannel|MutationObserver|IntersectionObserver|ResizeObserver|importScripts|addEventListener|attachEvent|postMessage|eval|Function|setImmediate)\b/.test(executable) ||
           /\bimport\s*\(/.test(executable) ||
-          /\bPromise\b/.test(executable) ||
           /\.(?:\s*)(?:then|catch|finally|addListener|addEventListener)\s*\(/.test(executable) ||
-          /\bglobalThis\b|\b(?:window|self)\s*\.\s*(?:parent|top)\b/.test(executable) ||
-          /\b(?:window|self)\s*\[\s*['"](?:setTimeout|setInterval|requestAnimationFrame|queueMicrotask|fetch|postMessage|eval|Function)['"]\s*\]/.test(String(source || ""))) {
+          /\bglobalThis\b|\b(?:window|self)\s*\.\s*(?:parent|top)\b|\b(?:window|self)\s*\[/.test(executable)) {
         throw new Error("Native Draw.io scripts cannot schedule asynchronous work, register deferred callbacks, or access parent/global execution contexts");
       }
     }
