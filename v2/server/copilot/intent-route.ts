@@ -113,14 +113,29 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 const pendingNativeProposals = new Map<string, PendingNativeProposal>();
 type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
-const conflictingTerminalIntents = new Set<string>();
 
-function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): void {
-  if (pendingTerminalIntents.has(sessionId)) {
-    conflictingTerminalIntents.add(sessionId);
-    throw new Error("The model called more than one final intent tool in a turn. No operation will be dispatched.");
+type TerminalIntentRegistration =
+  | { accepted: true; replaced?: TerminalIntentKind }
+  | { accepted: false; registeredKind: TerminalIntentKind };
+
+function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): TerminalIntentRegistration {
+  const registeredKind = pendingTerminalIntents.get(sessionId);
+  if (!registeredKind) {
+    pendingTerminalIntents.set(sessionId, kind);
+    return { accepted: true };
   }
-  pendingTerminalIntents.set(sessionId, kind);
+  // A concrete edit is more specific than a speculative focus/no-mutation conclusion.
+  // Promote the edit rather than letting a premature terminal call poison the whole turn.
+  if (kind === "native_edit" && registeredKind !== "native_edit") {
+    pendingTerminalIntents.set(sessionId, "native_edit");
+    if (registeredKind === "selection") pendingAgentSelections.delete(sessionId);
+    if (registeredKind === "no_mutation") pendingReportedOutcomes.delete(sessionId);
+    return { accepted: true, replaced: registeredKind };
+  }
+  // Never throw across the SDK boundary: SDK errors are often collapsed to the
+  // unhelpful "Tool execution failed". Keep the first native edit and explain why
+  // the later terminal action was ignored.
+  return { accepted: false, registeredKind };
 }
 
 /**
@@ -451,10 +466,23 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           ...(typeof args.question === "string" && args.question.trim() ? { question: args.question.trim().slice(0, 1000) } : {}),
           ...(typeof args.reason === "string" && args.reason.trim() ? { reason: args.reason.trim().slice(0, 1000) } : {})
         } as ReportedNoEditOutcome;
-        registerTerminalIntent(sessionId, "no_mutation");
+        const registration = registerTerminalIntent(sessionId, "no_mutation");
+        if (!registration.accepted) {
+          await deps.writeLog("tool.terminal-intent.rejected", {
+            sessionId, requestedKind: "no_mutation", registeredKind: registration.registeredKind,
+            reason: "terminal_action_already_registered"
+          });
+          return {
+            recorded: false, accepted: false, reason: "terminal_action_already_registered",
+            registeredKind: registration.registeredKind,
+            instructions: registration.registeredKind === "native_edit"
+              ? "A native edit is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+              : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
+          };
+        }
         pendingReportedOutcomes.set(sessionId, report);
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
-        return { recorded: true, outcome: report.outcome };
+        return { recorded: true, accepted: true, outcome: report.outcome };
       }
     });
   }
@@ -779,6 +807,18 @@ function createDrawioElementSearchTool(sessionId: string) {
           throw new Error("run_drawio_script mode must be read or mutate");
         }
         const mode = args.mode === "read" ? "read" : "mutate";
+        if (mode === "read") {
+          await deps.writeLog("tool.run_drawio_script.read-rejected", {
+            sessionId, reason: "deferred_script_has_no_current_turn_result",
+            scriptLength: args.script.length,
+            documentRevision: (contextBySession.get(sessionId) as { documentRevision?: string } | undefined)?.documentRevision ?? null
+          });
+          return {
+            accepted: false, mode: "read", result_available: false, terminal: false,
+            reason: "deferred_script_has_no_current_turn_result",
+            instructions: "No script was executed and no data was returned. This script tool executes only after the model turn ends. Use inspect_drawio_graph or search_drawio_elements for read-only data available in this turn, then continue with the requested edit. Do not report inspection success."
+          };
+        }
         const parsed = parseNativeEditOperations([{
           op: "run_drawio_script", target: "active_page", summary: args.summary, script: args.script, mode
         }]);
@@ -786,8 +826,24 @@ function createDrawioElementSearchTool(sessionId: string) {
         const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
         if (!resolved.ok) throw new Error(resolved.error);
         const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
-        registerTerminalIntent(sessionId, "native_edit");
+        const registration = registerTerminalIntent(sessionId, "native_edit");
+        if (!registration.accepted) {
+          await deps.writeLog("tool.terminal-intent.rejected", {
+            sessionId, requestedKind: "native_edit", registeredKind: registration.registeredKind,
+            reason: "terminal_action_already_registered", operationCount: resolved.operations.length
+          });
+          return {
+            accepted: false, reason: "terminal_action_already_registered",
+            registeredKind: registration.registeredKind,
+            instructions: "This terminal action was not queued. The previously registered action remains authoritative. Do not retry or call another terminal tool; if the registered action is a native edit, let it dispatch."
+          };
+        }
         pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
+        if (registration.replaced) {
+          await deps.writeLog("tool.terminal-intent.promoted-to-edit", {
+            sessionId, replacedKind: registration.replaced, operationCount: resolved.operations.length
+          });
+        }
         const activeContext = contextBySession.get(sessionId);
         const context = activeContext && typeof activeContext === "object"
           ? activeContext as { documentRevision?: string; activePageId?: string | null; runtimeInspection?: { drawioVersion?: string } }
@@ -836,8 +892,24 @@ function createDrawioElementSearchTool(sessionId: string) {
           throw new Error(resolved.error);
         }
         const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
-        registerTerminalIntent(sessionId, "native_edit");
+        const registration = registerTerminalIntent(sessionId, "native_edit");
+        if (!registration.accepted) {
+          await deps.writeLog("tool.terminal-intent.rejected", {
+            sessionId, requestedKind: "native_edit", registeredKind: registration.registeredKind,
+            reason: "terminal_action_already_registered", operationCount: resolved.operations.length
+          });
+          return {
+            accepted: false, reason: "terminal_action_already_registered",
+            registeredKind: registration.registeredKind,
+            instructions: "This terminal action was not queued. The previously registered action remains authoritative. Do not retry or call another terminal tool; if the registered action is a native edit, let it dispatch."
+          };
+        }
         pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
+        if (registration.replaced) {
+          await deps.writeLog("tool.terminal-intent.promoted-to-edit", {
+            sessionId, replacedKind: registration.replaced, operationCount: resolved.operations.length
+          });
+        }
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
           operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
@@ -1184,7 +1256,6 @@ function createDrawioElementSearchTool(sessionId: string) {
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
-        conflictingTerminalIntents.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -1267,32 +1338,15 @@ function createDrawioElementSearchTool(sessionId: string) {
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
-        const terminalConflict = conflictingTerminalIntents.has(sessionId);
         pendingTerminalIntents.delete(sessionId);
-        conflictingTerminalIntents.delete(sessionId);
         return {
-          capturedSelection, capturedNativeEdits, capturedReportedOutcome, terminalConflict, modelText,
+          capturedSelection, capturedNativeEdits, capturedReportedOutcome, modelText,
           session: turn.session,
           usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
         };
       });
 
       contextBySession.delete(sessionId);
-      if (plan.terminalConflict) {
-        pendingNativeEdits.delete(sessionId);
-        pendingAgentSelections.delete(sessionId);
-        pendingReportedOutcomes.delete(sessionId);
-        await deps.writeLog("turn.failed", {
-          requestId, sessionId, reason: "conflicting_terminal_tools", durationMs: Date.now() - startedAt
-        });
-        res.status(200).json({
-          outcome: "failed",
-          reply: "Copilot returned conflicting final actions. No diagram changes were dispatched; submit the request again.",
-          error: "More than one terminal intent tool was called in the same model turn.",
-          requestId, sessionId
-        });
-        return;
-      }
       if (!standalone) {
         const authoritative = await deps.getWorkspaceDiagramSnapshot();
         if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
@@ -1460,9 +1514,22 @@ function createSelectDiagramElementTool(sessionId: string) {
         throw new Error(matches.length > 1 ? "The element label is ambiguous; provide its exact cell ID." : "The element was not found in the supplied diagram context. No selection changed.");
       }
       const selected = { cellId: matches[0].id, pageId: typeof source.activePageId === "string" ? source.activePageId : typeof source.selectedCell?.pageId === "string" ? source.selectedCell.pageId : null, label: typeof matches[0].name === "string" ? matches[0].name : matches[0].id };
-      registerTerminalIntent(sessionId, "selection");
+      const registration = registerTerminalIntent(sessionId, "selection");
+      if (!registration.accepted) {
+        await deps.writeLog("tool.terminal-intent.rejected", {
+          sessionId, requestedKind: "selection", registeredKind: registration.registeredKind,
+          reason: "terminal_action_already_registered"
+        });
+        return {
+          selected: false, accepted: false, reason: "terminal_action_already_registered",
+          registeredKind: registration.registeredKind,
+          instructions: registration.registeredKind === "native_edit"
+            ? "A native edit is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+            : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
+        };
+      }
       pendingAgentSelections.set(sessionId, selected);
-      return { selected: true, ...selected, documentChanged: false };
+      return { selected: true, accepted: true, ...selected, documentChanged: false };
     }
   });
 }
