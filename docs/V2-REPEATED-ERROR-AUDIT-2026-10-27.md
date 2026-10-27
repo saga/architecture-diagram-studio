@@ -152,3 +152,35 @@ if (scriptResult && typeof scriptResult.then === "function") {
 ### 验证状态
 
 此环境仍无法解析 `github.com`，因此不能克隆仓库执行 `npm test`、`npm run typecheck`、`npm run build` 或 Playwright。GitHub combined commit status 查询也没有返回检查项。所有新增测试是已提交的回归用例，不应报告为已运行或通过。合并前必须在仓库可执行环境中运行完整 V2 测试、类型检查、构建和相关 Playwright 场景。
+
+## 2026-10-28：全 V2 终局、执行回执与校验链路复查
+
+本轮按用户事故路径复查了 Copilot 工具注册和 dispatch、原生脚本执行、DrawioFrame XML 确认、App 持久化/迟到回执、修订号与形状搜索，以及相关 ADR / API 契约。已落地的新增修改如下。
+
+### 已修复
+
+1. **终局工具冲突不再丢弃合法编辑。** `registerTerminalIntent` 改为结构化接受/拒绝。已排队的原生编辑优先；后续终局工具返回明确拒绝，不再通过异常让整个 SDK turn 失败。较弱的 selection/no-mutation 结果可被后续确定的 native edit 提升。
+2. **终局动作已接受、SDK 后续流失败时继续对账。** 记录模型流错误，但只要浏览器请求未取消且终局动作已被接受，服务端仍返回已排队动作；不会把“SDK 文本失败”误当成“编辑没有发生”。
+3. **只读脚本不再假装能返回同轮结果。** `run_drawio_script(mode:"read")` 在 dispatch 前明确拒绝、不执行、不占用终局名额，并引导使用同轮可用的 `inspect_drawio_graph` / `search_drawio_elements`。
+4. **工具拒绝原因可被模型理解。** 编辑操作解析失败、目标不存在或标签歧义、无效搜索参数、无效引用主题等常见输入错误改为结构化结果；原生参考文档读取失败会区分为 reference unavailable，而非误报为 Draw.io 运行时失败。
+5. **形状检索与上下文约束一致。** curated/runtime shape search 接受单字符中文；普通元素搜索返回 active page 与 `documentRevision`，模型可以使用同一修订号的真实 cell ID，而不能拿旧上下文 ID 继续操作。
+6. **选择结果与实际执行对齐。** selection 工具结果说明其仅已排队；前端等待 Draw.io bridge 回执后再完成操作。选择请求超时后保留有界的迟到回执标记，迟到的成功/失败会更新用户可见结果，而不是永久留下过时的失败提示。
+7. **移除会破坏合法图操作的全局同步护栏。** 不再 monkey-patch `window` timer 或 `Promise.prototype`，因为 Draw.io 自身的插入/渲染路径可能调用这些 API。继续通过脚本源码检查和事务/XML 后置验证约束用户脚本；新增回归用例覆盖内部 timer 调用。
+8. **加强脚本变更范围验证。** `xmlAssertions` 对已有 cell 不能再仅声明 `exists:true`；必须提供标签、类型、关系、style 或 geometry 等具体证据。未声明的新建、修改、删除图元都会进入范围检查，且检查按预期 active page 绑定，防止另一页的同 ID cell 掩盖未声明修改。
+9. **修正视口签名的无 ID 回退分支。** 所有 `mxGraphModel` 语义签名统一忽略 `dx/dy`；增加没有 diagram ID 的 viewport-only 测试。
+10. **约束长生命周期状态。** 空搜索 streak map 增加 TTL 和最大 key 数，避免无界增长。修订了独立文件待对账的恢复说明，明确等待超时不等于回滚。
+
+### 本轮新增的重点回归场景
+
+- read → 中文标签编辑 → 误调用 report，仍应派发原生编辑；
+- report → 真实编辑时提升为 native edit；
+- 两个终局编辑只保留第一条合法编辑，不让第二条覆盖；
+- 已接受编辑后 SDK 流抛错，服务端仍返回 pending edit；
+- 选择工具返回 queued，而不是提前声称 canvas 已完成选择；
+- 搜索结果带 active page 与 document revision；
+- 新建图元未声明、跨页面同 ID、仅存在性断言、无 diagram ID 的纯 viewport 变化；
+- Draw.io 内部 timer 在原生插入期间仍可正常调用。
+
+### 验证边界
+
+以上代码与测试已直接提交到 `main`。按用户要求，本轮没有等待最新 CI 完成；因此新增与修改的回归用例是已提交、尚未由本轮最新 CI 证明通过的测试，不能表述为“全部测试通过”。最终合并/发布前仍需在本地或 CI 环境运行 V2 的 typecheck、unit tests、build 及 native-canvas Playwright E2E。
