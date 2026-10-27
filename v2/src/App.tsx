@@ -1335,7 +1335,7 @@ export default function App() {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-        setLastAction("Auto layout failed: " + errorMessage);
+      setLastAction("Auto layout failed: " + errorMessage);
       recordDiagnostic("drawio.layout.ui.failed", "Studio auto layout failed or could not be confirmed", {
         pageId: selectedNativePageId, errorMessage, engine: options.engine, algorithm: options.algorithm,
         direction: options.direction
