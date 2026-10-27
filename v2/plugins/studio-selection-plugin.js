@@ -467,7 +467,7 @@
         if (!route || typeof route.cellId !== "string" || !Array.isArray(route.points) || routesById[route.cellId]) fail("The layout plan contains a duplicate or invalid connector route.", true);
         if (!liveById[route.cellId] || !liveById[route.cellId].edge || !liveById[route.cellId].geometry) fail("A layout plan references a missing connector: " + route.cellId, true);
         if (route.points.length > 100 || route.points.some(function (point) { return !point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.abs(point.x) > 1000000 || Math.abs(point.y) > 1000000; })) fail("The layout plan contains invalid connector waypoints.", true);
-        if (route.points.some(function (point, index) {
+        if (plan.edgeRouting === "ORTHOGONAL" && route.points.some(function (point, index) {
           if (index === 0) return false;
           var previous = route.points[index - 1];
           return Math.abs(point.x - previous.x) > 0.5 && Math.abs(point.y - previous.y) > 0.5;
