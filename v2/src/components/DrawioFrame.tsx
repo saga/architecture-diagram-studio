@@ -996,13 +996,13 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const undeclaredChangesPassed = scriptScope === null ? null : scriptScope.ok;
                 const deduplicatedAssertionFailures = [...new Map(assertionValidation.failures.map((failure) => [
                   [failure.cellId || "", failure.field, failure.kind].join("::"), failure
-                ])).values()];
+                ] as const)).values()];
                 const assertionDiagnostic = deduplicatedAssertionFailures.slice(0, 8)
                   .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
                     "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
                 const deduplicatedAssertionWarnings = [...new Map((assertionValidation.warnings || []).map((warning) => [
                   [warning.cellId || "", warning.field].join("::"), warning
-                ])).values()];
+                ] as const)).values()];
                 if (deduplicatedAssertionWarnings.length) {
                   recordDiagnostic("drawio.script.postcondition.assertion-metadata-ignored",
                     "Ignored non-contract assertion metadata while validating independently supported XML evidence",
