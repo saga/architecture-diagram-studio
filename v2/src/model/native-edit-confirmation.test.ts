@@ -563,3 +563,94 @@ describe("native edit XML confirmation", () => {
   });
 
 });
+
+
+describe("native script predicate assertions and schema warnings", () => {
+  const titleAssertionResult = (title: string, extras: Record<string, unknown> = {}) => ({
+    available: true,
+    value: {
+      ok: true,
+      postconditions: { titlesTranslated: true, bodyTailPreserved: true },
+      xmlAssertions: [{
+        cellId: "api",
+        chineseTitle: title,
+        labelContainsTitle: true,
+        bodyTailPreserved: true,
+        ...extras
+      }]
+    }
+  });
+
+  it("verifies a translated title against serialized XML and does not fail on advisory metadata fields", () => {
+    const result = titleAssertionResult("New API");
+    const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
+
+    expect(validation.ok).toBe(true);
+    expect(validation.failures).toEqual([]);
+    // bodyTailPreserved is a script-side assertion with no independent XML field; report it as
+    // advisory metadata, but it must not mask the host-verifiable translated-title assertion.
+    expect(validation.warnings).toContainEqual(expect.objectContaining({
+      cellId: "api",
+      field: "bodyTailPreserved",
+      reason: expect.stringContaining("Supported evidence fields")
+    }));
+    expect(findUndeclaredNativeScriptChanges(before, labelEdited, result, 20, "p1")).toMatchObject({
+      ok: true,
+      available: true,
+      changed: true,
+      declaredCellIds: ["api"],
+      violations: []
+    });
+  });
+
+  it("does not let unknown metadata fields substitute for concrete XML evidence", () => {
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { changed: true },
+        xmlAssertions: [{ cellId: "api", bodyTailPreserved: true }]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
+
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "invalid-assertion",
+      field: "assertion",
+      reason: expect.stringContaining("concrete property evidence")
+    }));
+    expect(validation.warnings).toContainEqual(expect.objectContaining({
+      field: "bodyTailPreserved",
+      reason: expect.stringContaining("Supported evidence fields")
+    }));
+  });
+
+  it("rejects a translated title that is not present in the serialized label", () => {
+    const result = titleAssertionResult("不存在的标题");
+    const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
+
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "mismatch",
+      cellId: "api",
+      field: "chineseTitle",
+      reason: expect.stringContaining("did not contain")
+    }));
+  });
+
+  it("still fails closed when unsupported metadata accompanies an unasserted style change", () => {
+    const changedStyle = labelEdited.replace('style="rounded=0;"', 'style="rounded=0;fillColor=#ff0000;"');
+    const result = titleAssertionResult("New API");
+    const validation = validateNativeScriptResultAgainstXml(result, changedStyle, "p1");
+    const scope = findUndeclaredNativeScriptChanges(before, changedStyle, result, 20, "p1");
+
+    expect(validation.ok).toBe(true);
+    expect(scope.ok).toBe(false);
+    expect(scope.violations).toContainEqual(expect.objectContaining({
+      kind: "unproven-change",
+      cellId: "api",
+      changedFields: expect.arrayContaining(["style.fillColor"])
+    }));
+  });
+});
