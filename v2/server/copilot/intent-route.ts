@@ -20,7 +20,7 @@ import { searchDrawioShapeCatalog, DRAWIO_SHAPE_CATALOG_VERSION } from "../../sr
 interface AgentPromptConfig {
   revisionId: string;
   model: string;
-  reasoningEffort: "high" | "max";
+  reasoningEffort: "low" | "medium" | "high" | "max";
 }
 interface ProjectWorkspace { id: string; name: string; rootPath: string; primaryDiagram: string | null; }
 export interface PendingNativeExecutionAck {
@@ -673,8 +673,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     const requestedModel = typeof req.body?.model === "string" && req.body.model.trim()
       ? req.body.model.trim().slice(0, 100)
       : (config.model || deps.defaultModel);
-    const requestedEffort = req.body?.reasoningEffort === "high" || req.body?.reasoningEffort === "max"
-      ? req.body.reasoningEffort
+    const requestedEffort = ["low", "medium", "high", "max"].includes(String(req.body?.reasoningEffort))
+      ? req.body.reasoningEffort as "low" | "medium" | "high" | "max"
       : config.reasoningEffort;
     const standalone = req.body?.standalone === true;
     if (!prompt || prompt.length > 4000) {
@@ -998,7 +998,12 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         };
 
         // Keep stable context before the changing user request for providers supporting prefix caching.
-        const firstRequestPrompt = JSON.stringify({ projectWorkspace: projectContext, diagram: context, request: prompt });
+        const firstRequestPrompt = JSON.stringify({
+          projectWorkspace: projectContext,
+          diagram: context,
+          request: prompt,
+          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve targets to exact existing cell IDs or unique labels; never infer that a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
+        });
         await sendAttempt(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
