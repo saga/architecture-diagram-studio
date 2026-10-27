@@ -654,6 +654,54 @@ function normalizePlan(
   const dx = preserveNativePositions ? 0 : options.margin - minX;
   const dy = preserveNativePositions ? 0 : options.margin - minY;
   const finiteCoordinate = (value: number) => Number.isFinite(value) && Math.abs(value) <= 1_000_000;
+  const routeAxisEpsilon = 0.5;
+  const orthogonalizeRoute = (sourcePoints: Point[]): Point[] => {
+    const result: Point[] = [];
+    const append = (rawPoint: Point) => {
+      const point = { x: rawPoint.x, y: rawPoint.y };
+      const previous = result[result.length - 1];
+      if (previous) {
+        if (Math.abs(point.x - previous.x) <= routeAxisEpsilon) point.x = previous.x;
+        if (Math.abs(point.y - previous.y) <= routeAxisEpsilon) point.y = previous.y;
+        if (Math.abs(point.x - previous.x) <= routeAxisEpsilon &&
+            Math.abs(point.y - previous.y) <= routeAxisEpsilon) return;
+        if (result.length >= 2) {
+          const before = result[result.length - 2];
+          const middle = result[result.length - 1];
+          const collinearHorizontally =
+            Math.abs(before.y - middle.y) <= routeAxisEpsilon &&
+            Math.abs(middle.y - point.y) <= routeAxisEpsilon;
+          const collinearVertically =
+            Math.abs(before.x - middle.x) <= routeAxisEpsilon &&
+            Math.abs(middle.x - point.x) <= routeAxisEpsilon;
+          if (collinearHorizontally || collinearVertically) result.pop();
+        }
+      }
+      result.push(point);
+    };
+
+    for (const sourcePoint of sourcePoints) {
+      const previous = result[result.length - 1];
+      if (!previous) {
+        append(sourcePoint);
+        continue;
+      }
+      let point = { x: sourcePoint.x, y: sourcePoint.y };
+      if (Math.abs(point.x - previous.x) <= routeAxisEpsilon) point.x = previous.x;
+      if (Math.abs(point.y - previous.y) <= routeAxisEpsilon) point.y = previous.y;
+      const deltaX = point.x - previous.x;
+      const deltaY = point.y - previous.y;
+      if (Math.abs(deltaX) > routeAxisEpsilon && Math.abs(deltaY) > routeAxisEpsilon) {
+        // Keep the dominant axis as the long run and add only one right-angle bend.
+        const elbow = Math.abs(deltaX) >= Math.abs(deltaY)
+          ? { x: point.x, y: previous.y }
+          : { x: previous.x, y: point.y };
+        append(elbow);
+      }
+      append(point);
+    }
+    return result;
+  };
   const cellsById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
   const nativePositions = projection.vertices.map((cell) => {
     const point = positions.get(cell.id)!;
@@ -739,17 +787,40 @@ function normalizePlan(
     if (!(options.engine === "elk" && options.algorithm === "fixed")) {
       if (edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId) {
         const exit = groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId);
-        if (exit) translated.unshift(exit);
+        if (exit) {
+          if (translated.length > 0) {
+            // First run along the group boundary, then turn toward the solver's first bend.
+            const firstRoutePoint = translated[0];
+            translated.unshift(exit, { x: exit.x, y: firstRoutePoint.y });
+          } else {
+            translated.unshift(exit);
+          }
+        }
       }
       if (edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId) {
         const exit = groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId);
-        if (exit) translated.push(exit);
+        if (exit) {
+          if (translated.length > 0) {
+            // Approach the target boundary on an axis-aligned segment before entering the group.
+            const lastRoutePoint = translated[translated.length - 1];
+            translated.push({ x: exit.x, y: lastRoutePoint.y }, exit);
+          } else {
+            translated.push(exit);
+          }
+        }
       }
     }
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid connector route.");
     }
-    nativeRoutes.push({ cellId: edge.id, points: translated });
+    const points = orthogonalizeRoute(translated);
+    if (points.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y)) ||
+        points.some((point, index) => index > 0 &&
+          Math.abs(point.x - points[index - 1].x) > routeAxisEpsilon &&
+          Math.abs(point.y - points[index - 1].y) > routeAxisEpsilon)) {
+      throw new Error("The connector route could not be normalized to orthogonal segments.");
+    }
+    nativeRoutes.push({ cellId: edge.id, points });
   }
   // Internal connectors are not sent through the outer solver. When they carry explicit
   // waypoints, translate those points by the same region delta as both endpoints.
@@ -762,7 +833,13 @@ function normalizePlan(
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid internal region connector route.");
     }
-    nativeRoutes.push({ cellId: edge.id, points: translated });
+    const points = orthogonalizeRoute(translated);
+    if (points.some((point, index) => index > 0 &&
+      Math.abs(point.x - points[index - 1].x) > routeAxisEpsilon &&
+      Math.abs(point.y - points[index - 1].y) > routeAxisEpsilon)) {
+      throw new Error("An internal region connector route could not be normalized to orthogonal segments.");
+    }
+    nativeRoutes.push({ cellId: edge.id, points });
   }
 
   const cellsToGuard = new Map<string, NativeLayoutExpectedCell>();
