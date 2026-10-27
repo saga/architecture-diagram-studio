@@ -859,7 +859,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
         const mode = args.mode === "read" ? "read" : "mutate";
         if (mode === "read") {
-          await deps.writeLog("tool.run_drawio_script.read-rejected", {
+          await deps.writeLog("tool.run_drawio_script.read.rejected", {
             sessionId, reason: "deferred_script_has_no_current_turn_result",
             scriptLength: args.script.length,
             documentRevision: (contextBySession.get(sessionId) as { documentRevision?: string } | undefined)?.documentRevision ?? null
