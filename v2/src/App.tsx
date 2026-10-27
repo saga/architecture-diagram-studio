@@ -551,7 +551,30 @@ export default function App() {
       recordDiagnostic("copilot.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
         cellId, path, requestId, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
       });
-      setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+      if (path !== "cell:select") {
+        setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+        return;
+      }
+      // Pure focus actions still need a native bridge acknowledgement. Posting a request is not
+      // proof the iframe accepted it; otherwise the chat can claim "Selected" while the canvas
+      // never changed focus (or the target disappeared during dispatch).
+      await new Promise<void>((resolve, reject) => {
+        nativeEditResolversRef.current.set(requestId, (result) => {
+          if (result.success) resolve();
+          else reject(new Error(result.error || "Draw.io did not select the requested element."));
+        });
+        const watchdogTimeoutMs = 10_000;
+        const watchdogTimerId = window.setTimeout(() => {
+          nativeEditWatchdogsRef.current.delete(requestId);
+          nativeEditResolversRef.current.delete(requestId);
+          setCellEditRequest((current) => current?.requestId === requestId ? null : current);
+          const error = "Draw.io did not acknowledge the requested selection within 10 seconds; the focus result is unknown.";
+          recordDiagnostic("copilot.selection.timeout", error, { requestId, cellId, pageId: selectedNativePageId }, "warn");
+          reject(new Error(error));
+        }, watchdogTimeoutMs);
+        nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
+        setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+      });
     },
     applyNativeCellEdits: async (edits, pageId, acknowledgement) => {
       if (lateNativeEditRequestsRef.current.size > 0) {
