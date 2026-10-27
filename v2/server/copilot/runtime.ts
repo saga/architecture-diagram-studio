@@ -128,9 +128,9 @@ export interface CopilotRuntimeOptions {
   provider?: CopilotProvider;
 }
 
-const STREAM_PROGRESS_LOG_INTERVAL_MS = 30_000;
+const STREAM_PROGRESS_LOG_INTERVAL_MS = 5_000;
 
-const EFFORT_ORDER = ["max", "xhigh", "high", "medium", "low"] as const;
+const EFFORT_ORDER = ["medium", "low", "high", "xhigh", "max"] as const;
 type Effort = (typeof EFFORT_ORDER)[number];
 type SendBody = Parameters<CopilotSession["sendAndWait"]>[0];
 
@@ -401,7 +401,7 @@ export class CopilotRuntime {
   }
 
   /** Maps the requested effort onto what the chosen model actually supports. */
-  async resolveEffort(model: string, requested: "high" | "max"): Promise<Effort | undefined> {
+  async resolveEffort(model: string, requested: "low" | "medium" | "high" | "max"): Promise<Effort | undefined> {
     // A custom provider publishes no catalog, so there is nothing to map the effort onto; the
     // runtime applies the provider's own default instead of guessing a level it cannot support.
     if (this.provider.mode === "byok") return undefined;
@@ -704,6 +704,9 @@ export class CopilotRuntime {
     const providerConfig = toProviderConfig(this.provider);
     const base: ResumeSessionConfig = {
       streaming: true,
+      // This runtime uses mode:"empty", where SDK automatic compaction is disabled unless opted in.
+      // Enable the SDK-supported compaction lifecycle rather than rotating sessions and losing context.
+      infiniteSessions: { enabled: true, backgroundCompactionThreshold: 0.75, bufferExhaustionThreshold: 0.9 },
       ...(providerConfig ? { provider: providerConfig } : {}),
       availableTools: new ToolSet().addCustom("*"),
       tools: prepared.tools,
@@ -1061,8 +1064,8 @@ export function describeCopilotFailure(message: string, context: FailureContext 
     return "Copilot stopped making observable progress before the idle deadline, so no edit was dispatched. Check provider/runtime health and retry; the server trace records the last event, phase, and progress counters.";
   }
   if (/Copilot turn watchdog timed out.*overall deadline|Copilot turn watchdog timed out after/i.test(message)) {
-    return "Copilot reached the configured overall turn deadline, so no edit was dispatched. Increase STUDIO_COPILOT_TURN_TIMEOUT_MS or reduce the task/context size and retry.";
+    return "Copilot reached the 300-second overall turn deadline before returning a validated edit. No edit was confirmed. Retry once; if this repeats, lower Thinking effort to Medium/Low or split the request into smaller edits. The trace distinguishes reasoning time, tool-argument generation, and context usage.";
   }
-  if (/timeout|timed out/i.test(message)) return "The Copilot provider or runtime timed out before returning a validated edit, so no changes were dispatched. Check provider health and retry.";
+  if (/timeout|timed out/i.test(message)) return "The Copilot provider or runtime timed out before returning a validated edit, so no changes were dispatched. Check the local Copilot service and sign-in state; if progress events continued until the deadline, lower Thinking effort or split the task rather than treating it as a network outage.";
   return "The Copilot runtime failed, so this request was not executed: " + (message.length > 300 ? message.slice(0, 300) + "…" : message);
 }
