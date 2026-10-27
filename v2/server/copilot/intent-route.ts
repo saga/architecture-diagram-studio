@@ -486,7 +486,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         }
         pendingReportedOutcomes.set(sessionId, report);
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
-        return { recorded: true, accepted: true, outcome: report.outcome };
+        return {
+          recorded: true, accepted: true, terminal: true, outcome: report.outcome,
+          instructions: "This no-mutation outcome is recorded as the terminal action for the current turn. Do not call another terminal tool; Studio will return the validated outcome to the user."
+        };
       }
     });
   }
@@ -884,7 +887,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Submit a batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. For notation changes or other graph operations, use run_drawio_script against the live editor and preserve existing cells unless the user explicitly requests their removal. No confirmation is required in local single-user mode. Never fabricate cell IDs; use exact IDs or uniquely resolved labels.",
+      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. Large or destructive batches may require UI confirmation. For other graph operations use run_drawio_script; never fabricate cell IDs.",
       parameters: {
         type: "object",
         properties: {
@@ -936,8 +939,10 @@ function createDrawioElementSearchTool(sessionId: string) {
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) }))
         });
         return {
-          // This is tool feedback for the model, not the browser protocol response. Do not expose requiresClientExecution here; it is easy to misread as a user-confirmation requirement.
-          accepted: true, operationCount: resolved.operations.length,
+          // This is tool feedback, not proof of editor execution/persistence.
+          accepted: true, queued: true, execution: "after_model_turn", terminal: true, result_available: false,
+          instructions: "The native edit intent is queued, but the diagram has not been changed or saved yet. Do not call another terminal tool or claim success. Studio will validate the revision and either request confirmation or dispatch the operation for native XML and persistence verification.",
+          operationCount: resolved.operations.length,
           operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
@@ -1539,7 +1544,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
 function createSelectDiagramElementTool(sessionId: string) {
   return defineTool("select_diagram_element", {
-    description: "Select and focus one existing element in the native Draw.io canvas. This is a UI selection action, not a diagram edit, so it does not create a version or require a commit. Use exact IDs or a unique exact label from the supplied diagram context; do not guess.",
+    description: "Queue a focus/selection action for one existing native Draw.io element. This is the terminal action for the turn and runs after the model turn ends; the tool result confirms only that selection was queued, not that the canvas has selected it. Use exact IDs or a unique exact label from current diagram context; do not guess.",
     parameters: {
       type: "object",
       properties: { target: { type: "string", minLength: 1, maxLength: 200 } },
@@ -1583,7 +1588,12 @@ function createSelectDiagramElementTool(sessionId: string) {
         };
       }
       pendingAgentSelections.set(sessionId, selected);
-      return { selected: true, accepted: true, ...selected, documentChanged: false };
+      return {
+        accepted: true, queued: true, execution: "after_model_turn", terminal: true,
+        result_available: false, action: "select_diagram_element",
+        ...selected, documentChanged: false,
+        instructions: "The selection is queued and has not happened yet. This completes the terminal action for the turn. Do not call another terminal tool or claim the canvas has selected the element; Studio will apply the focus request after this turn and report bridge success or failure."
+      };
     }
   });
 }
