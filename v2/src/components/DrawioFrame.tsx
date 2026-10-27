@@ -984,7 +984,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   }] };
                 const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
                 const scriptScope = serializedAssertionsPassed
-                  ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult)
+                  ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult, 20, pending.pageId)
                   : null;
                 const undeclaredChangesPassed = scriptScope === null ? null : scriptScope.ok;
                 const assertionDiagnostic = assertionValidation.failures.slice(0, 8)
@@ -1014,7 +1014,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     applicationState,
                     error: applicationState === "changed-unverified"
                       ? (undeclaredChangesPassed === false
-                          ? "The document changed beyond the cells the script declared: it also modified existing cells that no assertion covered."
+                          ? "The document changed beyond the declared assertions: it created or removed cells, or modified existing cells, that no assertion covered."
                           : "The document changed, but native script assertions were invalid or did not match the serialized XML.") + detail
                       : applicationState === "not-applied"
                         ? "The script did not confirm its requested postconditions and the document appears unchanged." + detail

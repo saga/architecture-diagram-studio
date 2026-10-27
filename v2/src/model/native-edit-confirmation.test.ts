@@ -199,6 +199,20 @@ describe("native edit XML confirmation", () => {
     }, serialized, "p1")).toBe(false);
   });
 
+  it("rejects an existence-only assertion because it does not verify the requested outcome", () => {
+    const result = {
+      available: true,
+      value: { ok: true, postconditions: { checked: true }, xmlAssertions: [{ cellId: "db", exists: true }] }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, before, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "invalid-assertion", index: 0, cellId: "db", field: "assertion",
+      reason: expect.stringContaining("exists: true alone is too weak")
+    }));
+    expect(nativeScriptResultMatchesXml(result, before, "p1")).toBe(false);
+  });
+
   it("reports malformed style assertion shape instead of a generic XML mismatch", () => {
     const serialized = labelEdited.replace("</root>",
       '<mxCell id="read-results" value="readResults()" edge="1" parent="1" source="api" target="db" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;">' +
@@ -410,6 +424,29 @@ describe("native edit XML confirmation", () => {
       ]));
       expect(result).toMatchObject({ ok: true, available: true });
       expect(result.violations).toEqual([]);
+    });
+
+    it("rejects a newly created cell that is missing from xmlAssertions", () => {
+      const result = findUndeclaredNativeScriptChanges(before, insertionOnly, scriptResult([
+        { cellId: "ddd", exists: true, kind: "vertex", label: "ddd" }
+      ]));
+      expect(result.ok).toBe(false);
+      expect(result.available).toBe(true);
+      expect(result.violations).toContainEqual(expect.objectContaining({
+        kind: "added", cellId: "api-ddd", changedFields: ["created"]
+      }));
+    });
+
+    it("does not let an assertion on one page authorize a same-ID change on another page", () => {
+      const beforeMulti = before.replace("</mxfile>",
+        '<diagram id="p2" name="Second"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+        '<mxCell id="shared" value="Before" vertex="1" parent="1"><mxGeometry x="1" y="1" width="10" height="10" as="geometry"/></mxCell>' +
+        '</root></mxGraphModel></diagram></mxfile>');
+      const afterMulti = beforeMulti.replace('value="Before"', 'value="After"');
+      const result = findUndeclaredNativeScriptChanges(beforeMulti, afterMulti,
+        scriptResult([{ cellId: "shared", exists: true, label: "After" }]), 20, "p1");
+      expect(result.ok).toBe(false);
+      expect(result.violations).toContainEqual(expect.objectContaining({ kind: "changed", cellId: "shared", pageId: "p2" }));
     });
 
     it("rejects an accidental edit to a cell the script never declared", () => {

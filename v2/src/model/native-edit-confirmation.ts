@@ -631,8 +631,8 @@ export function validateNativeScriptResultAgainstXml(
 
       const expectedExists = assertion.exists === undefined ? true : assertion.exists;
       const evidenceFields = Object.keys(assertion).filter((key) => key !== "cellId" && key !== "exists");
-      if (expectedExists !== false && assertion.exists !== true && evidenceFields.length === 0) {
-        invalid("assertion", "An assertion must verify existence explicitly or include at least one concrete cell property.", "exists: true or concrete property expectations", assertion);
+      if (expectedExists !== false && evidenceFields.length === 0) {
+        invalid("assertion", "An assertion for an existing cell must include concrete property evidence; exists: true alone is too weak to verify the requested edit.", "kind, label, relationship, style or geometry expectation", assertion);
         shapeInvalid = true;
       }
       if (expectedExists === false && evidenceFields.length > 0) {
@@ -732,7 +732,7 @@ export function nativeScriptResultMatchesXml(
 
 
 export interface NativeScriptScopeViolation {
-  kind: "changed" | "removed";
+  kind: "added" | "changed" | "removed";
   cellId: string;
   pageId: string | null;
   label: string;
@@ -764,14 +764,16 @@ export function declaredNativeScriptCellIds(scriptResult: unknown): string[] {
 
 /**
  * A passing assertion proves the declared cells changed; it does not prove that nothing else did.
- * Compare the before/after XML and require every existing cell that changed or disappeared to be
- * declared by the script, so an accidental edit cannot ride along with a verified insertion.
+ * Compare the before/after XML and require every newly created, changed or removed cell to be
+ * declared by the script. Declarations are scoped to the request's active page, so duplicate IDs
+ * on other pages cannot authorize an undeclared cross-page change.
  */
 export function findUndeclaredNativeScriptChanges(
   beforeXml: string,
   afterXml: string,
   scriptResult: unknown,
-  maxViolations = 20
+  maxViolations = 20,
+  expectedPageId?: string | null
 ): NativeScriptScopeResult {
   const declaredCellIds = declaredNativeScriptCellIds(scriptResult);
   const diff = summarizeNativeDiagramXmlDiff(beforeXml, afterXml, 500);
@@ -788,16 +790,22 @@ export function findUndeclaredNativeScriptChanges(
     };
   }
   const declared = new Set(declaredCellIds);
+  const isDeclaredOnExpectedPage = (cell: { id: string; pageId: string | null }) =>
+    declared.has(cell.id) && (expectedPageId === undefined || cell.pageId === expectedPageId);
   // A removed page takes its cells with it; page-level operations are not cell edits.
   const removedPages = new Set((diff.pagesRemoved ?? []).map((pageId) => String(pageId)));
   const violations: NativeScriptScopeViolation[] = [];
+  for (const cell of diff.cellsAdded ?? []) {
+    if (isDeclaredOnExpectedPage(cell)) continue;
+    violations.push({ kind: "added", cellId: cell.id, pageId: cell.pageId, label: cell.label, changedFields: ["created"] });
+  }
   for (const cell of diff.cellsRemoved ?? []) {
     if (cell.pageId !== null && removedPages.has(String(cell.pageId))) continue;
-    if (declared.has(cell.id)) continue;
+    if (isDeclaredOnExpectedPage(cell)) continue;
     violations.push({ kind: "removed", cellId: cell.id, pageId: cell.pageId, label: cell.label });
   }
   for (const cell of diff.cellsChanged ?? []) {
-    if (declared.has(cell.id)) continue;
+    if (isDeclaredOnExpectedPage(cell)) continue;
     violations.push({
       kind: "changed", cellId: cell.id, pageId: cell.pageId,
       label: cell.labelAfter || cell.labelBefore, changedFields: cell.changedFields
@@ -807,7 +815,7 @@ export function findUndeclaredNativeScriptChanges(
   return {
     ok: violations.length === 0, available: true, declaredCellIds,
     violations: violations.slice(0, limit),
-    ...(violations.length > limit ? { error: violations.length + " undeclared cells changed; only the first " + limit + " are listed." } : {})
+    ...(violations.length > limit ? { error: violations.length + " undeclared native cells were added, changed or removed; only the first " + limit + " are listed." } : {})
   };
 }
 

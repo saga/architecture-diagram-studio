@@ -117,7 +117,7 @@ if (scriptResult && typeof scriptResult.then === "function") {
 
 ### P1-2：已增加原生脚本同步执行护栏
 
-`v2/plugins/studio-selection-plugin.js` 增加了字符串、注释和模板插值感知的源码扫描，并在执行期间临时拦截常见定时器、Promise callback、网络、事件回调、动态求值及 parent/global 执行上下文访问。新增插件测试覆盖定时器、通过计算属性引用的 timer/Promise callback、template interpolation 中的 async/await，以及不含真实可执行调用的字符串/注释。
+`v2/plugins/studio-selection-plugin.js` 增加了字符串、注释和模板插值感知的源码扫描，拒绝常见 async/await、Promise、timer、网络、事件回调、动态求值及 parent/global 访问。最初的全局 timer/Promise monkey-patch 已移除：它会拦截 Draw.io 自己的插入/渲染定时器并破坏正常编辑；当前边界使用源码检查及事务/序列化后检查，而不是修改宿主全局 API。新增插件测试覆盖显式和计算属性 timer/Promise 引用、template interpolation 中的 async/await，以及字符串/注释中的无害词汇；另加回归测试保证本地原生插入能调用 Draw.io 内部 timer。
 
 这不是安全沙箱，也不能打断无限循环；报告与 API 契约明确保留这一限制。应继续验证被实际 Draw.io API 间接触发的行为，避免护栏影响合法的同步图操作。
 
