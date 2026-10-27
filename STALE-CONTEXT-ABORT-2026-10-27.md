@@ -256,7 +256,7 @@ App 侧 `setSelectedNativeCellId(cellId)` 是**无条件覆盖**（`App.tsx:1966
 | 选中项上报 | `v2/plugins/studio-selection-plugin.js:123-135`、`:1410` |
 | 保存事件（用于反证 xml 未变） | `v2/src/components/DrawioFrame.tsx:1082-1085` |
 
-**本次未修改任何代码。**
+**原始分析版本未修改代码；后续实施记录见 §11。**
 
 ---
 
