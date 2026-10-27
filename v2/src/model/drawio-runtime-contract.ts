@@ -14,7 +14,8 @@ export const RUNTIME_INSPECTION_LIMITS = {
   geometryPoints: 8,
   renderedPoints: 12,
   jsShapeClassNames: 40,
-  jsShapeClassNameLength: 160
+  jsShapeClassNameLength: 160,
+  liveShapeClasses: 2000
 } as const;
 
 export type RuntimeCapabilityGroup = "ui" | "editor" | "graph" | "model" | "view" | "vertexCell" | "edgeCell";
