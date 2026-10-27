@@ -796,7 +796,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createDrawioReferenceTool() {
+  function createDrawioReferenceTool(sessionId: string) {
     return defineTool("get_drawio_reference", {
       description: "Read the local Draw.io Agent API reference on demand. Read-only; does not change the diagram.",
       parameters: {
@@ -1288,7 +1288,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioRuntimeShapeSearchTool(sessionId),
               createDrawioElementSearchTool(sessionId),
               createDrawioGraphInspectionTool(sessionId),
-              createDrawioReferenceTool(),
+              createDrawioReferenceTool(sessionId),
               createRunDrawioScriptTool(sessionId),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
@@ -1371,7 +1371,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         };
 
         // Keep stable context before the changing user request for providers supporting prefix caching.
-        let terminalIntentModelFailure: { attempt: number; error: string } | null = null;
+        const terminalIntentModelFailure: { value: { attempt: number; error: string } | null } = { value: null };
         const sendAttemptPreservingAcceptedIntent = async (
           attempt: number, requestPrompt: string, reason?: string
         ): Promise<void> => {
@@ -1384,7 +1384,7 @@ function createDrawioElementSearchTool(sessionId: string) {
             // fails while trying to obtain the model's follow-up text. Do not silently delete that
             // already-accepted action; the browser still has to verify native XML and persistence.
             if (requestCancelled || res.destroyed || !terminalKind) throw error;
-            terminalIntentModelFailure = { attempt, error: errorMessage.slice(0, 1000) };
+            terminalIntentModelFailure.value = { attempt, error: errorMessage.slice(0, 1000) };
             await deps.writeLog("turn.model-call.failed-after-terminal-intent.failed", {
               requestId, sessionId, attempt, terminalKind,
               errorName: error instanceof Error ? error.name : typeof error,
@@ -1422,7 +1422,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         pendingTerminalIntents.delete(sessionId);
         return {
           capturedSelection, capturedNativeEdits, capturedReportedOutcome, modelText,
-          ...(terminalIntentModelFailure ? { terminalIntentModelFailure } : {}),
+          ...(terminalIntentModelFailure.value ? { terminalIntentModelFailure: terminalIntentModelFailure.value } : {}),
           session: turn.session,
           usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
         };
