@@ -57,7 +57,7 @@ export interface RuntimeSession {
 export interface SessionRequest {
   conversationId: string;
   model: string;
-  requestedEffort: "high" | "max";
+  requestedEffort: "low" | "medium" | "high" | "max";
   /** Cheap identity fields used to decide reuse before constructing prompt/tools. */
   configRevisionId: string;
   scopeKey: string;
