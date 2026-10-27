@@ -493,7 +493,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         additionalProperties: false
       },
       handler: async (args: { outcome?: unknown; reply?: unknown; question?: unknown; reason?: unknown }) => {
-        if (args.outcome !== "answered" && args.outcome !== "needs_clarification" && args.outcome !== "unsupported") {
+        if (args?.outcome !== "answered" && args?.outcome !== "needs_clarification" && args?.outcome !== "unsupported") {
           const error = "The no-mutation outcome must be answered, needs_clarification, or unsupported.";
           await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_outcome" });
           return { recorded: false, accepted: false, reason: "invalid_outcome", error, instructions: "Use one of the supported outcomes and do not claim that a diagram edit was applied." };
@@ -547,7 +547,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         additionalProperties: false
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
-        if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+        if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Shape search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
           return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape name or concept in English or Chinese." };
@@ -588,7 +588,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       additionalProperties: false
     },
     handler: async (args: { query?: unknown; limit?: unknown }) => {
-      if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+      if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
         const error = "Live Draw.io shape search requires a non-empty query no longer than 120 characters.";
         await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
         return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape class, library or concept keyword." };
@@ -629,7 +629,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         additionalProperties: false
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
-        if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+        if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Element search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_elements.rejected", { sessionId, reason: "invalid_query" });
           return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with an ID, label, native shape key or geometry fragment." };
@@ -741,8 +741,8 @@ function createDrawioElementSearchTool(sessionId: string) {
         }> : [];
         const query = typeof args.query === "string" ? args.query.trim().toLocaleLowerCase() : "";
         const shapeQuery = typeof args.shape === "string" ? args.shape.trim().toLocaleLowerCase() : "";
-        if (args.query !== undefined && (!query || query.length > 120)) return { ok: false, reason: "invalid_query", error: "Graph inspection query must be 1–120 characters.", results: [] };
-        if (args.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) return { ok: false, reason: "invalid_shape_filter", error: "Shape filter must be 1–180 characters.", results: [] };
+        if (args?.query !== undefined && (!query || query.length > 120)) return { ok: false, reason: "invalid_query", error: "Graph inspection query must be 1–120 characters.", results: [] };
+        if (args?.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) return { ok: false, reason: "invalid_shape_filter", error: "Shape filter must be 1–180 characters.", results: [] };
         if (args.cellType !== undefined && args.cellType !== "vertex" && args.cellType !== "edge") return { ok: false, reason: "invalid_cell_type", error: "cellType must be vertex or edge.", results: [] };
         if (args.unlabeled !== undefined && typeof args.unlabeled !== "boolean") return { ok: false, reason: "invalid_unlabeled_filter", error: "unlabeled must be a boolean.", results: [] };
         const point = args.point;
@@ -831,7 +831,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         additionalProperties: false
       },
       handler: async (args: { topic?: unknown }) => {
-        const topic = args.topic;
+        const topic = args?.topic;
         if (!isDrawioReferenceTopic(topic)) {
           return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
         }
@@ -867,13 +867,13 @@ function createDrawioElementSearchTool(sessionId: string) {
         additionalProperties: false
       },
       handler: async (args: { summary?: unknown; script?: unknown; mode?: unknown }) => {
-        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000) {
+        if (typeof args?.summary !== "string" || !args.summary.trim() || args.summary.length > 1000) {
           return { accepted: false, terminal: false, result_available: false, reason: "invalid_summary", error: "run_drawio_script requires a summary from 1 to 1000 characters." };
         }
-        if (typeof args.script !== "string" || !args.script.trim() || args.script.length > 50000) {
+        if (typeof args?.script !== "string" || !args.script.trim() || args.script.length > 50000) {
           return { accepted: false, terminal: false, result_available: false, reason: "invalid_script", error: "run_drawio_script requires a non-empty JavaScript program no longer than 50000 characters." };
         }
-        if (args.mode !== undefined && args.mode !== "read" && args.mode !== "mutate") {
+        if (args?.mode !== undefined && args.mode !== "read" && args.mode !== "mutate") {
           return { accepted: false, terminal: false, result_available: false, reason: "invalid_mode", error: "run_drawio_script mode must be read or mutate." };
         }
         const mode = args.mode === "read" ? "read" : "mutate";
