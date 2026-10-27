@@ -292,7 +292,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               failedPath: executionErrorStep?.path || "native-edit"
             };
             const failedActionPayload = failedScriptOperation?.script ?? JSON.stringify(operations);
-            recordDiagnostic("copilot.native-script-repair.started", "Starting one automatic native script repair attempt after an editor-reported script failure and confirmed rollback", {
+            recordDiagnostic("copilot.native-edit-repair.started", "Starting one automatic native edit repair attempt after an editor-reported failure and confirmed rollback", {
               sessionId: plan.sessionId || copilotSessionId,
               error: boundedError,
               errorStack: boundedStack?.slice(0, 8000) ?? null,
@@ -306,7 +306,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             setMessages((items) => [...items, {
               role: "assistant",
               id: Date.now() + 1,
-              text: "原生脚本执行失败（" + boundedError + "），编辑器已确认回滚。正在自动修正并重试 1/1。"
+              text: "原生编辑操作执行失败（" + boundedError + "），编辑器已确认回滚。正在将失败结果回传模型并自动修正重试 1/1。"
             }]);
             try {
               const repairPlan = await requestAIIntentPlan({
@@ -349,7 +349,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   documentRevision
                 });
                 if (repairedExecution.ok) {
-                  recordDiagnostic("copilot.native-script-repair.applied", "The single corrected native script was automatically dispatched and acknowledged", {
+                  recordDiagnostic("copilot.native-edit-repair.applied", "The single corrected native script was automatically dispatched and acknowledged", {
                     sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
                     requestId: command.requestId,
                     operationCount: command.operations.length,
@@ -365,7 +365,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                   }]);
                 } else {
                   const repairReason = repairedExecution.error || "Draw.io rejected the repaired script.";
-                  recordDiagnostic("copilot.native-script-repair.apply-failed", "The automatically dispatched corrected script was not acknowledged as applied", {
+                  recordDiagnostic("copilot.native-edit-repair.apply-failed", "The automatically dispatched corrected script was not acknowledged as applied", {
                     sessionId: repairPlan.sessionId || plan.sessionId || copilotSessionId,
                     requestId: command.requestId,
                     errorMessage: repairReason,
@@ -386,7 +386,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
               // The AI-first runtime does not turn a corrected script into a manual approval proposal.
               // A repair request must call run_drawio_script and return a command_ready receipt.
-              recordDiagnostic("copilot.native-script-repair.no-command", "The repair turn did not return an executable native script command", {
+              recordDiagnostic("copilot.native-edit-repair.no-command", "The repair turn did not return an executable native script command", {
                 sessionId: plan.sessionId || copilotSessionId,
                 outcome: repairPlan.outcome,
                 reply: repairPlan.reply.slice(0, 400),
@@ -401,7 +401,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               return;
             } catch (repairError) {
               const repairMessage = repairError instanceof Error ? repairError.message : String(repairError);
-              recordDiagnostic("copilot.native-script-repair.failed", "The single bounded repair request failed; no automatic re-execution occurred", {
+              recordDiagnostic("copilot.native-edit-repair.failed", "The single bounded repair request failed; no automatic re-execution occurred", {
                 sessionId: plan.sessionId || copilotSessionId,
                 error: repairMessage.slice(0, 1200),
                 documentRevision
