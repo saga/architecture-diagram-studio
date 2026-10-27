@@ -224,7 +224,7 @@ export async function requestAIIntentPlan(
         reasoningEffort: config.reasoningEffort || "max",
         standalone: config.standalone === true
       }),
-      signal: AbortSignal.timeout(90_000)
+      signal: AbortSignal.timeout(300_000)
     });
   } catch (error) {
     const timedOut = error instanceof DOMException && error.name === "TimeoutError";
@@ -233,7 +233,7 @@ export async function requestAIIntentPlan(
       errorName: error instanceof Error ? error.name : typeof error
     }, "error");
     throw new Error(timedOut
-      ? "The Copilot SDK request exceeded 90 seconds and was aborted. Check the local agent service and Copilot login state."
+      ? "The Copilot SDK request exceeded 300 seconds and was aborted. Check the local agent service and Copilot login state."
       : "Could not reach the local Copilot SDK service. Confirm that V2 was started with npm run dev.");
   }
 
