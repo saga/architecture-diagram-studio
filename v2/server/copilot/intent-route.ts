@@ -865,7 +865,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     const suppliedRepair = (requestedContext as { scriptRepair?: unknown }).scriptRepair;
     let scriptRepair: {
       originalRequest: string; failedScript: string; error: string; stack?: string;
-      toolResult: { toolName: "run_drawio_script"; success: false; error: string; stack?: string; rollbackConfirmed: boolean; failedPath: string };
+      toolResult: { toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string; rollbackConfirmed: boolean; failedPath: string };
     } | undefined;
     if (suppliedRepair !== undefined) {
       if (!suppliedRepair || typeof suppliedRepair !== "object" || Array.isArray(suppliedRepair)) {
@@ -881,7 +881,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           typeof repair.error !== "string" || !repair.error.trim() || repair.error.length > 1200 ||
           (repair.stack !== undefined && (typeof repair.stack !== "string" || repair.stack.length > 8000)) ||
           !toolResult ||
-          toolResult.toolName !== "run_drawio_script" || toolResult.success !== false ||
+          (toolResult.toolName !== "run_drawio_script" && toolResult.toolName !== "propose_native_edits") || toolResult.success !== false ||
           typeof toolResult.error !== "string" || !toolResult.error.trim() || toolResult.error.length > 1200 ||
           typeof toolResult.rollbackConfirmed !== "boolean" ||
           typeof toolResult.failedPath !== "string" || toolResult.failedPath.length > 80 ||
@@ -895,7 +895,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         error: repair.error,
         ...(typeof repair.stack === "string" ? { stack: repair.stack } : {}),
         toolResult: {
-          toolName: "run_drawio_script",
+          toolName: toolResult.toolName as "run_drawio_script" | "propose_native_edits",
           success: false,
           error: (toolResult as Record<string, unknown>).error as string,
           ...(typeof toolResult.stack === "string" ? { stack: toolResult.stack.slice(0, 8000) } : {}),
