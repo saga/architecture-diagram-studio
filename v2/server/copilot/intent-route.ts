@@ -869,7 +869,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     } | undefined;
     if (suppliedRepair !== undefined) {
       if (!suppliedRepair || typeof suppliedRepair !== "object" || Array.isArray(suppliedRepair)) {
-        res.status(400).json({ outcome: "failed", reply: "The native script repair context could not be validated.", error: "scriptRepair must be an object", documentRevision, requestId, sessionId });
+        res.status(400).json({ outcome: "failed", reply: "The native edit repair context could not be validated.", error: "scriptRepair must be an object", documentRevision, requestId, sessionId });
         return;
       }
       const repair = suppliedRepair as Record<string, unknown>;
@@ -886,7 +886,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           typeof toolResult.rollbackConfirmed !== "boolean" ||
           typeof toolResult.failedPath !== "string" || toolResult.failedPath.length > 80 ||
           (toolResult.stack !== undefined && (typeof toolResult.stack !== "string" || toolResult.stack.length > 8000))) {
-        res.status(400).json({ outcome: "failed", reply: "The native script repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, script <=12000 chars, error <=1200 chars, and a bounded failed run_drawio_script tool result", documentRevision, requestId, sessionId });
+        res.status(400).json({ outcome: "failed", reply: "The native edit repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, failed action <=12000 chars, error <=1200 chars, and a bounded failed native tool result", documentRevision, requestId, sessionId });
         return;
       }
       scriptRepair = {
@@ -904,7 +904,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
       };
       await deps.writeLog("request.script-repair.received", {
-        requestId, sessionId, scriptLength: scriptRepair.failedScript.length, errorLength: scriptRepair.error.length,
+        requestId, sessionId, failedActionLength: scriptRepair.failedScript.length, failedTool: scriptRepair.toolResult.toolName, errorLength: scriptRepair.error.length,
         originalRequestLength: scriptRepair.originalRequest.length, errorStackLength: scriptRepair.stack?.length ?? 0,
         toolResult: scriptRepair.toolResult,
         revision: computedRevision, activePageId: pageInfo.id
