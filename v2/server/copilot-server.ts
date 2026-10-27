@@ -70,12 +70,12 @@ type StudioConfig = {
   schemaVersion: 1;
   revisionId: string;
   model: string;
-  reasoningEffort: "high" | "max";
+  reasoningEffort: "low" | "medium" | "high" | "max";
   updatedAt: string;
   updatedBy: string;
 };
 const DEFAULT_STUDIO_CONFIG: StudioConfig = {
-  schemaVersion: 1, revisionId: "default", model: DEFAULT_MODEL, reasoningEffort: "max",
+  schemaVersion: 1, revisionId: "default", model: DEFAULT_MODEL, reasoningEffort: "medium",
   updatedAt: new Date(0).toISOString(), updatedBy: "default"
 };
 let studioConfig: StudioConfig | null = null;
@@ -111,7 +111,7 @@ function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
 function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
   if (record.schemaVersion !== undefined && record.schemaVersion !== 1) return false;
   if (record.model !== undefined && (typeof record.model !== "string" || record.model.length > 100)) return false;
-  if (record.reasoningEffort !== undefined && record.reasoningEffort !== "high" && record.reasoningEffort !== "max") return false;
+  if (record.reasoningEffort !== undefined && !["low", "medium", "high", "max"].includes(String(record.reasoningEffort))) return false;
   return true;
 }
 
@@ -128,7 +128,7 @@ async function getStudioConfig(): Promise<StudioConfig> {
       revisionId: typeof parsed.revisionId === "string" ? parsed.revisionId :
         "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\D/g, "") : String(i)),
       model: typeof parsed.model === "string" ? parsed.model : DEFAULT_STUDIO_CONFIG.model,
-      reasoningEffort: parsed.reasoningEffort === "high" ? "high" : "max",
+      reasoningEffort: ["low", "medium", "high", "max"].includes(String(parsed.reasoningEffort)) ? parsed.reasoningEffort as StudioConfig["reasoningEffort"] : "medium",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : DEFAULT_STUDIO_CONFIG.updatedAt,
       updatedBy: typeof parsed.updatedBy === "string" ? parsed.updatedBy : "legacy"
     };
@@ -874,8 +874,8 @@ app.put("/api/workspace/configuration", async (req, res) => {
     const previous = await getStudioConfig();
     const model = input.model === undefined ? previous.model : input.model;
     const reasoningEffort = input.reasoningEffort === undefined ? previous.reasoningEffort : input.reasoningEffort;
-    if (typeof model !== "string" || model.length > 100 || !["high", "max"].includes(reasoningEffort)) {
-      res.status(400).json({ error: "The model id must stay under 100 characters and reasoning effort must be high or max" });
+    if (typeof model !== "string" || model.length > 100 || !["low", "medium", "high", "max"].includes(reasoningEffort)) {
+      res.status(400).json({ error: "The model id must stay under 100 characters and reasoning effort must be low, medium, high, or max" });
       return;
     }
     const config: StudioConfig = {
