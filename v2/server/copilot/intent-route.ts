@@ -1061,7 +1061,13 @@ function createDrawioElementSearchTool(sessionId: string) {
     }
     // The model-facing list is {id,label}: a label survives revisions, and an ID is trustworthy only
     // when this list or the selection supplied it. Cell tools keep the private name-based index.
-    const promptCells = visibleCells.map((cell) => ({ id: cell.id, label: cell.name, cellType: cell.cellType }));
+    const promptCells = visibleCells.map((cell) => ({
+      id: cell.id, label: cell.name, cellType: cell.cellType,
+      ...(cell.shape ? { shape: cell.shape } : {}),
+      ...(cell.geometry ? { geometry: cell.geometry } : {}),
+      ...(cell.rotation !== undefined ? { rotation: cell.rotation } : {}),
+      ...(cell.parentId ? { parentId: cell.parentId } : {})
+    }));
     const context = {
       kind: "drawio",
       title: typeof (requestedContext as { title?: unknown }).title === "string"
