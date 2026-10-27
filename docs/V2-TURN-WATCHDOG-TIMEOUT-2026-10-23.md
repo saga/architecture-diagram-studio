@@ -112,3 +112,10 @@ grep 'turn.model-call.completed' ~/.architecture-diagram-studio/logs/copilot-ses
 - **错误分类**：区分浏览器端 300 秒超时、HTTP 服务不可达、服务端 idle timeout、服务端总回合 deadline，以及客户端主动取消。超时提示明确指出降低推理强度或拆分任务，而不是一概建议检查网络或缩短指令。
 
 本次通过 GitHub Contents API 提交代码并检查了变更文件内容；当前执行环境没有运行仓库的 npm build、typecheck 或 E2E 测试，因此这些改动尚未被本地构建验证。重点回归项包括 SDK 当前安装版本对 `infiniteSessions` 配置的支持、四档 effort 的配置读写与 session cache key、以及 timeout 文案与请求取消的集成行为。
+
+
+### SDK delta 字段解析修复（2026-10-27）
+
+核对仓库锁定的 `@github/copilot-sdk@1.0.26` 的 `nodejs/src/generated/session-events.ts` 后确认，`AssistantReasoningDeltaData` 与 `AssistantMessageDeltaData` 的增量字段均为 `deltaContent: string`。此前 `CopilotTurnProgress.observe()` 只读取 `delta`、`inputDelta`、`textDelta` 和 `contentDelta`，因此 SDK 的 reasoning/message delta 事件虽然被计为事件，却按空字符串统计字节数，也不会刷新 idle watchdog。
+
+修复：将 `deltaContent` 加入增量字段解析优先级，并将 reasoning/message 进度单元测试改为使用 SDK 的真实 payload 字段；新增消息增量与推理增量测试，验证字节计数、阶段、最后进展时间及不泄露增量文本。该修复直接影响空闲 watchdog 的判断，避免模型持续输出 reasoning 或 message delta 时被误判为无进展。
