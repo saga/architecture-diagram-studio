@@ -536,26 +536,30 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
 function createDrawioElementSearchTool(sessionId: string) {
     return defineTool("search_drawio_elements", {
-      description: "Search every native cell on the active Draw.io page, including cells omitted from the compact prompt context. Read-only. Use before editing when the requested target is not visible or the diagram is large; resolve ambiguous labels by exact ID.",
+      description: "Search every native cell on the active Draw.io page by ID, label, shape key or geometry metadata. Read-only and non-terminal. Single-character CJK queries are valid. Use inspect_drawio_graph for structured shape/coordinate filters or pagination.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", minLength: 2, maxLength: 120, description: "Exact cell ID, exact label, or distinctive part of a label." },
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Exact ID, label text, native shape key, or a distinctive part of geometry metadata. A single character is valid." },
           limit: { type: "integer", minimum: 1, maximum: 10, default: 5 }
         },
         required: ["query"],
         additionalProperties: false
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
-        if (typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120) {
-          throw new Error("Element search requires a query from 2 to 120 characters.");
+        if (typeof args.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+          throw new Error("Element search requires a non-empty query no longer than 120 characters.");
         }
         const current = contextBySession.get(sessionId);
         const context = current && typeof current === "object"
           ? current as { cells?: unknown }
           : {};
         const cells = Array.isArray(context.cells)
-          ? context.cells as Array<{ id?: unknown; name?: unknown; cellType?: unknown }>
+          ? context.cells as Array<{
+              id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown;
+              geometry?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+              rotation?: unknown; parentId?: unknown
+            }>
           : [];
         const query = args.query.trim();
         const normalized = query.toLocaleLowerCase();
@@ -563,12 +567,19 @@ function createDrawioElementSearchTool(sessionId: string) {
         const exactLabel = cells.filter((cell) =>
           typeof cell.name === "string" && cell.name.trim().toLocaleLowerCase() === normalized
         );
+        const searchableText = (cell: typeof cells[number]): string => {
+          const geometry = cell.geometry;
+          return [
+            cell.id, cell.name, cell.cellType, cell.shape, cell.parentId,
+            geometry ? "x:" + geometry.x + " y:" + geometry.y + " width:" + geometry.width + " height:" + geometry.height : "",
+            typeof cell.rotation === "number" ? "rotation:" + cell.rotation : ""
+          ].filter((value): value is string => typeof value === "string").join(" ").toLocaleLowerCase();
+        };
         const matches = exactId.length ? exactId : exactLabel.length ? exactLabel : cells.filter((cell) => {
-          const id = typeof cell.id === "string" ? cell.id.toLocaleLowerCase() : "";
-          const label = typeof cell.name === "string" ? cell.name.trim().toLocaleLowerCase() : "";
-          if (label.includes(normalized) || id.includes(normalized)) return true;
+          const index = searchableText(cell);
+          if (index.includes(normalized)) return true;
           const tokens = normalized.split(/\s+/u).filter(Boolean);
-          return tokens.length > 1 && tokens.every((token) => label.includes(token));
+          return tokens.length > 1 && tokens.every((token) => index.includes(token));
         });
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
           ? Math.max(1, Math.min(10, Math.floor(args.limit)))
@@ -577,8 +588,12 @@ function createDrawioElementSearchTool(sessionId: string) {
         const results = matches.slice(0, limit).flatMap((cell) =>
           typeof cell.id === "string" ? [{
             id: cell.id,
-            label: typeof cell.name === "string" && cell.name.trim() ? cell.name.trim() : cell.id,
-            cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown"
+            label: typeof cell.name === "string" && cell.name.trim() ? cell.name.trim() : "",
+            cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
+            ...(typeof cell.shape === "string" && cell.shape ? { shape: cell.shape } : {}),
+            ...(cell.geometry && typeof cell.geometry === "object" ? { geometry: cell.geometry } : {}),
+            ...(typeof cell.rotation === "number" ? { rotation: cell.rotation } : {}),
+            ...(typeof cell.parentId === "string" ? { parentId: cell.parentId } : {})
           }] : []
         );
         await deps.writeLog("tool.search_drawio_elements.completed", {
@@ -595,6 +610,120 @@ function createDrawioElementSearchTool(sessionId: string) {
             guidance: "More matches exist than are shown. Narrow the query or use an exact cell ID; do not choose between ambiguous labels arbitrarily."
           } : {}),
           ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
+        };
+      }
+    });
+  }
+
+  function createDrawioGraphInspectionTool(sessionId: string) {
+    return defineTool("inspect_drawio_graph", {
+      description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },
+          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
+          cellType: { type: "string", enum: ["vertex", "edge"] },
+          unlabeled: { type: "boolean", description: "When true, include only cells with an empty visible label." },
+          point: {
+            type: "object",
+            properties: { x: { type: "number" }, y: { type: "number" } },
+            required: ["x", "y"], additionalProperties: false
+          },
+          bounds: {
+            type: "object",
+            properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number", minimum: 0 }, height: { type: "number", minimum: 0 } },
+            required: ["x", "y", "width", "height"], additionalProperties: false
+          },
+          offset: { type: "integer", minimum: 0, maximum: 20000, default: 0 },
+          limit: { type: "integer", minimum: 1, maximum: 100, default: 40 }
+        },
+        additionalProperties: false
+      },
+      handler: async (args: {
+        query?: unknown; shape?: unknown; cellType?: unknown; unlabeled?: unknown;
+        point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
+      }) => {
+        const current = contextBySession.get(sessionId);
+        const context = current && typeof current === "object"
+          ? current as { cells?: unknown; documentRevision?: unknown; activePageId?: unknown }
+          : {};
+        const cells = Array.isArray(context.cells) ? context.cells as Array<{
+          id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown;
+          geometry?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+          rotation?: unknown; parentId?: unknown
+        }> : [];
+        const query = typeof args.query === "string" ? args.query.trim().toLocaleLowerCase() : "";
+        const shapeQuery = typeof args.shape === "string" ? args.shape.trim().toLocaleLowerCase() : "";
+        if (args.query !== undefined && (!query || query.length > 120)) throw new Error("Graph inspection query must be 1–120 characters.");
+        if (args.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) throw new Error("Shape filter must be 1–180 characters.");
+        if (args.cellType !== undefined && args.cellType !== "vertex" && args.cellType !== "edge") throw new Error("cellType must be vertex or edge.");
+        if (args.unlabeled !== undefined && typeof args.unlabeled !== "boolean") throw new Error("unlabeled must be a boolean.");
+        const point = args.point;
+        if (point !== undefined && (!point || typeof point !== "object" || Array.isArray(point) ||
+            typeof (point as { x?: unknown }).x !== "number" || !Number.isFinite((point as { x: number }).x) ||
+            typeof (point as { y?: unknown }).y !== "number" || !Number.isFinite((point as { y: number }).y))) {
+          throw new Error("point requires finite x and y coordinates.");
+        }
+        const bounds = args.bounds as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | undefined;
+        if (bounds !== undefined && (!bounds || typeof bounds !== "object" || Array.isArray(bounds) ||
+            ![bounds.x, bounds.y, bounds.width, bounds.height].every((value) => typeof value === "number" && Number.isFinite(value)) ||
+            (bounds.width as number) < 0 || (bounds.height as number) < 0)) {
+          throw new Error("bounds requires finite x/y and non-negative width/height.");
+        }
+        const offset = typeof args.offset === "number" && Number.isInteger(args.offset)
+          ? Math.max(0, Math.min(20000, args.offset)) : 0;
+        const limit = typeof args.limit === "number" && Number.isInteger(args.limit)
+          ? Math.max(1, Math.min(100, args.limit)) : 40;
+        const matches = cells.filter((cell) => {
+          const name = typeof cell.name === "string" ? cell.name.trim() : "";
+          const id = typeof cell.id === "string" ? cell.id : "";
+          const shape = typeof cell.shape === "string" ? cell.shape : "";
+          const parentId = typeof cell.parentId === "string" ? cell.parentId : "";
+          const type = cell.cellType === "vertex" || cell.cellType === "edge" ? cell.cellType : "unknown";
+          const geometry = cell.geometry;
+          if (args.cellType !== undefined && type !== args.cellType) return false;
+          if (args.unlabeled === true && name.length > 0) return false;
+          if (query && ![id, name, shape, parentId, type].some((value) => value.toLocaleLowerCase().includes(query))) return false;
+          if (shapeQuery && !shape.toLocaleLowerCase().includes(shapeQuery)) return false;
+          if (point !== undefined) {
+            const px = (point as { x: number }).x;
+            const py = (point as { y: number }).y;
+            if (!geometry || typeof geometry.x !== "number" || typeof geometry.y !== "number" ||
+                typeof geometry.width !== "number" || typeof geometry.height !== "number" ||
+                px < geometry.x || py < geometry.y || px > geometry.x + geometry.width || py > geometry.y + geometry.height) return false;
+          }
+          if (bounds) {
+            if (!geometry || typeof geometry.x !== "number" || typeof geometry.y !== "number" ||
+                typeof geometry.width !== "number" || typeof geometry.height !== "number") return false;
+            const left = bounds.x as number; const top = bounds.y as number;
+            const right = left + (bounds.width as number); const bottom = top + (bounds.height as number);
+            if (geometry.x + geometry.width < left || geometry.x > right ||
+                geometry.y + geometry.height < top || geometry.y > bottom) return false;
+          }
+          return true;
+        });
+        const page = typeof context.activePageId === "string" ? context.activePageId : null;
+        const results = matches.slice(offset, offset + limit).map((cell) => ({
+          id: typeof cell.id === "string" ? cell.id : "",
+          label: typeof cell.name === "string" ? cell.name : "",
+          cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
+          shape: typeof cell.shape === "string" ? cell.shape : "",
+          ...(cell.geometry && typeof cell.geometry === "object" ? { geometry: cell.geometry } : {}),
+          ...(typeof cell.rotation === "number" ? { rotation: cell.rotation } : {}),
+          ...(typeof cell.parentId === "string" ? { parentId: cell.parentId } : {})
+        }));
+        const truncated = offset + results.length < matches.length;
+        await deps.writeLog("tool.inspect_drawio_graph.completed", {
+          sessionId, pageId: page, documentRevision: context.documentRevision ?? null,
+          totalCount: matches.length, offset, returnedCount: results.length, truncated,
+          filters: { query: query || null, shape: shapeQuery || null, cellType: args.cellType ?? null,
+            unlabeled: args.unlabeled === true, hasPoint: point !== undefined, hasBounds: bounds !== undefined }
+        });
+        return {
+          source: "native-drawio-xml", pageId: page, documentRevision: context.documentRevision ?? null,
+          totalCount: matches.length, offset, limit, returnedCount: results.length,
+          nextOffset: truncated ? offset + results.length : null, truncated, results
         };
       }
     });
@@ -625,25 +754,30 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createRunDrawioScriptTool(sessionId: string) {
     return defineTool("run_drawio_script", {
-      description: "Execute JavaScript directly against the live local Draw.io editor runtime. This is the primary full-capability path for native graph operations. Use the actual runtime objects and APIs; inspect the runtime or get_drawio_reference when useful, execute without a confirmation step, and let Studio persist the resulting native XML/version. You may create/reconnect edges, alter geometry and routing, choose shapes/styles, group/reparent cells, manage pages/layers, and use other available native editor capabilities without requesting new typed operations. The iframe is on a separate sandboxed origin: do not access the Studio parent DOM, call Studio local APIs, or use network requests for side effects. CSP permits requests to the local Draw.io origin for bundled resources but blocks cross-origin network requests and remote image loads. This is a terminal action for the current model turn: after calling it, do not call another terminal or mutating tool. The actual editor action happens after this model call ends; do not claim success in the tool-call turn. The script executes in the editor frame, not in Node.js. Resolve edit targets inside the script by label (model.getValue(cell)) and trust a cell ID only from selectedCell or diagram.cells. For mutations, use graph.insertVertex/insertEdge and verify postconditions through model/cell properties only; assert only the cells you created or changed — one xmlAssertion each, at most 3 postconditions, no assertions for untouched cells; any existing cell that changes without an assertion fails verification. Never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(); let the editor/bridge own rendering.",
+      description: "Execute JavaScript against the live native Draw.io editor. Prefer inspect_drawio_graph for non-terminal read-only surveys, especially when locating unnamed shapes by geometry. This tool is terminal for the current model turn. mode=read is a guarded inspection: it must not mutate the document and does not require postconditions; Studio verifies the semantic XML diff and suppresses no-op persistence. mode=mutate changes the diagram and requires ok=true, non-empty true postconditions, and xmlAssertions for every changed cell. The iframe is sandboxed on a separate origin; do not access the Studio parent DOM, local APIs or network side effects. Do not replace saved mxfile XML. For mutations use native Draw.io APIs and do not call graph.refresh(), graph.view.validate() or graph.view.getState() after mutation/endUpdate.",
       parameters: {
         type: "object",
         properties: {
-          summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the requested change." },
-          script: { type: "string", minLength: 1, maxLength: 50000, description: "JavaScript source executed against the live native Draw.io runtime. Available arguments: ui, editor, graph, model, inspectRuntime. For every modifying script, return { ok: true, postconditions: { checkName: true }, xmlAssertions: [...] } after checking the result in the live model. Keep the evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and no assertions for untouched cells; Studio compares the before/after XML and fails the edit when an undeclared existing cell changed. Each xmlAssertions item must include cellId and concrete evidence; style must be a non-empty key/value object (never a full style string or {}), and geometry must contain at least one explicit field. Use cell.getTerminal(true/false) or model.getTerminal(edge, true/false); mxCell has no getSource/getTarget. model.getChildCount(parent) counts direct children only; recurse for totals and never guess whole-diagram cell counts. All postcondition values must be true booleans. Use native APIs rather than replacing the saved mxfile XML. For mutation scripts, do not call graph.refresh(), graph.view.validate(), or graph.view.getState() after mutation/endUpdate; check existence, value, style, geometry and terminals through the model/cells and use xmlAssertions for host verification." }
+          summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the inspection or requested change." },
+          mode: { type: "string", enum: ["read", "mutate"], default: "mutate", description: "read for strictly non-mutating inspection without postconditions; mutate for edits that must return verifiable postconditions and XML assertions." },
+          script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript source with live ui, editor, graph, model and inspectRuntime bindings. For mutate mode, return { ok:true, postconditions:{checkName:true}, xmlAssertions:[...] }; each assertion must contain cellId and concrete evidence. style must be a non-empty key/value object; geometry must contain at least one explicit field. All postcondition values must be true booleans. For read mode, return compact JSON results and do not mutate any graph/model/page state." }
         },
         required: ["summary", "script"],
         additionalProperties: false
       },
-      handler: async (args: { summary?: unknown; script?: unknown }) => {
+      handler: async (args: { summary?: unknown; script?: unknown; mode?: unknown }) => {
         if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000) {
           throw new Error("run_drawio_script requires a summary from 1 to 1000 characters");
         }
         if (typeof args.script !== "string" || !args.script.trim() || args.script.length > 50000) {
           throw new Error("run_drawio_script requires a non-empty JavaScript program no longer than 50000 characters");
         }
+        if (args.mode !== undefined && args.mode !== "read" && args.mode !== "mutate") {
+          throw new Error("run_drawio_script mode must be read or mutate");
+        }
+        const mode = args.mode === "read" ? "read" : "mutate";
         const parsed = parseNativeEditOperations([{
-          op: "run_drawio_script", target: "active_page", summary: args.summary, script: args.script
+          op: "run_drawio_script", target: "active_page", summary: args.summary, script: args.script, mode
         }]);
         if (!parsed.ok) throw new Error(parsed.error);
         const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
@@ -656,17 +790,16 @@ function createDrawioElementSearchTool(sessionId: string) {
           ? activeContext as { documentRevision?: string; activePageId?: string | null; runtimeInspection?: { drawioVersion?: string } }
           : {};
         await deps.writeLog("tool.run_drawio_script.accepted", {
-          sessionId, summary, script: args.script, scriptLength: args.script.length,
+          sessionId, summary, mode, script: args.script, scriptLength: args.script.length,
           documentRevision: context.documentRevision ?? null, pageId: context.activePageId ?? null,
           drawioVersion: context.runtimeInspection?.drawioVersion ?? PINNED_DRAWIO_VERSION
         });
         return {
-          accepted: true,
-          execution: "after_model_turn",
-          summary,
-          scriptLength: args.script.length,
-          terminal: true,
-          instructions: "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Do not claim success in this turn; Studio will report the acknowledged result, and may ask for one corrected script if execution fails and rollback is confirmed."
+          accepted: true, execution: "after_model_turn", summary, mode,
+          scriptLength: args.script.length, terminal: true,
+          instructions: mode === "read"
+            ? "This is a terminal read-only script call. It must not mutate any document/editor state and may return a JSON result without postconditions. Studio checks the semantic XML diff and will not persist a no-op serialization. Do not claim any diagram change."
+            : "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Return and verify postconditions plus XML assertions; do not claim success before serialization and persistence are confirmed."
         };
       }
     });
@@ -1016,6 +1149,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioShapeSearchTool(sessionId),
               createDrawioRuntimeShapeSearchTool(sessionId),
               createDrawioElementSearchTool(sessionId),
+              createDrawioGraphInspectionTool(sessionId),
               createDrawioReferenceTool(),
               createRunDrawioScriptTool(sessionId),
               createProposeNativeEditsTool(sessionId),
