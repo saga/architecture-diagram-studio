@@ -873,16 +873,19 @@ function createDrawioElementSearchTool(sessionId: string) {
         return;
       }
       const repair = suppliedRepair as Record<string, unknown>;
+      const toolResult = repair.toolResult && typeof repair.toolResult === "object" && !Array.isArray(repair.toolResult)
+        ? repair.toolResult as Record<string, unknown>
+        : null;
       if (typeof repair.originalRequest !== "string" || !repair.originalRequest.trim() || repair.originalRequest.length > 1500 ||
           typeof repair.failedScript !== "string" || !repair.failedScript.trim() || repair.failedScript.length > 12_000 ||
           typeof repair.error !== "string" || !repair.error.trim() || repair.error.length > 1200 ||
           (repair.stack !== undefined && (typeof repair.stack !== "string" || repair.stack.length > 8000)) ||
-          !repair.toolResult || typeof repair.toolResult !== "object" || Array.isArray(repair.toolResult) ||
-          repair.toolResult.toolName !== "run_drawio_script" || repair.toolResult.success !== false ||
-          typeof repair.toolResult.error !== "string" || !repair.toolResult.error.trim() || repair.toolResult.error.length > 1200 ||
-          typeof repair.toolResult.rollbackConfirmed !== "boolean" ||
-          typeof repair.toolResult.failedPath !== "string" || repair.toolResult.failedPath.length > 80 ||
-          (repair.toolResult.stack !== undefined && (typeof repair.toolResult.stack !== "string" || repair.toolResult.stack.length > 8000))) {
+          !toolResult ||
+          toolResult.toolName !== "run_drawio_script" || toolResult.success !== false ||
+          typeof toolResult.error !== "string" || !toolResult.error.trim() || toolResult.error.length > 1200 ||
+          typeof toolResult.rollbackConfirmed !== "boolean" ||
+          typeof toolResult.failedPath !== "string" || toolResult.failedPath.length > 80 ||
+          (toolResult.stack !== undefined && (typeof toolResult.stack !== "string" || toolResult.stack.length > 8000))) {
         res.status(400).json({ outcome: "failed", reply: "The native script repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, script <=12000 chars, error <=1200 chars, and a bounded failed run_drawio_script tool result", documentRevision, requestId, sessionId });
         return;
       }
@@ -894,10 +897,10 @@ function createDrawioElementSearchTool(sessionId: string) {
         toolResult: {
           toolName: "run_drawio_script",
           success: false,
-          error: repair.toolResult.error.slice(0, 1200),
-          ...(typeof repair.toolResult.stack === "string" ? { stack: repair.toolResult.stack.slice(0, 8000) } : {}),
-          rollbackConfirmed: repair.toolResult.rollbackConfirmed,
-          failedPath: repair.toolResult.failedPath
+          error: (toolResult as Record<string, unknown>).error as string,
+          ...(typeof toolResult.stack === "string" ? { stack: toolResult.stack.slice(0, 8000) } : {}),
+          rollbackConfirmed: toolResult.rollbackConfirmed as boolean,
+          failedPath: toolResult.failedPath as string
         }
       };
       await deps.writeLog("request.script-repair.received", {
