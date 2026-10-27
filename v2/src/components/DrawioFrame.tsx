@@ -1058,7 +1058,13 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
-          if (readOnlyNoopSerialization) {
+          const onlyReadOnlyNoopResults = readOnlyNoopSerialization &&
+            pendingSaves.length > 0 &&
+            deferredBatchAcks.length === pendingSaves.length &&
+            pendingSaves.every(([, pending]) => scriptModeFromBatchValue(pending.value) === "read") &&
+            pendingAutoLayoutRef.current?.awaitingExport !== true &&
+            pendingNativePaletteRef.current?.awaitingExport !== true;
+          if (onlyReadOnlyNoopResults) {
             for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
             recordDiagnostic("drawio.script.read-only.persistence-skipped",
               "Read-only script result was acknowledged without updating the authoritative XML, writing the local file, or creating a history snapshot",
