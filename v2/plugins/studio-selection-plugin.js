@@ -1251,7 +1251,7 @@
         catch (compileError) { if (!compileError || compileError.name !== "SyntaxError") throw compileError; executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script); }
         var readOnlyStateBeforeScript = scriptMode === "read" ? captureNativeReadOnlyState(activeGraph, activeModel) : null;
         var readOnlyGuardTargets = scriptMode === "read" ? [
-          { target: activeModel, matcher: /^(?:set|add|remove|clear|merge|execute|create|update|cellsAdded|cellsRemoved|beginUpdate|endUpdate|maintain)/i },
+          { target: activeModel, matcher: /^(?:set|add|remove|clear|merge|execute|create|update|cellsAdded|cellsRemoved|maintain)/i },
           { target: activeGraph, matcher: /^(?:set|add|remove|insert|delete|move|resize|connect|group|ungroup|fold|align|distribute|flip|rotate|order|split|collapse|expand|toggle|refresh|startEditing|stopEditing|fireEvent|import|duplicate|clone|clear)/i },
           { target: ui.editor, matcher: /^(?:set|add|remove|insert|delete|open|save|close|rename|create|execute|undo|redo|select|fire|reset|new|setModified)/i }
         ] : null;
