@@ -105,7 +105,7 @@ grep 'turn.model-call.completed' ~/.architecture-diagram-studio/logs/copilot-ses
 围绕本次 Copilot 请求超时，已继续落地以下改进：
 
 - **端到端绝对超时**：前端 intent 请求与服务端默认总回合预算均为 300000 ms。服务端 90000 ms idle watchdog 仍独立生效，只有缺少有意义的 SDK 进展时才提前终止。
-- **长会话上下文压缩**：Copilot SDK session 的 create/resume 配置启用 `infiniteSessions`，后台压缩阈值 75%，缓冲耗尽阈值 90%。保持原 SDK session ID 和历史，不自行创建新会话或丢弃对话上下文。压缩行为由 SDK 管理，并可通过 `session.compaction_start` / `session.compaction_complete` 事件观测。
+- **长会话上下文压缩**：Copilot SDK 新建 session 时启用 `infiniteSessions`，后台压缩阈值 75%，缓冲耗尽阈值 90%。已有 session 的历史和 ID 不被轮换；SDK 不允许在 `resumeSession` 配置中修改该选项，因此旧 session 不会被声称为已追溯启用压缩，新建的 session 才使用该配置。压缩行为由 SDK 管理，并可通过 `session.compaction_start` / `session.compaction_complete` 事件观测。
 - **推理强度校准**：设置支持 Low、Medium、High、Max；新配置默认 Medium，旧配置中明确保存的 High/Max 仍保留。设置 UI 说明 Medium 用于日常编辑，复杂变更再提升强度。
 - **高频编辑使用 typed operations**：提示词加入 C4 配方，优先使用 `set_label` 和 `set_style` 批量操作，避免为了简单重命名和配色生成大段脚本。颜色只应用于明确识别的目标，保留用户自行设置的颜色。现有 schema 没有 `set_cells_style` 这一单独操作，因此按每个目标/样式键组合多个已支持的 `set_style` 操作，不虚构新的 operation。
 - **进度可观测性**：流式进度摘要由每 30 秒改为每 5 秒，继续记录阶段、delta 字节数、工具参数生成进度和距上次有效进展的时间，不记录完整 delta 文本。
