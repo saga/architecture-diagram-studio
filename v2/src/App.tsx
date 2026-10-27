@@ -1372,8 +1372,15 @@ export default function App() {
       if (coverage.untouchedVertexCount > 0) untouchedParts.push(coverage.untouchedVertexCount + " nodes");
       if (coverage.untouchedEdgeCount > 0) untouchedParts.push(coverage.untouchedEdgeCount + " connectors");
       const untouchedSummary = untouchedParts.length ? " · " + untouchedParts.join(", ") + " untouched" : "";
+      const routingSummary = coverage.connectorsAttachedToNestedChildrenCount > 0
+        ? " · routed " + coverage.connectorsAttachedToNestedChildrenCount + " grouped connector(s)"
+        : "";
+      const regionSummary = coverage.spatialRegionCount > 0
+        ? " · kept " + coverage.spatialRegionCount + " spatial region(s) atomic with " + coverage.spatialRegionMemberCount + " member node(s)"
+        : "";
       setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
-        " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary);
+        " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
+        routingSummary + regionSummary);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,

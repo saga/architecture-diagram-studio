@@ -269,7 +269,7 @@ test.describe("原生画布", () => {
     await page.getByText("Ocean Depths", { exact: true }).click();
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "warm");
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
-      .toContain("fillColor=#B7DDEB");
+      .toContain("fillColor=#8EC6D8");
     await expect.poll(firstPageBackground, { timeout: 20_000 }).toBeNull();
     await expect.poll(async () => (await inspectCanvas())?.color, { timeout: 20_000 })
       .not.toBe("rgb(197, 221, 231)");
@@ -279,7 +279,7 @@ test.describe("原生画布", () => {
     await page.locator(".theme-selector .ant-select").click();
     await page.getByText("Midnight Galaxy", { exact: true }).click();
     await expect.poll(async () => readWorkspaceXml(workspace), { timeout: 20_000 })
-      .toContain("fillColor=#B9C9EF");
+      .toContain("fillColor=#A1B4E4");
     await expect.poll(firstPageBackground, { timeout: 20_000 }).toBeNull();
     expect((await inspectCanvas())?.image).not.toBe("none");
 
@@ -323,7 +323,7 @@ test.describe("原生画布", () => {
     await page.getByText("Ocean Depths", { exact: true }).click();
     await expect.poll(async () => {
       const xml = await readWorkspaceXml(workspace);
-      return xml.includes("fillColor=#B7DDEB") && (await pageBackground()) === null;
+      return xml.includes("fillColor=#8EC6D8") && (await pageBackground()) === null;
     }, { timeout: 20_000 }).toBe(true);
     await expect(undo).toBeEnabled();
 
@@ -331,14 +331,14 @@ test.describe("原生画布", () => {
     await undo.click();
     await expect.poll(async () => {
       const xml = await readWorkspaceXml(workspace);
-      return !xml.includes("fillColor=#B7DDEB") && (await pageBackground()) === "#FFFF66";
+      return !xml.includes("fillColor=#8EC6D8") && (await pageBackground()) === "#FFFF66";
     }, { timeout: 20_000 }).toBe(true);
     await expect(redo).toBeEnabled();
 
     await page.keyboard.press("Control+Shift+Z");
     await expect.poll(async () => {
       const xml = await readWorkspaceXml(workspace);
-      return xml.includes("fillColor=#B7DDEB") && (await pageBackground()) === null;
+      return xml.includes("fillColor=#8EC6D8") && (await pageBackground()) === null;
     }, { timeout: 20_000 }).toBe(true);
     await expect(page.locator(".theme-selector")).toContainText("Ocean Depths");
     await expect(undo).toBeEnabled();
@@ -346,7 +346,7 @@ test.describe("原生画布", () => {
     await page.keyboard.press("Control+Z");
     await expect.poll(async () => {
       const xml = await readWorkspaceXml(workspace);
-      return !xml.includes("fillColor=#B7DDEB") && (await pageBackground()) === "#FFFF66";
+      return !xml.includes("fillColor=#8EC6D8") && (await pageBackground()) === "#FFFF66";
     }, { timeout: 20_000 }).toBe(true);
     await expect(redo).toBeEnabled();
     await expect(page.locator(".theme-selector")).toContainText("Diagram colors (this page)");
@@ -376,10 +376,8 @@ test.describe("原生画布", () => {
     for (const label of ["Client", "API Service", "Background Worker", "Message Queue", "Database"]) {
       await expect(frame.getByText(label, { exact: true })).toBeVisible();
     }
-    const layoutSummary = page.getByRole("status").filter({ has: page.getByRole("button", { name: "Close layout summary" }) });
-    await expect(layoutSummary).toBeVisible();
-    await layoutSummary.getByRole("button", { name: "Close layout summary" }).click();
-    await expect(layoutSummary).toBeHidden();
+    const layoutSummary = page.locator(".bottom-status .status-left");
+    await expect(layoutSummary).toContainText("Auto layout");
     await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect.poll(async () => {
@@ -440,7 +438,7 @@ test.describe("原生画布", () => {
       parent: "1", source: "database", target: "group-step-a"
     });
     expect(nativeCellSnapshot(afterXml, "edge-database-to-group-child")?.points.length).toBeGreaterThan(0);
-    await expect(page.getByRole("status")).toContainText("Routed 1 connector(s) attached to grouped child nodes via the group/region boundary.");
+    await expect(page.locator(".bottom-status .status-left")).toContainText("routed 1 grouped connector(s)");
   });
 
   test("geometry-only spatial regions move atomically and preserve internal connector waypoints", async ({ page, request }) => {
@@ -517,7 +515,7 @@ test.describe("原生画布", () => {
       parent: "1", source: "spatial-plc-c", target: "database"
     });
     expect(nativeCellSnapshot(afterXml, "spatial-cross-boundary-edge")?.points.length).toBeGreaterThan(0);
-    await expect(page.getByRole("status")).toContainText(/Kept \d+ spatial region\(s\) atomic with \d+ member node\(s\)/);
+    await expect(page.locator(".bottom-status .status-left")).toContainText(/kept \d+ spatial region\(s\) atomic with \d+ member node\(s\)/);
   });
 
   test("布局工具栏恢复引擎和方向下拉设置，以及横向纵向快捷布局", async ({ page }) => {
