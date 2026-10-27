@@ -199,6 +199,45 @@ describe("native edit XML confirmation", () => {
     }, serialized, "p1")).toBe(false);
   });
 
+  it("checks serialized XML assertions even when a live-model postcondition is false", () => {
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { renamedExactlyFiveExpectedCells: false, noTask7LabelRemains: true },
+        xmlAssertions: [
+          { cellId: "api", label: "New API" },
+          { cellId: "db", label: "Warehouse" }
+        ]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "mismatch", cellId: "db", field: "label",
+      expected: "Warehouse", actual: "Database"
+    }));
+  });
+
+  it("verifies UserObject wrapper labels from serialized XML rather than a stringified DOM element", () => {
+    const wrappedBefore = before.replace("</root>",
+      '<object label="Task 7&lt;br&gt;%status%" placeholders="1"><mxCell id="status" vertex="1" parent="1">' +
+      '<mxGeometry x="20" y="80" width="100" height="40" as="geometry"/></mxCell></object></root>');
+    const wrappedAfter = wrappedBefore.replace('label="Task 7&lt;br&gt;%status%"',
+      'label="AI agent 任务&lt;br&gt;%status%"');
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { allRenamed: false },
+        xmlAssertions: [{ cellId: "status", label: "AI agent 任务<br>%status%" }]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, wrappedAfter, "p1");
+    expect(validation.ok).toBe(true);
+    expect(validation.failures).toEqual([]);
+  });
+
   it("rejects an existence-only assertion because it does not verify the requested outcome", () => {
     const result = {
       available: true,
