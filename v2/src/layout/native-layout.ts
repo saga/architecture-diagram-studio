@@ -4,6 +4,7 @@ import { calculateAdditionalNativeLayout, type AdditionalLayoutEngine } from "./
 import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 import { detectSpatialRegionsForLayout, type SpatialRegionLayoutCandidate } from "./spatial-region-analysis";
+import { isOrthogonalRouteClear, routeOrthogonalAvoidingObstacles } from "./orthogonal-router";
 
 export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
 export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
@@ -780,49 +781,180 @@ function normalizePlan(
   };
 
   const nativeRoutes: NativeLayoutEdgeRoute[] = [];
-  for (const edge of projection.edges) {
-    // An empty route explicitly clears stale waypoints left by a prior manual/automatic layout.
-    const translated = (routes.get(edge.id) ?? []).map((point) => ({ x: point.x + dx, y: point.y + dy }));
-    // Route the outer graph to the containing Group as a single node, while keeping native
-    // edge source/target IDs pointed at the original children. ELK Fixed preserves positions
-    // and lets Draw.io recalculate routes, so it must not add these proxy-boundary waypoints.
-    if (!(options.engine === "elk" && options.algorithm === "fixed")) {
-      if (edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId) {
-        const exit = groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId);
-        if (exit) {
-          if (translated.length > 0) {
-            // First run along the group boundary, then turn toward the solver's first bend.
-            const firstRoutePoint = translated[0];
-            translated.unshift(exit, { x: exit.x, y: firstRoutePoint.y });
-          } else {
-            translated.unshift(exit);
-          }
-        }
-      }
-      if (edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId) {
-        const exit = groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId);
-        if (exit) {
-          if (translated.length > 0) {
-            // Approach the target boundary on an axis-aligned segment before entering the group.
-            const lastRoutePoint = translated[translated.length - 1];
-            translated.push({ x: exit.x, y: lastRoutePoint.y }, exit);
-          } else {
-            translated.push(exit);
-          }
-        }
-      }
+  const routeClearance = 12;
+  const terminalEscapeDistance = 16;
+  const centerOf = (bounds: { x: number; y: number; width: number; height: number }): Point => ({
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2
+  });
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+  const terminalEscape = (
+    bounds: { x: number; y: number; width: number; height: number },
+    toward: Point
+  ): { port: Point; escape: Point } => {
+    const center = centerOf(bounds);
+    const dx = toward.x - center.x;
+    const dy = toward.y - center.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      const y = clamp(toward.y, bounds.y + Math.min(12, bounds.height / 2), bounds.y + bounds.height - Math.min(12, bounds.height / 2));
+      const direction = dx >= 0 ? 1 : -1;
+      const port = { x: direction > 0 ? bounds.x + bounds.width : bounds.x, y };
+      return { port, escape: { x: port.x + direction * terminalEscapeDistance, y } };
     }
+    const x = clamp(toward.x, bounds.x + Math.min(12, bounds.width / 2), bounds.x + bounds.width - Math.min(12, bounds.width / 2));
+    const direction = dy >= 0 ? 1 : -1;
+    const port = { x, y: direction > 0 ? bounds.y + bounds.height : bounds.y };
+    return { port, escape: { x, y: port.y + direction * terminalEscapeDistance } };
+  };
+  const escapeFromBoundary = (
+    ownerId: string,
+    boundary: Point
+  ): { boundary: Point; escape: Point } | null => {
+    const owner = absoluteBoundsForCell(ownerId);
+    if (!owner) return null;
+    let direction: Point | null = null;
+    if (Math.abs(boundary.x - owner.x) <= routeAxisEpsilon) direction = { x: -1, y: 0 };
+    else if (Math.abs(boundary.x - (owner.x + owner.width)) <= routeAxisEpsilon) direction = { x: 1, y: 0 };
+    else if (Math.abs(boundary.y - owner.y) <= routeAxisEpsilon) direction = { x: 0, y: -1 };
+    else if (Math.abs(boundary.y - (owner.y + owner.height)) <= routeAxisEpsilon) direction = { x: 0, y: 1 };
+    if (!direction) return null;
+    return {
+      boundary,
+      escape: {
+        x: boundary.x + direction.x * terminalEscapeDistance,
+        y: boundary.y + direction.y * terminalEscapeDistance
+      }
+    };
+  };
+  const isDescendantOrSelf = (cellId: string, ancestorId: string): boolean => {
+    let current = cellsById.get(cellId);
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      if (current.id === ancestorId) return true;
+      seen.add(current.id);
+      current = current.parentId ? cellsById.get(current.parentId) : undefined;
+    }
+    return false;
+  };
+  const belongsToRegionOwner = (cellId: string, ownerId: string): boolean => {
+    if (isDescendantOrSelf(cellId, ownerId)) return true;
+    return projection.spatialRegions.some((region) =>
+      region.regionCellId === ownerId && region.memberCellIds.includes(cellId)
+    );
+  };
+  const isInsideVisibleLayoutLayer = (cellId: string): boolean => {
+    let current = cellsById.get(cellId);
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      if (!current.visible) return false;
+      seen.add(current.id);
+      if (current.parentId === projection.layoutLayerId) return true;
+      current = current.parentId ? cellsById.get(current.parentId) : undefined;
+    }
+    return false;
+  };
+  const routingObstaclesFor = (edge: ProjectedCell) => {
+    const endpointIds = new Set([edge.sourceId, edge.targetId].filter((id): id is string => Boolean(id)));
+    const ownerIds = [edge.layoutSourceId, edge.layoutTargetId]
+      .filter((id): id is string => Boolean(id));
+    return projection.allCells
+      .filter((cell) => cell.kind === "vertex" && cell.hasGeometry && cell.width > 0 && cell.height > 0 &&
+        isInsideVisibleLayoutLayer(cell.id) &&
+        !endpointIds.has(cell.id) &&
+        !ownerIds.includes(cell.id) &&
+        !ownerIds.some((ownerId) => belongsToRegionOwner(cell.id, ownerId)))
+      .map((cell) => {
+        const bounds = absoluteBoundsForCell(cell.id);
+        return bounds ? { ...bounds, cellId: cell.id } : null;
+      })
+      .filter((obstacle): obstacle is { x: number; y: number; width: number; height: number; cellId: string } => obstacle !== null);
+  };
+
+  for (const edge of projection.edges) {
+    // The solver waypoints are retained when safe; obstacle routing only replaces a path
+    // when a segment would overlap another visible node or its clearance envelope.
+    const translated = (routes.get(edge.id) ?? []).map((point) => ({ x: point.x + dx, y: point.y + dy }));
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid connector route.");
     }
-    const points = orthogonalizeRoute(translated);
-    if (points.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y)) ||
-        points.some((point, index) => index > 0 &&
-          Math.abs(point.x - points[index - 1].x) > routeAxisEpsilon &&
-          Math.abs(point.y - points[index - 1].y) > routeAxisEpsilon)) {
-      throw new Error("The connector route could not be normalized to orthogonal segments.");
+
+    const sourceBounds = edge.sourceId ? absoluteBoundsForCell(edge.sourceId) : null;
+    const targetBounds = edge.targetId ? absoluteBoundsForCell(edge.targetId) : null;
+    const hasResolvableTerminals = Boolean(edge.sourceId && edge.targetId && sourceBounds && targetBounds);
+    if (options.edgeRouting === "ORTHOGONAL" && hasResolvableTerminals) {
+      const sourceCenter = centerOf(sourceBounds!);
+      const targetCenter = centerOf(targetBounds!);
+      const sourceBoundary = edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId
+        ? groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId)
+        : null;
+      const targetBoundary = edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId
+        ? groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId)
+        : null;
+      const sourceGroupExit = sourceBoundary && edge.layoutSourceId
+        ? escapeFromBoundary(edge.layoutSourceId, sourceBoundary)
+        : null;
+      const targetGroupExit = targetBoundary && edge.layoutTargetId
+        ? escapeFromBoundary(edge.layoutTargetId, targetBoundary)
+        : null;
+      const sourcePort = sourceGroupExit
+        ? { port: sourceGroupExit.boundary, escape: sourceGroupExit.escape }
+        : terminalEscape(sourceBounds!, translated[0] ?? targetCenter);
+      const targetPort = targetGroupExit
+        ? { port: targetGroupExit.boundary, escape: targetGroupExit.escape }
+        : terminalEscape(targetBounds!, translated[translated.length - 1] ?? sourceCenter);
+      const obstacles = routingObstaclesFor(edge);
+      const preferred = orthogonalizeRoute([
+        ...(sourceGroupExit ? [sourceGroupExit.boundary] : []),
+        sourcePort.escape,
+        ...translated,
+        targetPort.escape,
+        ...(targetGroupExit ? [targetGroupExit.boundary] : [])
+      ]);
+      let points = isOrthogonalRouteClear(preferred, obstacles, routeClearance) ? preferred : null;
+      if (!points) {
+        const routed = routeOrthogonalAvoidingObstacles(
+          sourcePort.escape,
+          targetPort.escape,
+          obstacles,
+          { clearance: routeClearance, bendPenalty: 32, maxPoints: 90 }
+        );
+        if (routed) {
+          const candidate = orthogonalizeRoute([
+            ...(sourceGroupExit ? [sourceGroupExit.boundary] : []),
+            ...routed,
+            ...(targetGroupExit ? [targetGroupExit.boundary] : [])
+          ]);
+          if (isOrthogonalRouteClear(candidate, obstacles, routeClearance)) points = candidate;
+        }
+      }
+      if (!points) {
+        throw new Error("No safe orthogonal route could be found for connector " + edge.id +
+          ". Move overlapping nodes farther apart and retry the layout.");
+      }
+      if (points.length > 100 ||
+          points.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y)) ||
+          points.some((point, index) => index > 0 &&
+            Math.abs(point.x - points[index - 1].x) > routeAxisEpsilon &&
+            Math.abs(point.y - points[index - 1].y) > routeAxisEpsilon)) {
+        throw new Error("The connector route failed orthogonal geometry validation: " + edge.id);
+      }
+      nativeRoutes.push({ cellId: edge.id, points });
+      continue;
     }
-    nativeRoutes.push({ cellId: edge.id, points });
+
+    // Polyline and spline modes keep the selected engine's point geometry. Group proxy
+    // transitions remain explicit, but are not rewritten as orthogonal routes.
+    if (!(options.engine === "elk" && options.algorithm === "fixed")) {
+      if (edge.sourceId && edge.layoutSourceId && edge.sourceId !== edge.layoutSourceId && edge.targetId) {
+        const exit = groupBoundaryPoint(edge.sourceId, edge.layoutSourceId, edge.targetId);
+        if (exit) translated.unshift(exit);
+      }
+      if (edge.targetId && edge.layoutTargetId && edge.targetId !== edge.layoutTargetId && edge.sourceId) {
+        const exit = groupBoundaryPoint(edge.targetId, edge.layoutTargetId, edge.sourceId);
+        if (exit) translated.push(exit);
+      }
+    }
+    nativeRoutes.push({ cellId: edge.id, points: translated });
   }
   // Internal connectors are not sent through the outer solver. When they carry explicit
   // waypoints, translate those points by the same region delta as both endpoints.
