@@ -493,7 +493,7 @@
             return typeof window.mxPoint === "function" ? new window.mxPoint(point.x, point.y) : { x: point.x, y: point.y };
           }) : null;
           activeModel.setGeometry(cell, geometry);
-          var routeStyle = setStyleValue(cell.style, "orthogonal", "1");
+          var routeStyle = setStyleValue(cell.style, "orthogonal", plan.edgeRouting === "ORTHOGONAL" ? "1" : "0");
           routeStyle = setStyleValue(routeStyle, "curved", plan.edgeRouting === "SPLINES" ? "1" : "0");
           if (routeStyle !== cell.style) activeModel.setStyle(cell, routeStyle);
           changedEdges++;
