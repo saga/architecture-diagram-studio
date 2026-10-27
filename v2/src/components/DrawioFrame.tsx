@@ -823,14 +823,15 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       const exportSerialization = data.event === "export" && data.format === "xml" &&
         (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || pendingNativePaletteRef.current?.awaitingExport === true);
       if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
-        const pendingReadOnly = Array.from(pendingSaveConfirmationsRef.current.values())
-          .find((pending) => scriptModeFromBatchValue(pending.value) === "read");
+        const pendingReadOnlyEntry = Array.from(pendingSaveConfirmationsRef.current.entries())
+          .find(([, pending]) => scriptModeFromBatchValue(pending.value) === "read");
+        const pendingReadOnly = pendingReadOnlyEntry?.[1];
         if (pendingReadOnly) {
           const readOnlyDiff = summarizeNativeDiagramXmlDiff(pendingReadOnly.beforeXml, data.xml);
           if (readOnlyDiff.available && readOnlyDiff.changed === false) {
             recordDiagnostic("drawio.script.read-only.autosave-suppressed",
               "Suppressed a viewport/serialization-only autosave while a read-only script awaits its export receipt",
-              { event: data.event, requestId: pendingReadOnly.requestId, xmlLengthBefore: pendingReadOnly.beforeXml.length,
+              { event: data.event, requestId: pendingReadOnlyEntry?.[0] ?? null, xmlLengthBefore: pendingReadOnly.beforeXml.length,
                 xmlLengthAfter: data.xml.length, diffAvailable: readOnlyDiff.available, semanticChanged: readOnlyDiff.changed });
             return;
           }
