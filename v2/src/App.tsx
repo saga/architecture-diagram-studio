@@ -1696,12 +1696,11 @@ export default function App() {
                   { value: "SPLINES", label: "Curved / splines" }
                 ]}
                 onChange={(edgeRouting) => setNativeLayoutOptions((current) => ({ ...current, edgeRouting }))}
-                disabled={nativeLayoutOptions.engine !== "elk" && nativeLayoutOptions.engine !== "graphviz"}
                 style={{ width: "100%" }}
               />
             </label>
           </div>
-          <p className="native-layout-settings-help">Studio runs the selected layout engine outside Draw.io; only validated native cell geometry and connector waypoints are applied. Settings are saved in this browser.</p>
+          <p className="native-layout-settings-help">Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Settings are saved in this browser.</p>
         </Modal>
 
         <div className="canvas-stage">
