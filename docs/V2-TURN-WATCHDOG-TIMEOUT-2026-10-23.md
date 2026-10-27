@@ -88,7 +88,7 @@ grep 'turn.model-call.completed' ~/.architecture-diagram-studio/logs/copilot-ses
 - 每 30 秒写入 `turn.streaming.progress`，只存事件计数、字节计数、阶段、活动间隔和工具名，不复制 delta 内容。超时另写 `turn.streaming.timeout`，明确标识 `idle` 或 `overall`，并包含终止时快照。
 - 服务端终端现在会显示经过白名单筛选的 request、model-call start/end、progress 和 timeout 摘要；即使开启 `STUDIO_LOG_LEVEL=info`，原始 `sdk.event` 也不会逐条刷终端。SDK 事件记录仍保留在 JSONL trace 中，但单条事件的 detail 有长度限制。
 
-仍应单独评估、不要与 timeout patch 混改的项目：长会话的 context compaction/rotation（需决定摘要注入与 history/replay 语义）、按任务调低 reasoning effort（需有配置与质量验证），以及 C4 领域配方/typed operation 扩展（属于编辑契约，不是 watchdog 修复）。
+后续实施状态见文末「故障治理跟进（2026-10-27）」。长会话压缩采用 SDK 原生 infiniteSessions 自动压缩，不轮换 session ID，因此不破坏已有 session history / replay 身份。
 
 
 ## 300 秒端到端超时对齐（2026-10-27）
@@ -98,3 +98,17 @@ grep 'turn.model-call.completed' ~/.architecture-diagram-studio/logs/copilot-ses
 本次将前端 intent 请求超时统一为 300000 ms，并将超时提示同步改为 300 秒。服务端 300 秒总回合上限保持不变；服务端 90000 ms idle watchdog 仍保留，用于在没有有意义的 SDK 进展时提前终止。**因此“统一 300 秒”指端到端请求的绝对上限对齐，不是取消服务端空闲保护。**
 
 本次只对齐 intent 请求，不改变 proposal confirmation 的 30000 ms 超时，也不调整 reasoning effort、会话上下文或工具执行策略。
+
+
+## 故障治理跟进（2026-10-27）
+
+围绕本次 Copilot 请求超时，已继续落地以下改进：
+
+- **端到端绝对超时**：前端 intent 请求与服务端默认总回合预算均为 300000 ms。服务端 90000 ms idle watchdog 仍独立生效，只有缺少有意义的 SDK 进展时才提前终止。
+- **长会话上下文压缩**：Copilot SDK session 的 create/resume 配置启用 `infiniteSessions`，后台压缩阈值 75%，缓冲耗尽阈值 90%。保持原 SDK session ID 和历史，不自行创建新会话或丢弃对话上下文。压缩行为由 SDK 管理，并可通过 `session.compaction_start` / `session.compaction_complete` 事件观测。
+- **推理强度校准**：设置支持 Low、Medium、High、Max；新配置默认 Medium，旧配置中明确保存的 High/Max 仍保留。设置 UI 说明 Medium 用于日常编辑，复杂变更再提升强度。
+- **高频编辑使用 typed operations**：提示词加入 C4 配方，优先使用 `set_label` 和 `set_style` 批量操作，避免为了简单重命名和配色生成大段脚本。颜色只应用于明确识别的目标，保留用户自行设置的颜色。现有 schema 没有 `set_cells_style` 这一单独操作，因此按每个目标/样式键组合多个已支持的 `set_style` 操作，不虚构新的 operation。
+- **进度可观测性**：流式进度摘要由每 30 秒改为每 5 秒，继续记录阶段、delta 字节数、工具参数生成进度和距上次有效进展的时间，不记录完整 delta 文本。
+- **错误分类**：区分浏览器端 300 秒超时、HTTP 服务不可达、服务端 idle timeout、服务端总回合 deadline，以及客户端主动取消。超时提示明确指出降低推理强度或拆分任务，而不是一概建议检查网络或缩短指令。
+
+本次通过 GitHub Contents API 提交代码并检查了变更文件内容；当前执行环境没有运行仓库的 npm build、typecheck 或 E2E 测试，因此这些改动尚未被本地构建验证。重点回归项包括 SDK 当前安装版本对 `infiniteSessions` 配置的支持、四档 effort 的配置读写与 session cache key、以及 timeout 文案与请求取消的集成行为。
