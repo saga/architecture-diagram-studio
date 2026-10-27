@@ -848,9 +848,14 @@ describe("Copilot intent route result and revision contract", () => {
 
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
-    const searchResult = (copilot as { searchResult?: { found: boolean; matchCount: number; results: Array<{ id: string; label: string }> } }).searchResult;
+    const searchResult = (copilot as { searchResult?: {
+      found: boolean; matchCount: number; pageId: string | null; documentRevision: string | null;
+      results: Array<{ id: string; label: string }>
+    } }).searchResult;
     expect(searchResult?.found).toBe(true);
     expect(searchResult?.matchCount).toBe(1);
+    expect(searchResult?.pageId).toBe("p1");
+    expect(searchResult?.documentRevision).toBe(workspaceRevision(crowdedXml));
     expect(searchResult?.results).toMatchObject([{
       id: "payment-orchestrator", label: "Payment Orchestrator", cellType: expect.any(String),
       geometry: { x: 1, y: 1, width: 20, height: 20 }, parentId: "1"
@@ -876,8 +881,13 @@ describe("Copilot intent route result and revision contract", () => {
 
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
-    const result = (copilot as { searchResult?: { matchCount: number; results: Array<Record<string, unknown>> } }).searchResult;
+    const result = (copilot as { searchResult?: {
+      matchCount: number; pageId: string | null; documentRevision: string | null;
+      results: Array<Record<string, unknown>>
+    } }).searchResult;
     expect(result?.matchCount).toBe(1);
+    expect(result?.pageId).toBe("p1");
+    expect(result?.documentRevision).toBe(workspaceRevision(floorplanXml));
     expect(result?.results[0]).toMatchObject({
       id: "table-north", label: "桌子", shape: "mxgraph.floorplan.table",
       geometry: { x: 300, y: 210, width: 82, height: 42 }
