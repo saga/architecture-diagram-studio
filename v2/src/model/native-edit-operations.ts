@@ -226,7 +226,9 @@ const nativeEditOperationOptions = {
     op: z.literal("run_drawio_script"),
     target: z.literal("active_page").describe("Execute inside the current native Draw.io editor and active page."),
     summary: z.string().trim().min(1, { message: "summary must not be empty" }).max(1000, { message: "summary exceeds 1000 characters" })
-      .describe("Concise user-facing description of the intended diagram change."),
+      .describe("Concise description of the requested inspection or diagram change."),
+    mode: z.enum(["read", "mutate"]).optional()
+      .describe("Use read for a strictly non-mutating inspection that returns JSON without postconditions; use mutate for diagram changes and require verified postconditions plus XML assertions."),
     script: z.string().min(1, { message: "script must be a non-empty JavaScript program" })
       .max(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH, { message: `script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters` })
       .describe("Synchronous JavaScript executed against the live pinned Draw.io runtime with ui, editor, graph, and model available. Use for complex or non-trivial native edits where direct Draw.io APIs are simpler than typed shortcuts. Do not author saved mxfile XML directly or bypass the Studio serialization and persistence acknowledgement chain.")
@@ -353,7 +355,7 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
-    case "run_drawio_script": return operation.summary;
+    case "run_drawio_script": return (operation.mode === "read" ? "Inspect native Draw.io diagram: " : "Run native Draw.io script: ") + operation.summary;
     case "auto_layout": {
       const engineLabels: Record<NativeAutoLayoutEngine, string> = {
         elk: "ELK", dagre: "Dagre", graphviz: "Graphviz", msagl: "MSAGL.js", cytoscape: "Cytoscape.js", d3: "D3"
@@ -420,7 +422,11 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
         break;
       case "run_drawio_script":
-        edits.push({ cellId, path: "cell:execute-script", value: operation.script });
+        edits.push({
+          cellId,
+          path: "cell:execute-script",
+          value: JSON.stringify({ mode: operation.mode ?? "mutate", script: operation.script })
+        });
         break;
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The layout plan was not calculated from the current native XML revision." };
