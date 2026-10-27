@@ -908,7 +908,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. Large or destructive batches may require UI confirmation. For other graph operations use run_drawio_script; never fabricate cell IDs.",
+      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use run_drawio_script; never fabricate cell IDs.",
       parameters: {
         type: "object",
         properties: {
@@ -962,7 +962,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         return {
           // This is tool feedback, not proof of editor execution/persistence.
           accepted: true, queued: true, execution: "after_model_turn", terminal: true, result_available: false,
-          instructions: "The native edit intent is queued, but the diagram has not been changed or saved yet. Do not call another terminal tool or claim success. Studio will validate the revision and either request confirmation or dispatch the operation for native XML and persistence verification.",
+          instructions: "The native edit intent is queued, but the diagram has not been changed or saved yet. Do not call another terminal tool or claim success. Studio will validate the current revision and dispatch the operation for native XML and persistence verification; in local single-user mode there is no second confirmation click.",
           operationCount: resolved.operations.length,
           operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
