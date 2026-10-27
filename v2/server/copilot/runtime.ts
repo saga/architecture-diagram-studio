@@ -704,9 +704,6 @@ export class CopilotRuntime {
     const providerConfig = toProviderConfig(this.provider);
     const base: ResumeSessionConfig = {
       streaming: true,
-      // This runtime uses mode:"empty", where SDK automatic compaction is disabled unless opted in.
-      // Enable the SDK-supported compaction lifecycle rather than rotating sessions and losing context.
-      infiniteSessions: { enabled: true, backgroundCompactionThreshold: 0.75, bufferExhaustionThreshold: 0.9 },
       ...(providerConfig ? { provider: providerConfig } : {}),
       availableTools: new ToolSet().addCustom("*"),
       tools: prepared.tools,
@@ -782,6 +779,8 @@ export class CopilotRuntime {
         ...base,
         sessionId: sdkSessionId,
         model: request.model,
+        // Opt in on session creation; mode:"empty" otherwise disables automatic compaction.
+        infiniteSessions: { enabled: true, backgroundCompactionThreshold: 0.75, bufferExhaustionThreshold: 0.9 },
         ...(actualEffort ? { reasoningEffort: actualEffort } : {})
       }));
       await this.options.log("session.created", {
