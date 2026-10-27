@@ -688,7 +688,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
             failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
             rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
-            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null
+            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null,
+            ...(data.scriptMode === "read" || data.scriptMode === "mutate" ? { scriptMode: data.scriptMode } : {})
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
