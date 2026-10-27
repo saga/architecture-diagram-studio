@@ -988,13 +988,33 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     reason: "The script did not return passing, verifiable postconditions."
                   }] };
                 const serializedAssertionsPassed = scriptChecksPassed && assertionValidation.ok;
-                const scriptScope = serializedAssertionsPassed
+                // Scope comparison is independent evidence: run it even when assertion shape
+                // validation fails, so schema mistakes cannot hide undeclared document changes.
+                const scriptScope = scriptChecksPassed
                   ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult, 20, pending.pageId)
                   : null;
                 const undeclaredChangesPassed = scriptScope === null ? null : scriptScope.ok;
-                const assertionDiagnostic = assertionValidation.failures.slice(0, 8)
+                const deduplicatedAssertionFailures = [...new Map(assertionValidation.failures.map((failure) => [
+                  [failure.cellId || "", failure.field, failure.kind].join("::"), failure
+                ])).values()];
+                const assertionDiagnostic = deduplicatedAssertionFailures.slice(0, 8)
                   .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
                     "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
+                const deduplicatedAssertionWarnings = [...new Map((assertionValidation.warnings || []).map((warning) => [
+                  [warning.cellId || "", warning.field].join("::"), warning
+                ])).values()];
+                if (deduplicatedAssertionWarnings.length) {
+                  recordDiagnostic("drawio.script.postcondition.assertion-metadata-ignored",
+                    "Ignored non-contract assertion metadata while validating independently supported XML evidence",
+                    {
+                      requestId,
+                      warningCount: deduplicatedAssertionWarnings.length,
+                      warningFields: deduplicatedAssertionWarnings.map((warning) => warning.field).slice(0, 20),
+                      warnings: deduplicatedAssertionWarnings.slice(0, 20).map((warning) => ({
+                        cellId: warning.cellId ?? null, field: warning.field, reason: warning.reason
+                      }))
+                    }, "warn");
+                }
                 const scopeDiagnostic = scriptScope && !scriptScope.ok
                   ? (scriptScope.available
                       ? scriptScope.violations.slice(0, 8).map((violation) =>
@@ -1020,7 +1040,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                     ...acknowledgement,
                     success: false,
                     applicationState,
-                    assertionFailures: assertionValidation.failures.slice(0, 25),
+                    assertionFailures: deduplicatedAssertionFailures.slice(0, 25),
                     scopeViolations: scriptScope && !scriptScope.ok ? scriptScope.violations.slice(0, 25) : [],
                     error: applicationState === "changed-unverified"
                       ? (undeclaredChangesPassed === false
@@ -1042,7 +1062,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                       undeclaredViolations: scriptScope?.violations.slice(0, 25) ?? [],
                       undeclaredScopeAvailable: scriptScope?.available ?? null,
                       assertionFailureCount: assertionValidation.failures.length,
-                      assertionFailures: assertionValidation.failures.slice(0, 25),
+                      uniqueAssertionFailureCount: deduplicatedAssertionFailures.length,
+                      assertionFailures: deduplicatedAssertionFailures.slice(0, 25),
                       xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length }, "warn");
                   if (scriptScope && !scriptScope.ok) {
                     recordDiagnostic("drawio.script.postcondition.undeclared-change",
