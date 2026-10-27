@@ -43,6 +43,24 @@ describe("obstacle-aware orthogonal router", () => {
       Math.abs(point.y - route![index - 1].y) <= 0.01)).toBe(true);
   });
 
+  it("keeps a nested route inside its group bounds", () => {
+    const bounds = { x: 0, y: 0, width: 200, height: 120 };
+    const obstacle = { x: 70, y: 25, width: 50, height: 70 };
+    const route = routeOrthogonalAvoidingObstacles(
+      { x: 30, y: 60 },
+      { x: 170, y: 60 },
+      [obstacle],
+      { clearance: 6, bounds }
+    );
+
+    expect(route).not.toBeNull();
+    expect(isOrthogonalRouteClear(route!, [obstacle], 6, bounds)).toBe(true);
+    expect(route!.every((point) =>
+      point.x >= bounds.x && point.x <= bounds.x + bounds.width &&
+      point.y >= bounds.y && point.y <= bounds.y + bounds.height
+    )).toBe(true);
+  });
+
   it("returns null when an endpoint is inside an unrelated obstacle", () => {
     expect(routeOrthogonalAvoidingObstacles(
       { x: 45, y: 45 },
