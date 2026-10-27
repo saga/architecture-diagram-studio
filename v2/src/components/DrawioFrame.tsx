@@ -75,8 +75,9 @@ type NativeEditResult = {
   /** Set by the host when the editor accepted the edit but required persistence failed. */
   failureStage?: "editor" | "persistence";
   auditWarning?: string;
-  /** Bounded JSON-safe value returned by a native script after its own postcondition checks. */
+  /** Bounded JSON-safe value returned by a native script. */
   scriptResult?: unknown;
+  scriptMode?: "read" | "mutate";
   applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
@@ -86,13 +87,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isScriptBatchValue(value: string): boolean {
+function scriptModeFromBatchValue(value: string): "read" | "mutate" | null {
   try {
-    const operations = JSON.parse(value) as Array<{ path?: unknown }>;
-    return Array.isArray(operations) && operations.some((operation) => operation?.path === "cell:execute-script");
+    const operations = JSON.parse(value) as Array<{ path?: unknown; value?: unknown }>;
+    const operation = Array.isArray(operations)
+      ? operations.find((item) => item?.path === "cell:execute-script")
+      : undefined;
+    if (!operation) return null;
+    if (typeof operation.value === "string") {
+      try {
+        const payload = JSON.parse(operation.value) as { mode?: unknown; script?: unknown };
+        if (payload && typeof payload === "object" && typeof payload.script === "string" &&
+            (payload.mode === "read" || payload.mode === "mutate")) return payload.mode;
+      } catch { /* Older persisted batches store raw JavaScript instead of an envelope. */ }
+    }
+    return "mutate";
   } catch {
-    return false;
+    return null;
   }
+}
+
+function isScriptBatchValue(value: string): boolean {
+  return scriptModeFromBatchValue(value) !== null;
 }
 
 function allPostconditionsTrue(value: unknown): boolean {
@@ -591,7 +607,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             cellId: typeof data.cellId === "string" ? data.cellId : null,
             path: typeof data.path === "string" ? data.path : null,
             batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
-            ...(data.scriptResult !== undefined ? { scriptResult: data.scriptResult } : {})
+            ...(data.scriptResult !== undefined ? { scriptResult: data.scriptResult } : {}),
+            ...(data.scriptMode === "read" || data.scriptMode === "mutate" ? { scriptMode: data.scriptMode } : {})
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
@@ -805,6 +822,20 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
       const exportSerialization = data.event === "export" && data.format === "xml" &&
         (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || pendingNativePaletteRef.current?.awaitingExport === true);
+      if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
+        const pendingReadOnly = Array.from(pendingSaveConfirmationsRef.current.values())
+          .find((pending) => scriptModeFromBatchValue(pending.value) === "read");
+        if (pendingReadOnly) {
+          const readOnlyDiff = summarizeNativeDiagramXmlDiff(pendingReadOnly.beforeXml, data.xml);
+          if (readOnlyDiff.available && readOnlyDiff.changed === false) {
+            recordDiagnostic("drawio.script.read-only.autosave-suppressed",
+              "Suppressed a viewport/serialization-only autosave while a read-only script awaits its export receipt",
+              { event: data.event, requestId: pendingReadOnly.requestId, xmlLengthBefore: pendingReadOnly.beforeXml.length,
+                xmlLengthAfter: data.xml.length, diffAvailable: readOnlyDiff.available, semanticChanged: readOnlyDiff.changed });
+            return;
+          }
+        }
+      }
       if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
@@ -821,7 +852,66 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
           const deferredBatchAcks: NativeEditResult[] = [];
+          let readOnlyNoopSerialization = false;
           for (const [requestId, pending] of pendingSaves) {
+            const scriptMode = scriptModeFromBatchValue(pending.value);
+            if (scriptMode === "read" && pending.deferredBatchAck) {
+              const readOnlyDiff = summarizeNativeDiagramXmlDiff(pending.beforeXml, data.xml);
+              if (readOnlyDiff.available && readOnlyDiff.changed === false) {
+                if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+                pendingSaveConfirmationsRef.current.delete(requestId);
+                if (pending.captureOnFailure) {
+                  const rollbackConfirmed = pending.deferredBatchAck.batchRolledBack === true;
+                  deferredBatchAcks.push({
+                    ...pending.deferredBatchAck,
+                    success: false,
+                    applicationState: "not-applied",
+                    serializedXml: pending.beforeXml,
+                    auditWarning: rollbackConfirmed
+                      ? "The read-only script failed and the editor confirmed rollback. The document and file were left unchanged."
+                      : "The read-only script failed, but rollback was not confirmed. Inspect the live editor before continuing."
+                  });
+                  readOnlyNoopSerialization = rollbackConfirmed;
+                  recordDiagnostic("drawio.script.read-only.failure-noop",
+                    "A failed read-only script produced no semantic document change",
+                    { requestId, rollbackConfirmed, xmlLengthBefore: pending.beforeXml.length,
+                      xmlLengthAfter: data.xml.length, semanticChanged: false }, rollbackConfirmed ? "warn" : "error");
+                } else {
+                  deferredBatchAcks.push({
+                    ...pending.deferredBatchAck,
+                    success: true,
+                    applicationState: "not-applied",
+                    serializedXml: pending.beforeXml,
+                    scriptMode: "read",
+                    auditWarning: "Read-only inspection completed. No diagram change was made and no autosave/history snapshot was created."
+                  });
+                  readOnlyNoopSerialization = true;
+                  recordDiagnostic("drawio.script.read-only.completed",
+                    "Read-only script returned a result without changing semantic diagram content; serialization was not persisted",
+                    { requestId, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
+                      semanticChanged: false, scriptResultAvailable: isRecord(pending.scriptResult) && pending.scriptResult.available === true });
+                }
+                continue;
+              }
+              if (readOnlyDiff.available && readOnlyDiff.changed === true && pending.deferredBatchAck.success) {
+                if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+                pendingSaveConfirmationsRef.current.delete(requestId);
+                deferredBatchAcks.push({
+                  ...pending.deferredBatchAck,
+                  success: false,
+                  applicationState: "changed-unverified",
+                  serializedXml: data.xml,
+                  error: "The read-only script changed semantic diagram content; the resulting XML was captured but the inspection was rejected.",
+                  auditWarning: "A read-only script unexpectedly changed the diagram. Inspect the current XML and History before continuing; do not retry blindly."
+                });
+                recordDiagnostic("drawio.script.read-only.mutated",
+                  "A script declared read-only changed semantic XML and was rejected",
+                  { requestId, xmlLengthBefore: pending.beforeXml.length, xmlLengthAfter: data.xml.length,
+                    pagesChanged: readOnlyDiff.pagesChanged, cellsAdded: readOnlyDiff.cellsAdded?.length,
+                    cellsRemoved: readOnlyDiff.cellsRemoved?.length, cellsChanged: readOnlyDiff.cellsChanged?.length }, "error");
+                continue;
+              }
+            }
             const reflected = pending.captureOnFailure === true || nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
               path: pending.path, value: pending.value
@@ -894,7 +984,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const scriptScope = serializedAssertionsPassed
                   ? findUndeclaredNativeScriptChanges(pending.beforeXml, data.xml, scriptResult)
                   : null;
-                const undeclaredChangesPassed = scriptScope === null || scriptScope.ok;
+                const undeclaredChangesPassed = scriptScope === null ? null : scriptScope.ok;
                 const assertionDiagnostic = assertionValidation.failures.slice(0, 8)
                   .map((failure) => (failure.cellId ? "cell " + failure.cellId + " " : "") +
                     "[" + failure.kind + "] " + failure.field + ": " + failure.reason).join("; ");
@@ -907,7 +997,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                         ).join("; ")
                       : scriptScope.error || "The before/after XML could not be compared.")
                   : "";
-                if (serializedAssertionsPassed && undeclaredChangesPassed) {
+                if (serializedAssertionsPassed && undeclaredChangesPassed === true) {
                   acknowledgement = { ...acknowledgement, applicationState: "applied-and-verified" };
                 } else {
                   const applicationState = classifyUnverifiedSnapshot(pending.beforeXml, data.xml);
@@ -965,6 +1055,14 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 nativeDiff });
             if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
             pendingSaveConfirmationsRef.current.delete(requestId);
+          }
+          if (readOnlyNoopSerialization) {
+            for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
+            recordDiagnostic("drawio.script.read-only.persistence-skipped",
+              "Read-only script result was acknowledged without updating the authoritative XML, writing the local file, or creating a history snapshot",
+              { event: data.event, xmlLengthBefore: pendingSaves[0]?.[1].beforeXml.length ?? null,
+                xmlLengthSerialized: data.xml.length, duplicateXml, pendingAcknowledgementCount: deferredBatchAcks.length });
+            return;
           }
           if (duplicateXml) {
             for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
