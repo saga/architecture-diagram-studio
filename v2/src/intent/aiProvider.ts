@@ -5,7 +5,7 @@ import { isCopilotIntentOutcome, type CopilotIntentResponse } from "./copilot-in
 
 export interface AIProviderConfig {
   model: string;
-  reasoningEffort?: "high" | "max";
+  reasoningEffort?: "low" | "medium" | "high" | "max";
   sessionId?: string;
   standalone?: boolean;
   /** Exact XML snapshot the user asked Copilot to edit. Never interpolated as executable instructions. */
@@ -221,7 +221,7 @@ export async function requestAIIntentPlan(
         ...(config.standalone === true ? { diagramXml: config.diagramXml } : {}),
         ...(model ? { model } : {}),
         ...(config.sessionId ? { sessionId: config.sessionId } : {}),
-        reasoningEffort: config.reasoningEffort || "max",
+        reasoningEffort: config.reasoningEffort || "medium",
         standalone: config.standalone === true
       }),
       signal: AbortSignal.timeout(300_000)
