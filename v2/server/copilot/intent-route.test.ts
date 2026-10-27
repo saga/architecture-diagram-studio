@@ -311,6 +311,42 @@ function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "d
   };
 }
 
+function ambiguousTargetCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    getPreparedSystemMessage: () => "",
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
+        const edit = tools.find((candidate) => candidate.name === "propose_native_edits");
+        const report = tools.find((candidate) => candidate.name === "report_intent_outcome");
+        if (!edit?.handler || !report?.handler) throw new Error("Required tools were not registered");
+        const rejected = await edit.handler({ operations: [{ op: "delete", target: "Database" }] }) as { accepted?: boolean; reason?: string; error?: string };
+        if (rejected.accepted !== false || rejected.reason !== "unresolved_targets") {
+          throw new Error("Expected a structured ambiguous-target rejection, received " + JSON.stringify(rejected));
+        }
+        const reply = "The label Database is ambiguous; choose the exact element ID.";
+        await report.handler({ outcome: "needs_clarification", reply, question: reply });
+        return { message: { data: { content: reply } }, modelCallUsages: [] };
+      }
+    })
+  };
+}
+
 function scriptProposingCopilot(
   script = "return { checked: true };",
   summary = "Read-only runtime script for confirmation-gate test",
@@ -1000,7 +1036,7 @@ describe("Copilot intent route result and revision contract", () => {
     ).join("");
     const crowdedXml = XML.replace("</root>", filler + "</root>");
     const harness = await createServer({
-      copilot: proposingCopilot(),
+      copilot: ambiguousTargetCopilot(),
       snapshot: async () => ({ drawioXml: crowdedXml, revision: workspaceRevision(crowdedXml) })
     });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
