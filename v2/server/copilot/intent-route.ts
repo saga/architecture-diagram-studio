@@ -1332,13 +1332,37 @@ function createDrawioElementSearchTool(sessionId: string) {
         };
 
         // Keep stable context before the changing user request for providers supporting prefix caching.
+        let terminalIntentModelFailure: { attempt: number; error: string } | null = null;
+        const sendAttemptPreservingAcceptedIntent = async (
+          attempt: number, requestPrompt: string, reason?: string
+        ): Promise<void> => {
+          try {
+            await sendAttempt(attempt, requestPrompt, reason);
+          } catch (error) {
+            const terminalKind = pendingTerminalIntents.get(sessionId);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            // Tool handlers can accept and fully validate a terminal action before the SDK stream
+            // fails while trying to obtain the model's follow-up text. Do not silently delete that
+            // already-accepted action; the browser still has to verify native XML and persistence.
+            if (requestCancelled || res.destroyed || !terminalKind) throw error;
+            terminalIntentModelFailure = { attempt, error: errorMessage.slice(0, 1000) };
+            await deps.writeLog("turn.model-call.failed-after-terminal-intent", {
+              requestId, sessionId, attempt, terminalKind,
+              errorName: error instanceof Error ? error.name : typeof error,
+              errorMessage: errorMessage.slice(0, 1000),
+              acceptedNativeEdit: pendingNativeEdits.has(sessionId),
+              acceptedSelection: pendingAgentSelections.has(sessionId),
+              acceptedReportedOutcome: pendingReportedOutcomes.has(sessionId)
+            });
+          }
+        };
         const firstRequestPrompt = JSON.stringify({
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
           editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; Studio compares the before/after XML itself. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve edit targets by comparing model.getValue(cell) with the requested label, rejecting zero or ambiguous matches. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
         });
-        await sendAttempt(1, firstRequestPrompt);
+        await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
         let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
@@ -1348,7 +1372,7 @@ function createDrawioElementSearchTool(sessionId: string) {
             request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script for non-trivial native edits or when direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. Never use run_drawio_script(mode:read) for discovery: it is deferred and returns no data. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. No second confirmation is required in local single-user mode. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
             diagram: context
           });
-          await sendAttempt(2, retryPrompt, "the first response did not invoke a native editor tool");
+          await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
           capturedSelection = pendingAgentSelections.get(sessionId) || null;
           capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
           capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
@@ -1359,6 +1383,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         pendingTerminalIntents.delete(sessionId);
         return {
           capturedSelection, capturedNativeEdits, capturedReportedOutcome, modelText,
+          ...(terminalIntentModelFailure ? { terminalIntentModelFailure } : {}),
           session: turn.session,
           usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
         };
