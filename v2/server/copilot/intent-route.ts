@@ -1560,6 +1560,14 @@ function createSelectDiagramElementTool(sessionId: string) {
       additionalProperties: false
     },
     handler: async (args: { target: string }) => {
+      if (typeof args?.target !== "string" || !args.target.trim() || args.target.length > 200) {
+        const error = "Element selection requires a non-empty target no longer than 200 characters.";
+        await deps.writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
+        return {
+          selected: false, accepted: false, reason: "invalid_target", error,
+          instructions: "Provide a non-empty exact cell ID or unique element label from the current diagram context. No selection was queued."
+        };
+      }
       const current = contextBySession.get(sessionId);
       const source = current && typeof current === "object" ? current as { cells?: unknown; selectedCell?: { pageId?: unknown } | null; activePageId?: unknown } : {};
       const cells = Array.isArray(source.cells) ? source.cells as Array<{ id?: unknown; name?: unknown }> : [];
