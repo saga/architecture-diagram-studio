@@ -1871,37 +1871,59 @@ export default function App() {
                 }
               }
               if (acknowledgement && requestId !== null && !(isLateNativeBatch && !lateResultHasSnapshot)) {
-                try {
-                  const ackResponse = await fetch("/api/copilot/intent/ack", {
-                    method: "POST", headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                      requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
-                      standalone: acknowledgement.standalone, documentRevision: acknowledgement.documentRevision,
-                      outcome: finalResult.success ? "applied" : "failed",
-                      editorAcknowledged: result.success || typeof result.serializedXml === "string",
-                      applicationState: finalResult.applicationState ?? null,
-                      serializedXmlRevision, persistenceStatus, persistedRevision, versionId: persistedVersionId,
-                      failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
-                    })
-                  });
-                  const ackBody = await ackResponse.json().catch(() => null) as {
-                    error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
-                  } | null;
-                  const expectedOutcome = finalResult.success ? "applied" : "failed";
-                  const appliedReceiptMismatch = finalResult.success && !readOnlyNoChange && (
-                    ackBody?.documentRevision !== serializedXmlRevision ||
-                    ackBody?.persistedRevision !== persistedRevision ||
-                    ackBody?.versionId !== persistedVersionId
-                  );
-                  if (!ackResponse.ok || ackBody?.outcome !== expectedOutcome || appliedReceiptMismatch) {
-                    finalResult = {
-                      ...finalResult,
-                      auditWarning: "The browser received the edit result, but the server did not confirm the matching final outcome/revision/version: " +
-                        (ackBody?.error || (ackResponse.ok ? "receipt fields did not match" : "HTTP " + ackResponse.status))
-                    };
+                const acknowledgementPayload = {
+                  requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
+                  standalone: acknowledgement.standalone, documentRevision: acknowledgement.documentRevision,
+                  outcome: finalResult.success ? "applied" : "failed",
+                  editorAcknowledged: result.success || typeof result.serializedXml === "string",
+                  applicationState: finalResult.applicationState ?? null,
+                  serializedXmlRevision, persistenceStatus, persistedRevision, versionId: persistedVersionId,
+                  failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
+                };
+                const acknowledgementBody = JSON.stringify(acknowledgementPayload);
+                let ackResponse: Response | null = null;
+                let ackBody: {
+                  error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
+                } | null = null;
+                let ackTransportError: string | null = null;
+                const maxAcknowledgementAttempts = 2;
+                // Exact acknowledgement replay is idempotent on the server. Retry only
+                // transient network/5xx failures; never replay a deterministic 4xx conflict.
+                for (let attempt = 1; attempt <= maxAcknowledgementAttempts; attempt += 1) {
+                  try {
+                    const response = await fetch("/api/copilot/intent/ack", {
+                      method: "POST", headers: { "content-type": "application/json" },
+                      body: acknowledgementBody
+                    });
+                    const body = await response.json().catch(() => null) as typeof ackBody;
+                    ackResponse = response;
+                    ackBody = body;
+                    ackTransportError = null;
+                    if (response.ok || response.status < 500 || attempt === maxAcknowledgementAttempts) break;
+                    recordDiagnostic("copilot.native-edit.acknowledgement.retry",
+                      "The server returned a transient error while recording the native edit result; retrying the same idempotent acknowledgement",
+                      { requestId, attempt, status: response.status }, "warn");
+                  } catch (error) {
+                    ackTransportError = error instanceof Error ? error.message : String(error);
+                    recordDiagnostic("copilot.native-edit.acknowledgement.retry",
+                      "The acknowledgement request failed before a final HTTP response; retrying the same idempotent payload",
+                      { requestId, attempt, error: ackTransportError }, "warn");
+                    if (attempt === maxAcknowledgementAttempts) break;
                   }
-                } catch (error) {
-                  finalResult = { ...finalResult, auditWarning: "The edit result could not be recorded by the server: " + (error instanceof Error ? error.message : String(error)) };
+                  await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
+                }
+                const expectedOutcome = finalResult.success ? "applied" : "failed";
+                const appliedReceiptMismatch = finalResult.success && !readOnlyNoChange && (
+                  ackBody?.documentRevision !== serializedXmlRevision ||
+                  ackBody?.persistedRevision !== persistedRevision ||
+                  ackBody?.versionId !== persistedVersionId
+                );
+                if (!ackResponse?.ok || ackBody?.outcome !== expectedOutcome || appliedReceiptMismatch) {
+                  finalResult = {
+                    ...finalResult,
+                    auditWarning: "The browser received the edit result, but the server did not confirm the matching final outcome/revision/version: " +
+                      (ackBody?.error || ackTransportError || (ackResponse ? (ackResponse.ok ? "receipt fields did not match" : "HTTP " + ackResponse.status) : "no HTTP response after retry"))
+                  };
                 }
                 nativeEditAckContextsRef.current.delete(requestId);
               } else if (isLateNativeBatch && !lateResultHasSnapshot) {
