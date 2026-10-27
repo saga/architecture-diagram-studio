@@ -348,16 +348,19 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       body.applicationState === "changed-unverified" || body.applicationState === "not-applied" ||
       body.applicationState === "unknown" ? body.applicationState : null;
     const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
-    if (!outcome || (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) ||
+    const readOnlyNoChange = pending.operations.some((operation) =>
+      operation.op === "run_drawio_script" && operation.mode === "read"
+    ) && applicationState === "not-applied" && persistenceStatus === "read_only_no_change";
+    if (!outcome || (outcome === "applied" && (!editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange))) ||
         (outcome === "failed" && !errorMessage && !failureStage)) {
       res.status(400).json({ outcome: "failed", reply: "The final edit result was incomplete.", error: "A final outcome must include a valid status, and failures must include a failure stage or error." });
       return;
     }
-    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server") {
+    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server" && !readOnlyNoChange) {
       res.status(400).json({ outcome: "failed", reply: "Standalone file persistence is owned by the browser.", error: "Standalone acknowledgements must not claim a server-managed workspace save." });
       return;
     }
-    if (outcome === "applied" && !pending.standalone) {
+    if (outcome === "applied" && !pending.standalone && !readOnlyNoChange) {
       let savedVersion: { drawioXml: string; revision: string; versionId: string } | null;
       try {
         savedVersion = versionId ? await deps.getWorkspaceVersionSnapshot(versionId) : null;
