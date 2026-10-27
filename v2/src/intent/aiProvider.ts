@@ -29,7 +29,7 @@ export interface AIIntentContext {
     failedScript: string;
     error: string;
     stack?: string;
-    toolResult: { toolName: "run_drawio_script"; success: false; error: string; stack?: string; rollbackConfirmed: boolean; failedPath: string };
+    toolResult: { toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string; rollbackConfirmed: boolean; failedPath: string };
   };
 }
 
