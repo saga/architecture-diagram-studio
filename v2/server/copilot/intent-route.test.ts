@@ -974,6 +974,40 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.acknowledgements.pending.size).toBe(0);
   });
 
+  it("returns exact-label and rich-label substring matches together, ranking exact labels first", async () => {
+    const exactTargets = ["11", "36", "50"].map((id) =>
+      '<mxCell id="task-' + id + '" value="Task 7" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'
+    ).join("");
+    const wrappedTargets = ["63", "66"].map((id) =>
+      '<object label="Task 7&lt;br&gt;%status%" placeholders="1"><mxCell id="task-' + id +
+      '" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell></object>'
+    ).join("");
+    const taskXml = XML.replace("</root>", exactTargets + wrappedTargets + "</root>");
+    const copilot = elementSearchingCopilot("Task 7", "search_drawio_elements", { query: "Task 7", limit: 10 });
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: taskXml, revision: workspaceRevision(taskXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: 'Find every cell containing "Task 7"',
+      diagramXml: taskXml,
+      documentRevision: workspaceRevision(taskXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const result = (copilot as { searchResult?: {
+      found: boolean; matchCount: number; truncated: boolean;
+      results: Array<{ id: string; label: string }>
+    } }).searchResult;
+    expect(result?.found).toBe(true);
+    expect(result?.matchCount).toBe(5);
+    expect(result?.truncated).toBe(false);
+    expect(result?.results.map((item) => item.id)).toEqual([
+      "task-11", "task-36", "task-50", "task-63", "task-66"
+    ]);
+  });
+
   it("returns a structured rejection when the reference tool receives null arguments", async () => {
     const copilot = elementSearchingCopilot("", "get_drawio_reference", null);
     const harness = await createServer({ copilot });
