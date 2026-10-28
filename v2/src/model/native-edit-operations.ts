@@ -258,6 +258,8 @@ const nativeEditOperationOptions = {
       .describe("Algorithm supported by the selected layout engine."),
     direction: z.enum(["RIGHT", "LEFT", "DOWN", "UP"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.direction)
       .describe("Layout direction."),
+    preserveLocalGrouping: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping)
+      .describe("Keep confidently close, uncontained nodes together as a temporary cluster while allowing the cluster to move with the new layout direction."),
     nodeSpacing: z.number().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
     layerSpacing: z.number().min(10).max(800).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing).describe("Gap between ranks/layers."),
     edgeRouting: z.enum(["ORTHOGONAL", "POLYLINE", "SPLINES"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting).describe("Connector routing style where supported by the selected engine."),
@@ -377,7 +379,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
         elk: "ELK", dagre: "Dagre", graphviz: "Graphviz", msagl: "MSAGL.js", cytoscape: "Cytoscape.js", d3: "D3"
       };
       return "Auto-layout the active page using " + engineLabels[operation.engine] + " " + operation.algorithm +
-        " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing + ").";
+        " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing +
+        ", preserve local grouping " + (operation.preserveLocalGrouping ? "on" : "off") + ").";
     }
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
