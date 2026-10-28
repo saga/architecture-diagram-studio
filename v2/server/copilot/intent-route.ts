@@ -695,16 +695,18 @@ function createDrawioElementSearchTool(sessionId: string) {
             typeof cell.rotation === "number" ? "rotation:" + cell.rotation : ""
           ].filter((value): value is string => typeof value === "string").join(" ").toLocaleLowerCase();
         };
+        const exactIdCells = new Set(exactId);
         const exactLabelCells = new Set(exactLabel);
-        const matches = exactId.length ? exactId : cells.filter((cell) => {
+        const matches = cells.filter((cell) => {
           const index = searchableText(cell);
           if (index.includes(normalized)) return true;
           const tokens = normalized.split(/\s+/u).filter(Boolean);
           return tokens.length > 1 && tokens.every((token) => index.includes(token));
-        }).sort((left, right) =>
-          // Exact labels rank first; they must not suppress cells whose rich labels contain the query.
-          Number(exactLabelCells.has(right)) - Number(exactLabelCells.has(left))
-        );
+        }).sort((left, right) => {
+          // Exact ID/label hits rank first, but never suppress other ID or rich-label substring matches.
+          const priority = (cell: typeof cells[number]) => exactIdCells.has(cell) ? 0 : exactLabelCells.has(cell) ? 1 : 2;
+          return priority(left) - priority(right);
+        });
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
           ? Math.max(1, Math.min(10, Math.floor(args.limit)))
           : 10;
