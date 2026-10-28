@@ -100,7 +100,7 @@ describe("Studio-owned native-cell layout", () => {
       engine: "elk",
       algorithm: "layered",
       preserveLocalGrouping: true,
-      direction: "DOWN"
+      direction: "RIGHT"
     });
     const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
     expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
@@ -125,6 +125,34 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.expectedCells.filter((cell) => cell.kind === "vertex").map((cell) => cell.cellId).sort())
       .toEqual(["outside", "peer-a", "peer-b", "peer-c"].sort());
     expect(localGroupingXml).toContain('source="peer-b" target="outside"');
+  });
+
+  it("reorients a preserved local pair for the requested direction and rotates its explicit waypoint", async () => {
+    const orientedXml = `<mxfile host="test"><diagram id="oriented-local-group" name="Oriented local group"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="peer-a" value="Peer A" vertex="1" parent="1"><mxGeometry x="100" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-b" value="Peer B" vertex="1" parent="1"><mxGeometry x="190" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-inner" edge="1" parent="1" source="peer-a" target="peer-b"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="185" y="80"/></Array></mxGeometry></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(orientedXml, "oriented-local-group", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "elk",
+      algorithm: "layered",
+      direction: "DOWN",
+      preserveLocalGrouping: true
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    const a = positions.get("peer-a")!;
+    const b = positions.get("peer-b")!;
+    expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
+    expect(Math.abs((a.x + 40) - (b.x + 40))).toBeCloseTo(0, 4);
+    expect(b.y - a.y).toBeCloseTo(90, 4);
+    expect(plan.edgeRoutes).toContainEqual({
+      cellId: "peer-inner",
+      points: [{ x: a.x + 80, y: a.y + 65 }]
+    });
+    expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["peer-a", "peer-b"].sort());
+    expect(plan.expectedCells.map((cell) => cell.cellId)).toContain("peer-inner");
   });
 
   it("allows free rearrangement when local grouping preservation is disabled", async () => {
