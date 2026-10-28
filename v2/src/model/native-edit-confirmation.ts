@@ -461,8 +461,8 @@ export interface NativeScriptXmlCellAssertion {
   /** Expected substring of the serialized native label, including rich labels/user objects. */
   labelContains?: string;
   /** Expected translated/title text inside a serialized rich label. */
-  chineseTitle?: string;
-  /** Recomputed by the host against serialized XML; requires labelContains or chineseTitle. */
+  expectedTitle?: string;
+  /** Recomputed by the host against serialized XML; requires labelContains or expectedTitle. */
   labelContainsTitle?: boolean;
   parentId?: string | null;
   sourceId?: string | null;
@@ -646,15 +646,15 @@ export function validateNativeScriptResultAgainstXml(
       fail({ kind: "invalid-document", index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
       return finish();
     }
-    // labelContains/chineseTitle/labelContainsTitle accept the earlier predicate-style
+    // labelContains/expectedTitle/labelContainsTitle accept the earlier predicate-style
     // assertions used by the title-translation workflow. Unknown extra keys are warnings,
     // not a reason to discard otherwise independently verifiable facts.
     const allowedFields = new Set([
-      "cellId", "exists", "kind", "label", "labelContains", "chineseTitle", "labelContainsTitle",
+      "cellId", "exists", "kind", "label", "labelContains", "expectedTitle", "labelContainsTitle",
       "parentId", "sourceId", "targetId", "style", "geometry"
     ]);
     const evidenceFieldsAllowed = new Set([
-      "kind", "label", "labelContains", "chineseTitle", "parentId", "sourceId", "targetId", "style", "geometry"
+      "kind", "label", "labelContains", "expectedTitle", "parentId", "sourceId", "targetId", "style", "geometry"
     ]);
     const geometryFields = new Set(["x", "y", "width", "height", "relative", "points", "offset", "sourcePoint", "targetPoint"]);
 
@@ -718,7 +718,7 @@ export function validateNativeScriptResultAgainstXml(
         invalid("label", "label must be a string; an empty string is valid.", "string", assertion.label);
         shapeInvalid = true;
       }
-      for (const key of ["labelContains", "chineseTitle"] as const) {
+      for (const key of ["labelContains", "expectedTitle"] as const) {
         if (assertion[key] !== undefined &&
             (typeof assertion[key] !== "string" || !assertion[key].trim())) {
           invalid(key, key + " must be a non-empty string that the serialized label is expected to contain.",
@@ -732,9 +732,9 @@ export function validateNativeScriptResultAgainstXml(
         shapeInvalid = true;
       }
       if (assertion.labelContainsTitle !== undefined &&
-          typeof assertion.chineseTitle !== "string" && typeof assertion.labelContains !== "string") {
-        invalid("labelContainsTitle", "labelContainsTitle requires chineseTitle or labelContains as the expected title.",
-          "chineseTitle or labelContains", assertion.labelContainsTitle);
+          typeof assertion.expectedTitle !== "string" && typeof assertion.labelContains !== "string") {
+        invalid("labelContainsTitle", "labelContainsTitle requires expectedTitle or labelContains as the expected title.",
+          "expectedTitle or labelContains", assertion.labelContainsTitle);
         shapeInvalid = true;
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
@@ -846,7 +846,7 @@ export function validateNativeScriptResultAgainstXml(
       }
       const titleExpectations = [
         ["labelContains", assertion.labelContains],
-        ["chineseTitle", assertion.chineseTitle]
+        ["expectedTitle", assertion.expectedTitle]
       ] as const;
       for (const [field, expected] of titleExpectations) {
         if (typeof expected !== "string") continue;
@@ -855,7 +855,7 @@ export function validateNativeScriptResultAgainstXml(
         }
       }
       if (typeof assertion.labelContainsTitle === "boolean") {
-        const expectedTitle = typeof assertion.chineseTitle === "string" ? assertion.chineseTitle : assertion.labelContains;
+        const expectedTitle = typeof assertion.expectedTitle === "string" ? assertion.expectedTitle : assertion.labelContains;
         const actualContainsTitle = typeof expectedTitle === "string" &&
           normalizedActualLabel.includes(normalizeLabel(expectedTitle));
         if (assertion.labelContainsTitle !== actualContainsTitle) {
@@ -1017,7 +1017,7 @@ export function findUndeclaredNativeScriptChanges(
     const missing: string[] = [];
     const hasLabelEvidence = matchesField(assertion, "label") ||
       (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
-      (typeof assertion.chineseTitle === "string" && Boolean(assertion.chineseTitle.trim()));
+      (typeof assertion.expectedTitle === "string" && Boolean(assertion.expectedTitle.trim()));
     if (changedFields.includes("label") && !hasLabelEvidence) missing.push("label");
     if (changedFields.includes("parent") && !matchesField(assertion, "parentId")) missing.push("parentId");
     if (changedFields.includes("source") && !matchesField(assertion, "sourceId")) missing.push("sourceId");
@@ -1075,7 +1075,7 @@ export function findUndeclaredNativeScriptChanges(
     const assertion = assertionForCell(cell.id);
     const hasLabelEvidence = matchesField(assertion, "label") ||
       (assertion !== null && typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
-      (assertion !== null && typeof assertion.chineseTitle === "string" && Boolean(assertion.chineseTitle.trim()));
+      (assertion !== null && typeof assertion.expectedTitle === "string" && Boolean(assertion.expectedTitle.trim()));
     const missing = cell.kind === "vertex"
       ? ["kind"].filter((field) => !matchesField(assertion, field)).concat(hasLabelEvidence ? [] : ["label"])
       : cell.kind === "edge"
