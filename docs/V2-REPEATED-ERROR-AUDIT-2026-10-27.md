@@ -200,3 +200,8 @@ The most recent completed quality run exposed a stale test expectation: removing
 4. **类型契约落后于实际验证器。** `NativeScriptXmlCellAssertion` 原先未表达标题谓词和 connector geometry 的 points/offset/sourcePoint/targetPoint。导出类型已补齐相应字段，另加编译期类型回归测试。
 
 本次最新代码更改已提交到 `main`。最后提交对应的 V2 CI 尚在运行中；在得到结果前，不宣称新加的单元测试、构建和原生画布 E2E 全部通过。已知的另一个限制仍然存在：原生脚本运行在浏览器主线程，源码护栏并不是真正的安全沙箱，也不能终止无限循环；本轮没有声称解决这一结构限制。
+
+
+## 2026-10-28：形状目录检索的截断完整性
+
+同类静默漏项还存在于 curated shape catalogue。普通 `search_drawio_shapes` 在结果超过 limit 时原先没有总命中数或 `truncated` 字段，模型可能把前几条 recipe 当成完整结果。现已新增 `searchDrawioShapeCatalogDetailed`，返回完整的 `matchCount` / `returnedCount` / `truncated` 元数据，并在工具描述中明确要求截断时缩小查询或使用 live Draw.io UI/runtime 发现流程。C4 directory alias 有单独回归，验证 Person、Software System、Container、Relationship 四项完整返回，不能被默认 limit 截断。新增 catalog 与 route 测试已提交；本轮最终 CI 尚未通过，因此测试结果仍待 CI 证明。
