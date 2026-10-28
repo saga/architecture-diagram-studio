@@ -592,15 +592,16 @@ export default function App() {
     },
     persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
-    applyNativeCellEdit: async (cellId, path, value) => {
+    applyNativeCellEdit: async (cellId, path, value, requestedPageId) => {
+      const targetPageId = requestedPageId !== undefined ? requestedPageId : selectedNativePageId;
       const requestId = ++cellEditRequestSequenceRef.current;
       // Selection is UI state, not a document mutation: it must not consume a history slot.
       if (path !== "cell:select") await archiveStandaloneHistory("Before Copilot: " + path + " on " + cellId, requestId);
       recordDiagnostic("copilot.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
-        cellId, path, requestId, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+        cellId, path, requestId, pageId: targetPageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
       });
       if (path !== "cell:select") {
-        setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+        setCellEditRequest({ cellId, pageId: targetPageId, path, value, requestId });
         return;
       }
       // Pure focus actions still need a native bridge acknowledgement. Posting a request is not
@@ -623,7 +624,7 @@ export default function App() {
             lateNativeSelectionRequestsRef.current.delete(oldest);
           }
           const error = "Draw.io did not acknowledge the requested selection within 10 seconds; the focus result is unknown.";
-          recordDiagnostic("copilot.selection.timeout", error, { requestId, cellId, pageId: selectedNativePageId, reconciliationPending: true }, "warn");
+          recordDiagnostic("copilot.selection.timeout", error, { requestId, cellId, pageId: targetPageId, reconciliationPending: true }, "warn");
           reject(new Error(error));
         }, watchdogTimeoutMs);
         nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
