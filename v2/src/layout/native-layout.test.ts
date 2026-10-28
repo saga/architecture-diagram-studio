@@ -92,6 +92,7 @@ describe("Studio-owned native-cell layout", () => {
       <mxCell id="peer-b" value="Peer B" vertex="1" parent="1"><mxGeometry x="190" y="100" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="peer-c" value="Peer C" vertex="1" parent="1"><mxGeometry x="145" y="150" width="80" height="40" as="geometry"/></mxCell>
       <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="500" y="100" width="90" height="45" as="geometry"/></mxCell>
+      <mxCell id="peer-inner" edge="1" parent="1" source="peer-a" target="peer-b"><mxGeometry relative="1" as="geometry"/></mxCell>
       <mxCell id="peer-to-outside" edge="1" parent="1" source="peer-b" target="outside"><mxGeometry relative="1" as="geometry"/></mxCell>
     </root></mxGraphModel></diagram></mxfile>`;
     const plan = await calculateNativeAutoLayout(localGroupingXml, "local-grouping", revision, {
@@ -104,6 +105,8 @@ describe("Studio-owned native-cell layout", () => {
     const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
     expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
     expect(plan.coverage.spatialAdjacencyClusterMemberCount).toBe(3);
+    expect(plan.coverage.spatialAdjacencyInternalEdgeCount).toBe(1);
+    expect(plan.coverage.spatialAdjacencyInternalEdgesTranslatedCount).toBe(0);
     expect(plan.coverage.plannedVertexCount).toBe(4);
     expect(positions.size).toBe(4);
     expect(["peer-a", "peer-b", "peer-c", "outside"].every((id) => positions.has(id))).toBe(true);
