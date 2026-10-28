@@ -24,7 +24,6 @@ describe("native edit XML confirmation", () => {
       cellId: "rich-edge",
       labelContains: "AI agent",
       expectedTitle: "AI agent 任务",
-      labelContainsTitle: true,
       geometry: {
         relative: true,
         points: [{ x: 10, y: 20 }],
@@ -33,7 +32,7 @@ describe("native edit XML confirmation", () => {
         targetPoint: { x: 20, y: 30 }
       }
     };
-    expect(assertion.labelContainsTitle).toBe(true);
+    expect(assertion.expectedTitle).toBe("AI agent 任务");
     expect(assertion.geometry?.points?.[0]).toEqual({ x: 10, y: 20 });
   });
 
@@ -632,8 +631,7 @@ describe("native script predicate assertions and schema warnings", () => {
       xmlAssertions: [{
         cellId: "api",
         expectedTitle: title,
-        labelContainsTitle: true,
-        bodyTailPreserved: true,
+          bodyTailPreserved: true,
         ...extras
       }]
     }
@@ -690,19 +688,15 @@ describe("native script predicate assertions and schema warnings", () => {
       value: {
         ok: true,
         postconditions: { titleTranslated: true },
-        xmlAssertions: [{
-          cellId: "api",
-          chineseTitle: "New API",
-          labelContainsTitle: true
-        }]
+        xmlAssertions: [{ cellId: "api", chineseTitle: "New API" }]
       }
     };
     const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
     expect(validation.ok).toBe(false);
     expect(validation.failures).toContainEqual(expect.objectContaining({
       kind: "invalid-assertion",
-      field: "labelContainsTitle",
-      reason: expect.stringContaining("requires expectedTitle or labelContains")
+      field: "assertion",
+      reason: expect.stringContaining("concrete property evidence")
     }));
     expect(validation.warnings).toContainEqual(expect.objectContaining({
       field: "chineseTitle",
