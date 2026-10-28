@@ -403,16 +403,23 @@ function detectSpatialAdjacencyClusters(
 
   const pairDistances = new Map<string, number>();
   const candidatePairs: Array<{ first: number; second: number; gap: number }> = [];
-  for (let first = 0; first < candidates.length; first += 1) {
-    for (let second = first + 1; second < candidates.length; second += 1) {
-      const a = candidates[first];
+  // Sweep in x order so distant node pairs are skipped instead of checking every O(n²) pair
+  // on larger architecture diagrams. The threshold cap below matches pairThreshold's maximum.
+  const candidatesByX = candidates.map((_, index) => index)
+    .sort((first, second) => candidates[first].x - candidates[second].x || first - second);
+  for (let firstPosition = 0; firstPosition < candidatesByX.length; firstPosition += 1) {
+    const first = candidatesByX[firstPosition];
+    const a = candidates[first];
+    for (let secondPosition = firstPosition + 1; secondPosition < candidatesByX.length; secondPosition += 1) {
+      const second = candidatesByX[secondPosition];
       const b = candidates[second];
+      if (b.x - (a.x + a.width) > 44) break;
       const gap = gapBetween(a, b);
       if (!Number.isFinite(gap) || gap > pairThreshold(a, b)) continue;
       const directlyConnected = directlyConnectedPairs.has(spatialAdjacencyPairKey(a.id, b.id));
       if (directlyConnected && gap > Math.min(18, pairThreshold(a, b) * 0.75)) continue;
       pairDistances.set(spatialAdjacencyPairKey(a.id, b.id), gap);
-      candidatePairs.push({ first, second, gap });
+      candidatePairs.push({ first: Math.min(first, second), second: Math.max(first, second), gap });
     }
   }
   if (candidatePairs.length === 0) return [];
