@@ -81,6 +81,8 @@ export interface NativeAutoLayoutOptions {
   engine: NativeAutoLayoutEngine;
   algorithm: NativeAutoLayoutAlgorithm;
   direction: NativeAutoLayoutDirection;
+  /** Keep confidently adjacent, uncontained nodes together as a transient layout cluster. */
+  preserveLocalGrouping: boolean;
   nodeSpacing: number;
   layerSpacing: number;
   edgeRouting: NativeAutoLayoutEdgeRouting;
@@ -93,6 +95,7 @@ export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
   engine: "elk",
   algorithm: "layered",
   direction: "RIGHT",
+  preserveLocalGrouping: true,
   nodeSpacing: 64,
   layerSpacing: 90,
   edgeRouting: "ORTHOGONAL",
@@ -148,6 +151,11 @@ export interface NativeLayoutCoverage {
   spatialRegionCandidatesSkippedCount: number;
   spatialRegionInternalEdgeCount: number;
   spatialRegionInternalEdgesTranslatedCount: number;
+  /** Transient proximity clusters used to preserve non-container local groupings. */
+  spatialAdjacencyClusterCount: number;
+  spatialAdjacencyClusterMemberCount: number;
+  spatialAdjacencyInternalEdgeCount: number;
+  spatialAdjacencyInternalEdgesTranslatedCount: number;
   /** Vertices fully enclosed by a container that was not recognised as a region, so containment is not preserved. */
   spatialRegionUnownedContainedVertexCount: number;
 }
@@ -187,6 +195,16 @@ interface ProjectedCell {
   points: Point[];
 }
 
+interface SpatialAdjacencyLayoutCluster {
+  /** Layout-only proxy; it is never a native Draw.io cell or a plan mutation target. */
+  proxy: ProjectedCell;
+  memberCellIds: string[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface NativePageProjection {
   pageId: string | null;
   pageTitle: string | null;
@@ -207,9 +225,16 @@ interface NativePageProjection {
   hiddenEdgeCount: number;
   edgesMissingTerminalsCount: number;
   edgesWithEndpointsOutsideTargetVerticesCount: number;
+  /** Native vertices whose own positions are written to the Draw.io geometry plan. */
   vertices: ProjectedCell[];
+  /** Solver input: native vertices plus any transient geometry-only grouping proxies. */
+  layoutVertices: ProjectedCell[];
   /** Eligible geometry-only regions are transient proxy nodes; their member cells move by the same delta. */
   spatialRegions: SpatialRegionLayoutCandidate[];
+  /** Nearby siblings grouped for this layout only; source XML ancestry is never modified. */
+  spatialAdjacencyClusters: SpatialAdjacencyLayoutCluster[];
+  spatialAdjacencyClusterMemberCount: number;
+  adjacencyInternalEdges: ProjectedCell[];
   spatialRegionCandidateCount: number;
   spatialRegionCandidatesSkippedCount: number;
   spatialRegionMemberCount: number;
@@ -305,7 +330,135 @@ function parseGraphModel(xml: string, requestedPageId: string | null): { model: 
   throw new Error("The selected Draw.io page could not be decoded for layout. Open and save it with the bundled Draw.io editor, then retry.");
 }
 
-function projectNativePage(xml: string, requestedPageId: string | null): NativePageProjection {
+function spatialAdjacencyPairKey(first: string, second: string): string {
+  return first < second
+    ? first + String.fromCharCode(0) + second
+    : second + String.fromCharCode(0) + first;
+}
+
+/**
+ * Finds conservative spatial-neighbour clusters. Explicit graph edges already communicate
+ * relationships and should normally be free to drive a new layout; only directly connected
+ * nodes that are almost touching are clustered. Complete-link merging prevents a chain of
+ * individually close nodes from collapsing an entire flow into one cluster.
+ */
+function detectSpatialAdjacencyClusters(
+  vertices: ProjectedCell[],
+  allCells: ProjectedCell[],
+  protectedCellIds: Set<string>,
+  nodeSpacing: number
+): SpatialAdjacencyLayoutCluster[] {
+  const candidates = vertices.filter((cell) =>
+    !protectedCellIds.has(cell.id) && cell.kind === "vertex" && cell.visible &&
+    cell.hasGeometry && cell.width > 0 && cell.height > 0
+  );
+  if (candidates.length < 2) return [];
+
+  const existingIds = new Set(allCells.map((cell) => cell.id));
+  const directlyConnectedPairs = new Set<string>();
+  for (const edge of allCells) {
+    if (edge.kind === "edge" && edge.sourceId && edge.targetId && edge.sourceId !== edge.targetId) {
+      directlyConnectedPairs.add(spatialAdjacencyPairKey(edge.sourceId, edge.targetId));
+    }
+  }
+  const gapBetween = (first: ProjectedCell, second: ProjectedCell): number => {
+    const overlapX = Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x);
+    const overlapY = Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y);
+    // Existing overlap is a defect for the layout engine to repair, not evidence of a group.
+    if (overlapX > 1 && overlapY > 1) return Number.POSITIVE_INFINITY;
+    const gapX = Math.max(0, Math.max(first.x, second.x) - Math.min(first.x + first.width, second.x + second.width));
+    const gapY = Math.max(0, Math.max(first.y, second.y) - Math.min(first.y + first.height, second.y + second.height));
+    return Math.hypot(gapX, gapY);
+  };
+  const pairThreshold = (first: ProjectedCell, second: ProjectedCell): number =>
+    Math.min(
+      44,
+      Math.max(12, nodeSpacing * 0.7),
+      Math.max(12, Math.min(Math.max(first.width, first.height), Math.max(second.width, second.height)) * 0.5)
+    );
+
+  const pairDistances = new Map<string, number>();
+  const candidatePairs: Array<{ first: number; second: number; gap: number }> = [];
+  for (let first = 0; first < candidates.length; first += 1) {
+    for (let second = first + 1; second < candidates.length; second += 1) {
+      const a = candidates[first];
+      const b = candidates[second];
+      const gap = gapBetween(a, b);
+      if (!Number.isFinite(gap) || gap > pairThreshold(a, b)) continue;
+      const directlyConnected = directlyConnectedPairs.has(spatialAdjacencyPairKey(a.id, b.id));
+      if (directlyConnected && gap > 8) continue;
+      pairDistances.set(spatialAdjacencyPairKey(a.id, b.id), gap);
+      candidatePairs.push({ first, second, gap });
+    }
+  }
+  if (candidatePairs.length === 0) return [];
+  candidatePairs.sort((a, b) => a.gap - b.gap || a.first - b.first || a.second - b.second);
+
+  // Complete-link clustering: every cross-pair must itself be a high-confidence neighbour.
+  const components: number[][] = candidates.map((_, index) => [index]);
+  for (const pair of candidatePairs) {
+    const firstComponent = components.findIndex((component) => component.includes(pair.first));
+    const secondComponent = components.findIndex((component) => component.includes(pair.second));
+    if (firstComponent < 0 || secondComponent < 0 || firstComponent === secondComponent) continue;
+    const left = components[firstComponent];
+    const right = components[secondComponent];
+    if (left.length + right.length > 8) continue;
+    let canMerge = true;
+    for (const leftIndex of left) {
+      for (const rightIndex of right) {
+        if (!pairDistances.has(spatialAdjacencyPairKey(candidates[leftIndex].id, candidates[rightIndex].id))) {
+          canMerge = false;
+          break;
+        }
+      }
+      if (!canMerge) break;
+    }
+    if (!canMerge) continue;
+    components[firstComponent] = left.concat(right).sort((a, b) => a - b);
+    components.splice(secondComponent, 1);
+  }
+
+  const grouped = components.filter((component) => component.length >= 2)
+    .sort((a, b) => a[0] - b[0]);
+  const reservedIds = new Set(existingIds);
+  const clusters: SpatialAdjacencyLayoutCluster[] = [];
+  grouped.forEach((component, index) => {
+    const members = component.map((memberIndex) => candidates[memberIndex]);
+    const x = Math.min(...members.map((member) => member.x));
+    const y = Math.min(...members.map((member) => member.y));
+    const right = Math.max(...members.map((member) => member.x + member.width));
+    const bottom = Math.max(...members.map((member) => member.y + member.height));
+    let proxyId = "__studio_spatial_cluster_" + (index + 1) + "__";
+    while (reservedIds.has(proxyId)) proxyId += "_";
+    reservedIds.add(proxyId);
+    const proxy: ProjectedCell = {
+      ...members[0],
+      id: proxyId,
+      sourceId: null,
+      targetId: null,
+      layoutSourceId: null,
+      layoutTargetId: null,
+      x, y, width: right - x, height: bottom - y,
+      kind: "vertex",
+      hasGeometry: true,
+      visible: true,
+      points: []
+    };
+    clusters.push({
+      proxy,
+      memberCellIds: members.map((member) => member.id),
+      x, y, width: right - x, height: bottom - y
+    });
+  });
+  return clusters;
+}
+
+function projectNativePage(
+  xml: string,
+  requestedPageId: string | null,
+  preserveLocalGrouping: boolean,
+  nodeSpacing: number
+): NativePageProjection {
   const parsed = parseGraphModel(xml, requestedPageId);
   const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as Element[];
   const byId = new Map<string, ProjectedCell>();
@@ -424,10 +577,26 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   for (const region of spatialRegions) {
     for (const memberId of region.memberCellIds) regionOwnerByMemberId.set(memberId, region.regionCellId);
   }
-  // Members and region labels are removed from the outer solver graph. The native cells stay
-  // siblings in the Draw.io XML; only the disposable solver projection treats them as a compound node.
+  // Region boundaries and all candidate members are protected from proximity inference; region
+  // recognition remains the stronger, more explicit grouping signal.
+  const protectedRegionCellIds = new Set(candidatesForLayer.flatMap((candidate) => [
+    candidate.regionCellId, ...candidate.boundaryCellIds, ...candidate.memberCellIds
+  ]));
+  // Region members are removed from the outer graph. The native siblings remain untouched in XML.
   vertices = vertices.filter((cell) => !spatialRegionMemberIds.has(cell.id));
-  const vertexIds = new Set(vertices.map((cell) => cell.id));
+  const spatialAdjacencyClusters = preserveLocalGrouping
+    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing)
+    : [];
+  const spatialAdjacencyMemberIds = new Set(spatialAdjacencyClusters.flatMap((cluster) => cluster.memberCellIds));
+  const adjacencyOwnerByMemberId = new Map<string, string>();
+  for (const cluster of spatialAdjacencyClusters) {
+    for (const memberId of cluster.memberCellIds) adjacencyOwnerByMemberId.set(memberId, cluster.proxy.id);
+  }
+  // Replace members with transient bounding-box proxies for the solver. The proxies are never
+  // returned in NativeLayoutPlan.positions and can never be written into native Draw.io XML.
+  vertices = vertices.filter((cell) => !spatialAdjacencyMemberIds.has(cell.id));
+  const layoutVertices = [...vertices, ...spatialAdjacencyClusters.map((cluster) => cluster.proxy)];
+  const vertexIds = new Set(layoutVertices.map((cell) => cell.id));
   const layoutOwnerForTerminal = (terminalId: string | null): string | null => {
     if (!terminalId) return null;
     let current = allById.get(terminalId);
@@ -437,6 +606,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       if (!current.visible) return null;
       const inferredRegionOwner = regionOwnerByMemberId.get(current.id);
       if (inferredRegionOwner) return inferredRegionOwner;
+      const inferredAdjacencyOwner = adjacencyOwnerByMemberId.get(current.id);
+      if (inferredAdjacencyOwner) return inferredAdjacencyOwner;
       if (vertexIds.has(current.id)) return current.id;
       if (current.kind !== "vertex" || !current.hasGeometry || current.width <= 0 || current.height <= 0) return null;
       current = current.parentId ? allById.get(current.parentId) : undefined;
@@ -467,8 +638,17 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     })
     .map(({ cell, layoutSourceId, layoutTargetId }) => ({ ...cell, layoutSourceId, layoutTargetId }));
   const regionInternalEdgeIds = new Set(regionInternalEdges.map((edge) => edge.id));
+  const adjacencyInternalEdges = candidateEdges
+    .filter(({ cell }) => {
+      if (!cell.sourceId || !cell.targetId || regionInternalEdgeIds.has(cell.id)) return false;
+      const sourceCluster = adjacencyOwnerByMemberId.get(cell.sourceId);
+      const targetCluster = adjacencyOwnerByMemberId.get(cell.targetId);
+      return Boolean(sourceCluster && targetCluster && sourceCluster === targetCluster);
+    })
+    .map(({ cell, layoutSourceId, layoutTargetId }) => ({ ...cell, layoutSourceId, layoutTargetId }));
+  const adjacencyInternalEdgeIds = new Set(adjacencyInternalEdges.map((edge) => edge.id));
   const edgesWithinSameGroup = sourceEdges.filter((cell) => {
-    if (regionInternalEdgeIds.has(cell.id) || !cell.sourceId || !cell.targetId) return false;
+    if (regionInternalEdgeIds.has(cell.id) || adjacencyInternalEdgeIds.has(cell.id) || !cell.sourceId || !cell.targetId) return false;
     const sourceOwner = layoutOwnerForTerminal(cell.sourceId);
     const targetOwner = layoutOwnerForTerminal(cell.targetId);
     return Boolean(sourceOwner && targetOwner && sourceOwner === targetOwner) &&
@@ -479,7 +659,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       Boolean(layoutSourceId && layoutTargetId) &&
       !(layoutSourceId === layoutTargetId &&
         (cell.sourceId !== layoutSourceId || cell.targetId !== layoutTargetId)) &&
-      !regionInternalEdgeIds.has(cell.id)
+      !regionInternalEdgeIds.has(cell.id) &&
+      !adjacencyInternalEdgeIds.has(cell.id)
     )
     .map(({ cell, layoutSourceId, layoutTargetId }) => ({
       ...cell,
@@ -487,7 +668,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       layoutTargetId
     }));
   const connectorsAttachedToNestedChildrenCount = edges.filter((edge) =>
-    edge.sourceId !== edge.layoutSourceId || edge.targetId !== edge.layoutTargetId
+    (edge.sourceId !== edge.layoutSourceId && !adjacencyOwnerByMemberId.has(edge.sourceId ?? "")) ||
+    (edge.targetId !== edge.layoutTargetId && !adjacencyOwnerByMemberId.has(edge.targetId ?? ""))
   ).length;
   const spatialRegionBoundaryVertexCount = new Set(
     spatialRegions.flatMap((region) => region.boundaryCellIds).filter((id) => rawVertexIds.has(id))
@@ -519,7 +701,11 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
       return !layoutOwnerForTerminal(cell.sourceId) || !layoutOwnerForTerminal(cell.targetId);
     }).length,
     vertices,
+    layoutVertices,
     spatialRegions,
+    spatialAdjacencyClusters,
+    spatialAdjacencyClusterMemberCount: spatialAdjacencyMemberIds.size,
+    adjacencyInternalEdges,
     spatialRegionCandidateCount: candidatesForLayer.length,
     spatialRegionCandidatesSkippedCount: candidatesForLayer.length - spatialRegions.length,
     spatialRegionMemberCount: spatialRegionMemberIds.size,
