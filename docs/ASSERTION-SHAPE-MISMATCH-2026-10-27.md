@@ -284,3 +284,17 @@ xmlAssertions: [{ cellId, label }]   // label = 改写后的完整值（model.ge
 此次修复旨在避免“标题已经成功修改，但断言中附带的自定义元数据触发错误报警”。它不会把未知字段当作验证依据：成功仍要求标题内容与序列化 XML 一致、脚本后置条件为真、before/after 的变更范围审计通过。
 
 **验证说明：** 已增加针对性回归测试，但当前未执行 `npm test` / `npm run typecheck`；本轮没有可用的本地仓库 checkout，GitHub 提交状态接口也未返回可查看的 CI checks。因此代码已写入，但测试结果不应标记为通过。
+
+
+---
+
+## 2026-10-28 follow-up：自定义字段的最终契约
+
+上文保留了事故现场模型实际输出的 `chineseTitle` / `labelContainsTitle`，作为历史证据；它们都不是 Draw.io 原生属性。后续审查已进一步简化当前 Studio 合约：
+
+- 当前支持的 host-side 字符串断言是 `labelContains` 和 `expectedTitle`；两者直接与**序列化 XML 中的 label 文本**匹配。
+- `expectedTitle` 是 Studio 自定义校验字段，不会写进 Draw.io XML，也不依赖中文语言。
+- `labelContainsTitle` 已从当前运行时 verifier、TypeScript 接口、工具 schema 和提示词中移除：重复要求模型返回一个布尔值不会增加独立证据，宿主直接验证字符串即可。
+- `chineseTitle` 作为旧名称不再支持；未知字段只产生 warning，不能充当证据。
+
+当前实现与契约同步位置：`v2/src/model/native-edit-confirmation.ts`、`v2/server/copilot/intent-route.ts`、`v2/server/copilot/native-diagram-instructions.ts`、[ADR-0020](./adr/0020-native-script-assertion-contract-and-outcome-reporting.md) 和 [Draw.io Agent API Contract](./DRAWIO-AGENT-API-CONTRACT.md)。新增回归测试验证旧字段不能替代有效证据。
