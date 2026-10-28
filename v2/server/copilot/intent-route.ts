@@ -529,6 +529,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
       ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
+        preserveLocalGrouping: operation.preserveLocalGrouping,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {})
     }));
@@ -1116,6 +1117,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           sessionId, operationCount: resolved.operations.length,
           operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
+        preserveLocalGrouping: operation.preserveLocalGrouping,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) }))
         });
@@ -1126,6 +1128,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           operationCount: resolved.operations.length,
           operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
+        preserveLocalGrouping: operation.preserveLocalGrouping,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) })),
           summary
