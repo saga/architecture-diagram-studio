@@ -148,6 +148,8 @@ export interface NativeLayoutCoverage {
   spatialRegionCandidatesSkippedCount: number;
   spatialRegionInternalEdgeCount: number;
   spatialRegionInternalEdgesTranslatedCount: number;
+  /** Vertices fully enclosed by a container that was not recognised as a region, so containment is not preserved. */
+  spatialRegionUnownedContainedVertexCount: number;
 }
 
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
@@ -212,6 +214,7 @@ interface NativePageProjection {
   spatialRegionCandidatesSkippedCount: number;
   spatialRegionMemberCount: number;
   spatialRegionBoundaryVertexCount: number;
+  spatialRegionUnownedContainedVertexCount: number;
   /** All source cells are transient input to resolve native and inferred nested terminals. */
   allCells: ProjectedCell[];
   edges: ProjectedCell[];
@@ -514,6 +517,8 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
     spatialRegionCandidatesSkippedCount: candidatesForLayer.length - spatialRegions.length,
     spatialRegionMemberCount: spatialRegionMemberIds.size,
     spatialRegionBoundaryVertexCount,
+    spatialRegionUnownedContainedVertexCount: regionDetection.unownedContainedVertexCellIds
+      .filter((id) => rawVertexIds.has(id)).length,
     allCells: all,
     edges,
     regionInternalEdges,
@@ -1183,7 +1188,8 @@ function normalizePlan(
       spatialRegionBoundaryVertexCount: projection.spatialRegionBoundaryVertexCount,
       spatialRegionCandidatesSkippedCount: projection.spatialRegionCandidatesSkippedCount,
       spatialRegionInternalEdgeCount: projection.regionInternalEdges.length,
-      spatialRegionInternalEdgesTranslatedCount: projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length
+      spatialRegionInternalEdgesTranslatedCount: projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length,
+      spatialRegionUnownedContainedVertexCount: projection.spatialRegionUnownedContainedVertexCount
     },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),

@@ -83,7 +83,7 @@ describe("read-only spatial region analysis", () => {
     expect(xml).toBe(before);
   });
 
-  it("does not treat a large ordinary node connected by an edge as a region", () => {
+  it("treats a connected container that dominates its members as a region", () => {
     const xml = page(`
       <mxCell id="large-node" value="Large subsystem" vertex="1" parent="1" style="shape=rect;fillColor=#fff;">
         <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
@@ -96,8 +96,77 @@ describe("read-only spatial region analysis", () => {
     const response = analyze(xml);
     expect(response.status).toBe("analyzed");
     if (response.status === "analyzed") {
+      const candidates = response.result.findings.filter((finding) => finding.ruleId === "spatial-region.candidate");
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0].cellIds).toContain("large-node");
+      expect(candidates[0].details?.enclosedMemberCount).toBe(3);
+    }
+  });
+
+  it("keeps a connected node that does not dominate its contents out of the region set", () => {
+    const xml = page(`
+      <mxCell id="wrapper" value="Wrapper" vertex="1" parent="1" style="shape=rect;fillColor=#fff;">
+        <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="almost-as-large" value="Almost as large" vertex="1" parent="1">
+        <mxGeometry x="40" y="30" width="420" height="340" as="geometry"/>
+      </mxCell>
+      <mxCell id="edge" edge="1" parent="1" source="wrapper" target="almost-as-large"><mxGeometry relative="1" as="geometry"/></mxCell>
+    `);
+    const response = analyze(xml);
+    expect(response.status).toBe("analyzed");
+    if (response.status === "analyzed") {
       expect(response.result.findings.filter((finding) => finding.ruleId === "spatial-region.candidate")).toHaveLength(0);
     }
+  });
+
+  it("treats a labelled connected container with a single member as a region", () => {
+    const xml = page(`
+      <mxCell id="order-service" value="Order Service" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="0" y="0" width="400" height="300" as="geometry"/>
+      </mxCell>
+      <mxCell id="cart" value="Cart" vertex="1" parent="1"><mxGeometry x="60" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="600" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="edge" edge="1" parent="1" source="order-service" target="outside"><mxGeometry relative="1" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const region = detection.candidates.find((candidate) => candidate.regionCellId === "order-service");
+    expect(region).toBeDefined();
+    expect(region?.memberCellIds).toEqual(["cart"]);
+    expect(region?.eligible).toBe(true);
+    expect(detection.unownedContainedVertexCellIds).toEqual([]);
+  });
+
+  it("treats a container titled by a separate text cell with a single member as a region", () => {
+    const xml = page(`
+      <mxCell id="billing" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="0" y="0" width="400" height="300" as="geometry"/>
+      </mxCell>
+      <mxCell id="billing-title" value="Billing" vertex="1" parent="1" style="text;html=1;strokeColor=none;fillColor=none;">
+        <mxGeometry x="12" y="6" width="130" height="24" as="geometry"/>
+      </mxCell>
+      <mxCell id="invoice" value="Invoice" vertex="1" parent="1"><mxGeometry x="60" y="90" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="600" y="90" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="edge" edge="1" parent="1" source="billing" target="outside"><mxGeometry relative="1" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const region = detection.candidates.find((candidate) => candidate.regionCellId === "billing");
+    expect(region).toBeDefined();
+    expect(region?.memberCellIds).toEqual(["invoice", "billing-title"]);
+    expect(region?.label).toBe("Billing");
+    expect(region?.eligible).toBe(true);
+  });
+
+  it("reports fully contained vertices whose container is not recognised as a region", () => {
+    const xml = page(`
+      <mxCell id="unlabelled-box" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;">
+        <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="lonely-child" value="Lonely" vertex="1" parent="1"><mxGeometry x="60" y="80" width="80" height="40" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    expect(detection.candidates).toHaveLength(0);
+    expect(detection.unownedContainedVertexCellIds).toEqual(["lonely-child"]);
   });
 
   it("does not classify a plain rectangle with too few enclosed members as a region", () => {

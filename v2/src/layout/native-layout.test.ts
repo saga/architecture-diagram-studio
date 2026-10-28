@@ -176,6 +176,61 @@ describe("Studio-owned native-cell layout", () => {
     expect(regionXml).toContain('source="switch-a" target="server-b"');
   });
 
+  it("keeps a single member inside a connected labelled container and routes its external edge to the container", async () => {
+    const singleMemberXml = `<mxfile host="test"><diagram id="single-member" name="Single Member"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="order-service" value="Order Service" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
+        <mxGeometry x="100" y="100" width="400" height="300" as="geometry"/>
+      </mxCell>
+      <mxCell id="cart" value="Cart" vertex="1" parent="1"><mxGeometry x="160" y="180" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside-node" value="Outside" vertex="1" parent="1"><mxGeometry x="700" y="180" width="100" height="50" as="geometry"/></mxCell>
+      <mxCell id="edge-container" edge="1" parent="1" source="order-service" target="outside-node" style="edgeStyle=orthogonalEdgeStyle;">
+        <mxGeometry relative="1" as="geometry"/>
+      </mxCell>
+      <mxCell id="edge-member" edge="1" parent="1" source="cart" target="outside-node" style="edgeStyle=orthogonalEdgeStyle;">
+        <mxGeometry relative="1" as="geometry"/>
+      </mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(singleMemberXml, "single-member", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    const regionPosition = positions.get("order-service");
+    const memberPosition = positions.get("cart");
+    expect(regionPosition).toBeDefined();
+    expect(memberPosition).toBeDefined();
+    expect(plan.coverage.spatialRegionCount).toBe(1);
+    expect(plan.coverage.spatialRegionMemberCount).toBe(1);
+    expect(plan.coverage.spatialRegionUnownedContainedVertexCount).toBe(0);
+    // The member keeps its offset inside the container; only the shared delta changes.
+    expect(memberPosition!.x - regionPosition!.x).toBeCloseTo(60, 4);
+    expect(memberPosition!.y - regionPosition!.y).toBeCloseTo(80, 4);
+    // The member's external connector is routed from the container proxy, not from the native child.
+    expect(plan.coverage.connectorsAttachedToNestedChildrenCount).toBe(1);
+    const memberRoute = plan.edgeRoutes.find((route) => route.cellId === "edge-member");
+    expect(routeCrossesRectangleBoundary(memberRoute?.points ?? [], {
+      x: regionPosition!.x, y: regionPosition!.y, width: 400, height: 300
+    })).toBe(true);
+    expect(singleMemberXml).toContain('source="cart" target="outside-node"');
+  });
+
+  it("reports enclosed vertices whose container is not a region in plan coverage", async () => {
+    const unownedXml = `<mxfile host="test"><diagram id="unowned-container" name="Unowned"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="plain-box" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;">
+        <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="lonely-child" value="Lonely" vertex="1" parent="1"><mxGeometry x="60" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside-node" value="Outside" vertex="1" parent="1"><mxGeometry x="700" y="120" width="100" height="50" as="geometry"/></mxCell>
+      <mxCell id="edge" edge="1" parent="1" source="lonely-child" target="outside-node"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(unownedXml, "unowned-container", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    expect(plan.coverage.spatialRegionCount).toBe(0);
+    expect(plan.coverage.spatialRegionUnownedContainedVertexCount).toBe(1);
+  });
+
   it("routes a connector between two spatial regions through both native region boundaries", async () => {
     const twoRegionXml = `<mxfile host="test"><diagram id="two-regions" name="Two Regions"><mxGraphModel><root>
       <mxCell id="0"/><mxCell id="1" parent="0"/>
@@ -381,7 +436,8 @@ describe("Studio-owned native-cell layout", () => {
       spatialRegionBoundaryVertexCount: 0,
       spatialRegionCandidatesSkippedCount: 0,
       spatialRegionInternalEdgeCount: 0,
-      spatialRegionInternalEdgesTranslatedCount: 0
+      spatialRegionInternalEdgesTranslatedCount: 0,
+      spatialRegionUnownedContainedVertexCount: 0
     });
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
     expect(plan.edgeRoutes.map((route) => route.cellId).sort()).toEqual(["edge-ab", "edge-nested-target"]);
