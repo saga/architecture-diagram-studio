@@ -38,9 +38,18 @@ function normalize(value: string): string {
 function tokenize(query: string): string[] {
   return [...new Set(normalize(query).split(/[^\p{L}\p{N}]+/u).filter((part) => part.length > 0))];
 }
-export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeSearchResult[] {
+export interface DrawioShapeSearchPage {
+  results: DrawioShapeSearchResult[];
+  /** Exact number of matching entries before applying the requested limit. */
+  matchCount: number;
+  returnedCount: number;
+  truncated: boolean;
+}
+
+/** Includes completeness metadata so callers cannot mistake a limited result set for the full catalogue match. */
+export function searchDrawioShapeCatalogDetailed(query: string, limit = 5): DrawioShapeSearchPage {
   const tokens = tokenize(query);
-  if (tokens.length === 0) return [];
+  if (tokens.length === 0) return { results: [], matchCount: 0, returnedCount: 0, truncated: false };
   const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(8, Math.floor(limit))) : 5;
   const scored = SHAPE_CATALOG.map((entry) => {
     const searchable = normalize([entry.id, entry.title, entry.category, ...entry.tags].join(" "));
@@ -49,14 +58,23 @@ export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeS
     const exactId = normalize(entry.id) === normalize(query);
     const score = tokens.reduce((sum, token) => sum + (searchable.includes(token) ? 1 : 0), 0);
     return { entry, matchedTags, allMatched, exactId, score };
-  }).filter((item) => item.exactId || item.allMatched);
-  return scored
-    .sort((a, b) => Number(b.exactId) - Number(a.exactId) || b.score - a.score || a.entry.title.localeCompare(b.entry.title))
-    .slice(0, safeLimit)
-    .map(({ entry, matchedTags }) => ({
-      id: entry.id, title: entry.title, category: entry.category, kind: entry.kind,
-      style: entry.style, width: entry.width, height: entry.height, matchedTags
-    }));
+  }).filter((item) => item.exactId || item.allMatched)
+    .sort((a, b) => Number(b.exactId) - Number(a.exactId) || b.score - a.score || a.entry.title.localeCompare(b.entry.title));
+  const results = scored.slice(0, safeLimit).map(({ entry, matchedTags }) => ({
+    id: entry.id, title: entry.title, category: entry.category, kind: entry.kind,
+    style: entry.style, width: entry.width, height: entry.height, matchedTags
+  }));
+  return {
+    results,
+    matchCount: scored.length,
+    returnedCount: results.length,
+    truncated: scored.length > results.length
+  };
+}
+
+/** Compatibility helper for callers that only need the entries, not pagination metadata. */
+export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeSearchResult[] {
+  return searchDrawioShapeCatalogDetailed(query, limit).results;
 }
 export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-4";
 
