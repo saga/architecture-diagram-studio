@@ -424,10 +424,31 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }), [editorReady, bridgeReady]);
 
   useEffect(() => () => {
-    for (const pending of pendingSaveConfirmationsRef.current.values()) {
+    // Close every in-flight operation explicitly before dropping its bookkeeping. A component
+    // unmount/reload must not leave a Copilot batch waiting forever or imply that an unverified
+    // editor mutation succeeded.
+    for (const [requestId, pending] of pendingSaveConfirmationsRef.current.entries()) {
       if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+      if (pending.deferredBatchAck) {
+        onNativeEditResultRef.current?.({
+          ...pending.deferredBatchAck,
+          success: false,
+          applicationState: "unknown",
+          error: "The Draw.io editor closed before the native XML serialization could be confirmed.",
+          failureStage: "editor",
+          auditWarning: "The edit may have been applied. Inspect the current diagram and History before retrying."
+        });
+      }
+      recordDiagnostic("drawio.selection.property.save-confirmation.aborted",
+        "Closed an in-flight native edit confirmation because the Draw.io editor unmounted",
+        { requestId, cellId: pending.cellId, path: pending.path }, "warn");
     }
     pendingSaveConfirmationsRef.current.clear();
+    for (const [requestId, pending] of pendingNativeEditsRef.current.entries()) {
+      recordDiagnostic("drawio.selection.property.request.aborted",
+        "Closed an in-flight native edit request because the Draw.io editor unmounted",
+        { requestId, cellId: pending.cellId, path: pending.path }, "warn");
+    }
     pendingNativeEditsRef.current.clear();
     rejectPendingAutoLayout(new Error("Draw.io editor closed before auto layout completed."));
     rejectPendingNativePalette(new Error("Draw.io editor closed before the color transaction completed."));
