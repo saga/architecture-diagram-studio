@@ -684,6 +684,32 @@ describe("native script predicate assertions and schema warnings", () => {
     }));
   });
 
+  it("does not treat the former language-specific field name as a Draw.io assertion property", () => {
+    const result = {
+      available: true,
+      value: {
+        ok: true,
+        postconditions: { titleTranslated: true },
+        xmlAssertions: [{
+          cellId: "api",
+          chineseTitle: "New API",
+          labelContainsTitle: true
+        }]
+      }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      kind: "invalid-assertion",
+      field: "labelContainsTitle",
+      reason: expect.stringContaining("requires expectedTitle or labelContains")
+    }));
+    expect(validation.warnings).toContainEqual(expect.objectContaining({
+      field: "chineseTitle",
+      reason: expect.stringContaining("Supported evidence fields")
+    }));
+  });
+
   it("rejects a translated title that is not present in the serialized label", () => {
     const result = titleAssertionResult("不存在的标题");
     const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
