@@ -85,16 +85,17 @@
 
 ## 四、发现的边界与问题（按严重度）
 
-### 4.1 · P2 `{action:"save"}` 是死消息（Draw.io 没有该处理器）
-- Studio 在属性编辑 ack 后发送 `postMessage({action:"save"})`（`DrawioFrame.tsx:243-246`），注释称"编程修改不总触发 autosave，需要强制序列化"。
-- 但 drawio v32.0.2 的嵌入消息分发器**没有 `data.action=='save'` 分支**（`EditorUi.js` 全部 `data.action ==` 列表：dialog/layout/prompt/draft/textContent/status/spinner/exit/viewport/invokeAction/resetEditor/fit/viewbox/fullscreenChanged/snapshot/export/template/load/merge/patch/getDiff/resetDiff/remoteInvoke*，无 save）→ 落入 `:28734-28740` 的 `unknownMessage` 兜底，回发 `{error:'unknownMessage'}` 给宿主（Studio 的 `receive` 无 `event` 字段，静默忽略）。
-- **实际序列化根本不靠它**：插件批编辑在 `endUpdate()`（`studio-selection-plugin.js:192`）→ model CHANGE → autosave（日志 22:31:21.643 证实，早于 ack 3ms）。`setModified(true)` 只影响编辑器状态栏。
-- 日志佐证：`save_requested`（22:31:21.661）后 **114 秒**才出现 `save_confirmed`（22:33:15.588）——pendingSaveConfirmationsRef 挂起条目实际上等到了一次不相关的后续 autosave 才被 flush，`durationMs` 读数是用户行为间隔，不是保存耗时（诊断页读起来有误导）。
-- **建议**：改发真实存在的 `{action:"invokeAction", actionName:"save"}`（`EditorUi.js:27688-27697` 支持），或直接删掉强制 save 依赖 autosave 通道；同时把 pendingSaveConfirmationsRef 加超时回收，避免旧确认条目跨请求误记。
+### 4.1 · 已修复：使用真实的 XML export 协议确认序列化
 
-### 4.2 · P2 `lastSent` 在 XML 校验前赋值
-- `DrawioFrame.tsx:287` 先 `lastSent.current = data.xml`，`:289` 才校验；若 drawio 返回非法 XML：`lastSent` 记下了一个从未被采纳的值，且此时 React 状态留的是上一个合法 xml——编辑器画面与 Studio 状态分叉（编辑器显示非法文档、Studio 仍是旧文档），状态对不齐但不会死循环。
-- **建议**：把 `lastSent` 赋值移到 `isDrawioXmlDocument` 校验成功之后（与 `setStartupError` 一起构成"拒收后保持旧基线"）。
+旧版曾发送 Draw.io 不支持的 `{action:"save"}`，该消息不会强制序列化。当前 `DrawioFrame.tsx` 使用 `{action:"export", format:"xml"}`，并只在存在待确认编辑/布局/调色请求时将 XML export 视为相应操作的序列化回执。待确认项带超时清理，避免永久挂起。
+
+复核注意：export 消息本身没有可靠的业务 requestId 回显，因此若允许多个可变更操作并发，仍需保证单飞或为协议增加可验证的关联标识；不能仅凭“收到了某个 XML export”就假设它必然对应最近一个请求。
+
+### 4.2 · 已修复：拒绝非法 XML 时不推进权威基线
+
+当前 `DrawioFrame.tsx` 在调用 `isDrawioXmlDocument(data.xml)` 并拒绝非法 XML 后才更新 `lastSent.current`。无效 XML 会触发错误诊断并保留上一份有效源文件，不会将拒绝的 payload 记录成新的权威基线。
+
+后续修改此处理器时，必须保持“先校验、再更新基线、再通知持久化层”的顺序；不要在校验前推进 `lastSent`。
 
 ### 4.3 · info（需知晓，非缺陷）恢复版本/重开会清空原生 Undo 栈
 - 任何 `load` 动作 → `Editor.setGraphXml` → `editor.setModified(false); editor.undoManager.clear()`（`grapheditor/Editor.js` 相应源码路径；也为 `EditorUi.js:28149-28151` `setFileData` 装载共用）。
