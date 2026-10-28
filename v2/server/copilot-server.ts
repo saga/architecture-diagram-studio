@@ -11,6 +11,7 @@ import { readCopilotProvider, describeModelRouting, isModelConfiguredWithoutProv
 import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
+import { prepareWorkspaceDiagramChangeSet } from "./workspace-diagram-change-set";
 import { createLocalDiagramFileService, LocalDiagramFileError } from "./local-diagram-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
@@ -978,6 +979,31 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
   }
 });
 app.get("/api/workspace/files", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "Configure a project workspace first" }); return; } const files = await scanWorkspaceFiles(workspace); res.json({ workspaceId: workspace.id, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
+
+app.post("/api/workspace/diagram-change-set/prepare", async (req, res) => {
+  try {
+    const workspace = await getProjectWorkspace();
+    if (!workspace) { res.status(409).json({ ok: false, error: "Configure a project workspace first" }); return; }
+    const prepared = await prepareWorkspaceDiagramChangeSet(req.body, {
+      workspaceId: workspace.id,
+      resolveWorkspaceFile
+    });
+    if (!prepared.ok) {
+      res.status(409).json({ ok: false, error: prepared.error, targetPath: prepared.targetPath ?? null });
+      return;
+    }
+    // Return only a frozen target manifest, never full XML documents over this preparation endpoint.
+    res.json({
+      ok: true,
+      changeSet: prepared.changeSet,
+      targets: prepared.targets.map(({ workspaceId, filePath, pageId, expectedRevision, title, contentRevision }) => ({
+        workspaceId, filePath, pageId, expectedRevision, title, contentRevision
+      }))
+    });
+  } catch (error) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 app.post("/api/local/diagram/session", async (req, res) => {
   try {
