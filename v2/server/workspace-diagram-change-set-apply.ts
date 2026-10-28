@@ -117,6 +117,9 @@ export async function applyWorkspaceDiagramChangeSet(
         if (beforePages.has("__bare_graph_model__") !== afterPages.has("__bare_graph_model__")) {
           return { ok: false, error: "A change cannot convert mxfile to mxGraphModel or vice versa.", failedPath: target.filePath };
         }
+        if (beforePages.size !== afterPages.size || [...beforePages].some((id) => !afterPages.has(id))) {
+          return { ok: false, error: "A change set must preserve every existing page ID; page creation/deletion requires a separate explicit capability.", failedPath: target.filePath };
+        }
         prepared.push({
           filePath: target.filePath, absolutePath: resolved.absolutePath, beforeXml, resultXml: target.resultXml,
           beforeRevision, afterRevision: sha256(target.resultXml), changedPageIds: ids
