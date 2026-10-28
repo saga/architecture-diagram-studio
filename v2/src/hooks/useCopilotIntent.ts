@@ -647,13 +647,26 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         documentRevision = saved.workspaceRevision;
       }
-      const pageInfo = getNativeDiagramPageInfo(sourceXml, sourcePageId);
-      const nativeTargets = extractNativeEditTargets(sourceXml, pageInfo.id).slice(0, 200);
+      let activePageId = getNativeDiagramPageInfo(sourceXml, sourcePageId).id || sourcePageId;
+      if (getRuntimeInspection) {
+        const runtimeInspection = await getRuntimeInspection({ documentRevision, pageId: activePageId });
+        if (runtimeInspection.documentRevision !== documentRevision ||
+            (activePageId !== null && runtimeInspection.pageId !== activePageId)) {
+          throw new Error("The live Draw.io inspection did not match the proposal's source revision and page. Confirmation was not sent.");
+        }
+        activePageId = runtimeInspection.pageId;
+      }
+      if (!activePageId) {
+        throw new Error("The active Draw.io page ID is not available. Select a page and retry confirming this proposal.");
+      }
+      const pageInfo = getNativeDiagramPageInfo(sourceXml, activePageId);
+      if (pageInfo.id !== activePageId) throw new Error("The proposal's target page was not found in the source XML.");
+      const nativeTargets = extractNativeEditTargets(sourceXml, activePageId).slice(0, 200);
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const requestContext = {
         kind: "drawio" as const,
         title: pageInfo.title || "Draw.io diagram",
-        activePageId: pageInfo.id,
+        activePageId,
         selectedCell: sourceSelectedCellId ? {
           cellId: sourceSelectedCellId, pageId: pageInfo.id,
           label: selectedTarget?.name || ""
@@ -684,7 +697,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable.");
       const command = plan.nativeEdits;
-      if (command.documentRevision !== documentRevision || command.pageId !== (pageInfo.id ?? null)) {
+      if (command.documentRevision !== documentRevision || command.pageId !== activePageId) {
         throw new Error("The confirmed command belongs to another revision or Draw.io page.");
       }
       const layoutOperation = command.operations.length === 1 && command.operations[0].op === "auto_layout"
@@ -703,6 +716,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       const cellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId, layoutPlan);
       if (!cellPlan.ok) throw new Error("The confirmed proposal is no longer valid: " + cellPlan.error);
+      if (getRuntimeInspection) {
+        const runtimeBeforeDispatch = await getRuntimeInspection({ documentRevision, pageId: activePageId });
+        if (runtimeBeforeDispatch.documentRevision !== documentRevision ||
+            runtimeBeforeDispatch.pageId !== activePageId) {
+          throw new Error("The active Draw.io page changed before the confirmed proposal could be dispatched. No change was applied.");
+        }
+      }
       const execution = await applyNativeCellEdits(cellPlan.edits, command.pageId, {
         requestId: command.requestId,
         sessionId: plan.sessionId || copilotSessionId,
