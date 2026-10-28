@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { XMLSerializer } from "@xmldom/xmldom";
-import { parseDrawioXml } from "../src/model/drawio-xml-dom";
+import { parseDrawioXml, serializeDrawioXml } from "../src/model/drawio-xml-dom";
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
 import { runCompensatingTransaction, writeTextAtomic } from "./storage";
 import type { WorkspaceDiagramFileResolver } from "./workspace-diagram-change-set";
@@ -81,17 +80,12 @@ function pageXmlById(xml: string): Map<string, string> {
     }
   }
   if (document.documentElement.nodeName === "mxGraphModel") {
-    return new Map([["__bare_graph_model__", new XMLSerializer().serializeToString(document.documentElement)]]);
+    return new Map([["__bare_graph_model__", serializeDrawioXml(document.documentElement)]]);
   }
   if (document.documentElement.nodeName !== "mxfile") throw new Error("Draw.io XML root must be mxfile or mxGraphModel.");
-  const serializer = new XMLSerializer();
   return new Map(Array.from(document.getElementsByTagName("diagram"))
-    .map((page) => [page.getAttribute("id") ?? "", serializer.serializeToString(page)] as const)
+    .map((page) => [page.getAttribute("id") ?? "", serializeDrawioXml(page)] as const)
     .filter(([id]) => Boolean(id)));
-}
-
-function pageIds(xml: string): Set<string> {
-  return new Set(pageXmlById(xml).keys());
 }
 
 /**
