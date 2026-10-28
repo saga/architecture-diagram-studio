@@ -456,6 +456,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         const optionsMatch = layoutPlan.engine === operation.engine &&
           layoutPlan.algorithm === operation.algorithm &&
           layoutPlan.direction === operation.direction &&
+          layoutPlan.preserveLocalGrouping === operation.preserveLocalGrouping &&
           layoutPlan.nodeSpacing === operation.nodeSpacing &&
           layoutPlan.layerSpacing === operation.layerSpacing &&
           layoutPlan.edgeRouting === operation.edgeRouting &&
