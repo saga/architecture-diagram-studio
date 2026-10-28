@@ -1008,6 +1008,58 @@ describe("Copilot intent route result and revision contract", () => {
     ]);
   });
 
+  it("does not let a truncated element search masquerade as a complete bulk-edit target set", async () => {
+    const targets = Array.from({ length: 12 }, (_, index) =>
+      '<mxCell id="task-' + index + '" value="Task 7" vertex="1" parent="1"><mxGeometry x="' +
+      (index * 30) + '" y="1" width="20" height="20" as="geometry"/></mxCell>'
+    ).join("");
+    const taskXml = XML.replace("</root>", targets + "</root>");
+    const revision = workspaceRevision(taskXml);
+    const searchCopilot = elementSearchingCopilot("Task 7", "search_drawio_elements", { query: "Task 7" });
+    const searchHarness = await createServer({
+      copilot: searchCopilot,
+      snapshot: async () => ({ drawioXml: taskXml, revision })
+    });
+    const searched = await post(searchHarness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: 'Find all "Task 7" cells',
+      diagramXml: taskXml,
+      documentRevision: revision
+    }));
+    expect(searched.response.status).toBe(200);
+    const searchResult = (searchCopilot as { searchResult?: {
+      matchCount: number; returnedCount: number; truncated: boolean; guidance?: string
+    } }).searchResult;
+    expect(searchResult).toMatchObject({
+      matchCount: 12, returnedCount: 10, truncated: true
+    });
+    expect(searchResult?.guidance).toContain("do not perform an 'all' edit from this subset");
+    expect(searchResult?.guidance).toContain("inspect_drawio_graph");
+
+    const inspectCopilot = elementSearchingCopilot("", "inspect_drawio_graph", {
+      query: "Task 7", offset: 0, limit: 100
+    });
+    const inspectHarness = await createServer({
+      copilot: inspectCopilot,
+      snapshot: async () => ({ drawioXml: taskXml, revision })
+    });
+    const inspected = await post(inspectHarness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: 'Inspect all "Task 7" cells',
+      diagramXml: taskXml,
+      documentRevision: revision
+    }));
+    expect(inspected.response.status).toBe(200);
+    const inspection = (inspectCopilot as { searchResult?: {
+      totalCount: number; returnedCount: number; truncated: boolean;
+      pageId: string | null; documentRevision: string | null; results: Array<{ id: string }>
+    } }).searchResult;
+    expect(inspection).toMatchObject({
+      totalCount: 12, returnedCount: 12, truncated: false, pageId: "p1", documentRevision: revision
+    });
+    expect(inspection?.results.map((cell) => cell.id)).toEqual(
+      Array.from({ length: 12 }, (_, index) => "task-" + index)
+    );
+  });
+
   it("returns a structured rejection when the reference tool receives null arguments", async () => {
     const copilot = elementSearchingCopilot("", "get_drawio_reference", null);
     const harness = await createServer({ copilot });
