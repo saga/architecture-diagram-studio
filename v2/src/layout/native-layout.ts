@@ -17,6 +17,10 @@ export const NATIVE_AUTO_LAYOUT_ALGORITHMS = [
 ] as const;
 export type NativeAutoLayoutAlgorithm = (typeof NATIVE_AUTO_LAYOUT_ALGORITHMS)[number];
 
+// These algorithms depend on graph connectivity; with zero source connectors they otherwise
+// arbitrarily repack isolated components. Explicit spatial/packing algorithms still run.
+const NO_EDGE_GRAPH_LAYOUT_ALGORITHMS = new Set<NativeAutoLayoutAlgorithm>(["layered", "dot", "tree", "cluster", "breadthfirst"]);
+
 export const NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE: Record<NativeAutoLayoutEngine, Array<{ value: NativeAutoLayoutAlgorithm; label: string }>> = {
   elk: [
     { value: "layered", label: "Layered · flow" }, { value: "mrtree", label: "Mr. Tree" },
@@ -742,8 +746,9 @@ function projectNativePage(
   ]));
   // Region members are removed from the outer graph. The native siblings remain untouched in XML.
   vertices = vertices.filter((cell) => !spatialRegionMemberIds.has(cell.id));
+  const hasSourceEdges = all.some((cell) => cell.kind === "edge");
   const spatialAdjacencyClusters = preserveLocalGrouping
-    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing, direction)
+    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing, hasSourceEdges ? direction : null)
     : [];
   const spatialAdjacencyMemberIds = new Set(spatialAdjacencyClusters.flatMap((cluster) => cluster.memberCellIds));
   const adjacencyOwnerByMemberId = new Map<string, string>();
@@ -1621,7 +1626,7 @@ function normalizePlan(
       spatialAdjacencyInternalEdgeCount: projection.adjacencyInternalEdges.length,
       spatialAdjacencyInternalEdgesTranslatedCount: projection.adjacencyInternalEdges.filter((edge) => edge.points.length > 0).length,
       spatialRegionUnownedContainedVertexCount: projection.spatialRegionUnownedContainedVertexCount,
-      sourceCoordinatesRetainedVertexCount: preserveCanvasOrigin ? projection.layoutVertices.length : 0
+      sourceCoordinatesRetainedVertexCount: preserveCanvasOrigin ? nativePositions.length : 0
     },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),
@@ -1665,13 +1670,11 @@ export async function calculateNativeAutoLayout(
   const positions = new Map<string, Point>();
   const routes = new Map<string, Point[]>();
 
-  // A page without a single connector has no graph structure for any engine to read: every vertex
-  // is its own connected component, so component packing orders them by an internal index rather
-  // than by where the user put them, and a collage becomes a scramble. Retaining the source
-  // coordinates is the only non-arbitrary answer, and it is what keeps a geometry-only container
-  // together with the nodes drawn inside it. ELK Fixed already means exactly this, so every other
-  // engine is redirected to it instead of silently discarding the arrangement.
-  const retainSourceCoordinates = projection.edges.length === 0 && options.algorithm !== "fixed";
+  // A graph-structure algorithm cannot infer a useful flow from a page with no source connectors;
+  // retaining source coordinates is safer than arbitrarily packing isolated components. The test
+  // uses sourceEdgeCount, not projected edges, so internal or otherwise filtered native connectors
+  // cannot be mislabeled as a connector-free page. Explicit spatial/packing algorithms remain active.
+  const retainSourceCoordinates = projection.sourceEdgeCount === 0 && NO_EDGE_GRAPH_LAYOUT_ALGORITHMS.has(options.algorithm);
   if (retainSourceCoordinates) {
     for (const node of projection.layoutVertices) positions.set(node.id, { x: node.x, y: node.y });
   } else if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {

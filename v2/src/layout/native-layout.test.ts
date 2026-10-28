@@ -368,6 +368,46 @@ describe("Studio-owned native-cell layout", () => {
     expect(positions.get("note-b")!.y - positions.get("panel")!.y).toBeCloseTo(150, 4);
   });
 
+
+  it("keeps local-group member coordinates unchanged when a connector-free canvas is retained", async () => {
+    const xml = `<mxfile host="test"><diagram id="no-edge-local-group" name="No-edge local group"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="peer-a" value="Peer A" vertex="1" parent="1"><mxGeometry x="100" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-b" value="Peer B" vertex="1" parent="1"><mxGeometry x="100" y="145" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="500" y="300" width="90" height="45" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(xml, "no-edge-local-group", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    expect(plan.coverage.sourceEdgeCount).toBe(0);
+    expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
+    expect(plan.coverage.sourceCoordinatesRetainedVertexCount).toBe(plan.positions.length);
+    expect(positions.get("peer-a")).toMatchObject({ x: 100, y: 100 });
+    expect(positions.get("peer-b")).toMatchObject({ x: 100, y: 145 });
+    expect(positions.get("outside")).toMatchObject({ x: 500, y: 300 });
+  });
+
+  it("honors an explicit ELK box layout on a connector-free canvas", async () => {
+    const xml = `<mxfile host="test"><diagram id="no-edge-box" name="No-edge box"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="400" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="100" y="350" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="c" value="C" vertex="1" parent="1"><mxGeometry x="700" y="600" width="80" height="40" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(xml, "no-edge-box", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, preserveLocalGrouping: false, engine: "elk", algorithm: "box"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    expect(plan.coverage.sourceEdgeCount).toBe(0);
+    expect(plan.coverage.sourceCoordinatesRetainedVertexCount).toBe(0);
+    expect(
+      positions.get("a")!.x !== 400 || positions.get("a")!.y !== 80 ||
+      positions.get("b")!.x !== 100 || positions.get("b")!.y !== 350 ||
+      positions.get("c")!.x !== 700 || positions.get("c")!.y !== 600
+    ).toBe(true);
+  });
+
   it("retains source coordinates when the page has no connectors", async () => {
     // With no connectors every vertex is its own connected component, so component packing orders
     // them by an internal index and a deliberate collage becomes a scramble. Nothing is laid out
@@ -553,10 +593,16 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.layoutLayerId).toBe("VR5IMITfkwXBvMDUpB2b-1");
     expect(plan.layoutLayerFallback).toBe(false);
     expect(plan.positions).toHaveLength(26);
-    // Five close, waypoint-free peer connectors are internal to protected local clusters;
-    // native Draw.io recalculates those routes from their unchanged original terminal IDs.
+    // Five native connectors intentionally have no solver route: depending on the hierarchy
+    // in this BPMN fixture they can be region-internal, adjacency-internal, or same-group edges.
+    // Native Draw.io retains their terminal IDs and recalculates their routes itself.
     expect(plan.coverage.spatialAdjacencyClusterCount).toBeGreaterThan(0);
-    expect(plan.coverage.spatialAdjacencyInternalEdgeCount - plan.coverage.spatialAdjacencyInternalEdgesTranslatedCount).toBe(5);
+    const untransformedInternalEdges =
+      plan.coverage.spatialRegionInternalEdgeCount - plan.coverage.spatialRegionInternalEdgesTranslatedCount +
+      plan.coverage.spatialAdjacencyInternalEdgeCount - plan.coverage.spatialAdjacencyInternalEdgesTranslatedCount +
+      plan.coverage.edgesWithinSameGroupUntouchedCount;
+    expect(untransformedInternalEdges).toBe(5);
+    expect(plan.coverage.sourceEdgeCount - plan.coverage.plannedEdgeCount).toBe(5);
     expect(plan.edgeRoutes).toHaveLength(19);
     expect(plan.edgeRoutes.every((route) => !route.cellId.startsWith("__studio_spatial_cluster_"))).toBe(true);
   });

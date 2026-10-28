@@ -1495,9 +1495,12 @@ export default function App() {
       const retainedSummary = coverage.sourceCoordinatesRetainedVertexCount > 0
         ? " · no connectors, arrangement kept"
         : "";
+      const containmentWarning = coverage.spatialRegionUnownedContainedVertexCount > 0
+        ? " · warning: " + coverage.spatialRegionUnownedContainedVertexCount + " contained node(s) remain ungrouped"
+        : "";
       setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
-        routingSummary + regionSummary + groupingSummary + retainedSummary);
+        routingSummary + regionSummary + groupingSummary + retainedSummary + containmentWarning);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,

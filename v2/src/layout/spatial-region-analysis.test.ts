@@ -363,4 +363,64 @@ describe("read-only spatial region analysis", () => {
     const response = analyze(xml, "not-a-page");
     expect(response.status).toBe("invalid");
   });
+
+  it("does not treat tiny decorative icons as evidence for a spatial region", () => {
+    const xml = page(`
+      <mxCell id="lane" value="" vertex="1" parent="1" style="shape=swimlane;">
+        <mxGeometry x="0" y="0" width="720" height="517" as="geometry"/>
+      </mxCell>
+      <mxCell id="vote-a" value="" vertex="1" parent="1" style="shape=ellipse;fillColor=#f5f5f5;">
+        <mxGeometry x="80" y="60" width="10" height="25" as="geometry"/>
+      </mxCell>
+      <mxCell id="vote-b" value="" vertex="1" parent="1" style="shape=ellipse;fillColor=#f5f5f5;">
+        <mxGeometry x="130" y="60" width="10" height="25" as="geometry"/>
+      </mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    expect(detection.candidates).toHaveLength(0);
+    expect(detection.unownedContainedVertexCellIds).toEqual([]);
+  });
+
+  it("keeps decorative cells attached to a region without counting them as member evidence", () => {
+    const xml = page(`
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#dae8fc;">
+        <mxGeometry x="0" y="0" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task A" vertex="1" parent="1" style="shape=note;">
+        <mxGeometry x="60" y="40" width="140" height="60" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-b" value="Task B" vertex="1" parent="1" style="shape=note;">
+        <mxGeometry x="60" y="150" width="140" height="60" as="geometry"/>
+      </mxCell>
+      <mxCell id="vote-icon" value="" vertex="1" parent="1" style="shape=ellipse;">
+        <mxGeometry x="250" y="25" width="10" height="25" as="geometry"/>
+      </mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const region = detection.candidates.find((candidate) => candidate.regionCellId === "panel");
+    expect(region?.eligible).toBe(true);
+    expect(region?.memberCellIds).toEqual(expect.arrayContaining(["note-a", "note-b", "vote-icon"]));
+    expect(detection.unownedContainedVertexCellIds).toEqual([]);
+  });
+
+  it("does not let an ineligible overlapping region claim contained vertices as safely owned", () => {
+    const xml = page(`
+      <mxCell id="region-a" value="Area A" vertex="1" parent="1" style="shape=rect;fillColor=none;">
+        <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="region-b" value="Area B" vertex="1" parent="1" style="shape=rect;fillColor=none;">
+        <mxGeometry x="350" y="100" width="500" height="400" as="geometry"/>
+      </mxCell>
+      <mxCell id="a1" value="A1" vertex="1" parent="1"><mxGeometry x="40" y="50" width="40" height="30" as="geometry"/></mxCell>
+      <mxCell id="a2" value="A2" vertex="1" parent="1"><mxGeometry x="140" y="50" width="40" height="30" as="geometry"/></mxCell>
+      <mxCell id="a3" value="A3" vertex="1" parent="1"><mxGeometry x="240" y="50" width="40" height="30" as="geometry"/></mxCell>
+      <mxCell id="b1" value="B1" vertex="1" parent="1"><mxGeometry x="620" y="150" width="40" height="30" as="geometry"/></mxCell>
+      <mxCell id="b2" value="B2" vertex="1" parent="1"><mxGeometry x="680" y="230" width="40" height="30" as="geometry"/></mxCell>
+      <mxCell id="b3" value="B3" vertex="1" parent="1"><mxGeometry x="740" y="310" width="40" height="30" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    expect(detection.candidates.length).toBeGreaterThan(0);
+    expect(detection.candidates.every((candidate) => !candidate.eligible)).toBe(true);
+    expect(detection.unownedContainedVertexCellIds).toEqual(expect.arrayContaining(["a1", "b1"]));
+  });
 });
