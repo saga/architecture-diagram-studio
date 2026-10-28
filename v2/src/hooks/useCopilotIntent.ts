@@ -662,7 +662,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       const pageInfo = getNativeDiagramPageInfo(sourceXml, activePageId);
       if (pageInfo.id !== activePageId) throw new Error("The proposal's target page was not found in the source XML.");
-      const nativeTargets = extractNativeEditTargets(sourceXml, activePageId).slice(0, 200);
+      const nativeTargets = extractNativeEditTargets(sourceXml, activePageId);
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const requestContext = {
         kind: "drawio" as const,
