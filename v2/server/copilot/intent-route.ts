@@ -640,23 +640,47 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape class, library or concept keyword." };
       }
       const current = contextBySession.get(sessionId);
-      const context = current && typeof current === "object" ? current as { runtimeInspection?: { liveShapeClasses?: unknown; drawioVersion?: unknown; documentRevision?: unknown } } : {};
+      const context = current && typeof current === "object" ? current as {
+        runtimeInspection?: {
+          liveShapeClasses?: unknown; liveShapeClassesTruncated?: unknown;
+          drawioVersion?: unknown; documentRevision?: unknown
+        }
+      } : {};
       const inspection = context.runtimeInspection;
       const classes = Array.isArray(inspection?.liveShapeClasses) ? inspection.liveShapeClasses.filter((name): name is string => typeof name === "string") : [];
+      const registrySnapshotTruncated = inspection?.liveShapeClassesTruncated === true;
       const query = args.query.trim().toLocaleLowerCase();
       const matches = classes.filter((name) => name.toLocaleLowerCase().includes(query));
       const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.max(1, Math.min(30, Math.floor(args.limit))) : 15;
       const results = matches.slice(0, limit);
-      await deps.writeLog("tool.search_drawio_runtime_shapes.completed", { sessionId, query: args.query.trim(), registryCount: classes.length, matchCount: matches.length, returnedCount: results.length, truncated: matches.length > results.length, drawioVersion: inspection?.drawioVersion ?? null, documentRevision: inspection?.documentRevision ?? null });
+      const resultSetTruncated = matches.length > results.length;
+      const guidance = registrySnapshotTruncated
+        ? "The live shape registry snapshot itself was truncated at its transport cap. These counts cover only the retained subset; do not conclude a class is unavailable from no match. Inspect the live Draw.io sidebar/runtime search APIs and verify a representative native cell."
+        : resultSetTruncated
+          ? "This query matched more classes than were returned. Use a narrower query or increase limit; do not treat this result subset as complete."
+          : classes.length === 0
+            ? "No live shape registry snapshot is available for this turn. Refresh the active editor runtime inspection before concluding that a shape is unavailable."
+            : matches.length === 0
+              ? "No registered JavaScript shape class matched this query. This does not exclude built-in mxGraph shapes, stencil libraries, sidebar search entries, or lazily loaded libraries; inspect live sidebar/library APIs and verify a native cell before falling back."
+              : undefined;
+      await deps.writeLog("tool.search_drawio_runtime_shapes.completed", {
+        sessionId, query: args.query.trim(), registryCount: classes.length, registrySnapshotTruncated,
+        matchCount: matches.length, returnedCount: results.length, resultSetTruncated,
+        truncated: registrySnapshotTruncated || resultSetTruncated,
+        drawioVersion: inspection?.drawioVersion ?? null, documentRevision: inspection?.documentRevision ?? null
+      });
       return {
         source: "live-mxCellRenderer.defaultShapes",
         liveSnapshotAvailable: classes.length > 0,
+        registrySnapshotTruncated,
+        matchCountComplete: !registrySnapshotTruncated,
         drawioVersion: inspection?.drawioVersion ?? null,
         matchCount: matches.length,
-        truncated: matches.length > results.length,
+        returnedCount: results.length,
+        resultSetTruncated,
+        truncated: registrySnapshotTruncated || resultSetTruncated,
         results,
-        ...(classes.length ? {} : { guidance: "No live shape registry snapshot is available for this turn. Refresh the active editor runtime inspection before concluding that a shape is unavailable." }),
-        ...(classes.length && matches.length === 0 ? { guidance: "No registered JavaScript shape class matched this query. This does not exclude built-in mxGraph shapes, stencil libraries, sidebar search entries, or lazily loaded libraries; inspect live sidebar/library APIs and verify a native cell before falling back." } : {})
+        ...(guidance ? { guidance } : {})
       };
     }
   });
