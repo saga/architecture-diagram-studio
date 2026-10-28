@@ -55,3 +55,8 @@ The current Draw.io iframe remains the editor for one open document. A multi-fil
 - Existing single-document operations remain unchanged and continue to bind to the live page and revision.
 - Multi-file support is enabled only after the server-side change-set service, safe XML operation path, durable journal/recovery, and UI preview/confirmation are integrated and tested.
 - Workspace discovery alone does not grant permission to modify arbitrary files. Only explicitly selected and validated Draw.io targets can be written.
+
+
+## Implementation status (2026-10-28)
+
+The initial implementation adds a validated target contract and a preparation endpoint at `POST /api/workspace/diagram-change-set/prepare`. The endpoint resolves every target through the workspace file service, validates Draw.io XML, verifies each page ID and SHA-256 content revision, and returns a target manifest without returning document XML. It is preparation-only: it does not apply operations or persist changed files. Multi-file mutation remains gated until the apply/journal/recovery service and proposal UI are implemented.
