@@ -477,8 +477,6 @@ function detectSpatialAdjacencyClusters(
     const maxMemberHeight = Math.max(...members.map((member) => member.height));
     const centerXValues = members.map((member) => member.x + member.width / 2);
     const centerYValues = members.map((member) => member.y + member.height / 2);
-    const centerXRange = Math.max(...centerXValues) - Math.min(...centerXValues);
-    const centerYRange = Math.max(...centerYValues) - Math.min(...centerYValues);
     const horizontalCenterCoordinatesAreDistinct = new Set(centerXValues.map((value) => Math.round(value * 1000))).size === members.length;
     const verticalCenterCoordinatesAreDistinct = new Set(centerYValues.map((value) => Math.round(value * 1000))).size === members.length;
     const reflowRowToColumn = direction !== null && targetVertical && clearlyWide &&
