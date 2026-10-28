@@ -370,7 +370,7 @@ function detectSpatialAdjacencyClusters(
   allCells: ProjectedCell[],
   protectedCellIds: Set<string>,
   nodeSpacing: number,
-  direction: NativeAutoLayoutDirection
+  direction: NativeAutoLayoutDirection | null
 ): SpatialAdjacencyLayoutCluster[] {
   const candidates = vertices.filter((cell) =>
     !protectedCellIds.has(cell.id) && cell.kind === "vertex" && cell.visible &&
@@ -459,11 +459,13 @@ function detectSpatialAdjacencyClusters(
     const targetVertical = direction === "DOWN" || direction === "UP";
     const clearlyWide = sourceWidth > sourceHeight * 1.15;
     const clearlyTall = sourceHeight > sourceWidth * 1.15;
-    const rotation: SpatialAdjacencyRotation = targetVertical && clearlyWide
-      ? direction === "DOWN" ? "CLOCKWISE" : "COUNTERCLOCKWISE"
-      : !targetVertical && clearlyTall
-        ? direction === "RIGHT" ? "COUNTERCLOCKWISE" : "CLOCKWISE"
-        : "NONE";
+    const rotation: SpatialAdjacencyRotation = direction === null
+      ? "NONE"
+      : targetVertical && clearlyWide
+        ? direction === "DOWN" ? "CLOCKWISE" : "COUNTERCLOCKWISE"
+        : !targetVertical && clearlyTall
+          ? direction === "RIGHT" ? "COUNTERCLOCKWISE" : "CLOCKWISE"
+          : "NONE";
     const rotateCenter = (member: ProjectedCell): Point => {
       const centerX = member.x + member.width / 2;
       const centerY = member.y + member.height / 2;
@@ -516,7 +518,7 @@ function projectNativePage(
   requestedPageId: string | null,
   preserveLocalGrouping: boolean,
   nodeSpacing: number,
-  direction: NativeAutoLayoutDirection
+  direction: NativeAutoLayoutDirection | null
 ): NativePageProjection {
   const parsed = parseGraphModel(xml, requestedPageId);
   const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as Element[];
@@ -1407,8 +1409,8 @@ function normalizePlan(
   }
 
   // Local-group edges bypass the outer solver because their endpoints move atomically.
-  // Existing explicit waypoints receive the same delta; absent waypoints stay absent and
-  // native Draw.io recalculates the rendered path from the original terminal IDs.
+  // Explicit waypoints undergo the same local rotation as their member centres and then follow
+  // the translated cluster; absent waypoints stay absent for native Draw.io routing.
   for (const edge of projection.adjacencyInternalEdges) {
     if (edge.points.length === 0) continue;
     const proxyId = edge.layoutSourceId;
@@ -1550,7 +1552,11 @@ export async function calculateNativeAutoLayout(
   if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
     throw new Error("The selected algorithm is not supported by the chosen layout engine.");
   }
-  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing, options.direction);
+  // Layouts that explicitly preserve node coordinates or do not support direction must not
+  // rotate the local composition as a side effect.
+  const projectionDirection = nativeLayoutSupportsDirection(options.engine, options.algorithm)
+    ? options.direction : null;
+  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing, projectionDirection);
   if (projection.layoutVertices.length === 0) {
     throw new Error(describeEmptyLayoutScope(projection));
   }
