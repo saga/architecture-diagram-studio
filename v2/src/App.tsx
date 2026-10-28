@@ -736,7 +736,8 @@ export default function App() {
     setDiagramThemeApplying(true);
     const source = latestDiagramStateRef.current;
     const sourceXml = source.drawioXml;
-    const pageId = source.selectedNativePageId;
+    const sourcePageId = source.selectedNativePageId;
+    let pageId = sourcePageId;
     const labels: Record<DiagramTheme, string> = {
       "ocean-depths": "Ocean Depths",
       "sunset-boulevard": "Sunset Boulevard",
@@ -755,10 +756,21 @@ export default function App() {
     let appliedXml = sourceXml;
     try {
       const documentRevision = await calculateDrawioXmlRevision(sourceXml);
+      const frame = drawioFrameRef.current;
+      if (!frame) throw new Error("The native Draw.io editor is unavailable; no colors were changed.");
+      const runtimeBefore = await frame.inspectRuntime({ documentRevision, pageId });
+      if (runtimeBefore.documentRevision !== documentRevision || !runtimeBefore.pageId) {
+        throw new Error("Draw.io has not reported a valid active page. Select a page in the editor and retry; no colors were changed.");
+      }
+      pageId = runtimeBefore.pageId;
       const beforeApply = latestDiagramStateRef.current;
-      if (beforeApply.drawioXml !== sourceXml || beforeApply.selectedNativePageId !== pageId) {
+      if (beforeApply.drawioXml !== sourceXml ||
+          (beforeApply.selectedNativePageId !== null && beforeApply.selectedNativePageId !== pageId)) {
         throw new Error("The diagram or active page changed while colors were being prepared. Nothing was applied; select the preset again.");
       }
+      recordDiagnostic("drawio.palette.active-page-resolved",
+        "Resolved the color preset target from the live Draw.io editor",
+        { pageId, sourcePageId, documentRevision, theme });
       const plan = calculateNativePalettePlan(sourceXml, pageId, documentRevision, theme);
       if (plan.changes.length === 0 && plan.expectedBackground === plan.background) {
         setDiagramTheme(detectDrawioDiagramTheme(sourceXml, pageId));
@@ -773,12 +785,17 @@ export default function App() {
         await archiveStandaloneHistory("Before diagram colors: " + presetLabel, requestId);
       }
       const currentBeforeMutation = latestDiagramStateRef.current;
-      if (currentBeforeMutation.drawioXml !== sourceXml || currentBeforeMutation.selectedNativePageId !== pageId) {
+      if (currentBeforeMutation.drawioXml !== sourceXml ||
+          (currentBeforeMutation.selectedNativePageId !== null && currentBeforeMutation.selectedNativePageId !== pageId)) {
         throw new Error("The diagram or active page changed before colors could be applied. No changes were made; retry.");
+      }
+      const runtimeBeforeMutation = await frame.inspectRuntime({ documentRevision, pageId });
+      if (runtimeBeforeMutation.documentRevision !== documentRevision || runtimeBeforeMutation.pageId !== pageId) {
+        throw new Error("The active Draw.io page changed while colors were being prepared. No changes were made; reselect the preset.");
       }
 
       setLastAction("Applying " + presetLabel + " colors to the current page…");
-      const serializedXml = await drawioFrameRef.current.applyPalette(plan);
+      const serializedXml = await frame.applyPalette(plan);
       if (!isDrawioXmlDocument(serializedXml)) {
         throw new Error("Draw.io did not return valid XML after applying the color preset.");
       }
@@ -1430,6 +1447,13 @@ export default function App() {
       if (latestState.drawioXml !== sourceXml ||
           (latestState.selectedNativePageId !== null && latestState.selectedNativePageId !== pageId)) {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
+      }
+      // React selection events are not guaranteed to fire on every native page switch.
+      // Recheck the live editor immediately before dispatch so a delayed UI state cannot
+      // cause a plan for page A to be applied while page B is active.
+      const runtimeBeforeApply = await frame.inspectRuntime({ documentRevision, pageId });
+      if (runtimeBeforeApply.documentRevision !== documentRevision || runtimeBeforeApply.pageId !== pageId) {
+        throw new Error("The active Draw.io page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
       const coverage = nativePlan.coverage;
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
