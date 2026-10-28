@@ -39,6 +39,7 @@ function inspection(overrides: Record<string, unknown> = {}) {
       childCount: 0, geometry: { x: 10, y: 20, width: 100, height: 60, relative: false, points: [] }
     }],
     liveShapeClasses: ["mxgraph.c4.person2", "mxgraph.flowchart.start", "constructor", "invalid name"],
+    liveShapeClassesTruncated: false,
     renderedEdges: [],
     truncated: false,
     ...overrides
@@ -55,6 +56,28 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.capabilityManifest.jsShapeClasses.registered["mxgraph.c4.person2"]).toBe(true);
     expect(result?.cells[0]?.geometry).toMatchObject({ x: 10, y: 20, width: 100, height: 60 });
     expect(result?.liveShapeClasses).toEqual(["mxgraph.c4.person2", "mxgraph.flowchart.start"]);
+  });
+
+  it("keeps source-registry truncation separate from per-query truncation", () => {
+    const classes = Array.from(
+      { length: RUNTIME_INSPECTION_LIMITS.liveShapeClasses + 1 },
+      (_, index) => "mxgraph.test.shape" + index
+    );
+    const inferredTruncation = normalizeDrawioRuntimeInspection(inspection({
+      liveShapeClasses: classes,
+      truncated: false
+    }), { documentRevision: revision, pageId: "page-1" });
+    expect(inferredTruncation?.liveShapeClasses).toHaveLength(RUNTIME_INSPECTION_LIMITS.liveShapeClasses);
+    expect(inferredTruncation?.liveShapeClassesTruncated).toBe(true);
+    expect(inferredTruncation?.truncated).toBe(true);
+
+    const explicitTruncation = normalizeDrawioRuntimeInspection(inspection({
+      liveShapeClasses: ["mxgraph.c4.person2"],
+      liveShapeClassesTruncated: true,
+      truncated: false
+    }), { documentRevision: revision, pageId: "page-1" });
+    expect(explicitTruncation?.liveShapeClassesTruncated).toBe(true);
+    expect(explicitTruncation?.truncated).toBe(true);
   });
 
   it("normalizes shape registration queries independently from stencil lookup", () => {
