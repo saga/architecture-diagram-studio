@@ -277,7 +277,7 @@ xmlAssertions: [{ cellId, label }]   // label = 改写后的完整值（model.ge
 
 1. **增加标题谓词断言兼容性。** `validateNativeScriptResultAgainstXml` 现在支持 `labelContains`、`chineseTitle` 和 `labelContainsTitle`。标题文本会直接在序列化 XML 的实际 label 中校验；`labelContainsTitle` 会重新计算，不会直接信任脚本返回的布尔值。
 2. **未知附加字段不再使整条断言失效。** 例如 `bodyTailPreserved` 会作为诊断 warning 记录并被忽略，不会覆盖 `chineseTitle` 的有效 XML 证据。未知字段本身不算证据；如果断言只有 `cellId` 和未知字段，仍然 fail-closed。
-3. **差分范围审计与断言语法验证解耦。** `DrawioFrame.tsx` 在脚本后置条件通过后，总会运行 before/after XML scope audit，即使断言结构存在错误也一样。这样不会因为字段格式错误就丢弃独立的越界变更检查。scope audit 仍检查每个实际变化字段是否有对应证据，未声明或无证据的样式、几何等修改仍会被拒绝。
+3. **差分范围审计与断言语法验证解耦。** 初次修复让 `DrawioFrame.tsx` 在脚本后置条件通过后运行 before/after XML scope audit，即使断言结构存在错误也一样。Task 7 复现后又进一步修正：**不管 postconditions 是否通过，XML assertions 与 scope audit 都独立执行**。后置条件失败会作为单独诊断合并，不再短路序列化 XML 中能定位具体 cell 的 mismatch。scope audit 仍检查每个实际变化字段是否有对应证据，未声明或无证据的样式、几何等修改仍会被拒绝。
 4. **减少重复诊断并改善模型指引。** 重复断言失败按 cell/field/kind 去重；无法识别的字段会提示实际支持字段。工具描述明确列出可验证字段、标题包含关系的写法，并强调 cell ID 是不透明字符串，不能擅自拼接前缀。
 5. **新增回归测试。** 覆盖标题谓词与实际 XML 匹配、未知 metadata 不掩盖有效证据、纯未知字段不能充当证据、标题不匹配必须失败，以及同一目标 cell 发生未声明样式变化时仍 fail-closed。
 
