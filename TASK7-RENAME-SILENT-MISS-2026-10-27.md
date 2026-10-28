@@ -297,3 +297,14 @@ const scriptScope = scriptChecksPassed
 本轮已提交的主要代码提交：`91b238cabd773bf32b3d445332d1d1639255507a`（搜索完整性）、`d5f64da3806b263efea23fea8caf9b2b15c4b603`（独立验证与诊断）、`fed40fbf571c6d1eb7e65b83fecbb8573fff78a4`（验证回归测试）、`0362b3c25f1cc39fb3fdb9c22a25ed800b719c9f`（恢复常驻提示词契约并保留 2800 字符上下文预算）。
 
 验证记录：首次质量任务执行了 409 个测试，其中 406 个通过、3 个失败；失败项是压缩常驻提示词时移除了旧测试要求的契约短语，并非新搜索/XML 回归测试失败。恢复这些契约短语后，[V2 CI run 40606566296](https://github.com/saga/architecture-diagram-studio/actions/runs/40606566296) 的 `Type check`、`Test native XML, cell operations and persistence` 和 `Build app with verified local Draw.io bundle` 均已成功。该 run 的 `e2e-native-canvas` 在本记录更新时仍处于运行中；因此确认类型检查、质量测试和构建已通过，但不声称 E2E 已通过。
+
+
+### Follow-up：断言字段命名与富标签保护（2026-10-28）
+
+后续全仓检查还发现一个同类契约隐患：`chineseTitle` 并非 Draw.io 原生属性，而是 Studio 校验器自定义的断言键；命名容易让模型误以为它是原生 XML 属性或只能处理中文。当前运行时类型、验证器、工具描述、常驻提示词和 ADR 已统一改用 **`expectedTitle`**，并明确 `xmlAssertions` 的键属于 Studio 的验证契约，而不是 Draw.io 属性。`labelContainsTitle` 仍是 Studio 自定义的计算型断言字段；宿主会根据序列化 XML 重新计算它，不采信脚本自行报告的布尔值。
+
+同时发现 typed `set_label` 对包含嵌套 HTML 格式、换行或占位符的标签可能把内部结构压成纯文本。插件现在对此类 plain-text 全量替换 fail closed，明确提示使用原生脚本做保留 markup 的局部更新；新增测试确认失败时原始标签和 `placeholders` 属性不变。普通的简单 HTML 外层包装标签仍可正常更新。
+
+另外，普通元素搜索的默认返回上限从 5 提高到 10；当返回结果被截断时，工具明确禁止把子集当作“全部目标”，并引导通过 `inspect_drawio_graph` 按同一页和同一 `documentRevision` 分页，直到 `truncated:false`。新增测试覆盖 12 个同名目标的截断和完整枚举。
+
+补充修改已提交到 `main`；类型契约现在覆盖运行时支持的 `expectedTitle` 和完整几何断言字段。相关回归测试已增加，但本轮最终提交对应的 CI 尚未完成，不据此声称这些新增测试已经通过。
