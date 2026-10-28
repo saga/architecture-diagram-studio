@@ -296,4 +296,4 @@ const scriptScope = scriptChecksPassed
 
 本轮已提交的主要代码提交：`91b238cabd773bf32b3d445332d1d1639255507a`（搜索完整性）、`d5f64da3806b263efea23fea8caf9b2b15c4b603`（独立验证与诊断）、`fed40fbf571c6d1eb7e65b83fecbb8573fff78a4`（验证回归测试）、`0362b3c25f1cc39fb3fdb9c22a25ed800b719c9f`（恢复常驻提示词契约并保留 2800 字符上下文预算）。
 
-验证记录：CI 的 TypeScript `Type check` 已通过。第一次质量任务执行了 409 个测试，其中 406 个通过、3 个失败；失败项是压缩常驻提示词时移除了旧测试要求的契约短语，未指向新的搜索/XML 回归测试。已把必须保留的契约短语恢复到提示词，并将新 CI 触发为 [V2 CI run 40606566296](https://github.com/saga/architecture-diagram-studio/actions/runs/40606566296)。记录更新时该次 CI 仍在运行，因此尚不能声称全套测试或 E2E 已通过。
+验证记录：首次质量任务执行了 409 个测试，其中 406 个通过、3 个失败；失败项是压缩常驻提示词时移除了旧测试要求的契约短语，并非新搜索/XML 回归测试失败。恢复这些契约短语后，[V2 CI run 40606566296](https://github.com/saga/architecture-diagram-studio/actions/runs/40606566296) 的 `Type check`、`Test native XML, cell operations and persistence` 和 `Build app with verified local Draw.io bundle` 均已成功。该 run 的 `e2e-native-canvas` 在本记录更新时仍处于运行中；因此确认类型检查、质量测试和构建已通过，但不声称 E2E 已通过。
