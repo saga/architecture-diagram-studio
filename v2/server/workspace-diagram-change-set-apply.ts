@@ -67,6 +67,15 @@ function sha256(content: string): string {
 
 function pageXmlById(xml: string): Map<string, string> {
   const document = parseDrawioXml(xml);
+  if (document.documentElement.nodeName === "mxfile") {
+    const seen = new Set<string>();
+    for (const page of Array.from(document.getElementsByTagName("diagram"))) {
+      const id = page.getAttribute("id") ?? "";
+      if (!id) throw new Error("Every Draw.io page must have a non-empty stable ID.");
+      if (seen.has(id)) throw new Error("Duplicate Draw.io page ID: " + id);
+      seen.add(id);
+    }
+  }
   if (document.documentElement.nodeName === "mxGraphModel") {
     return new Map([["__bare_graph_model__", new XMLSerializer().serializeToString(document.documentElement)]]);
   }
