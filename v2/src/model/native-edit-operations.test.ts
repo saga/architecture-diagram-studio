@@ -4,6 +4,7 @@ import {
   describeNativeEditOperation,
   extractNativeEditTargets,
   getNativeDiagramPageInfo,
+  isBareNativeGraphModel,
   MAX_NATIVE_EDIT_OPERATIONS,
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
@@ -19,6 +20,14 @@ const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
     <mxGeometry x="120" y="80" width="160" height="60" as="geometry"/>
   </mxCell>
 </root></mxGraphModel></diagram></mxfile>`;
+
+
+describe("native Draw.io root detection", () => {
+  it("distinguishes a single graph model from a multi-page mxfile", () => {
+    expect(isBareNativeGraphModel('<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>')).toBe(true);
+    expect(isBareNativeGraphModel(XML)).toBe(false);
+  });
+});
 
 
 describe("extractNativeEditTargets", () => {
