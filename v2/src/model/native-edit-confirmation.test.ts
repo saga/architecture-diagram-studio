@@ -23,7 +23,7 @@ describe("native edit XML confirmation", () => {
     const assertion: NativeScriptXmlCellAssertion = {
       cellId: "rich-edge",
       labelContains: "AI agent",
-      chineseTitle: "AI agent 任务",
+      expectedTitle: "AI agent 任务",
       labelContainsTitle: true,
       geometry: {
         relative: true,
@@ -631,7 +631,7 @@ describe("native script predicate assertions and schema warnings", () => {
       postconditions: { titlesTranslated: true, bodyTailPreserved: true },
       xmlAssertions: [{
         cellId: "api",
-        chineseTitle: title,
+        expectedTitle: title,
         labelContainsTitle: true,
         bodyTailPreserved: true,
         ...extras
@@ -692,7 +692,7 @@ describe("native script predicate assertions and schema warnings", () => {
     expect(validation.failures).toContainEqual(expect.objectContaining({
       kind: "mismatch",
       cellId: "api",
-      field: "chineseTitle",
+      field: "expectedTitle",
       reason: expect.stringContaining("did not contain")
     }));
   });
