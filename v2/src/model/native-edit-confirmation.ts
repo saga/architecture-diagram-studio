@@ -652,6 +652,11 @@ export function validateNativeScriptResultAgainstXml(
       "kind", "label", "labelContains", "parentId", "sourceId", "targetId", "style", "geometry"
     ]);
     const geometryFields = new Set(["x", "y", "width", "height", "relative", "points", "offset", "sourcePoint", "targetPoint"]);
+    // Draw.io has no bounding box for an edge: the serializer omits x/y/width/height entirely and
+    // the live model reports 0, so those four keys can never be verified against an edge and are
+    // treated as advisory rather than as failing evidence.
+    const edgeBoxGeometryFields = ["x", "y", "width", "height"];
+    const edgeGeometryEvidenceFields = ["relative", "points", "offset", "sourcePoint", "targetPoint"];
 
     const attributeMatches = (cell: Element, key: "parent" | "source" | "target", expected: unknown): boolean => {
       if (expected !== null && typeof expected !== "string") return false;
@@ -745,6 +750,7 @@ export function validateNativeScriptResultAgainstXml(
           }
         }
       }
+      const edgeDroppedGeometryKeys = new Set<string>();
       if (assertion.geometry !== undefined) {
         if (!assertion.geometry || typeof assertion.geometry !== "object" || Array.isArray(assertion.geometry)) {
           invalid("geometry", "geometry must be a non-empty object containing explicit geometry fields.", "object", assertion.geometry);
@@ -755,7 +761,25 @@ export function validateNativeScriptResultAgainstXml(
             invalid("geometry", "An empty geometry object verifies no properties; omit geometry or provide explicit expectations.", "non-empty object", {});
             shapeInvalid = true;
           }
+          if (assertion.kind === "edge") {
+            for (const key of edgeBoxGeometryFields) {
+              if (!Object.prototype.hasOwnProperty.call(assertion.geometry, key)) continue;
+              edgeDroppedGeometryKeys.add(key);
+              warn({
+                kind: "invalid-assertion",
+                index: assertionIndex,
+                ...(cellId ? { cellId } : {}),
+                field: "geometry." + key,
+                reason: "Edges have no bounding box: Draw.io omits " + edgeBoxGeometryFields.join("/") +
+                  " for edges, so this expectation can never be verified and was ignored. Assert geometry." +
+                  edgeGeometryEvidenceFields.join(", geometry.") + " instead.",
+                expected: edgeGeometryEvidenceFields.map((field) => "geometry." + field),
+                actual: "geometry." + key
+              });
+            }
+          }
           for (const [key, expected] of entries) {
+            if (edgeDroppedGeometryKeys.has(key)) continue;
             if (!geometryFields.has(key)) {
               invalid("geometry." + key, "Unknown geometry assertion field.", [...geometryFields], key);
               shapeInvalid = true;
@@ -790,12 +814,29 @@ export function validateNativeScriptResultAgainstXml(
       }
 
       const expectedExists = assertion.exists === undefined ? true : assertion.exists;
-      // Unknown advisory fields (for example bodyTailPreserved) never count as evidence.
-      const evidenceFields = Object.keys(assertion).filter((key) =>
-        key !== "cellId" && key !== "exists" && evidenceFieldsAllowed.has(key)
-      );
+      // Unknown advisory fields (for example bodyTailPreserved) never count as evidence, and a
+      // geometry object that only carried ignored edge box keys proves nothing either.
+      const evidenceFields = Object.keys(assertion).filter((key) => {
+        if (key === "cellId" || key === "exists" || !evidenceFieldsAllowed.has(key)) return false;
+        if (key === "geometry" && assertion.geometry && typeof assertion.geometry === "object" &&
+            !Array.isArray(assertion.geometry)) {
+          const geometryKeys = Object.keys(assertion.geometry as Record<string, unknown>);
+          // An empty object is already rejected on its own; only a geometry object whose every
+          // key was dropped as an edge box field proves nothing.
+          return geometryKeys.length === 0 ||
+            geometryKeys.some((geometryKey) => !edgeDroppedGeometryKeys.has(geometryKey));
+        }
+        return true;
+      });
       if (expectedExists !== false && evidenceFields.length === 0) {
-        invalid("assertion", "An assertion for an existing cell must include concrete property evidence; exists: true alone is too weak to verify the requested edit.", "kind, label, relationship, style or geometry expectation", assertion);
+        invalid("assertion", assertion.kind === "edge"
+          ? "An edge assertion must include concrete property evidence; edges have no box geometry, so assert kind, label, style, parentId, sourceId, targetId or geometry." +
+            edgeGeometryEvidenceFields.join("/geometry.") + "."
+          : "An assertion for an existing cell must include concrete property evidence; exists: true alone is too weak to verify the requested edit.",
+          assertion.kind === "edge"
+            ? ["kind", "label", "style", "parentId", "sourceId", "targetId", ...edgeGeometryEvidenceFields.map((field) => "geometry." + field)]
+            : "kind, label, relationship, style or geometry expectation",
+          assertion);
         shapeInvalid = true;
       }
       if (expectedExists === false && evidenceFields.length > 0) {
@@ -852,11 +893,32 @@ export function validateNativeScriptResultAgainstXml(
           invalid("geometry", "The serialized cell has no geometry element.", assertion.geometry, null, "mismatch");
         } else {
           const geometry = assertion.geometry as Record<string, unknown>;
+          // A missing kind cannot be resolved before the cell lookup, so the edge rule is applied
+          // again here against the serialized cell itself.
+          const isEdgeRecord = record.cell.getAttribute("edge") === "1";
+          let comparedGeometryFields = 0;
           for (const [key, expected] of Object.entries(geometry)) {
+            if (edgeDroppedGeometryKeys.has(key)) continue;
+            if (isEdgeRecord && edgeBoxGeometryFields.includes(key)) {
+              warn({
+                kind: "invalid-assertion", index: assertionIndex, ...(cellId ? { cellId } : {}),
+                field: "geometry." + key,
+                reason: "Edges have no bounding box: this serialized cell is an edge, so " + key +
+                  " can never be verified and was ignored. Assert geometry.points instead.",
+                expected: edgeGeometryEvidenceFields.map((field) => "geometry." + field),
+                actual: "geometry." + key
+              });
+              continue;
+            }
+            comparedGeometryFields += 1;
             const actual = nativeGeometryAssertionValue(record.geometry, key);
             if (!geometryEvidenceMatches(key, expected, actual)) {
               invalid("geometry." + key, "Serialized geometry value did not match.", expected, actual, "mismatch");
             }
+          }
+          if (comparedGeometryFields === 0 && evidenceFields.every((field) => field === "geometry")) {
+            invalid("geometry", "No verifiable geometry evidence remained for this edge; assert geometry.points instead of the box attributes.",
+              edgeGeometryEvidenceFields.map((field) => "geometry." + field), Object.keys(geometry));
           }
         }
       }
@@ -894,6 +956,8 @@ export interface NativeScriptScopeViolation {
   pageId: string | null;
   label: string;
   changedFields?: string[];
+  /** Serialized values the script could assert to prove this change (ready to paste into xmlAssertions). */
+  suggestedAssertion?: Record<string, unknown>;
 }
 
 export interface NativeScriptScopeResult {
@@ -981,12 +1045,19 @@ export function findUndeclaredNativeScriptChanges(
   const afterCells = cellsForXml(afterXml);
   const missingEvidenceForChange = (
     oldRecord: CellRecord | null, nextRecord: CellRecord | null, changedFields: string[], assertion: Record<string, unknown> | null
-  ): string[] => {
-    if (!oldRecord || !nextRecord || !assertion) return ["cell assertion"];
+  ): { missing: string[]; suggested: Record<string, unknown> } => {
+    if (!oldRecord || !nextRecord || !assertion) return { missing: ["cell assertion"], suggested: {} };
     const missing: string[] = [];
+    // Concrete serialized values the caller could paste back into xmlAssertions. Reporting only
+    // "field not declared" leaves the model guessing the exact expected value, which is what made
+    // repeated repair attempts fail in earlier incidents.
+    const suggested: Record<string, unknown> = {};
     const hasLabelEvidence = matchesField(assertion, "label") ||
       (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim()));
-    if (changedFields.includes("label") && !hasLabelEvidence) missing.push("label");
+    if (changedFields.includes("label") && !hasLabelEvidence) {
+      missing.push("label");
+      suggested.label = findText(nextRecord);
+    }
     if (changedFields.includes("parent") && !matchesField(assertion, "parentId")) missing.push("parentId");
     if (changedFields.includes("source") && !matchesField(assertion, "sourceId")) missing.push("sourceId");
     if (changedFields.includes("target") && !matchesField(assertion, "targetId")) missing.push("targetId");
@@ -997,26 +1068,36 @@ export function findUndeclaredNativeScriptChanges(
       const changedKeys = new Set([...beforeStyle.keys(), ...afterStyle.keys()]);
       const assertionStyle = assertion.style && typeof assertion.style === "object" && !Array.isArray(assertion.style)
         ? assertion.style as Record<string, unknown> : {};
+      const suggestedStyle: Record<string, string | null> = {};
       for (const key of changedKeys) {
         if (beforeStyle.has(key) === afterStyle.has(key) && beforeStyle.get(key) === afterStyle.get(key)) continue;
-        if (!Object.prototype.hasOwnProperty.call(assertionStyle, key)) missing.push("style." + key);
+        if (!Object.prototype.hasOwnProperty.call(assertionStyle, key)) {
+          missing.push("style." + key);
+          suggestedStyle[key] = afterStyle.get(key) ?? null;
+        }
       }
+      if (Object.keys(suggestedStyle).length) suggested.style = suggestedStyle;
     }
     if (changedFields.includes("geometry")) {
       const changedGeometry = nativeGeometryChangedFields(oldRecord.geometry, nextRecord.geometry);
+      const assertionGeometry = assertion.geometry && typeof assertion.geometry === "object" && !Array.isArray(assertion.geometry)
+        ? assertion.geometry as Record<string, unknown> : {};
+      const suggestedGeometry: Record<string, unknown> = {};
       for (const field of changedGeometry) {
         if (field === "geometry") {
           if (!matchesField(assertion, "geometry")) missing.push("geometry");
           continue;
         }
         const key = field.startsWith("geometry.") ? field.slice("geometry.".length) : field;
-        const assertionGeometry = assertion.geometry && typeof assertion.geometry === "object" && !Array.isArray(assertion.geometry)
-          ? assertion.geometry as Record<string, unknown> : {};
-        if (!Object.prototype.hasOwnProperty.call(assertionGeometry, key)) missing.push(field);
+        if (Object.prototype.hasOwnProperty.call(assertionGeometry, key)) continue;
+        missing.push(field);
+        const value = nativeGeometryAssertionValue(nextRecord.geometry, key);
+        if (value !== undefined) suggestedGeometry[key] = value;
       }
+      if (Object.keys(suggestedGeometry).length) suggested.geometry = suggestedGeometry;
     }
     if (changedFields.includes("attributes-or-children")) missing.push("custom attributes/children (no assertion field exists)");
-    return [...new Set(missing)];
+    return { missing: [...new Set(missing)], suggested };
   };
   // A removed page takes its cells with it; page-level operations are not cell edits.
   const removedPages = new Set((diff.pagesRemoved ?? []).map((pageId) => String(pageId)));
@@ -1076,10 +1157,11 @@ export function findUndeclaredNativeScriptChanges(
     const assertion = assertionForCell(cell.id);
     const oldRecord = findRecord(beforeCells, cell.pageId, cell.id);
     const nextRecord = findRecord(afterCells, cell.pageId, cell.id);
-    const missing = missingEvidenceForChange(oldRecord, nextRecord, cell.changedFields, assertion);
-    if (missing.length) violations.push({
+    const evidence = missingEvidenceForChange(oldRecord, nextRecord, cell.changedFields, assertion);
+    if (evidence.missing.length) violations.push({
       kind: "unproven-change", cellId: cell.id, pageId: cell.pageId,
-      label: cell.labelAfter || cell.labelBefore, changedFields: missing
+      label: cell.labelAfter || cell.labelBefore, changedFields: evidence.missing,
+      ...(Object.keys(evidence.suggested).length ? { suggestedAssertion: evidence.suggested } : {})
     });
   }
   const limit = Math.max(1, Math.floor(maxViolations) || 20);

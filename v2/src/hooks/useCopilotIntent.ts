@@ -257,16 +257,15 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       if (plan.outcome === "proposal_required") {
         const safeReply = hideNativeScriptDetails(plan.reply);
         const safeSummary = hideNativeScriptDetails(plan.proposal.summary);
-        const scriptOperation = plan.proposal.operations.find((operation) => operation.op === "run_drawio_script");
-        const reviewScript = scriptOperation?.op === "run_drawio_script" ? scriptOperation.script : undefined;
+        // The executable script is deliberately kept out of the chat transcript: it is long, it is
+        // not what the user asked for, and the sanitizer is a safety net rather than a formatter.
+        // Never embed the script here; expose it through a dedicated review affordance instead.
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: (safeReply || "A diagram change is ready for review.") +
             "\n\n**Proposed changes:** " + (safeSummary || "Apply the proposed diagram changes.") +
-            (reviewScript ? "\n\n原生 Draw.io 脚本（完整内容）：\n" + reviewScript +
-              "\n\n只有实际结果检查全部通过并且序列化 XML 符合预期，才会确认成功。" : "") +
             "\n\nNothing has been changed yet. Confirm to apply this proposal to the current diagram.",
-          proposal: { id: plan.proposal.id, summary: safeSummary || "Apply the proposed diagram changes.", ...(reviewScript ? { script: reviewScript } : {}) }
+          proposal: { id: plan.proposal.id, summary: safeSummary || "Apply the proposed diagram changes." }
         }]);
         return;
       }
@@ -745,11 +744,21 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }]);
       } else {
         const reason = execution.error || "the native editor rejected the batch";
+        const state = execution.applicationState;
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: execution.failureStage === "persistence"
             ? "The native editor applied and serialized the confirmed change, but the workspace save was not confirmed: " + reason
-            : "The confirmed proposal was not applied: " + reason + (execution.rolledBack ? " The batch was rolled back." : " Reload the diagram before continuing.")
+            : state === "changed-unverified"
+              // The document did change and was saved; only Studio's evidence check failed. Saying
+              // "not applied" here contradicts the reason string and sends the user to undo work
+              // that is actually correct.
+              ? "The change was applied and saved, but Studio could not verify it: " + reason +
+                " Do not retry; inspect the current diagram and History first."
+              : state === "not-applied"
+                ? "The confirmed proposal was not applied: " + reason + (execution.rolledBack ? " The batch was rolled back." : "")
+                : "The confirmed proposal produced an uncertain document state: " + reason +
+                  (execution.rolledBack ? " The batch was rolled back." : " Reload the diagram before continuing.")
         }]);
       }
     } catch (error) {

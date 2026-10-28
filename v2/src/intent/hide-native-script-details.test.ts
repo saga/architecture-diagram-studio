@@ -24,3 +24,21 @@ describe("hideNativeScriptDetails", () => {
       .toBe("Added ddd below bbb and connected it.");
   });
 });
+
+describe("hideNativeScriptDetails review headers", () => {
+  it("removes the localized proposal review section", () => {
+    const result = hideNativeScriptDetails(
+      "Proposed changes: Give every connector a curved route.\n\n" +
+      "原生 Draw.io 脚本（完整内容）：\nvar root = model.getRoot();\nmodel.beginUpdate();\n\n" +
+      "只有实际结果检查全部通过并且序列化 XML 符合预期，才会确认成功。\n\n" +
+      "Nothing has been changed yet. Confirm to apply this proposal to the current diagram."
+    );
+    expect(result).toBe("Proposed changes: Give every connector a curved route.");
+    expect(result).not.toContain("model.getRoot");
+  });
+
+  it("removes a localized header written with an ASCII colon", () => {
+    const result = hideNativeScriptDetails("Summary line.\n\n原生 Draw.io 脚本（完整内容）:\nvar a = 1;");
+    expect(result).toBe("Summary line.");
+  });
+});

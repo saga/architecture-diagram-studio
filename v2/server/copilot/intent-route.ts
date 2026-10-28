@@ -13,6 +13,7 @@ import { resolveNativeEditTargets } from "./native-edit-tool";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
+import { requiresNativeEditReview } from "./edit-confirmation-policy";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
 import { searchDrawioShapeCatalogDetailed, C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
@@ -262,6 +263,45 @@ function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): s
     return "This change deletes existing diagram elements. Confirm before applying it.";
   }
   return "This batch is broad and requires review before it can be applied.";
+}
+
+/**
+ * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
+ * attempt receives the concrete serialized value it must assert, not just the missing field name.
+ */
+function boundedSuggestedAssertion(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const bounded: Record<string, unknown> = {};
+  if (typeof source.label === "string") bounded.label = source.label.slice(0, 300);
+  if (source.style && typeof source.style === "object" && !Array.isArray(source.style)) {
+    const style: Record<string, string | null> = {};
+    for (const [key, expected] of Object.entries(source.style as Record<string, unknown>).slice(0, 10)) {
+      if (expected !== null && typeof expected !== "string") continue;
+      style[key.slice(0, 60)] = expected === null ? null : expected.slice(0, 120);
+    }
+    if (Object.keys(style).length) bounded.style = style;
+  }
+  if (source.geometry && typeof source.geometry === "object" && !Array.isArray(source.geometry)) {
+    const geometry: Record<string, unknown> = {};
+    for (const [key, expected] of Object.entries(source.geometry as Record<string, unknown>).slice(0, 10)) {
+      if (Array.isArray(expected)) {
+        geometry[key.slice(0, 40)] = expected.slice(0, 20).flatMap((point) => {
+          if (!point || typeof point !== "object" || Array.isArray(point)) return [];
+          const source = point as Record<string, unknown>;
+          const x = typeof source.x === "number" && Number.isFinite(source.x) ? source.x : null;
+          const y = typeof source.y === "number" && Number.isFinite(source.y) ? source.y : null;
+          // Keep null coordinates: dropping the point would shorten the array and turn a correct
+          // hint into an assertion that cannot match.
+          return [{ x, y }];
+        });
+      } else if (expected === null || typeof expected === "number" || typeof expected === "boolean") {
+        geometry[key.slice(0, 40)] = expected;
+      }
+    }
+    if (Object.keys(geometry).length) bounded.geometry = geometry;
+  }
+  return Object.keys(bounded).length ? bounded : undefined;
 }
 
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
@@ -878,7 +918,11 @@ function createDrawioElementSearchTool(sessionId: string) {
           label: typeof cell.name === "string" ? cell.name : "",
           cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
           shape: typeof cell.shape === "string" ? cell.shape : "",
-          ...(cell.geometry && typeof cell.geometry === "object" ? { geometry: cell.geometry } : {}),
+          // Edges have no bounding box: Draw.io omits x/y/width/height from their serialized
+          // mxGeometry, so reporting the normalized zeros here invites assertions that can never
+          // pass against the saved XML. Geometry filtering above still uses the internal values.
+          ...(cell.cellType !== "edge" && cell.geometry && typeof cell.geometry === "object"
+            ? { geometry: cell.geometry } : {}),
           ...(typeof cell.rotation === "number" ? { rotation: cell.rotation } : {}),
           ...(typeof cell.parentId === "string" ? { parentId: cell.parentId } : {})
         }));
@@ -939,7 +983,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createRunDrawioScriptTool(sessionId: string) {
     return defineTool("run_drawio_script", {
-      description: "Execute a synchronous JavaScript mutation against the live native Draw.io editor. This is a terminal action that runs only after the model turn ends. Do not use mode=read for discovery: it returns no data and is rejected because deferred scripts cannot feed inspection results into the same turn. Use inspect_drawio_graph/search_drawio_elements for non-terminal read-only data, then make the requested edit. Mutation scripts require ok=true, non-empty true postconditions, and xmlAssertions for every changed cell. For label access use graph.convertValueToString(cell); model.getValue may be a UserObject DOM Element, which must be cloned and have only its label attribute updated. Independently re-scan labels for postconditions. Allowed xmlAssertions fields are cellId, exists, kind, label, labelContains, parentId, sourceId, targetId, style and geometry. These are Studio-only verifier fields, not Draw.io XML attributes. Prefer {cellId,label:fullFinalLabel} for a full-label edit; for a title embedded in a rich label use {cellId,labelContains:titleSubstring}; the host verifies that substring against serialized XML. Do not invent fields or compose IDs: cell IDs are opaque strings and must be copied verbatim. Unknown extra fields are diagnostic-only and never replace required concrete evidence. style is a non-empty key/value map, not a style string; geometry must contain explicit expected fields. The iframe is sandboxed on a separate origin; do not access the Studio parent DOM, local APIs or network side effects. Do not replace saved mxfile XML. Do not call graph.refresh(), graph.view.validate() or graph.view.getState() after mutation/endUpdate.",
+      description: "Execute a synchronous JavaScript mutation against the live native Draw.io editor. This is a terminal action that runs only after the model turn ends. Do not use mode=read for discovery: it returns no data and is rejected because deferred scripts cannot feed inspection results into the same turn. Use inspect_drawio_graph/search_drawio_elements for non-terminal read-only data, then make the requested edit. Mutation scripts require ok=true, non-empty true postconditions, and xmlAssertions for every changed cell. For label access use graph.convertValueToString(cell); model.getValue may be a UserObject DOM Element, which must be cloned and have only its label attribute updated. Independently re-scan labels for postconditions. Allowed xmlAssertions fields are cellId, exists, kind, label, labelContains, parentId, sourceId, targetId, style and geometry. These are Studio-only verifier fields, not Draw.io XML attributes. Prefer {cellId,label:fullFinalLabel} for a full-label edit; for a title embedded in a rich label use {cellId,labelContains:titleSubstring}; the host verifies that substring against serialized XML. Do not invent fields or compose IDs: cell IDs are opaque strings and must be copied verbatim. Unknown extra fields are diagnostic-only and never replace required concrete evidence. style is a non-empty key/value map, not a style string; geometry must contain explicit expected fields. Edges have no bounding box: Draw.io omits x/y/width/height from an edge's serialized mxGeometry, so never assert those four fields for an edge. To prove a connector reroute, assert geometry.points with the waypoints you just set, because style curved=1 alone bends nothing without a waypoint. The iframe is sandboxed on a separate origin; do not access the Studio parent DOM, local APIs or network side effects. Do not replace saved mxfile XML. Do not call graph.refresh(), graph.view.validate() or graph.view.getState() after mutation/endUpdate.",
       parameters: {
         type: "object",
         properties: {
@@ -1243,7 +1287,10 @@ function createDrawioElementSearchTool(sessionId: string) {
         toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string;
         rollbackConfirmed: boolean; failedPath: string;
         assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string }>;
-        scopeViolations?: Array<{ kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[] }>;
+        scopeViolations?: Array<{
+          kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[];
+          suggestedAssertion?: Record<string, unknown>;
+        }>;
       };
     } | undefined;
     if (suppliedRepair !== undefined) {
@@ -1305,10 +1352,12 @@ function createDrawioElementSearchTool(sessionId: string) {
               const changedFields = Array.isArray(item.changedFields)
                 ? item.changedFields.filter((field): field is string => typeof field === "string").slice(0, 20).map((field) => field.slice(0, 120))
                 : undefined;
+              const suggestedAssertion = boundedSuggestedAssertion(item.suggestedAssertion);
               return [{
                 kind: item.kind.slice(0, 40), cellId: item.cellId.slice(0, 200),
                 pageId: item.pageId as string | null, label: item.label.slice(0, 200),
-                ...(changedFields?.length ? { changedFields } : {})
+                ...(changedFields?.length ? { changedFields } : {}),
+                ...(suggestedAssertion ? { suggestedAssertion } : {})
               }];
             })
           } : {})
@@ -1533,7 +1582,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use run_drawio_script to patch only the intended text. Re-scan postconditions independently via graph.convertValueToString; do not reuse the mutation's changed-count list as proof. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change."
+          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use run_drawio_script to patch only the intended text. Re-scan postconditions independently via graph.convertValueToString; do not reuse the mutation's changed-count list as proof. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1542,7 +1591,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script for non-trivial native edits or when direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. Never use run_drawio_script(mode:read) for discovery: it is deferred and returns no data. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. No second confirmation is required in local single-user mode. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
+            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script for non-trivial native edits or when direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. Never use run_drawio_script(mode:read) for discovery: it is deferred and returns no data. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
@@ -1593,7 +1642,11 @@ function createDrawioElementSearchTool(sessionId: string) {
       };
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
-        if (requiresExplicitConfirmation(nativeEdits.operations, Boolean(context.scriptRepair))) {
+        // Local single-user Studio applies native edits directly by default, scripts included.
+        // STUDIO_REQUIRE_EDIT_CONFIRMATION=1 restores the proposal/review gate.
+        const reviewRequired = requiresNativeEditReview() &&
+          requiresExplicitConfirmation(nativeEdits.operations, Boolean(context.scriptRepair));
+        if (reviewRequired) {
           const proposalId = randomUUID();
           await logPendingProposalSweep(prunePendingNativeProposals(Date.now(), 1), deps.writeLog);
           pendingNativeProposals.set(proposalId, {
@@ -1638,6 +1691,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           requestId, sessionId, durationMs: Date.now() - startedAt,
           operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
           selection: selection ?? null, modelTurnWarning: plan.terminalIntentModelFailure ?? null,
+          editReview: "auto-approved",
           operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) })), usage: plan.usage
         });
         res.json(response);

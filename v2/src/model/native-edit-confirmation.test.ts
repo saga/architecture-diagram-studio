@@ -735,3 +735,84 @@ describe("native script predicate assertions and schema warnings", () => {
     }));
   });
 });
+
+describe("edge geometry evidence", () => {
+  const edgeCell = '<mxCell id="e1" value="" edge="1" parent="1" source="api" target="db" style="edgeStyle=none;curved=1;">' +
+    '<mxGeometry relative="1" as="geometry"/></mxCell>';
+  const withEdge = before.replace("</root>", edgeCell + "</root>");
+  // Draw.io only serializes x/y/width/height for an edge when they are non-zero, so an edge's
+  // box geometry is absent from the saved XML even though the live model reports zeros.
+  const withWaypoint = withEdge.replace(
+    '<mxGeometry relative="1" as="geometry"/></mxCell>',
+    '<mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="140" y="60"/></Array></mxGeometry></mxCell>'
+  );
+  const base = {
+    available: true,
+    value: { ok: true, postconditions: { routed: true }, xmlAssertions: [] as Array<Record<string, unknown>> }
+  };
+
+  it("ignores edge box geometry instead of failing an assertion that can never match", () => {
+    const result = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{
+        cellId: "e1", kind: "edge", style: { curved: "1" },
+        geometry: { x: 0, y: 0, width: 0, height: 0 }
+      }] }
+    };
+    const validation = validateNativeScriptResultAgainstXml(result, withWaypoint, "p1");
+    expect(validation.ok).toBe(true);
+    expect((validation.warnings ?? []).map((warning) => warning.field))
+      .toEqual(["geometry.x", "geometry.y", "geometry.width", "geometry.height"]);
+  });
+
+  it("verifies a connector reroute through geometry.points", () => {
+    const correct = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{ cellId: "e1", kind: "edge", geometry: { points: [{ x: 140, y: 60 }] } }] }
+    };
+    expect(validateNativeScriptResultAgainstXml(correct, withWaypoint, "p1").ok).toBe(true);
+
+    const wrong = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{ cellId: "e1", kind: "edge", geometry: { points: [{ x: 1, y: 2 }] } }] }
+    };
+    expect(validateNativeScriptResultAgainstXml(wrong, withWaypoint, "p1")).toMatchObject({
+      ok: false,
+      failures: [expect.objectContaining({ kind: "mismatch", field: "geometry.points" })]
+    });
+  });
+
+  it("drops edge box geometry even when the assertion omits kind", () => {
+    const result = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{ cellId: "e1", style: { curved: "1" }, geometry: { x: 0, y: 0 } }] }
+    };
+    expect(validateNativeScriptResultAgainstXml(result, withWaypoint, "p1").ok).toBe(true);
+  });
+
+  it("still rejects an edge assertion that carries nothing but box geometry", () => {
+    const result = { ...base, value: { ...base.value, xmlAssertions: [{ cellId: "e1", geometry: { x: 0 } }] } };
+    const validation = validateNativeScriptResultAgainstXml(result, withWaypoint, "p1");
+    expect(validation.ok).toBe(false);
+    expect(validation.failures).toContainEqual(expect.objectContaining({
+      field: "geometry", reason: expect.stringContaining("No verifiable geometry evidence")
+    }));
+  });
+
+  it("suggests the concrete waypoint assertion for an undeclared connector reroute", () => {
+    const result = {
+      ...base,
+      value: { ...base.value, xmlAssertions: [{
+        cellId: "e1", kind: "edge", style: { curved: "1" }, geometry: { x: 0, y: 0 }
+      }] }
+    };
+    const scope = findUndeclaredNativeScriptChanges(withEdge, withWaypoint, result, 20, "p1");
+    expect(scope.ok).toBe(false);
+    expect(scope.violations).toContainEqual(expect.objectContaining({
+      kind: "unproven-change",
+      cellId: "e1",
+      changedFields: ["geometry.points"],
+      suggestedAssertion: { geometry: { points: [{ x: 140, y: 60 }] } }
+    }));
+  });
+});

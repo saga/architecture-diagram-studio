@@ -1085,10 +1085,15 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                 const summarizedAssertionFailures = [...new Map(deduplicatedAssertionFailures.map((failure) => [
                   [failure.kind, failure.field].join("::"), failure
                 ] as const)).values()];
-                const assertionDiagnostic = deduplicatedAssertionFailures.slice(0, 8)
+                const shownAssertionFailures = deduplicatedAssertionFailures.slice(0, 8);
+                const assertionDiagnostic = shownAssertionFailures
                   .map((failure) => "[" + failure.kind + "]" +
                     (failure.cellId ? " cell " + failure.cellId : "") + " " + failure.field + ": " + failure.reason)
-                  .join("; ");
+                  .join("; ") +
+                  (deduplicatedAssertionFailures.length > shownAssertionFailures.length
+                    ? "; … and " + (deduplicatedAssertionFailures.length - shownAssertionFailures.length) +
+                      " more of " + deduplicatedAssertionFailures.length + " failures"
+                    : "");
                 const rawAssertionWarnings = assertionValidation.warnings || [];
                 const deduplicatedAssertionWarnings = [...new Map(rawAssertionWarnings.map((warning) => [
                   warning.field, warning
@@ -1112,7 +1117,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                       ? scriptScope.violations.slice(0, 8).map((violation) =>
                           violation.kind + " cell " + violation.cellId +
                           (violation.label ? " (" + violation.label.slice(0, 80) + ")" : "") +
-                          (violation.changedFields?.length ? " [" + violation.changedFields.join(",") + "]" : "")
+                          (violation.changedFields?.length ? " [" + violation.changedFields.join(",") + "]" : "") +
+                          (violation.suggestedAssertion
+                            ? " → declare " + JSON.stringify({ cellId: violation.cellId, ...violation.suggestedAssertion })
+                            : "")
                         ).join("; ")
                       : scriptScope.error || "The before/after XML could not be compared.")
                   : "";

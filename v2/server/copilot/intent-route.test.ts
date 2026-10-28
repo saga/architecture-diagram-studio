@@ -1,7 +1,7 @@
 import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CopilotRuntime } from "./runtime";
 import { NativeExecutionAcknowledgements, registerCopilotIntentRoute, requiresExplicitConfirmation } from "./intent-route";
 import { workspaceRevision } from "../storage";
@@ -584,6 +584,11 @@ function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string,
 }
 
 describe("Copilot intent route result and revision contract", () => {
+  // Local single-user Studio applies native edits directly by default. These tests cover the
+  // opt-in review gate, so they turn it back on; the default path has its own test below.
+  beforeAll(() => { vi.stubEnv("STUDIO_REQUIRE_EDIT_CONFIRMATION", "1"); });
+  afterAll(() => { vi.unstubAllEnvs(); });
+
   it("dispatches the first valid edit when a later terminal report conflicts", async () => {
     const harness = await createServer({ copilot: conflictingCopilot() });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
@@ -655,6 +660,31 @@ describe("Copilot intent route result and revision contract", () => {
     expect(proposal.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
     expect(harness.acknowledgements.pending.size).toBe(0);
     expect(harness.logs.some((entry) => entry.event === "turn.completed.proposal-required")).toBe(true);
+  });
+
+  it("applies native scripts directly when the review gate is off (default)", async () => {
+    vi.stubEnv("STUDIO_REQUIRE_EDIT_CONFIRMATION", "");
+    try {
+      const harness = await createServer({
+        copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
+      });
+      const requestContext = {
+        kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
+        runtimeInspection: compatibleRuntimeInspection()
+      };
+      const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
+      expect(response.status).toBe(200);
+      expect(body.outcome).toBe("command_ready");
+      expect(body.nativeEdits).toMatchObject({
+        operations: [{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]
+      });
+      expect(harness.acknowledgements.pending.size).toBe(1);
+      expect(harness.logs.some((entry) =>
+        entry.event === "turn.completed.with-native-edits" && entry.fields?.editReview === "auto-approved"
+      )).toBe(true);
+    } finally {
+      vi.stubEnv("STUDIO_REQUIRE_EDIT_CONFIRMATION", "1");
+    }
   });
   it("reports a queued selection without claiming the canvas has selected it", async () => {
     const copilot = terminalConflictCopilot("select-only");
@@ -1245,6 +1275,30 @@ describe("Copilot intent route result and revision contract", () => {
     });
     expect(harness.logs.some((entry) => entry.event === "tool.inspect_drawio_graph.completed")).toBe(true);
     expect(harness.acknowledgements.pending.size).toBe(0);
+  });
+
+  it("never reports box geometry for an inspected edge", async () => {
+    const edgeCell = '<mxCell id="e1" value="" edge="1" parent="1" source="db" target="api" style="edgeStyle=none;">' +
+      '<mxGeometry relative="1" as="geometry"/></mxCell>';
+    const edgeXml = XML.replace("</root>", edgeCell + "</root>");
+    const copilot = elementSearchingCopilot("", "inspect_drawio_graph", { cellType: "edge", limit: 20 });
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: edgeXml, revision: workspaceRevision(edgeXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "Inspect every connector",
+      diagramXml: edgeXml,
+      documentRevision: workspaceRevision(edgeXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const result = (copilot as { searchResult?: { results?: Array<Record<string, unknown>> } }).searchResult;
+    expect(result?.results?.[0]).toMatchObject({ id: "e1", cellType: "edge" });
+    // The live model reports zeros for an edge's box, but Draw.io omits those attributes from the
+    // saved XML, so reporting them invites assertions that can never pass.
+    expect(result?.results?.[0]).not.toHaveProperty("geometry");
   });
 
   it("resolves duplicate labels beyond the prompt's first 200 cells as ambiguous", async () => {
