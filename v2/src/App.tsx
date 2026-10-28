@@ -1,5 +1,5 @@
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, Input, InputNumber, Layout, Modal, Select, theme as antdTheme } from "antd";
+import { App as AntApp, Button, ConfigProvider, Input, InputNumber, Layout, Modal, Select, Switch, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
@@ -15,7 +15,7 @@ import { readDiagnosticEntries, recordDiagnostic, setDiagnosticScope } from "./d
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
-import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES } from "./layout/native-layout";
+import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_LAYOUT_DENSITY_PRESETS, nativeLayoutDensityForSpacing, type NativeLayoutDensitySelection } from "./layout/native-layout";
 import { spatialRegionAnalysisProvider } from "./layout/spatial-region-analysis";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
@@ -66,6 +66,8 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
         ? Math.max(min, Math.min(max, Math.round(saved[key] as number))) : fallback;
     return {
       engine, algorithm, direction, edgeRouting,
+      preserveLocalGrouping: typeof saved.preserveLocalGrouping === "boolean"
+        ? saved.preserveLocalGrouping : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping,
       nodeSpacing: boundedNumber("nodeSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing, 5, 500),
       layerSpacing: boundedNumber("layerSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing, 10, 800),
       iterations: boundedNumber("iterations", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations, 20, 3000),
@@ -1467,6 +1469,7 @@ export default function App() {
         pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
         coverage, engine: options.engine, algorithm: options.algorithm, direction: options.direction,
+        preserveLocalGrouping: options.preserveLocalGrouping,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
         vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length,
@@ -1484,9 +1487,12 @@ export default function App() {
       const regionSummary = coverage.spatialRegionCount > 0
         ? " · kept " + coverage.spatialRegionCount + " spatial region(s) atomic with " + coverage.spatialRegionMemberCount + " member node(s)"
         : "";
+      const groupingSummary = coverage.spatialAdjacencyClusterCount > 0
+        ? " · preserved " + coverage.spatialAdjacencyClusterCount + " local group(s)"
+        : "";
       setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
-        routingSummary + regionSummary);
+        routingSummary + regionSummary + groupingSummary);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
@@ -1793,6 +1799,33 @@ export default function App() {
           ]}
         >
           <div className="native-layout-settings-grid">
+            <label className="native-layout-settings-field native-layout-grouping-field">
+              <span>Preserve local grouping</span>
+              <Switch
+                aria-label="Preserve local grouping"
+                checked={nativeLayoutOptions.preserveLocalGrouping}
+                onChange={(preserveLocalGrouping) => setNativeLayoutOptions((current) => ({ ...current, preserveLocalGrouping }))}
+              />
+            </label>
+            <label className="native-layout-settings-field">
+              <span>Layout density</span>
+              <Select<NativeLayoutDensitySelection>
+                aria-label="Layout density"
+                value={nativeLayoutDensityForSpacing(nativeLayoutOptions.nodeSpacing, nativeLayoutOptions.layerSpacing)}
+                options={[
+                  { value: "COMPACT", label: "Compact" },
+                  { value: "BALANCED", label: "Balanced" },
+                  { value: "SPACIOUS", label: "Spacious" },
+                  { value: "CUSTOM", label: "Custom" }
+                ]}
+                onChange={(density) => {
+                  if (density === "CUSTOM") return;
+                  const spacing = NATIVE_LAYOUT_DENSITY_PRESETS[density];
+                  setNativeLayoutOptions((current) => ({ ...current, ...spacing }));
+                }}
+                style={{ width: "100%" }}
+              />
+            </label>
             <label className="native-layout-settings-field">
               <span>Node spacing</span>
               <InputNumber
@@ -1860,7 +1893,7 @@ export default function App() {
               />
             </label>
           </div>
-          <p className="native-layout-settings-help">Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Settings are saved in this browser.</p>
+          <p className="native-layout-settings-help">Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Settings are saved in this browser.</p>
         </Modal>
 
         <div className="canvas-stage">
