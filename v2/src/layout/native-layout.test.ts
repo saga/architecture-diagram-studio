@@ -497,8 +497,12 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.layoutLayerId).toBe("VR5IMITfkwXBvMDUpB2b-1");
     expect(plan.layoutLayerFallback).toBe(false);
     expect(plan.positions).toHaveLength(26);
-    // Includes cross-boundary connectors attached to nested BPMN choreography cells.
-    expect(plan.edgeRoutes).toHaveLength(24);
+    // Five close, waypoint-free peer connectors are internal to protected local clusters;
+    // native Draw.io recalculates those routes from their unchanged original terminal IDs.
+    expect(plan.coverage.spatialAdjacencyClusterCount).toBeGreaterThan(0);
+    expect(plan.coverage.spatialAdjacencyInternalEdgeCount).toBe(5);
+    expect(plan.edgeRoutes).toHaveLength(19);
+    expect(plan.edgeRoutes.every((route) => !route.cellId.startsWith("__studio_spatial_cluster_"))).toBe(true);
   });
 
   it("reports nodes and edges outside the selected layout scope instead of claiming full-page coverage", async () => {
@@ -548,6 +552,10 @@ describe("Studio-owned native-cell layout", () => {
       spatialRegionCandidatesSkippedCount: 0,
       spatialRegionInternalEdgeCount: 0,
       spatialRegionInternalEdgesTranslatedCount: 0,
+      spatialAdjacencyClusterCount: 0,
+      spatialAdjacencyClusterMemberCount: 0,
+      spatialAdjacencyInternalEdgeCount: 0,
+      spatialAdjacencyInternalEdgesTranslatedCount: 0,
       spatialRegionUnownedContainedVertexCount: 0
     });
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
