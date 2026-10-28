@@ -344,23 +344,27 @@
             collinear: state && points.length >= 3 ? runtimePointsCollinear(points) : null });
         });
       }
+      // Registration inventory is bounded for transport; report its truncation independently
+      // so a limited source snapshot is never mistaken for exhaustive shape availability.
+      var shapeRegistry = window.mxCellRenderer && window.mxCellRenderer.defaultShapes;
+      var allLiveShapeClasses = shapeRegistry && typeof shapeRegistry === "object"
+        ? Object.keys(shapeRegistry).filter(function (name) {
+            return /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) && typeof shapeRegistry[name] === "function" &&
+              name !== "__proto__" && name !== "constructor" && name !== "prototype";
+          }).sort()
+        : [];
+      var liveShapeClassesTruncated = allLiveShapeClasses.length > 2000;
+      var liveShapeClasses = allLiveShapeClasses.slice(0, 2000);
       return {
         schemaVersion: 1, bridgeVersion: "studio-native-runtime/3",
         drawioVersion: typeof options.drawioVersion === "string" ? options.drawioVersion : "unknown",
         documentRevision: typeof options.documentRevision === "string" ? options.documentRevision : "",
         pageId: currentPageId(), capabilities: capabilities, capabilityManifest: buildCapabilityManifest(capabilities, options.jsShapeClassNames),
         counts: { cells: allCells.length, vertices: vertexCount, edges: edgeCount }, cells: cells, renderedEdges: renderedEdges,
-        // Live native JavaScript shape classes from the exact editor bundle. Discovery metadata only;
-        // registration does not guarantee a usable stencil or visible sidebar entry.
-        liveShapeClasses: (function () {
-          var registry = window.mxCellRenderer && window.mxCellRenderer.defaultShapes;
-          if (!registry || typeof registry !== "object") return [];
-          return Object.keys(registry).filter(function (name) {
-            return /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) && typeof registry[name] === "function" &&
-              name !== "__proto__" && name !== "constructor" && name !== "prototype";
-          }).sort().slice(0, 2000);
-        })(),
-        truncated: scanTruncated || allCells.length > cells.length || edgeCount > renderedEdges.length
+        // Live shape registration does not guarantee a usable stencil or visible sidebar entry.
+        liveShapeClasses: liveShapeClasses,
+        liveShapeClassesTruncated: liveShapeClassesTruncated,
+        truncated: scanTruncated || allCells.length > cells.length || edgeCount > renderedEdges.length || liveShapeClassesTruncated
       };
     }
 
