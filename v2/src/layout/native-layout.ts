@@ -104,6 +104,22 @@ export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
   margin: 30
 };
 
+/** Named spacing presets map to the existing engine-independent spacing controls. */
+export const NATIVE_LAYOUT_DENSITY_PRESETS = {
+  COMPACT: { nodeSpacing: 40, layerSpacing: 60 },
+  BALANCED: { nodeSpacing: 64, layerSpacing: 90 },
+  SPACIOUS: { nodeSpacing: 96, layerSpacing: 140 }
+} as const;
+export type NativeLayoutDensity = keyof typeof NATIVE_LAYOUT_DENSITY_PRESETS;
+export type NativeLayoutDensitySelection = NativeLayoutDensity | "CUSTOM";
+
+export function nativeLayoutDensityForSpacing(nodeSpacing: number, layerSpacing: number): NativeLayoutDensitySelection {
+  const preset = Object.entries(NATIVE_LAYOUT_DENSITY_PRESETS).find(([, spacing]) =>
+    spacing.nodeSpacing === nodeSpacing && spacing.layerSpacing === layerSpacing
+  );
+  return (preset?.[0] as NativeLayoutDensity | undefined) ?? "CUSTOM";
+}
+
 export interface NativeLayoutPosition {
   cellId: string;
   x: number;
@@ -839,16 +855,16 @@ function normalizePlan(
   positions: Map<string, Point>,
   routes: Map<string, Point[]>
 ): NativeLayoutPlan {
-  if (projection.vertices.length === 0) {
+  if (projection.layoutVertices.length === 0) {
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page. Nested group contents and nonstandard cells are intentionally left untouched.");
   }
-  if (positions.size !== projection.vertices.length ||
-      projection.vertices.some((vertex) => !positions.has(vertex.id))) {
+  if (positions.size !== projection.layoutVertices.length ||
+      projection.layoutVertices.some((vertex) => !positions.has(vertex.id))) {
     throw new Error("The layout engine did not return a position for every target vertex; no changes were applied.");
   }
 
-  const minX = Math.min(...projection.vertices.map((cell) => positions.get(cell.id)!.x));
-  const minY = Math.min(...projection.vertices.map((cell) => positions.get(cell.id)!.y));
+  const minX = Math.min(...projection.layoutVertices.map((cell) => positions.get(cell.id)!.x));
+  const minY = Math.min(...projection.layoutVertices.map((cell) => positions.get(cell.id)!.y));
   const preserveNativePositions = options.engine === "elk" && options.algorithm === "fixed";
   const dx = preserveNativePositions ? 0 : options.margin - minX;
   const dy = preserveNativePositions ? 0 : options.margin - minY;
@@ -914,6 +930,25 @@ function normalizePlan(
   const finalTopLevelPositionById = new Map(nativePositions.map((position) => [
     position.cellId, { x: position.x, y: position.y }
   ] as const));
+  const adjacencyDeltaByProxyId = new Map<string, Point>();
+  for (const cluster of projection.spatialAdjacencyClusters) {
+    const proxyPosition = positions.get(cluster.proxy.id);
+    if (!proxyPosition) throw new Error("A spatial adjacency cluster was missing from the outer layout result.");
+    const finalX = proxyPosition.x + dx;
+    const finalY = proxyPosition.y + dy;
+    const delta = { x: finalX - cluster.x, y: finalY - cluster.y };
+    adjacencyDeltaByProxyId.set(cluster.proxy.id, delta);
+    for (const memberId of cluster.memberCellIds) {
+      const member = cellsById.get(memberId);
+      if (!member || member.kind !== "vertex" || !member.hasGeometry || member.parentId !== projection.layoutLayerId) {
+        throw new Error("A spatial adjacency member changed scope during layout planning: " + memberId);
+      }
+      const x = member.x + delta.x;
+      const y = member.y + delta.y;
+      if (!finiteCoordinate(x) || !finiteCoordinate(y)) throw new Error("The layout engine returned invalid local-group coordinates.");
+      nativePositions.push({ cellId: memberId, x, y });
+    }
+  }
   const regionDeltaById = new Map<string, Point>();
   for (const region of projection.spatialRegions) {
     const sourceRegion = cellsById.get(region.regionCellId);
@@ -935,6 +970,10 @@ function normalizePlan(
   const finalPositionById = new Map(nativePositions.map((position) => [
     position.cellId, { x: position.x, y: position.y }
   ] as const));
+  const adjacencyOwnerByMemberId = new Map<string, string>();
+  for (const cluster of projection.spatialAdjacencyClusters) {
+    for (const memberId of cluster.memberCellIds) adjacencyOwnerByMemberId.set(memberId, cluster.proxy.id);
+  }
   const absoluteBoundsForCell = (cellId: string): { x: number; y: number; width: number; height: number } | null => {
     let current = cellsById.get(cellId);
     if (!current || current.kind !== "vertex" || !current.hasGeometry) return null;
@@ -1149,9 +1188,14 @@ function normalizePlan(
   };
 
   for (const edge of projection.edges) {
+    // The outer solver routes cluster-to-node edges against the cluster proxy; those waypoints
+    // cannot be applied to the real native terminal. Recompute from actual member geometry instead.
+    const usesAdjacencyProxy = adjacencyOwnerByMemberId.has(edge.sourceId ?? "") ||
+      adjacencyOwnerByMemberId.has(edge.targetId ?? "");
     // The solver waypoints are retained when safe; obstacle routing only replaces a path
     // when a segment would overlap another visible node or its clearance envelope.
-    const translated = (routes.get(edge.id) ?? []).map((point) => ({ x: point.x + dx, y: point.y + dy }));
+    const translated = (usesAdjacencyProxy ? [] : routes.get(edge.id) ?? [])
+      .map((point) => ({ x: point.x + dx, y: point.y + dy }));
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned an invalid connector route.");
     }
@@ -1321,6 +1365,24 @@ function normalizePlan(
     nativeRoutes.push({ cellId: edge.id, points });
   }
 
+  // Local-group edges bypass the outer solver because their endpoints move atomically.
+  // Existing explicit waypoints receive the same delta; absent waypoints stay absent and
+  // native Draw.io recalculates the rendered path from the original terminal IDs.
+  for (const edge of projection.adjacencyInternalEdges) {
+    if (edge.points.length === 0) continue;
+    const proxyId = edge.layoutSourceId;
+    const delta = proxyId ? adjacencyDeltaByProxyId.get(proxyId) : undefined;
+    if (!delta) throw new Error("An internal local-group connector had no corresponding cluster translation: " + edge.id);
+    const translated = edge.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
+    if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
+      throw new Error("The layout engine returned invalid local-group connector waypoints.");
+    }
+    nativeRoutes.push({
+      cellId: edge.id,
+      points: options.edgeRouting === "ORTHOGONAL" ? orthogonalizeRoute(translated) : translated
+    });
+  }
+
   const cellsToGuard = new Map<string, NativeLayoutExpectedCell>();
   for (const vertex of projection.vertices) cellsToGuard.set(vertex.id, {
     cellId: vertex.id, kind: "vertex", x: vertex.x, y: vertex.y,
@@ -1338,11 +1400,29 @@ function normalizePlan(
       });
     }
   }
+  for (const cluster of projection.spatialAdjacencyClusters) {
+    for (const memberId of cluster.memberCellIds) {
+      const member = cellsById.get(memberId);
+      if (!member) throw new Error("A spatial adjacency member disappeared before plan generation: " + memberId);
+      cellsToGuard.set(member.id, {
+        cellId: member.id, kind: "vertex", x: member.x, y: member.y,
+        width: member.width, height: member.height, parentId: member.parentId,
+        sourceId: null, targetId: null
+      });
+    }
+  }
   for (const edge of projection.edges) cellsToGuard.set(edge.id, {
     cellId: edge.id, kind: "edge", x: edge.x, y: edge.y,
     width: edge.width, height: edge.height, parentId: edge.parentId,
     sourceId: edge.sourceId, targetId: edge.targetId
   });
+  for (const edge of projection.adjacencyInternalEdges.filter((item) => item.points.length > 0)) {
+    cellsToGuard.set(edge.id, {
+      cellId: edge.id, kind: "edge", x: edge.x, y: edge.y,
+      width: edge.width, height: edge.height, parentId: edge.parentId,
+      sourceId: edge.sourceId, targetId: edge.targetId
+    });
+  }
   for (const edge of projection.regionInternalEdges.filter((item) => item.points.length > 0)) {
     cellsToGuard.set(edge.id, {
       cellId: edge.id, kind: "edge", x: edge.x, y: edge.y,
@@ -1360,15 +1440,19 @@ function normalizePlan(
     layoutLayerFallback: projection.layoutLayerFallback,
     coverage: {
       sourceVertexCount: projection.sourceVertexCount,
-      plannedVertexCount: projection.vertices.length + projection.spatialRegionMemberCount,
-      untouchedVertexCount: Math.max(0, projection.sourceVertexCount - projection.vertices.length - projection.spatialRegionMemberCount),
+      plannedVertexCount: projection.vertices.length + projection.spatialRegionMemberCount + projection.spatialAdjacencyClusterMemberCount,
+      untouchedVertexCount: Math.max(0, projection.sourceVertexCount - projection.vertices.length - projection.spatialRegionMemberCount - projection.spatialAdjacencyClusterMemberCount),
       nestedVertexCount: projection.nestedVertexCount,
       verticesInOtherLayersCount: projection.verticesInOtherLayersCount,
       hiddenVertexCount: projection.hiddenVertexCount,
       verticesWithoutGeometryCount: Math.max(0, projection.sourceVertexCount - projection.sourceVertexWithGeometryCount),
       sourceEdgeCount: projection.sourceEdgeCount,
-      plannedEdgeCount: projection.edges.length + projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length,
-      untouchedEdgeCount: Math.max(0, projection.sourceEdgeCount - projection.edges.length - projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length),
+      plannedEdgeCount: projection.edges.length +
+        projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length +
+        projection.adjacencyInternalEdges.filter((edge) => edge.points.length > 0).length,
+      untouchedEdgeCount: Math.max(0, projection.sourceEdgeCount - projection.edges.length -
+        projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length -
+        projection.adjacencyInternalEdges.filter((edge) => edge.points.length > 0).length),
       edgesOutsideLayoutLayerCount: projection.edgesOutsideLayoutLayerCount,
       hiddenEdgeCount: projection.hiddenEdgeCount,
       edgesWithoutGeometryCount: Math.max(0, projection.sourceEdgeCount - projection.sourceEdgeWithGeometryCount),
@@ -1382,6 +1466,10 @@ function normalizePlan(
       spatialRegionCandidatesSkippedCount: projection.spatialRegionCandidatesSkippedCount,
       spatialRegionInternalEdgeCount: projection.regionInternalEdges.length,
       spatialRegionInternalEdgesTranslatedCount: projection.regionInternalEdges.filter((edge) => edge.points.length > 0).length,
+      spatialAdjacencyClusterCount: projection.spatialAdjacencyClusters.length,
+      spatialAdjacencyClusterMemberCount: projection.spatialAdjacencyClusterMemberCount,
+      spatialAdjacencyInternalEdgeCount: projection.adjacencyInternalEdges.length,
+      spatialAdjacencyInternalEdgesTranslatedCount: projection.adjacencyInternalEdges.filter((edge) => edge.points.length > 0).length,
       spatialRegionUnownedContainedVertexCount: projection.spatialRegionUnownedContainedVertexCount
     },
     expectedPageCellIds: projection.allCellIds,
@@ -1409,8 +1497,8 @@ export async function calculateNativeAutoLayout(
   if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
     throw new Error("The selected algorithm is not supported by the chosen layout engine.");
   }
-  const projection = projectNativePage(xml, pageId);
-  if (projection.vertices.length === 0) {
+  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing);
+  if (projection.layoutVertices.length === 0) {
     throw new Error(describeEmptyLayoutScope(projection));
   }
 
@@ -1418,13 +1506,13 @@ export async function calculateNativeAutoLayout(
     throw new Error("ELK Box and Rectangle packing are intended for unconnected nodes. Choose a graph layout algorithm for diagrams with connectors.");
   }
 
-  const nodeById = new Map(projection.vertices.map((node) => [node.id, node] as const));
+  const nodeById = new Map(projection.layoutVertices.map((node) => [node.id, node] as const));
   const positions = new Map<string, Point>();
   const routes = new Map<string, Point[]>();
 
   if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {
     const result = await calculateAdditionalNativeLayout(
-      projection.vertices,
+      projection.layoutVertices,
       projection.edges.filter((edge) => (edge.layoutSourceId ?? edge.sourceId) && (edge.layoutTargetId ?? edge.targetId)).map((edge) => ({
         id: edge.id,
         sourceId: (edge.layoutSourceId ?? edge.sourceId)!,
@@ -1438,7 +1526,7 @@ export async function calculateNativeAutoLayout(
         (options.engine === "graphviz" && options.algorithm !== "dot") ||
         (options.engine === "d3" && options.algorithm === "force") ||
         (options.engine === "msagl" && options.algorithm !== "layered")) {
-      emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
+      emulateEmbeddedFlowDirection(positions, routes, projection.layoutVertices, projection.edges, options.direction);
     }
   } else if (options.engine === "dagre") {
     const graph = new dagre.graphlib.Graph({ multigraph: true });
@@ -1453,14 +1541,14 @@ export async function calculateNativeAutoLayout(
       marginx: options.margin,
       marginy: options.margin
     });
-    for (const node of projection.vertices) graph.setNode(node.id, { width: node.width, height: node.height });
+    for (const node of projection.layoutVertices) graph.setNode(node.id, { width: node.width, height: node.height });
     for (const edge of projection.edges) {
       const sourceId = edge.layoutSourceId ?? edge.sourceId;
       const targetId = edge.layoutTargetId ?? edge.targetId;
       if (sourceId && targetId) graph.setEdge(sourceId, targetId, {}, edge.id);
     }
     dagre.layout(graph);
-    for (const node of projection.vertices) {
+    for (const node of projection.layoutVertices) {
       const point = graph.node(node.id) as { x: number; y: number } | undefined;
       if (!point) throw new Error("Dagre did not return a position for native cell " + node.id + ".");
       positions.set(node.id, { x: point.x - node.width / 2, y: point.y - node.height / 2 });
@@ -1489,8 +1577,8 @@ export async function calculateNativeAutoLayout(
     if (options.algorithm === "stress") {
       // STRESS overrides most spacing controls; its desired edge length becomes the pitch,
       // so derive it from the requested spacing plus the largest node to guarantee clearance.
-      const maxVertexWidth = Math.max(...projection.vertices.map((vertex) => vertex.width));
-      const maxVertexHeight = Math.max(...projection.vertices.map((vertex) => vertex.height));
+      const maxVertexWidth = Math.max(...projection.layoutVertices.map((vertex) => vertex.width));
+      const maxVertexHeight = Math.max(...projection.layoutVertices.map((vertex) => vertex.height));
       layoutOptions["elk.stress.desiredEdgeLength"] = String(
         Math.max(options.nodeSpacing, options.layerSpacing) + (maxVertexWidth + maxVertexHeight) / 2
       );
@@ -1501,7 +1589,7 @@ export async function calculateNativeAutoLayout(
     const graphInput = {
       id: "studio-native-layout",
       layoutOptions,
-      children: projection.vertices.map((node) => ({
+      children: projection.layoutVertices.map((node) => ({
         id: node.id, width: node.width, height: node.height,
         // Fixed retains source coordinates. SPOrE optimizers also need current coordinates
         // as their seed rather than receiving an all-origin graph.
@@ -1517,8 +1605,8 @@ export async function calculateNativeAutoLayout(
           // ELK Fixed requires an existing section for each edge. These temporary center-to-center
           // sections satisfy that input contract; no such routes are persisted, and native Draw.io
           // recalculates the actual routes after applying the unchanged node coordinates.
-          const source = projection.vertices.find((vertex) => vertex.id === sourceId)!;
-          const target = projection.vertices.find((vertex) => vertex.id === targetId)!;
+          const source = projection.layoutVertices.find((vertex) => vertex.id === sourceId)!;
+          const target = projection.layoutVertices.find((vertex) => vertex.id === targetId)!;
           return {
             ...resultEdge,
             sections: [{
@@ -1537,7 +1625,7 @@ export async function calculateNativeAutoLayout(
     }
     if (options.algorithm === "fixed") {
       // Fixed is explicitly position-preserving. Keep exact coordinates from the native snapshot.
-      for (const node of projection.vertices) positions.set(node.id, { x: node.x, y: node.y });
+      for (const node of projection.layoutVertices) positions.set(node.id, { x: node.x, y: node.y });
     }
     for (const edge of result.edges ?? []) {
       const points = (edge.sections ?? []).flatMap((section) => section.bendPoints ?? []);
@@ -1545,7 +1633,7 @@ export async function calculateNativeAutoLayout(
     }
     if (!ELK_DIRECTION_AWARE_ALGORITHMS.has(options.algorithm) &&
         !["box", "fixed", "rectpacking", "random", "sporeCompaction", "sporeOverlap"].includes(options.algorithm)) {
-      emulateEmbeddedFlowDirection(positions, routes, projection.vertices, projection.edges, options.direction);
+      emulateEmbeddedFlowDirection(positions, routes, projection.layoutVertices, projection.edges, options.direction);
     }
   }
 
