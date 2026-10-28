@@ -7,6 +7,8 @@ import {
   DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
   emulateEmbeddedFlowDirection,
   nativeLayoutAlgorithmsForEngine,
+  NATIVE_LAYOUT_DENSITY_PRESETS,
+  nativeLayoutDensityForSpacing,
   type NativeAutoLayoutOptions
 } from "./native-layout";
 
@@ -66,6 +68,83 @@ function routeCrossesRectangleBoundary(
 }
 
 describe("Studio-owned native-cell layout", () => {
+  it("maps density presets to the existing spacing settings without extra layout state", () => {
+    expect(nativeLayoutDensityForSpacing(
+      NATIVE_LAYOUT_DENSITY_PRESETS.COMPACT.nodeSpacing,
+      NATIVE_LAYOUT_DENSITY_PRESETS.COMPACT.layerSpacing
+    )).toBe("COMPACT");
+    expect(nativeLayoutDensityForSpacing(
+      NATIVE_LAYOUT_DENSITY_PRESETS.BALANCED.nodeSpacing,
+      NATIVE_LAYOUT_DENSITY_PRESETS.BALANCED.layerSpacing
+    )).toBe("BALANCED");
+    expect(nativeLayoutDensityForSpacing(
+      NATIVE_LAYOUT_DENSITY_PRESETS.SPACIOUS.nodeSpacing,
+      NATIVE_LAYOUT_DENSITY_PRESETS.SPACIOUS.layerSpacing
+    )).toBe("SPACIOUS");
+    expect(nativeLayoutDensityForSpacing(77, 101)).toBe("CUSTOM");
+    expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping).toBe(true);
+  });
+
+  it("keeps close uncontained siblings together as a transient cluster when enabled", async () => {
+    const localGroupingXml = `<mxfile host="test"><diagram id="local-grouping" name="Local grouping"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="peer-a" value="Peer A" vertex="1" parent="1"><mxGeometry x="100" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-b" value="Peer B" vertex="1" parent="1"><mxGeometry x="190" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-c" value="Peer C" vertex="1" parent="1"><mxGeometry x="145" y="150" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="500" y="100" width="90" height="45" as="geometry"/></mxCell>
+      <mxCell id="peer-to-outside" edge="1" parent="1" source="peer-b" target="outside"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(localGroupingXml, "local-grouping", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "elk",
+      algorithm: "layered",
+      preserveLocalGrouping: true,
+      direction: "DOWN"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
+    expect(plan.coverage.spatialAdjacencyClusterMemberCount).toBe(3);
+    expect(plan.coverage.plannedVertexCount).toBe(4);
+    expect(positions.size).toBe(4);
+    expect(["peer-a", "peer-b", "peer-c", "outside"].every((id) => positions.has(id))).toBe(true);
+    const original = {
+      "peer-a": { x: 100, y: 100 },
+      "peer-b": { x: 190, y: 100 },
+      "peer-c": { x: 145, y: 150 }
+    };
+    const deltaX = positions.get("peer-a")!.x - original["peer-a"].x;
+    const deltaY = positions.get("peer-a")!.y - original["peer-a"].y;
+    for (const id of ["peer-b", "peer-c"] as const) {
+      expect(positions.get(id)!.x - original[id].x).toBeCloseTo(deltaX, 4);
+      expect(positions.get(id)!.y - original[id].y).toBeCloseTo(deltaY, 4);
+    }
+    expect(plan.positions.every((position) => !position.cellId.startsWith("__studio_spatial_cluster_"))).toBe(true);
+    expect(plan.expectedCells.filter((cell) => cell.kind === "vertex").map((cell) => cell.cellId).sort())
+      .toEqual(["outside", "peer-a", "peer-b", "peer-c"].sort());
+    expect(localGroupingXml).toContain('source="peer-b" target="outside"');
+  });
+
+  it("allows free rearrangement when local grouping preservation is disabled", async () => {
+    const localGroupingXml = `<mxfile host="test"><diagram id="local-grouping-off" name="Local grouping off"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="peer-a" value="Peer A" vertex="1" parent="1"><mxGeometry x="100" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-b" value="Peer B" vertex="1" parent="1"><mxGeometry x="190" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-c" value="Peer C" vertex="1" parent="1"><mxGeometry x="145" y="150" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="500" y="100" width="90" height="45" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(localGroupingXml, "local-grouping-off", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "elk",
+      algorithm: "layered",
+      preserveLocalGrouping: false
+    });
+    expect(plan.coverage.spatialAdjacencyClusterCount).toBe(0);
+    expect(plan.coverage.spatialAdjacencyClusterMemberCount).toBe(0);
+    expect(plan.positions).toHaveLength(4);
+    expect(plan.positions.map((position) => position.cellId).sort())
+      .toEqual(["outside", "peer-a", "peer-b", "peer-c"].sort());
+  });
+
   it("routes an orthogonal connector around an unrelated node obstacle", async () => {
     const obstacleXml = `<mxfile host="test"><diagram id="obstacle-page" name="Obstacle routing"><mxGraphModel><root>
       <mxCell id="0"/><mxCell id="1" parent="0"/>
