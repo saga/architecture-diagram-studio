@@ -217,7 +217,7 @@ interface SpatialAdjacencyAxisTransform {
   anchors: Array<{ source: number; target: number }>;
   sourceCrossCenter: number;
   targetCrossCenter: number;
-  /** Sign of the cross-axis coordinate when rotating the row/column. */
+  /** Sign of the cross-axis coordinate when mapping the source row/column to the target axis. */
   crossSign: 1 | -1;
 }
 
