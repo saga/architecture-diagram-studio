@@ -65,7 +65,8 @@ Implemented backend foundation:
 
 - `POST /api/workspace/diagram-change-set/prepare` resolves explicit targets through the workspace file service, validates Draw.io XML, verifies page IDs and SHA-256 revisions, and returns a manifest without returning full XML.
 - `POST /api/workspace/diagram-change-set/apply` accepts precomputed full XML outputs, validates every target before writing, rejects stale revisions and page-set changes, serializes writes per file, uses atomic per-file writes, and attempts compensating rollback on failure.
-- Unit tests cover target schema validation, preparation across files/pages, stale revisions, missing pages, multi-file apply, no-write preflight rejection, and preservation of untouched pages.
+- Unit tests cover target schema validation, preparation across files/pages, stale revisions, missing pages, multi-file apply, no-write preflight rejection, preservation of untouched pages, duplicate page IDs, and combined payload limits.
+- Apply requests are capped at 50 MiB of combined replacement XML (with a per-file cap), and duplicate/empty stable page IDs are rejected before page-diff comparison.
 
 Still incomplete for end-to-end Copilot support:
 
