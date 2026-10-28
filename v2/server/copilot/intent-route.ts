@@ -659,7 +659,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         type: "object",
         properties: {
           query: { type: "string", minLength: 1, maxLength: 120, description: "Exact ID, label text, native shape key, or a distinctive part of geometry metadata. A single character is valid." },
-          limit: { type: "integer", minimum: 1, maximum: 10, default: 5 }
+          limit: { type: "integer", minimum: 1, maximum: 10, default: 10 }
         },
         required: ["query"],
         additionalProperties: false
@@ -707,7 +707,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         );
         const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
           ? Math.max(1, Math.min(10, Math.floor(args.limit)))
-          : 5;
+          : 10;
         const queryStatus = await logQueryResult(sessionId, "search_drawio_elements", query, matches.length, deps.writeLog);
         const results = matches.slice(0, limit).flatMap((cell) =>
           typeof cell.id === "string" ? [{
@@ -733,7 +733,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           truncated: matches.length > results.length,
           results,
           ...(matches.length > results.length ? {
-            guidance: "More matches exist than are shown. Narrow the query or use an exact cell ID; do not choose between ambiguous labels arbitrarily."
+            guidance: "This result is truncated; do not perform an 'all' edit from this subset. Use inspect_drawio_graph with the same query and offset/nextOffset until truncated is false, keeping the same pageId and documentRevision. Narrow queries only when you can account for the complete union of results; copy every cell ID verbatim."
           } : {}),
           ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
         };
