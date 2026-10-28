@@ -281,3 +281,17 @@ const scriptScope = scriptChecksPassed
 | `xml-mismatch` 诊断 | `~/.architecture-diagram-studio/logs/application-events.jsonl` @ `2026-10-27T23:45:51.231Z` |
 | 改前 XML（压缩） | `~/.architecture-diagram-studio/data/standalone-history/8aaa6472…/f7b2e650….xml` |
 | 改后 XML | 同目录 `36e327b4….xml`（`Task 7` ×2，`AI agent 任务` ×3） |
+
+
+---
+
+## 9. 修复实施记录（2026-10-28）
+
+已在 `main` 直接修复本报告中的根因：
+
+1. **元素搜索不再漏掉部分匹配。** `search_drawio_elements("Task 7")` 现在返回所有 ID/标签文本匹配项，把完整标签的精确命中排在前面，但不会因此排除 `Task 7 %status%` 这样的富标签。新增回归覆盖 3 个精确命中 + 2 个 UserObject 子串命中。
+2. **统一 UserObject 标签读取/修改契约。** 常驻指令、脚本工具描述和 `docs/DRAWIO-AGENT-API-CONTRACT.md` 不再教模型把 `model.getValue(cell)` 直接转成字符串。显示标签通过 `graph.convertValueToString(cell)` 读取；修改包装值时克隆 DOM 元素，只改 `label` 属性，再交给 `model.setValue`，避免丢弃占位符或自定义属性。后置条件必须独立重新扫描标签，不能复用 mutation 的 changed-count。
+3. **后置条件失败不再遮住序列化 XML 证据。** `DrawioFrame.tsx` 无条件运行 `validateNativeScriptResultAgainstXml` 和 before/after scope audit。失败结果现在可同时包含 postcondition 名称、XML 不匹配的 cell ID/字段和未声明变更，而不是只给出泛化的 assertions 错误。
+4. **补充回归测试并更新契约文档。** 覆盖精确+子串搜索合并、postconditions 失败时仍检查 XML、UserObject 包装标签的序列化验证；更新 ADR-0020 与 API 合约文档。
+
+本轮已提交的主要代码提交：`91b238cabd773bf32b3d445332d1d1639255507a`（搜索完整性）、`d5f64da3806b263efea23fea8caf9b2b15c4b603`（独立验证与诊断）、`fed40fbf571c6d1eb7e65b83fecbb8573fff78a4`（验证回归测试）。测试已添加，但尚未在本轮实际运行；不能据此宣称构建或测试已通过。
