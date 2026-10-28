@@ -42,8 +42,8 @@ export interface WorkspaceChangeSetJournal {
 
 function validateXml(xml: string, filePath: string): void {
   const validation = validateDrawioXmlDocument(xml);
-  if (!validation.valid) {
-    throw new Error("Invalid Draw.io XML for " + filePath + ": " + validation.errors.join("; "));
+  if (!validation.success) {
+    throw new Error("Invalid Draw.io XML for " + filePath + ": " + validation.issues.join("; "));
   }
 }
 
