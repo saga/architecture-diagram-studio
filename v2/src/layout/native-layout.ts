@@ -211,14 +211,21 @@ interface ProjectedCell {
   points: Point[];
 }
 
+type SpatialAdjacencyRotation = "NONE" | "CLOCKWISE" | "COUNTERCLOCKWISE";
+
 interface SpatialAdjacencyLayoutCluster {
   /** Layout-only proxy; it is never a native Draw.io cell or a plan mutation target. */
   proxy: ProjectedCell;
   memberCellIds: string[];
+  /** Member top-left offsets in the cluster's direction-oriented local coordinate space. */
+  memberOffsets: Array<{ cellId: string; x: number; y: number }>;
   x: number;
   y: number;
   width: number;
   height: number;
+  rotation: SpatialAdjacencyRotation;
+  rotationCenterX: number;
+  rotationCenterY: number;
 }
 
 interface NativePageProjection {
@@ -362,7 +369,8 @@ function detectSpatialAdjacencyClusters(
   vertices: ProjectedCell[],
   allCells: ProjectedCell[],
   protectedCellIds: Set<string>,
-  nodeSpacing: number
+  nodeSpacing: number,
+  direction: NativeAutoLayoutDirection
 ): SpatialAdjacencyLayoutCluster[] {
   const candidates = vertices.filter((cell) =>
     !protectedCellIds.has(cell.id) && cell.kind === "vertex" && cell.visible &&
@@ -440,10 +448,43 @@ function detectSpatialAdjacencyClusters(
   const clusters: SpatialAdjacencyLayoutCluster[] = [];
   grouped.forEach((component, index) => {
     const members = component.map((memberIndex) => candidates[memberIndex]);
-    const x = Math.min(...members.map((member) => member.x));
-    const y = Math.min(...members.map((member) => member.y));
-    const right = Math.max(...members.map((member) => member.x + member.width));
-    const bottom = Math.max(...members.map((member) => member.y + member.height));
+    const sourceLeft = Math.min(...members.map((member) => member.x));
+    const sourceTop = Math.min(...members.map((member) => member.y));
+    const sourceRight = Math.max(...members.map((member) => member.x + member.width));
+    const sourceBottom = Math.max(...members.map((member) => member.y + member.height));
+    const sourceWidth = sourceRight - sourceLeft;
+    const sourceHeight = sourceBottom - sourceTop;
+    const rotationCenterX = (sourceLeft + sourceRight) / 2;
+    const rotationCenterY = (sourceTop + sourceBottom) / 2;
+    const targetVertical = direction === "DOWN" || direction === "UP";
+    const clearlyWide = sourceWidth > sourceHeight * 1.15;
+    const clearlyTall = sourceHeight > sourceWidth * 1.15;
+    const rotation: SpatialAdjacencyRotation = targetVertical && clearlyWide
+      ? direction === "DOWN" ? "CLOCKWISE" : "COUNTERCLOCKWISE"
+      : !targetVertical && clearlyTall
+        ? direction === "RIGHT" ? "COUNTERCLOCKWISE" : "CLOCKWISE"
+        : "NONE";
+    const rotateCenter = (member: ProjectedCell): Point => {
+      const centerX = member.x + member.width / 2;
+      const centerY = member.y + member.height / 2;
+      const dx = centerX - rotationCenterX;
+      const dy = centerY - rotationCenterY;
+      if (rotation === "CLOCKWISE") return { x: rotationCenterX - dy, y: rotationCenterY + dx };
+      if (rotation === "COUNTERCLOCKWISE") return { x: rotationCenterX + dy, y: rotationCenterY - dx };
+      return { x: centerX, y: centerY };
+    };
+    // Rotate only node centres, not cell shapes: native Draw.io widths, heights and styles remain unchanged.
+    const oriented = members.map((member) => {
+      const center = rotateCenter(member);
+      return { cellId: member.id, x: center.x - member.width / 2, y: center.y - member.height / 2,
+        width: member.width, height: member.height };
+    });
+    const x = Math.min(...oriented.map((member) => member.x));
+    const y = Math.min(...oriented.map((member) => member.y));
+    const right = Math.max(...oriented.map((member) => member.x + member.width));
+    const bottom = Math.max(...oriented.map((member) => member.y + member.height));
+    const width = right - x;
+    const height = bottom - y;
     let proxyId = "__studio_spatial_cluster_" + (index + 1) + "__";
     while (reservedIds.has(proxyId)) proxyId += "_";
     reservedIds.add(proxyId);
@@ -454,7 +495,7 @@ function detectSpatialAdjacencyClusters(
       targetId: null,
       layoutSourceId: null,
       layoutTargetId: null,
-      x, y, width: right - x, height: bottom - y,
+      x, y, width, height,
       kind: "vertex",
       hasGeometry: true,
       visible: true,
@@ -463,7 +504,8 @@ function detectSpatialAdjacencyClusters(
     clusters.push({
       proxy,
       memberCellIds: members.map((member) => member.id),
-      x, y, width: right - x, height: bottom - y
+      memberOffsets: oriented.map((member) => ({ cellId: member.cellId, x: member.x - x, y: member.y - y })),
+      x, y, width, height, rotation, rotationCenterX, rotationCenterY
     });
   });
   return clusters;
@@ -473,7 +515,8 @@ function projectNativePage(
   xml: string,
   requestedPageId: string | null,
   preserveLocalGrouping: boolean,
-  nodeSpacing: number
+  nodeSpacing: number,
+  direction: NativeAutoLayoutDirection
 ): NativePageProjection {
   const parsed = parseGraphModel(xml, requestedPageId);
   const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as Element[];
@@ -601,7 +644,7 @@ function projectNativePage(
   // Region members are removed from the outer graph. The native siblings remain untouched in XML.
   vertices = vertices.filter((cell) => !spatialRegionMemberIds.has(cell.id));
   const spatialAdjacencyClusters = preserveLocalGrouping
-    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing)
+    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing, direction)
     : [];
   const spatialAdjacencyMemberIds = new Set(spatialAdjacencyClusters.flatMap((cluster) => cluster.memberCellIds));
   const adjacencyOwnerByMemberId = new Map<string, string>();
@@ -930,23 +973,21 @@ function normalizePlan(
   const finalTopLevelPositionById = new Map(nativePositions.map((position) => [
     position.cellId, { x: position.x, y: position.y }
   ] as const));
-  const adjacencyDeltaByProxyId = new Map<string, Point>();
+  const adjacencyFinalOriginByProxyId = new Map<string, Point>();
   for (const cluster of projection.spatialAdjacencyClusters) {
     const proxyPosition = positions.get(cluster.proxy.id);
     if (!proxyPosition) throw new Error("A spatial adjacency cluster was missing from the outer layout result.");
-    const finalX = proxyPosition.x + dx;
-    const finalY = proxyPosition.y + dy;
-    const delta = { x: finalX - cluster.x, y: finalY - cluster.y };
-    adjacencyDeltaByProxyId.set(cluster.proxy.id, delta);
-    for (const memberId of cluster.memberCellIds) {
-      const member = cellsById.get(memberId);
+    const finalOrigin = { x: proxyPosition.x + dx, y: proxyPosition.y + dy };
+    adjacencyFinalOriginByProxyId.set(cluster.proxy.id, finalOrigin);
+    for (const memberOffset of cluster.memberOffsets) {
+      const member = cellsById.get(memberOffset.cellId);
       if (!member || member.kind !== "vertex" || !member.hasGeometry || member.parentId !== projection.layoutLayerId) {
-        throw new Error("A spatial adjacency member changed scope during layout planning: " + memberId);
+        throw new Error("A spatial adjacency member changed scope during layout planning: " + memberOffset.cellId);
       }
-      const x = member.x + delta.x;
-      const y = member.y + delta.y;
+      const x = finalOrigin.x + memberOffset.x;
+      const y = finalOrigin.y + memberOffset.y;
       if (!finiteCoordinate(x) || !finiteCoordinate(y)) throw new Error("The layout engine returned invalid local-group coordinates.");
-      nativePositions.push({ cellId: memberId, x, y });
+      nativePositions.push({ cellId: memberOffset.cellId, x, y });
     }
   }
   const regionDeltaById = new Map<string, Point>();
@@ -1371,9 +1412,21 @@ function normalizePlan(
   for (const edge of projection.adjacencyInternalEdges) {
     if (edge.points.length === 0) continue;
     const proxyId = edge.layoutSourceId;
-    const delta = proxyId ? adjacencyDeltaByProxyId.get(proxyId) : undefined;
-    if (!delta) throw new Error("An internal local-group connector had no corresponding cluster translation: " + edge.id);
-    const translated = edge.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
+    const cluster = proxyId
+      ? projection.spatialAdjacencyClusters.find((candidate) => candidate.proxy.id === proxyId)
+      : undefined;
+    const finalOrigin = proxyId ? adjacencyFinalOriginByProxyId.get(proxyId) : undefined;
+    if (!cluster || !finalOrigin) throw new Error("An internal local-group connector had no corresponding cluster translation: " + edge.id);
+    const translated = edge.points.map((point) => {
+      const dx = point.x - cluster.rotationCenterX;
+      const dy = point.y - cluster.rotationCenterY;
+      const oriented = cluster.rotation === "CLOCKWISE"
+        ? { x: cluster.rotationCenterX - dy, y: cluster.rotationCenterY + dx }
+        : cluster.rotation === "COUNTERCLOCKWISE"
+          ? { x: cluster.rotationCenterX + dy, y: cluster.rotationCenterY - dx }
+          : point;
+      return { x: finalOrigin.x + oriented.x - cluster.x, y: finalOrigin.y + oriented.y - cluster.y };
+    });
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
       throw new Error("The layout engine returned invalid local-group connector waypoints.");
     }
@@ -1497,7 +1550,7 @@ export async function calculateNativeAutoLayout(
   if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
     throw new Error("The selected algorithm is not supported by the chosen layout engine.");
   }
-  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing);
+  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing, options.direction);
   if (projection.layoutVertices.length === 0) {
     throw new Error(describeEmptyLayoutScope(projection));
   }
