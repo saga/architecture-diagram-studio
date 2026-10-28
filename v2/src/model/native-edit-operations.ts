@@ -86,6 +86,15 @@ export interface NativeDiagramPageInfo {
   title: string | null;
 }
 
+/** True only when the XML root is a single graph model, not a multi-page mxfile. */
+export function isBareNativeGraphModel(xml: string): boolean {
+  try {
+    return parseDrawioXml(xml).documentElement.nodeName === "mxGraphModel";
+  } catch {
+    return false;
+  }
+}
+
 /** Read the current page metadata from the native mxfile envelope without semantic inference. */
 export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): NativeDiagramPageInfo {
   const parsed = parseDrawioXml(xml);
