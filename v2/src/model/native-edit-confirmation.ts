@@ -436,16 +436,39 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
 }
 
 
+export interface NativeScriptXmlPointAssertion {
+  x: number | null;
+  y: number | null;
+}
+
+export interface NativeScriptXmlGeometryAssertion {
+  x?: number | null;
+  y?: number | null;
+  width?: number | null;
+  height?: number | null;
+  relative?: boolean | null;
+  points?: NativeScriptXmlPointAssertion[] | null;
+  offset?: NativeScriptXmlPointAssertion | null;
+  sourcePoint?: NativeScriptXmlPointAssertion | null;
+  targetPoint?: NativeScriptXmlPointAssertion | null;
+}
+
 export interface NativeScriptXmlCellAssertion {
   cellId: string;
   exists?: boolean;
   kind?: "vertex" | "edge";
   label?: string;
+  /** Expected substring of the serialized native label, including rich labels/user objects. */
+  labelContains?: string;
+  /** Expected translated/title text inside a serialized rich label. */
+  chineseTitle?: string;
+  /** Recomputed by the host against serialized XML; requires labelContains or chineseTitle. */
+  labelContainsTitle?: boolean;
   parentId?: string | null;
   sourceId?: string | null;
   targetId?: string | null;
   style?: Record<string, string | null>;
-  geometry?: Partial<Record<"x" | "y" | "width" | "height", number | null>> & { relative?: boolean | null };
+  geometry?: NativeScriptXmlGeometryAssertion;
 }
 
 /** A bounded field-level diagnostic explaining why a script assertion was rejected. */
