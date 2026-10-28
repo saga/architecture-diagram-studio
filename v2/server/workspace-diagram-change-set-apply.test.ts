@@ -90,6 +90,18 @@ describe("applyWorkspaceDiagramChangeSet", () => {
     expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toBe(before);
   });
 
+  it("preserves untouched pages when one page is targeted", async () => {
+    const before = xml("page-a", "Before A").replace("</mxfile>", xml("page-b", "Before B").replace(/^<mxfile>|<\\/mxfile>$/g, "") + "</mxfile>");
+    const after = xml("page-a", "After A").replace("</mxfile>", xml("page-b", "Before B").replace(/^<mxfile>|<\\/mxfile>$/g, "") + "</mxfile>");
+    const env = await setup({ "a.drawio": before });
+    const result = await applyWorkspaceDiagramChangeSet({
+      changeSetId: "cs-6", workspaceId: "workspace-1",
+      targets: [{ filePath: "a.drawio", expectedRevision: revision(before), resultXml: after, changedPageIds: ["page-a"] }]
+    }, env.resolver);
+    expect(result.ok).toBe(true);
+    expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toContain("Before B");
+  });
+
   it("rejects changing the set of page IDs in a proposed file", async () => {
     const before = xml("page-a", "Before");
     const env = await setup({ "a.drawio": before });
