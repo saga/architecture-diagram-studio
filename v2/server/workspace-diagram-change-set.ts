@@ -49,8 +49,8 @@ export async function prepareWorkspaceDiagramChangeSet(
       const xml = await readFile(resolved.absolutePath, "utf8");
       const parsed = parseDrawioXml(xml);
       const validation = validateDrawioXmlDocument(xml);
-      if (!validation.valid) {
-        return { ok: false, error: "Target is not valid Draw.io XML: " + validation.errors.slice(0, 3).join("; "), targetPath: target.filePath };
+      if (!validation.success) {
+        return { ok: false, error: "Target is not valid Draw.io XML: " + validation.issues.slice(0, 3).join("; "), targetPath: target.filePath };
       }
       const rootName = parsed.documentElement.nodeName;
       let title: string | null = null;
