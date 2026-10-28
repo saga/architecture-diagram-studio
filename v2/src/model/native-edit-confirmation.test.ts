@@ -22,7 +22,6 @@ describe("native edit XML confirmation", () => {
   it("keeps the exported assertion type aligned with rich-label and full geometry evidence", () => {
     const assertion: NativeScriptXmlCellAssertion = {
       cellId: "rich-edge",
-      labelContains: "AI agent",
       labelContains: "AI agent 任务",
       geometry: {
         relative: true,
