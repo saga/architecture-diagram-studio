@@ -661,7 +661,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         throw new Error("The active Draw.io page ID is not available. Select a page and retry confirming this proposal.");
       }
       const pageInfo = getNativeDiagramPageInfo(sourceXml, activePageId);
-      if (pageInfo.id !== activePageId) throw new Error("The proposal's target page was not found in the source XML.");
+      // A bare mxGraphModel has no envelope page ID, so pageInfo.id is null while
+      // activePageId is the runtime-confirmed ID from the live editor; only an mxfile
+      // must prove that the requested page still exists in the source XML.
+      if (!isBareNativeGraphModel(sourceXml) && pageInfo.id !== activePageId) throw new Error("The proposal's target page was not found in the source XML.");
       const nativeTargets = extractNativeEditTargets(sourceXml, activePageId);
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const requestContext = {

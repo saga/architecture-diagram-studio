@@ -446,7 +446,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The layout plan was not calculated from the current native XML revision." };
-        const expectedPage = getNativeDiagramPageInfo(xml, pageId).id;
+        // A bare mxGraphModel has no envelope page ID, so the plan carries the runtime-confirmed
+        // page ID from the live editor rather than an XML-derived one.
+        const expectedPage = isBareNativeGraphModel(xml) ? (pageId ?? null) : getNativeDiagramPageInfo(xml, pageId).id;
         const revisionMatches = /^[a-f0-9]{64}$/i.test(layoutPlan.documentRevision);
         const optionsMatch = layoutPlan.engine === operation.engine &&
           layoutPlan.algorithm === operation.algorithm &&

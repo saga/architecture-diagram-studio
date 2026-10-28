@@ -258,10 +258,14 @@ function effectiveCellId(cell: Element): string {
   return cell.getAttribute("id") || "";
 }
 
-function parseGraphModel(xml: string, requestedPageId: string | null): { model: Document; pageId: string | null; pageTitle: string | null } {
+function parseGraphModel(xml: string, requestedPageId: string | null): { model: Document; pageId: string | null; pageTitle: string | null; bareModel: boolean } {
   const document = parseDrawioXml(xml);
   const root = document.documentElement;
-  if (root.nodeName === "mxGraphModel") return { model: document, pageId: null, pageTitle: null };
+  // A bare mxGraphModel has no <diagram> envelope, so its page ID exists only in the live
+  // Draw.io runtime. Callers resolve it with inspectRuntime before requesting a plan; echo
+  // the requested ID back so the native plugin's plan.pageId check matches the live page.
+  // Passing null stays unchanged for callers that have not confirmed a runtime page ID.
+  if (root.nodeName === "mxGraphModel") return { model: document, pageId: requestedPageId, pageTitle: null, bareModel: true };
   if (root.nodeName !== "mxfile") throw new Error("Auto layout only supports native Draw.io mxfile or mxGraphModel documents.");
 
   const diagrams = Array.from(document.getElementsByTagName("diagram"));
@@ -283,7 +287,8 @@ function parseGraphModel(xml: string, requestedPageId: string | null): { model: 
     return {
       model: inlineModel as unknown as Document,
       pageId: page.getAttribute("id") || null,
-      pageTitle: page.getAttribute("name") || null
+      pageTitle: page.getAttribute("name") || null,
+      bareModel: false
     };
   }
 
@@ -292,7 +297,7 @@ function parseGraphModel(xml: string, requestedPageId: string | null): { model: 
   try {
     const nested = parseDrawioXml(decodeDrawioPageXml(payload));
     if (nested.documentElement.nodeName === "mxGraphModel") {
-      return { model: nested, pageId: page.getAttribute("id") || null, pageTitle: page.getAttribute("name") || null };
+      return { model: nested, pageId: page.getAttribute("id") || null, pageTitle: page.getAttribute("name") || null, bareModel: false };
     }
   } catch {
     // The shared decoder enforces XML validity and the decompressed-page size limit.
@@ -401,7 +406,9 @@ function projectNativePage(xml: string, requestedPageId: string | null): NativeP
   const layoutLayerId = layoutLayer?.id ?? null;
   const allById = new Map(all.map((cell) => [cell.id, cell] as const));
   const rawVertexIds = new Set(vertices.map((cell) => cell.id));
-  const regionDetection = detectSpatialRegionsForLayout(xml, parsed.pageId);
+  // Spatial region detection keeps the null page convention for a bare mxGraphModel:
+  // it reads the model directly and has no envelope page to resolve.
+  const regionDetection = detectSpatialRegionsForLayout(xml, parsed.bareModel ? null : parsed.pageId);
   const candidatesForLayer = regionDetection.candidates.filter((candidate) =>
     allById.get(candidate.regionCellId)?.parentId === layoutLayerId
   );

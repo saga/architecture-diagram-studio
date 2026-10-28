@@ -578,6 +578,20 @@ describe("Studio-owned native-cell layout", () => {
     await expect(calculateNativeAutoLayout(xml, "missing-page", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS))
       .rejects.toThrow(/page/i);
   });
+
+  it("echoes the requested page ID for a bare mxGraphModel and keeps null unchanged", async () => {
+    const bareXml = `<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="120" height="60" as="geometry"/></mxCell><mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="220" y="0" width="120" height="60" as="geometry"/></mxCell><mxCell id="edge-ab" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel>`;
+    // The runtime-confirmed page ID (from inspectRuntime) must survive into the plan so the
+    // native plugin's live plan.pageId check matches the bare model's generated page.
+    const withRuntimeId = await calculateNativeAutoLayout(bareXml, "runtime-generated-page", revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
+    expect(withRuntimeId.pageId).toBe("runtime-generated-page");
+    // Without a runtime page ID the plan keeps the null convention.
+    const withoutId = await calculateNativeAutoLayout(bareXml, null, revision, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS);
+    expect(withoutId.pageId).toBe(null);
+    // The page ID convention must not influence the calculated geometry.
+    expect(withRuntimeId.positions).toEqual(withoutId.positions);
+    expect(withRuntimeId.edgeRoutes).toEqual(withoutId.edgeRoutes);
+  });
 });
 
 // The bundled elkjs STRESS/FORCE engines ignore "elk.direction"; the plan builder must emulate

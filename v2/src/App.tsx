@@ -1432,10 +1432,13 @@ export default function App() {
         "Resolved the layout target from the live Draw.io editor rather than assuming the first page",
         { pageId, sourcePageId, documentRevision });
 
+      // Spatial region analysis only accepts pageId null for a bare mxGraphModel; the
+      // runtime-generated page ID would be rejected there even though it is authoritative
+      // for the live editor, so scope the request to the bare model's null convention.
       const regionAnalysisResponse = await spatialRegionAnalysisProvider.analyze({
         documentXml: sourceXml,
         documentRevision,
-        pageId,
+        pageId: isBareNativeGraphModel(sourceXml) ? null : pageId,
         selectedCellId: null,
         cells: []
       }, { documentRevision, pageId });
