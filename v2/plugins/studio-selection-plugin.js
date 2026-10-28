@@ -407,7 +407,7 @@
     }
 
     function hasNestedLabelMarkup(source) {
-      var outer = /^\\s*<([a-z][\\w:-]*)\\b[^>]*>([\\s\\S]*)<\\/\\1>\\s*$/i.exec(source);
+      var outer = /^\s*<([a-z][\w:-]*)\b[^>]*>([\s\S]*)<\/\1>\s*$/i.exec(source);
       if (!outer) return /<[a-z][^>]*>/i.test(source);
       return /<[a-z][^>]*>/i.test(outer[2]);
     }
