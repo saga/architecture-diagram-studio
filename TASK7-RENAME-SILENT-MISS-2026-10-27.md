@@ -313,3 +313,7 @@ const scriptScope = scriptChecksPassed
 ### Follow-up：curated shape catalogue 的静默截断（2026-10-28）
 
 同类完整性问题也出现在 `search_drawio_shapes`：catalogue 搜索原先仅返回 limit 条，未告知总命中数或 `truncated`。模型容易把宽泛 query 的前几项当作完整候选集。现在底层新增 `searchDrawioShapeCatalogDetailed`，保留兼容的数组 API，同时返回 `matchCount`、`returnedCount`、`truncated`；Copilot 工具把这些字段显式传给模型，截断时指导缩小 query 或改用 live Draw.io 发现流程。C4 directory 的四个 bundle recipe 明确要求完整返回，并有测试验证 `truncated:false`。
+
+### Follow-up：live shape registry 截断必须显式传播（2026-10-28）
+
+实时 shape registry 还有一个与搜索结果截断不同的完整性边界：iframe 最多传输 2000 个注册名，但旧契约没有单独暴露 registry 本身是否超过上限。即使 query 只在这 2000 项中命中 0 项，search_drawio_runtime_shapes 也可能被误读为“没有此 shape”。现在 iframe 返回 liveShapeClassesTruncated，runtime normalizer 在超过 2000 项时也会自行推断截断，并把它合并进总体 truncated；查询工具分别返回 registrySnapshotTruncated、resultSetTruncated、matchCountComplete 和 returnedCount。源 registry 不完整时明确说明 query 计数只覆盖保留子集，不得据此断言 shape 不存在。新增插件、normalizer 和 route 回归测试覆盖这一情形。
