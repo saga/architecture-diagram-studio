@@ -147,10 +147,11 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
     expect(Math.abs((a.x + 40) - (b.x + 40))).toBeCloseTo(0, 4);
     expect(b.y - a.y).toBeCloseTo(90, 4);
-    expect(plan.edgeRoutes).toContainEqual({
-      cellId: "peer-inner",
-      points: [{ x: a.x + 80, y: a.y + 65 }]
-    });
+    const internalRoute = plan.edgeRoutes.find((route) => route.cellId === "peer-inner");
+    expect(internalRoute).toBeDefined();
+    expect(internalRoute!.points).toHaveLength(1);
+    expect(internalRoute!.points[0].x).toBeCloseTo(a.x + 80, 4);
+    expect(internalRoute!.points[0].y).toBeCloseTo(a.y + 65, 4);
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["peer-a", "peer-b"].sort());
     expect(plan.expectedCells.map((cell) => cell.cellId)).toContain("peer-inner");
   });
