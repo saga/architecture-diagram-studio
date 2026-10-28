@@ -38,7 +38,8 @@ describe("extractNativeEditTargets", () => {
     ).join("");
     const xml = XML.replace("</root>", cells + "</root>");
     const targets = extractNativeEditTargets(xml);
-    expect(targets).toHaveLength(262);
+    // The base XML contributes one vertex (db) plus the 260 generated nodes.
+    expect(targets).toHaveLength(261);
     expect(targets.some((target) => target.id === "node-259")).toBe(true);
   });
 

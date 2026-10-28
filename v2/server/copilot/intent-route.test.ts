@@ -640,7 +640,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(firstRequest.editingGuidance).not.toContain("expectedTitle");
   });
 
-  it("dispatches insertion-only native scripts without a confirmation step", async () => {
+  it("queues insertion-only native scripts behind explicit confirmation", async () => {
     const harness = await createServer({
       copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
     });
@@ -650,13 +650,11 @@ describe("Copilot intent route result and revision contract", () => {
     };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    const nativeEdits = body.nativeEdits as { operations: Array<Record<string, unknown>> };
-    expect(nativeEdits.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
-    expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(harness.logs.some((entry) =>
-      entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === SAFE_CREATION_SCRIPT
-    )).toBe(true);
+    expect(body.outcome).toBe("proposal_required");
+    const proposal = body.proposal as { operations: Array<Record<string, unknown>> };
+    expect(proposal.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
+    expect(harness.acknowledgements.pending.size).toBe(0);
+    expect(harness.logs.some((entry) => entry.event === "turn.completed.proposal-required")).toBe(true);
   });
   it("reports a queued selection without claiming the canvas has selected it", async () => {
     const copilot = terminalConflictCopilot("select-only");
@@ -763,7 +761,7 @@ describe("Copilot intent route result and revision contract", () => {
       entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
   });
 
-  it("dispatches no-op scripts without requiring manifest approval or confirmation", async () => {
+  it("queues no-op scripts for review instead of granting manifest-free dispatch", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot() });
     const requestContext = {
       kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
@@ -771,32 +769,29 @@ describe("Copilot intent route result and revision contract", () => {
     };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+    expect(body.outcome).toBe("proposal_required");
+    expect((body.proposal as { operations: Array<Record<string, unknown>> }).operations)
       .toMatchObject([{ op: "run_drawio_script", script: "return { checked: true };" }]);
-    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
-  it("dispatches a single typed deletion without a second confirmation", async () => {
+  it("queues a single typed deletion behind explicit confirmation", async () => {
     const harness = await createServer({ copilot: proposingCopilot([{ op: "delete", target: "Database" }]) });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+    expect(body.outcome).toBe("proposal_required");
+    expect((body.proposal as { operations: Array<Record<string, unknown>> }).operations)
       .toMatchObject([{ op: "delete", cellId: "db", targetLabel: "Database" }]);
-    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
-  it("allows direct script execution when the runtime capability manifest is absent", async () => {
+  it("queues scripts for review even when the runtime capability manifest is absent", async () => {
     const harness = await createServer({ copilot: scriptProposingCopilot("graph.refresh();") });
     const requestContext = { kind: "drawio", activePageId: "p1", selectedCell: null, cells: [] };
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
+    expect(body.outcome).toBe("proposal_required");
+    expect((body.proposal as { operations: Array<Record<string, unknown>> }).operations)
       .toMatchObject([{ op: "run_drawio_script", script: "graph.refresh();" }]);
-    expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(harness.logs.some((entry) =>
-      entry.event === "tool.run_drawio_script.accepted" && entry.fields?.script === "graph.refresh();"
-    )).toBe(true);
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
   it("returns stale_context when the source hash does not match the XML", async () => {
     const harness = await createServer();
@@ -916,13 +911,13 @@ describe("Copilot intent route result and revision contract", () => {
     expect(standaloneHarness.persistSessionId).not.toHaveBeenCalled();
   });
 
-  it("dispatches broad destructive batches without a confirmation gate", async () => {
+  it("queues broad destructive batches behind the confirmation gate", async () => {
     const harness = await createServer({ copilot: proposingCopilot() });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    expect((body.nativeEdits as { operations: unknown[] }).operations).toHaveLength(2);
-    expect(harness.acknowledgements.pending.size).toBe(1);
+    expect(body.outcome).toBe("proposal_required");
+    expect((body.proposal as { operations: unknown[] }).operations).toHaveLength(2);
+    expect(harness.acknowledgements.pending.size).toBe(0);
   });
   it("rejects a workspace XML snapshot that is stale against the authoritative revision", async () => {
     const harness = await createServer({ copilot: proposingCopilot() });
