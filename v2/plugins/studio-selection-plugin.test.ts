@@ -57,7 +57,7 @@ function mockElement() {
   };
 }
 
-function createHarness(options: { customShapeAvailable?: boolean } = {}) {
+function createHarness(options: { customShapeAvailable?: boolean; extraShapeClassCount?: number } = {}) {
   const root = makeCell("0");
   const layer = makeCell("1");
   const service = makeCell("service", { vertex: true, style: "rounded=1;fillColor=#ffffff;" });
@@ -172,6 +172,9 @@ function createHarness(options: { customShapeAvailable?: boolean } = {}) {
   const shapeRegistry: Record<string, () => undefined> = {};
   shapeRegistry["mxgraph.c4.person2"] = () => undefined;
   if (options.customShapeAvailable !== false) shapeRegistry["mxgraph.test.cloud"] = () => undefined;
+  for (let index = 0; index < (options.extraShapeClassCount ?? 0); index += 1) {
+    shapeRegistry["mxgraph.test.generated" + index] = () => undefined;
+  }
 
   const messages: Array<Record<string, any>> = [];
   const parent = {
@@ -279,6 +282,20 @@ const curveAllConnectorsScript = [
 ].join("\n");
 
 describe("native Draw.io script bridge", () => {
+  it("marks the live shape registry as truncated when its transport cap hides entries", () => {
+    const harness = createHarness({ extraShapeClassCount: 2001 });
+    const result = harness.runRuntimeInspect();
+    const inspection = result?.inspection as {
+      liveShapeClasses: string[];
+      liveShapeClassesTruncated: boolean;
+      truncated: boolean;
+    };
+    expect(inspection.liveShapeClasses).toHaveLength(2000);
+    expect(inspection.liveShapeClassesTruncated).toBe(true);
+    expect(inspection.truncated).toBe(true);
+  });
+
+
   it("rejects the removed in-place C4 conversion path without changing the original cell", () => {
     const harness = createHarness();
     harness.service.value = "Payment API";
