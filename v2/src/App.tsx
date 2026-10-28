@@ -1894,7 +1894,8 @@ export default function App() {
                 aria-label="Preserve relative positions of selected cells"
                 checked={nativeLayoutOptions.preserveRelativeAnchors}
                 disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict" ||
-                  selectedNativeCellIds.length < 2 || selectedNativeCellIds.length > 32}
+                  (!nativeLayoutOptions.preserveRelativeAnchors &&
+                    (selectedNativeCellIds.length < 2 || selectedNativeCellIds.length > 32))}
                 onChange={(preserveRelativeAnchors) => setNativeLayoutOptions((current) => ({ ...current, preserveRelativeAnchors }))}
               />
               <span className="native-layout-field-hint">
