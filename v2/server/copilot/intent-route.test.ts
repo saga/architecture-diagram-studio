@@ -608,7 +608,7 @@ describe("Copilot intent route result and revision contract", () => {
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
     expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
     expect(firstRequest.editingGuidance).toContain("plain-text replacements that would flatten markup");
-    expect(firstRequest.editingGuidance).toContain("the xmlAssertions field labelContains is defined by Studio's verifier");
+    expect(firstRequest.editingGuidance).toContain("labelContains is Studio-only, not Draw.io XML");
     expect(firstRequest.editingGuidance).not.toContain("expectedTitle");
   });
 
