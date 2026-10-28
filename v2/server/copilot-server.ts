@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { prepareWorkspaceDiagramChangeSet } from "./workspace-diagram-change-set";
+import { applyWorkspaceDiagramChangeSet } from "./workspace-diagram-change-set-apply";
 import { createLocalDiagramFileService, LocalDiagramFileError } from "./local-diagram-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
@@ -1000,6 +1001,27 @@ app.post("/api/workspace/diagram-change-set/prepare", async (req, res) => {
         workspaceId, filePath, pageId, expectedRevision, title, contentRevision
       }))
     });
+  } catch (error) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+
+app.post("/api/workspace/diagram-change-set/apply", async (req, res) => {
+  try {
+    const workspace = await getProjectWorkspace();
+    if (!workspace) { res.status(409).json({ ok: false, error: "Configure a project workspace first" }); return; }
+    const result = await applyWorkspaceDiagramChangeSet(req.body, {
+      workspaceId: workspace.id,
+      resolveWorkspaceFile,
+      writeLog: async (event, fields) => { await writeLog(event, fields); }
+    });
+    if (!result.ok) {
+      res.status(409).json(result);
+      return;
+    }
+    invalidateWorkspaceScanCache();
+    res.json(result);
   } catch (error) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
   }
