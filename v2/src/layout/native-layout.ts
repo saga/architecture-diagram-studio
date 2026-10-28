@@ -105,7 +105,7 @@ export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
   direction: "RIGHT",
   preserveLocalGrouping: true,
   preserveCanvasOrigin: false,
-  preserveRelativeAnchors: false,
+  preserveRelativeAnchors: true,
   nodeSpacing: 64,
   layerSpacing: 90,
   edgeRouting: "ORTHOGONAL",
@@ -1766,6 +1766,10 @@ function optimizeRelativeAnchorPositions(
   }
 
   const selectedIds = Array.from(new Set(anchorCellIds.map((id) => String(id).trim()).filter(Boolean))).sort();
+  // Relative anchoring is the default UI preference, but it is meaningful only when the
+  // current selection contains 2–32 anchors. An empty list is an intentional no-anchor run:
+  // perform ordinary layout rather than making the global Auto Layout command unusable.
+  if (selectedIds.length === 0) return { diagnostics: emptyDiagnostics, changed: false };
   if (selectedIds.length < 2) {
     throw new Error("Preserve relative positions requires at least two selected vertex cells on the active Draw.io page.");
   }
@@ -2038,8 +2042,11 @@ export async function calculateNativeAutoLayout(
   if (!options.preserveRelativeAnchors && anchorCellIds.length > 0) {
     throw new Error("Relative anchor cell IDs were supplied while relative-anchor mode is disabled.");
   }
-  if (options.preserveRelativeAnchors && (anchorCellIds.length < 2 || anchorCellIds.length > 32)) {
-    throw new Error("Preserve relative positions requires between 2 and 32 selected vertex cells.");
+  if (options.preserveRelativeAnchors && anchorCellIds.length > 0 && anchorCellIds.length < 2) {
+    throw new Error("Preserve relative positions requires at least two selected vertex cells.");
+  }
+  if (anchorCellIds.length > 32) {
+    throw new Error("Relative anchoring supports at most 32 selected cells per layout run.");
   }
   // Layouts that explicitly preserve node coordinates or do not support direction must not
   // rotate the local composition as a side effect. Anchored cluster members retain their offsets

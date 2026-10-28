@@ -101,7 +101,7 @@ This refinement is joint because anchor units and unselected units are optimized
 
 Extend the shared UI/Agent/native-plan contract with:
 
-- **preserveRelativeAnchors**: an explicit boolean option, defaulting to false for backward compatibility.
+- **preserveRelativeAnchors**: enabled by default in the UI. Relative constraints activate only when 2–32 valid cells are selected; with no valid anchor selection, Auto Layout proceeds normally. Typed Copilot/Agent operations default this flag to false and must supply explicit IDs to opt in.
 - **anchorCellIds**: the exact native IDs selected for this run. This is request/plan context, not a persistent auto-layout preference.
 - **anchor diagnostics**: requested and resolved anchor counts, effective anchor-unit count, evaluated pair count, maximum and mean pairwise vector drift, directional-order violations, and an outcome such as applied, degraded, skipped or not applicable.
 

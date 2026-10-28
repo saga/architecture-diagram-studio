@@ -453,7 +453,8 @@
           !Number.isInteger(plan.randomSeed) || !boundedPlanNumber(plan.margin, 0, 300) ||
           ["ORTHOGONAL", "POLYLINE", "SPLINES"].indexOf(plan.edgeRouting) < 0) fail("The Studio layout plan contains invalid or out-of-range configuration values.", true);
       if ((!plan.preserveRelativeAnchors && plan.anchorCellIds.length !== 0) ||
-          (plan.preserveRelativeAnchors && plan.anchorCellIds.length < 2)) fail("The Studio layout plan's relative-anchor selection does not match its settings.", true);
+          (plan.preserveRelativeAnchors && plan.anchorCellIds.length === 1)) fail("The Studio layout plan's relative-anchor selection does not match its settings.", true);
+      var hasRelativeAnchorConstraints = plan.preserveRelativeAnchors && plan.anchorCellIds.length >= 2;
       var anchorDiagnostics = plan.anchorDiagnostics;
       if (!anchorDiagnostics || typeof anchorDiagnostics !== "object" ||
           ["not-requested", "applied", "degraded"].indexOf(anchorDiagnostics.outcome) < 0 ||
@@ -472,7 +473,7 @@
           anchorDiagnostics.directionalOrderViolations < 0 || anchorDiagnostics.collisionAdjustments < 0) {
         fail("The Studio layout plan's relative-anchor diagnostics are invalid.", true);
       }
-      if (plan.preserveRelativeAnchors &&
+      if (hasRelativeAnchorConstraints &&
           (anchorDiagnostics.outcome === "not-requested" ||
            anchorDiagnostics.requestedAnchorCount !== plan.anchorCellIds.length ||
            anchorDiagnostics.resolvedAnchorCount !== plan.anchorCellIds.length ||
@@ -480,8 +481,13 @@
            anchorDiagnostics.evaluatedPairCount !== anchorDiagnostics.effectiveAnchorUnitCount * (anchorDiagnostics.effectiveAnchorUnitCount - 1) / 2)) {
         fail("The Studio layout plan's relative-anchor result is incomplete or inconsistent.", true);
       }
-      if (!plan.preserveRelativeAnchors && anchorDiagnostics.outcome !== "not-requested") {
-        fail("The Studio layout plan reports anchor optimization when relative-anchor mode is disabled.", true);
+      if (!hasRelativeAnchorConstraints &&
+          (anchorDiagnostics.outcome !== "not-requested" ||
+           anchorDiagnostics.requestedAnchorCount !== 0 ||
+           anchorDiagnostics.resolvedAnchorCount !== 0 ||
+           anchorDiagnostics.effectiveAnchorUnitCount !== 0 ||
+           anchorDiagnostics.evaluatedPairCount !== 0)) {
+        fail("The Studio layout plan reports anchor optimization without an effective anchor selection.", true);
       }
       if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) fail("The Studio layout plan is not bound to a valid native XML revision.", true);
       if (plan.positions.length < 1 || plan.positions.length > 5000 || plan.expectedPageCellIds.length > 20000 || plan.expectedCells.length > 10000 || plan.edgeRoutes.length > 10000) fail("The Studio layout plan exceeds native editor limits.", true);

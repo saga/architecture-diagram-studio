@@ -84,7 +84,24 @@ describe("Studio-owned native-cell layout", () => {
     expect(nativeLayoutDensityForSpacing(77, 101)).toBe("CUSTOM");
     expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping).toBe(true);
     expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin).toBe(false);
-    expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors).toBe(false);
+    expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors).toBe(true);
+  });
+
+  it("falls back to ordinary layout when relative anchoring is enabled without enough selected anchors", async () => {
+    const plan = await calculateNativeAutoLayout(xml, "page-1", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      preserveRelativeAnchors: true
+    });
+    expect(plan.preserveRelativeAnchors).toBe(true);
+    expect(plan.anchorCellIds).toEqual([]);
+    expect(plan.anchorDiagnostics).toMatchObject({
+      outcome: "not-requested",
+      requestedAnchorCount: 0,
+      resolvedAnchorCount: 0,
+      effectiveAnchorUnitCount: 0,
+      evaluatedPairCount: 0
+    });
+    expect(plan.positions.length).toBeGreaterThan(0);
   });
 
   it("preserves selected vertices' pairwise relative geometry while allowing the anchor set to move", async () => {
@@ -126,7 +143,7 @@ describe("Studio-owned native-cell layout", () => {
   it("rejects relative anchoring with fewer than two selected cells or an invalid ID", async () => {
     const options = { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, preserveRelativeAnchors: true };
     await expect(calculateNativeAutoLayout(xml, "page-1", revision, options, ["api"]))
-      .rejects.toThrow("between 2 and 32");
+      .rejects.toThrow("at least two");
     await expect(calculateNativeAutoLayout(xml, "page-1", revision, options, ["api", "missing"]))
       .rejects.toThrow("missing, hidden, non-vertex or has no geometry");
   });

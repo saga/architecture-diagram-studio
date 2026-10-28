@@ -207,7 +207,10 @@ describe("parseNativeEditOperations", () => {
     ["msagl", "layered"], ["cytoscape", "breadthfirst"], ["d3", "tree"]
   ] as const)("chooses an engine-specific default algorithm for %s when omitted", (engine, algorithm) => {
     const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine }]);
-    expect(parsed).toMatchObject({ ok: true, operations: [{ engine, algorithm, preserveLocalGrouping: true, preserveCanvasOrigin: false }] });
+    expect(parsed).toMatchObject({ ok: true, operations: [{
+      engine, algorithm, preserveLocalGrouping: true, preserveCanvasOrigin: false,
+      preserveRelativeAnchors: false, anchorCellIds: []
+    }] });
     expect(defaultNativeLayoutAlgorithm(engine)).toBe(algorithm);
   });
 

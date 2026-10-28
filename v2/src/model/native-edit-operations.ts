@@ -262,8 +262,8 @@ const nativeEditOperationOptions = {
       .describe("Keep confidently close, uncontained nodes together as a temporary cluster while allowing the cluster to move with the new layout direction."),
     preserveCanvasOrigin: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin)
       .describe("Keep the final native content bounding box aligned with its original top-left instead of translating it to the configured canvas margin."),
-    preserveRelativeAnchors: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors)
-      .describe("Preserve relative positions among the explicitly identified anchor cells; the anchors may translate together and are not pinned to absolute coordinates."),
+    preserveRelativeAnchors: z.boolean().default(false)
+      .describe("Preserve relative positions among the explicitly identified anchor cells; the anchors may translate together and are not pinned to absolute coordinates. Enable only with 2–32 exact anchorCellIds."),
     anchorCellIds: z.array(z.string().trim().min(1).max(200)).max(32).default([])
       .describe("Exact native vertex cell IDs selected as relative anchors for this layout run; provide 2–32 IDs only when preserveRelativeAnchors is true."),
     nodeSpacing: z.number().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),

@@ -27,6 +27,7 @@ type UiTheme = "editorial" | "youth" | "warm" | "midnight";
 type DiagramTheme = DrawioDiagramTheme;
 
 const NATIVE_LAYOUT_STORAGE_KEY = "architecture-diagram-studio:v2:native-layout-options";
+const NATIVE_LAYOUT_RELATIVE_ANCHOR_DEFAULT_VERSION_KEY = "architecture-diagram-studio:v2:relative-anchor-default-version";
 const NATIVE_LAYOUT_ENGINE_LABELS: Record<NativeAutoLayoutOptions["engine"], string> = {
   elk: "ELK", dagre: "Dagre", graphviz: "Graphviz", msagl: "MSAGL.js", cytoscape: "Cytoscape.js", d3: "D3"
 };
@@ -41,9 +42,22 @@ const NATIVE_LAYOUT_DIRECTIONS: Array<{ value: NativeAutoLayoutOptions["directio
 
 function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
   try {
+    const promoteRelativeAnchorsToDefault =
+      window.localStorage.getItem(NATIVE_LAYOUT_RELATIVE_ANCHOR_DEFAULT_VERSION_KEY) !== "1";
     const raw = window.localStorage.getItem(NATIVE_LAYOUT_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
+    if (!raw) {
+      window.localStorage.setItem(NATIVE_LAYOUT_RELATIVE_ANCHOR_DEFAULT_VERSION_KEY, "1");
+      return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
+    }
     const saved = JSON.parse(raw) as Record<string, unknown>;
+    // Promote the just-added relative-anchor switch once, including old stored settings that
+    // had persisted its previous default=false. Write the value before the marker so React
+    // StrictMode's development double-initializer still observes the migrated preference.
+    if (promoteRelativeAnchorsToDefault && saved.preserveRelativeAnchors !== true) {
+      saved.preserveRelativeAnchors = true;
+      try { window.localStorage.setItem(NATIVE_LAYOUT_STORAGE_KEY, JSON.stringify(saved)); }
+      catch { /* The in-memory default still applies if storage is unavailable. */ }
+    }
     // Migrate preferences from the retired Draw.io-native layout dropdown without losing user settings.
     const engine = NATIVE_AUTO_LAYOUT_ENGINES.includes(saved.engine as NativeAutoLayoutOptions["engine"]) ? saved.engine as NativeAutoLayoutOptions["engine"] : "elk";
     const oldAliases: Record<string, NativeAutoLayoutOptions["algorithm"]> = {
@@ -64,20 +78,25 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
     const boundedNumber = (key: string, fallback: number, min: number, max: number) =>
       typeof saved[key] === "number" && Number.isFinite(saved[key])
         ? Math.max(min, Math.min(max, Math.round(saved[key] as number))) : fallback;
-    return {
+    const loadedOptions: NativeAutoLayoutOptions = {
       engine, algorithm, direction, edgeRouting,
       preserveLocalGrouping: typeof saved.preserveLocalGrouping === "boolean"
         ? saved.preserveLocalGrouping : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping,
       preserveCanvasOrigin: typeof saved.preserveCanvasOrigin === "boolean"
         ? saved.preserveCanvasOrigin : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin,
-      preserveRelativeAnchors: typeof saved.preserveRelativeAnchors === "boolean"
-        ? saved.preserveRelativeAnchors : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors,
+      preserveRelativeAnchors: promoteRelativeAnchorsToDefault
+        ? DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors
+        : typeof saved.preserveRelativeAnchors === "boolean"
+          ? saved.preserveRelativeAnchors : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors,
       nodeSpacing: boundedNumber("nodeSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing, 5, 500),
       layerSpacing: boundedNumber("layerSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing, 10, 800),
       iterations: boundedNumber("iterations", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations, 20, 3000),
       randomSeed: boundedNumber("randomSeed", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.randomSeed, 0, 100000),
       margin: boundedNumber("margin", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.margin, 0, 300)
     };
+    try { window.localStorage.setItem(NATIVE_LAYOUT_RELATIVE_ANCHOR_DEFAULT_VERSION_KEY, "1"); }
+    catch { /* The relative-anchor default remains enabled for this session. */ }
+    return loadedOptions;
   } catch {
     return { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS };
   }
@@ -1406,8 +1425,11 @@ export default function App() {
   async function runAutoLayout(overrides: Partial<NativeAutoLayoutOptions> = {}) {
     if (autoLayoutRunning) return;
     const options: NativeAutoLayoutOptions = { ...nativeLayoutOptions, ...overrides };
-    const selectedAnchorCellIds = options.preserveRelativeAnchors
+    const selectedAnchorCandidates = options.preserveRelativeAnchors
       ? Array.from(new Set(selectedNativeCellIdsRef.current)).sort()
+      : [];
+    const selectedAnchorCellIds = selectedAnchorCandidates.length >= 2 && selectedAnchorCandidates.length <= 32
+      ? selectedAnchorCandidates
       : [];
     const algorithmLabel = NATIVE_LAYOUT_ENGINE_LABELS[options.engine] + " " + options.algorithm;
     const frame = drawioFrameRef.current;
@@ -1464,7 +1486,7 @@ export default function App() {
       const ambiguousRegionCount = regionFindings.filter((finding) =>
         finding.ruleId === "spatial-region.overlap-ambiguous" || finding.ruleId === "spatial-region.membership-ambiguous"
       ).length;
-      if (options.preserveRelativeAnchors && selectedNativePageId !== null && selectedNativePageId !== pageId) {
+      if (selectedAnchorCellIds.length >= 2 && selectedNativePageId !== null && selectedNativePageId !== pageId) {
         throw new Error("The selected anchor cells belong to another Draw.io page. Select the anchors on the active page and retry.");
       }
       const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options, selectedAnchorCellIds);
@@ -1480,7 +1502,7 @@ export default function App() {
       if (runtimeBeforeApply.documentRevision !== documentRevision || runtimeBeforeApply.pageId !== pageId) {
         throw new Error("The active Draw.io page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
-      if (options.preserveRelativeAnchors) {
+      if (selectedAnchorCellIds.length >= 2) {
         const currentAnchorSelection = Array.from(new Set(selectedNativeCellIdsRef.current)).sort();
         if (currentAnchorSelection.length !== selectedAnchorCellIds.length ||
             currentAnchorSelection.some((id, index) => id !== selectedAnchorCellIds[index])) {
@@ -1529,10 +1551,12 @@ export default function App() {
         : "";
       const anchorDiagnostics = nativePlan.anchorDiagnostics;
       const anchorSummary = options.preserveRelativeAnchors
-        ? " · relative anchors " + (anchorDiagnostics.outcome === "applied" ? "preserved" : "degraded") +
-          " (" + anchorDiagnostics.effectiveAnchorUnitCount + " units, max drift " +
-          anchorDiagnostics.maximumVectorDrift + " px" +
-          (anchorDiagnostics.directionalOrderViolations > 0 ? ", " + anchorDiagnostics.directionalOrderViolations + " direction violation(s)" : "") + ")"
+        ? anchorDiagnostics.outcome === "not-requested"
+          ? " · relative anchors inactive (select 2–32 vertices to activate)"
+          : " · relative anchors " + (anchorDiagnostics.outcome === "applied" ? "preserved" : "degraded") +
+            " (" + anchorDiagnostics.effectiveAnchorUnitCount + " units, max drift " +
+            anchorDiagnostics.maximumVectorDrift + " px" +
+            (anchorDiagnostics.directionalOrderViolations > 0 ? ", " + anchorDiagnostics.directionalOrderViolations + " direction violation(s)" : "") + ")"
         : "";
       if (options.preserveRelativeAnchors && anchorDiagnostics.outcome === "degraded") {
         recordDiagnostic("drawio.layout.relative-anchors.degraded",
@@ -1900,10 +1924,14 @@ export default function App() {
               />
               <span className="native-layout-field-hint">
                 {selectedNativeCellIds.length < 2
-                  ? "Select at least 2 vertices on the canvas."
+                  ? nativeLayoutOptions.preserveRelativeAnchors
+                    ? "Default is on; normal layout runs until at least 2 vertices are selected."
+                    : "Select at least 2 vertices to enable relative anchoring."
                   : selectedNativeCellIds.length > 32
-                    ? "Select no more than 32 vertices."
-                    : selectedNativeCellIds.length + " selected vertex(es); anchors may move together."}
+                    ? nativeLayoutOptions.preserveRelativeAnchors
+                      ? "Normal layout runs with more than 32 selected; select up to 32 to anchor them."
+                      : "Select no more than 32 vertices."
+                    : selectedNativeCellIds.length + " selected vertex(es); the set can move together."}
               </span>
             </label>
             <label className="native-layout-settings-field native-layout-toggle-field">
@@ -1913,6 +1941,9 @@ export default function App() {
                 checked={nativeLayoutOptions.preserveCanvasOrigin}
                 onChange={(preserveCanvasOrigin) => setNativeLayoutOptions((current) => ({ ...current, preserveCanvasOrigin }))}
               />
+              <span className="native-layout-field-hint">
+                Keep the overall diagram content's top-left position; this does not pin individual cells.
+              </span>
             </label>
             <label className="native-layout-settings-field">
               <span>Layout density</span>
@@ -2000,7 +2031,7 @@ export default function App() {
               />
             </label>
           </div>
-          <p className="native-layout-settings-help">Preserve relative positions applies to the currently selected 2–32 vertices on the active canvas; it preserves their pairwise direction and approximate distance, allows the set to move together, and reports any degraded result. Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Preserve canvas origin aligns the final content bounds with the original content bounds instead of shifting them to the configured margin. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Preferences are saved in this browser; selected anchor IDs are used only for the current layout run.</p>
+          <p className="native-layout-settings-help">Relative anchoring is on by default. When 2–32 vertices are selected, their pairwise direction and approximate distance are preserved while the set may move together; without a valid selection, ordinary layout still runs. Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Preserve canvas origin aligns the final content bounding box's top-left with its original canvas position rather than moving the result to the configured margin; it does not lock individual cells or preserve internal spacing. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Preferences are saved in this browser; selected anchor IDs are used only for the current layout run.</p>
         </Modal>
 
         <div className="canvas-stage">
