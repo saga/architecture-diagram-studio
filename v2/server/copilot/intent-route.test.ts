@@ -608,7 +608,8 @@ describe("Copilot intent route result and revision contract", () => {
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
     expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
     expect(firstRequest.editingGuidance).toContain("plain-text replacements that would flatten markup");
-    expect(firstRequest.editingGuidance).toContain("expectedTitle are Studio-only verifier fields, not Draw.io XML attributes");
+    expect(firstRequest.editingGuidance).toContain("labelContains is a Studio-only verifier field, not a Draw.io XML attribute");
+    expect(firstRequest.editingGuidance).not.toContain("expectedTitle");
   });
 
   it("dispatches insertion-only native scripts without a confirmation step", async () => {
