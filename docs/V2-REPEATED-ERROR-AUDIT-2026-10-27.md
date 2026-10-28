@@ -194,7 +194,7 @@ The most recent completed quality run exposed a stale test expectation: removing
 
 复查范围扩展到 Studio assertion schema、富标签 typed-edit、检索截断语义和 TypeScript 导出类型。确认并修复了以下问题：
 
-1. **应用自定义断言字段伪装成原生属性。** `chineseTitle` 只是宿主验证字段，不是 Draw.io XML 属性。全仓运行时代码、导出 TypeScript 类型、工具描述和提示词已统一替换为 `expectedTitle`；文档说明 `xmlAssertions` 中的键均属于 Studio 验证契约。进一步移除了冗余的 `labelContainsTitle` 布尔字段；宿主直接依据 `expectedTitle` 检查序列化标签，不再要求模型重复报告同一判断。
+1. **应用自定义断言字段伪装成原生属性，并重复定义同一语义。** `chineseTitle` 不是 Draw.io XML 属性；`expectedTitle` 又与已有的 `labelContains` 完全重复。当前运行时类型、验证器、工具描述和提示词已统一使用 `labelContains` 作为唯一的子串断言，并移除 `chineseTitle`、`expectedTitle` 和冗余布尔 `labelContainsTitle`。文档明确所有 `xmlAssertions` 键都是 Studio 的宿主验证契约。
 2. **typed 全量重命名会静默丢掉富标签结构。** 包装值的 setter 会保留最外层 UserObject，但对嵌套 HTML 标记使用 `textContent` 会抹掉内部格式、换行或 placeholder span。插件已增加 fail-closed 判断：plain-text `set_label` 若会扁平化嵌套 markup 就拒绝执行，提示走保留 markup 的脚本路径。回归测试验证失败后标签与 `placeholders` 属性不变。
 3. **截断搜索容易被误认成完整目标集合。** `search_drawio_elements` 默认 limit 提高到 10；截断返回明确告诉模型不可将子集作为“全部目标”，应使用同页、同 revision 的 `inspect_drawio_graph` 分页直到 `truncated:false`。新增测试包含 12 个同标签目标，分别检查截断结果和完整分页枚举。
 4. **类型契约落后于实际验证器。** `NativeScriptXmlCellAssertion` 原先未表达标题谓词和 connector geometry 的 points/offset/sourcePoint/targetPoint。导出类型已补齐相应字段，另加编译期类型回归测试。
