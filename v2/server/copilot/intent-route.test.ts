@@ -184,7 +184,7 @@ function elementSearchingCopilot(
   return copilot;
 }
 
-function shapeSearchingCopilot(query: string) {
+function shapeSearchingCopilot(query: string, limit?: number) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
   let searchResponse: Record<string, unknown> = {};
@@ -208,7 +208,7 @@ function shapeSearchingCopilot(query: string) {
         const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
         const search = tools.find((candidate) => candidate.name === "search_drawio_shapes");
         if (!search?.handler) throw new Error("search_drawio_shapes tool was not registered");
-        searchResponse = (await search.handler({ query })) as Record<string, unknown>;
+        searchResponse = (await search.handler({ query, ...(limit !== undefined ? { limit } : {}) })) as Record<string, unknown>;
         const report = tools.find((candidate) => candidate.name === "report_intent_outcome");
         if (!report?.handler) throw new Error("report_intent_outcome tool was not registered");
         await report.handler({ outcome: "answered", reply: "Shape search completed." });
@@ -1114,6 +1114,23 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.logs.some((entry) => entry.event === "tool.search_drawio_shapes.rejected")).toBe(false);
   });
 
+  it("reports curated shape catalogue truncation and requires a narrower query", async () => {
+    const copilot = shapeSearchingCopilot("a", 3);
+    const harness = await createServer({ copilot });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "Search the shape catalogue for a"
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const result = (copilot as { searchResponse?: Record<string, unknown> }).searchResponse ?? {};
+    expect(result).toMatchObject({
+      returnedCount: 3,
+      truncated: true
+    });
+    expect(result.matchCount).toBeGreaterThan(3);
+    expect(String(result.guidance)).toContain("Do not treat this subset as the complete candidate set");
+  });
+
   it("searches unlabeled floor-plan furniture using a single Chinese character", async () => {
     const furniture = '<mxCell id="table-north" value="桌子" style="shape=mxgraph.floorplan.table;" vertex="1" parent="1">' +
       '<mxGeometry x="300" y="210" width="82" height="42" as="geometry"/></mxCell>';
@@ -1205,6 +1222,7 @@ describe("Copilot intent route result and revision contract", () => {
     const ids = (result.results as Array<{ id: string }>).map((entry) => entry.id);
     expect(ids).toContain("c4.person");
     expect(ids).toContain("c4.relationship");
+    expect(result).toMatchObject({ matchCount: 4, returnedCount: 4, truncated: false });
     expect(String(result.scriptTemplate)).toContain("xmlAssertions");
     expect(String(result.guidance)).toContain("Do not call get_drawio_reference");
   });
