@@ -242,7 +242,7 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
   });
 }
 
-function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
+export function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
   // Scripts execute arbitrary Draw.io JavaScript in the editor runtime. Until execution is
   // capability-restricted, they must always be reviewed explicitly, including repair attempts.
   if (forceScriptReview || operations.some((operation) => operation.op === "run_drawio_script")) return true;
