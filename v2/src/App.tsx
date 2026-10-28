@@ -1388,8 +1388,29 @@ export default function App() {
     try {
       const source = latestDiagramStateRef.current;
       const sourceXml = source.drawioXml;
-      const pageId = source.selectedNativePageId;
+      const sourcePageId = source.selectedNativePageId;
       const documentRevision = await calculateDrawioXmlRevision(sourceXml);
+
+      // React's selection event can lag behind Draw.io's live page when a multi-page
+      // document first loads. Resolve the page from the editor itself; never guess page 1.
+      const runtimeInspection = await frame.inspectRuntime({ documentRevision, pageId: sourcePageId });
+      if (runtimeInspection.documentRevision !== documentRevision) {
+        throw new Error("The live Draw.io document changed while resolving the active page. Nothing was laid out; retry.");
+      }
+      const pageId = runtimeInspection.pageId;
+      if (!pageId) {
+        throw new Error("Draw.io has not reported an active page ID. Select a page in the editor and retry; no page was laid out.");
+      }
+      const stateAfterInspection = latestDiagramStateRef.current;
+      if (stateAfterInspection.drawioXml !== sourceXml ||
+          (stateAfterInspection.selectedNativePageId !== null &&
+           stateAfterInspection.selectedNativePageId !== pageId)) {
+        throw new Error("The diagram or active page changed while Studio was resolving the layout target. Nothing was applied; retry.");
+      }
+      recordDiagnostic("drawio.layout.active-page-resolved",
+        "Resolved the layout target from the live Draw.io editor rather than assuming the first page",
+        { pageId, sourcePageId, documentRevision });
+
       const regionAnalysisResponse = await spatialRegionAnalysisProvider.analyze({
         documentXml: sourceXml,
         documentRevision,
@@ -1406,7 +1427,8 @@ export default function App() {
       ).length;
       const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options);
       const latestState = latestDiagramStateRef.current;
-      if (latestState.drawioXml !== sourceXml || latestState.selectedNativePageId !== pageId) {
+      if (latestState.drawioXml !== sourceXml ||
+          (latestState.selectedNativePageId !== null && latestState.selectedNativePageId !== pageId)) {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
       const coverage = nativePlan.coverage;
