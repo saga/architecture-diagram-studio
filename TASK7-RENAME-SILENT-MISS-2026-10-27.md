@@ -301,7 +301,7 @@ const scriptScope = scriptChecksPassed
 
 ### Follow-up：断言字段命名与富标签保护（2026-10-28）
 
-后续全仓检查还发现一个同类契约隐患：`chineseTitle` 并非 Draw.io 原生属性，而是 Studio 校验器自定义的断言键；命名容易让模型误以为它是原生 XML 属性或只能处理中文。当前运行时类型、验证器、工具描述、常驻提示词和 ADR 已统一改用 **`expectedTitle`**，并明确 `xmlAssertions` 的键属于 Studio 的验证契约，而不是 Draw.io 属性。进一步检查后移除了冗余的 `labelContainsTitle` 布尔字段：宿主直接用 `expectedTitle` 对序列化标签做子串校验，不需要模型再重复报告一个布尔值。
+后续全仓检查还发现一个同类契约隐患：`chineseTitle` 并非 Draw.io 原生属性，而是 Studio 校验器自定义的断言键。随后确认 `expectedTitle` 与已有的 `labelContains` 做的是同一种子串检查，因此最终没有保留这两个别名。当前运行时类型、验证器、工具描述和常驻提示词统一使用 **`labelContains`** 作为唯一的通用子串断言；`expectedTitle`、`chineseTitle` 和冗余布尔字段 `labelContainsTitle` 均不属于当前支持的断言契约。
 
 同时发现 typed `set_label` 对包含嵌套 HTML 格式、换行或占位符的标签可能把内部结构压成纯文本。插件现在对此类 plain-text 全量替换 fail closed，明确提示使用原生脚本做保留 markup 的局部更新；新增测试确认失败时原始标签和 `placeholders` 属性不变。普通的简单 HTML 外层包装标签仍可正常更新。
 
