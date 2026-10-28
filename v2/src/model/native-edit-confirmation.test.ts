@@ -631,7 +631,7 @@ describe("native script predicate assertions and schema warnings", () => {
       xmlAssertions: [{
         cellId: "api",
         expectedTitle: title,
-          bodyTailPreserved: true,
+        bodyTailPreserved: true,
         ...extras
       }]
     }
