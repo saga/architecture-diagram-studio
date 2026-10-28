@@ -234,6 +234,26 @@ describe("parseNativeEditOperations", () => {
     });
   });
 
+  it("rejects a layout plan calculated with a different local-grouping option", async () => {
+    const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", direction: "DOWN" }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation, cellId: "__active_page__", targetLabel: "active Draw.io page"
+    })) as ResolvedNativeEditOperation[];
+    const mismatchedPlan = await calculateNativeAutoLayout(XML, "p1", "a".repeat(64), {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "dagre",
+      algorithm: "layered",
+      direction: "DOWN",
+      preserveLocalGrouping: false
+    });
+    expect(toNativeCellEdits(resolved, XML, "p1", mismatchedPlan)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("does not match")
+    });
+  });
+
   it("preserves intentional leading and trailing whitespace in labels", () => {
     const rename = parseNativeEditOperations([{ op: "set_label", target: "Database", label: "  Primary Database  " }]);
     expect(rename).toMatchObject({ ok: true, operations: [{ op: "set_label", label: "  Primary Database  " }] });
