@@ -31,6 +31,17 @@ describe("native Draw.io root detection", () => {
 
 
 describe("extractNativeEditTargets", () => {
+  it("returns every native target for large pages without an implicit 200-cell cap", () => {
+    const cells = Array.from({ length: 260 }, (_, index) =>
+      '<mxCell id="node-' + index + '" value="Node ' + index + '" vertex="1" parent="1">' +
+      '<mxGeometry x="' + index + '" y="0" width="80" height="40" as="geometry"/></mxCell>'
+    ).join("");
+    const xml = XML.replace("</root>", cells + "</root>");
+    const targets = extractNativeEditTargets(xml);
+    expect(targets).toHaveLength(262);
+    expect(targets.some((target) => target.id === "node-259")).toBe(true);
+  });
+
   it("reads real vertex and edge ids from native XML without a DiagramDocument", () => {
     const xml = XML.replace(
       '</root>',
