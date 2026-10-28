@@ -1816,7 +1816,7 @@ export default function App() {
                   { value: "COMPACT", label: "Compact" },
                   { value: "BALANCED", label: "Balanced" },
                   { value: "SPACIOUS", label: "Spacious" },
-                  { value: "CUSTOM", label: "Custom" }
+                  { value: "CUSTOM", label: "Custom", disabled: true }
                 ]}
                 onChange={(density) => {
                   if (density === "CUSTOM") return;
