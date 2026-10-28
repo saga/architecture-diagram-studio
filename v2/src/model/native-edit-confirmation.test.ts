@@ -23,7 +23,7 @@ describe("native edit XML confirmation", () => {
     const assertion: NativeScriptXmlCellAssertion = {
       cellId: "rich-edge",
       labelContains: "AI agent",
-      expectedTitle: "AI agent 任务",
+      labelContains: "AI agent 任务",
       geometry: {
         relative: true,
         points: [{ x: 10, y: 20 }],
@@ -32,7 +32,7 @@ describe("native edit XML confirmation", () => {
         targetPoint: { x: 20, y: 30 }
       }
     };
-    expect(assertion.expectedTitle).toBe("AI agent 任务");
+    expect(assertion.labelContains).toBe("AI agent 任务");
     expect(assertion.geometry?.points?.[0]).toEqual({ x: 10, y: 20 });
   });
 
@@ -630,7 +630,7 @@ describe("native script predicate assertions and schema warnings", () => {
       postconditions: { titlesTranslated: true, bodyTailPreserved: true },
       xmlAssertions: [{
         cellId: "api",
-        expectedTitle: title,
+        labelContains: title,
         bodyTailPreserved: true,
         ...extras
       }]
@@ -682,13 +682,13 @@ describe("native script predicate assertions and schema warnings", () => {
     }));
   });
 
-  it("does not treat the former language-specific field name as a Draw.io assertion property", () => {
+  it("does not treat title-specific aliases as supported assertion properties", () => {
     const result = {
       available: true,
       value: {
         ok: true,
         postconditions: { titleTranslated: true },
-        xmlAssertions: [{ cellId: "api", chineseTitle: "New API" }]
+        xmlAssertions: [{ cellId: "api", chineseTitle: "New API", expectedTitle: "New API" }]
       }
     };
     const validation = validateNativeScriptResultAgainstXml(result, labelEdited, "p1");
@@ -702,6 +702,10 @@ describe("native script predicate assertions and schema warnings", () => {
       field: "chineseTitle",
       reason: expect.stringContaining("Supported evidence fields")
     }));
+    expect(validation.warnings).toContainEqual(expect.objectContaining({
+      field: "expectedTitle",
+      reason: expect.stringContaining("Supported evidence fields")
+    }));
   });
 
   it("rejects a translated title that is not present in the serialized label", () => {
@@ -712,7 +716,7 @@ describe("native script predicate assertions and schema warnings", () => {
     expect(validation.failures).toContainEqual(expect.objectContaining({
       kind: "mismatch",
       cellId: "api",
-      field: "expectedTitle",
+      field: "labelContains",
       reason: expect.stringContaining("did not contain")
     }));
   });
