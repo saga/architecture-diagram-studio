@@ -21,6 +21,10 @@ const ApplyRequestSchema = z.object({
   workspaceId: z.string().trim().min(1),
   targets: z.array(ApplyTargetSchema).min(1).max(25)
 }).strict().superRefine((request, context) => {
+  const totalBytes = request.targets.reduce((total, target) => total + Buffer.byteLength(target.resultXml, "utf8"), 0);
+  if (totalBytes > 50 * 1024 * 1024) {
+    context.addIssue({ code: "custom", path: ["targets"], message: "Combined change-set XML exceeds the 50 MiB limit." });
+  }
   const paths = new Set<string>();
   request.targets.forEach((target, index) => {
     if (paths.has(target.filePath)) {
