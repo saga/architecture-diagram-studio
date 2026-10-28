@@ -628,7 +628,7 @@ export default function App() {
           reject(new Error(error));
         }, watchdogTimeoutMs);
         nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
-        setCellEditRequest({ cellId, pageId: selectedNativePageId, path, value, requestId });
+        setCellEditRequest({ cellId, pageId: targetPageId, path, value, requestId });
       });
     },
     applyNativeCellEdits: async (edits, pageId, acknowledgement) => {
