@@ -22,7 +22,10 @@ function readCellProperties(xml: string, cellId: string, pageId: string | null):
     if (root.localName === "mxGraphModel") models.push(root);
     else if (root.localName === "mxfile") {
       const pages = Array.from(root.children).filter((element) => element.localName === "diagram");
-      const activePages = pageId ? pages.filter((page) => page.getAttribute("id") === pageId) : pages;
+      // With multiple pages, a missing active-page ID must not turn the inspector into
+      // a document-wide search: cell IDs can repeat across pages and edits are page-scoped.
+      if (pageId === null && pages.length !== 1) return null;
+      const activePages = pageId !== null ? pages.filter((page) => page.getAttribute("id") === pageId) : pages;
       // An explicit page ID is authoritative. Never fall back to another page when it is missing.
       for (const page of activePages) {
         const inlineModel = Array.from(page.children).find((element) => element.localName === "mxGraphModel");
