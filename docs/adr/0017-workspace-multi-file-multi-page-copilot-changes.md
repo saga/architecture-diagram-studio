@@ -1,6 +1,6 @@
 # ADR-0017 — Workspace-Scoped Multi-File, Multi-Page Copilot Changes
 
-- Status: Accepted
+- Status: Accepted (backend foundation in progress)
 - Date: 2026-10-28
 - Related: [ADR-0001 — Project Workspace as the Authoritative Project Context](./0001-project-workspace-as-authoritative-context.md), [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0016 — Node-Owned Local Draw.io File I/O](./0016-node-owned-local-drawio-file-io.md)
 
@@ -53,7 +53,9 @@ The current Draw.io iframe remains the editor for one open document. A multi-fil
 
 - The active editor state is no longer sufficient to represent a multi-target plan.
 - Existing single-document operations remain unchanged and continue to bind to the live page and revision.
-- Multi-file support is enabled only after the server-side change-set service, safe XML operation path, durable journal/recovery, and UI preview/confirmation are integrated and tested.
+- The initial backend foundation now includes `POST /api/workspace/diagram-change-set/prepare` for revision/page validation and `POST /api/workspace/diagram-change-set/apply` for complete XML outputs with preflight validation, per-file serialization, atomic per-file writes, compensation, and audit events.
+- The apply endpoint accepts one complete result XML per file, with all changed page IDs listed in `changedPageIds`; it rejects duplicate file entries, stale revisions, invalid XML, missing page IDs, and page-set changes.
+- This does **not yet mean the Copilot conversation supports multi-file edits end to end**. Copilot workspace read/apply tools, change-set preview/confirmation UI, durable recovery journal, and end-to-end tests still need integration before the feature should be advertised as fully supported.
 - Workspace discovery alone does not grant permission to modify arbitrary files. Only explicitly selected and validated Draw.io targets can be written.
 
 
