@@ -174,6 +174,9 @@ export interface NativeLayoutCoverage {
   spatialAdjacencyInternalEdgesTranslatedCount: number;
   /** Vertices fully enclosed by a container that was not recognised as a region, so containment is not preserved. */
   spatialRegionUnownedContainedVertexCount: number;
+  /** Non-zero when the page had no connectors at all and the plan therefore retained the source
+   * coordinates instead of letting an engine pack isolated components in an arbitrary order. */
+  sourceCoordinatesRetainedVertexCount: number;
 }
 
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
@@ -992,7 +995,8 @@ function normalizePlan(
   options: NativeAutoLayoutOptions,
   documentRevision: string,
   positions: Map<string, Point>,
-  routes: Map<string, Point[]>
+  routes: Map<string, Point[]>,
+  preserveCanvasOrigin: boolean
 ): NativeLayoutPlan {
   if (projection.layoutVertices.length === 0) {
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page. Nested group contents and nonstandard cells are intentionally left untouched.");
@@ -1005,8 +1009,11 @@ function normalizePlan(
   const minX = Math.min(...projection.layoutVertices.map((cell) => positions.get(cell.id)!.x));
   const minY = Math.min(...projection.layoutVertices.map((cell) => positions.get(cell.id)!.y));
   const preserveNativePositions = options.engine === "elk" && options.algorithm === "fixed";
-  const dx = preserveNativePositions ? 0 : options.margin - minX;
-  const dy = preserveNativePositions ? 0 : options.margin - minY;
+  // Re-origining the whole plan at (margin, margin) is invisible when the engine actually rearranged
+  // the graph, but it is pure loss when the plan retained the source coordinates: the entire drawing
+  // would jump to the top-left corner for no reason.
+  const dx = preserveNativePositions || preserveCanvasOrigin ? 0 : options.margin - minX;
+  const dy = preserveNativePositions || preserveCanvasOrigin ? 0 : options.margin - minY;
   const finiteCoordinate = (value: number) => Number.isFinite(value) && Math.abs(value) <= 1_000_000;
   const routeAxisEpsilon = 0.5;
   const orthogonalizeRoute = (sourcePoints: Point[]): Point[] => {
@@ -1613,7 +1620,8 @@ function normalizePlan(
       spatialAdjacencyClusterMemberCount: projection.spatialAdjacencyClusterMemberCount,
       spatialAdjacencyInternalEdgeCount: projection.adjacencyInternalEdges.length,
       spatialAdjacencyInternalEdgesTranslatedCount: projection.adjacencyInternalEdges.filter((edge) => edge.points.length > 0).length,
-      spatialRegionUnownedContainedVertexCount: projection.spatialRegionUnownedContainedVertexCount
+      spatialRegionUnownedContainedVertexCount: projection.spatialRegionUnownedContainedVertexCount,
+      sourceCoordinatesRetainedVertexCount: preserveCanvasOrigin ? projection.layoutVertices.length : 0
     },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),
@@ -1657,7 +1665,16 @@ export async function calculateNativeAutoLayout(
   const positions = new Map<string, Point>();
   const routes = new Map<string, Point[]>();
 
-  if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {
+  // A page without a single connector has no graph structure for any engine to read: every vertex
+  // is its own connected component, so component packing orders them by an internal index rather
+  // than by where the user put them, and a collage becomes a scramble. Retaining the source
+  // coordinates is the only non-arbitrary answer, and it is what keeps a geometry-only container
+  // together with the nodes drawn inside it. ELK Fixed already means exactly this, so every other
+  // engine is redirected to it instead of silently discarding the arrangement.
+  const retainSourceCoordinates = projection.edges.length === 0 && options.algorithm !== "fixed";
+  if (retainSourceCoordinates) {
+    for (const node of projection.layoutVertices) positions.set(node.id, { x: node.x, y: node.y });
+  } else if (options.engine === "graphviz" || options.engine === "msagl" || options.engine === "cytoscape" || options.engine === "d3") {
     const result = await calculateAdditionalNativeLayout(
       projection.layoutVertices,
       projection.edges.filter((edge) => (edge.layoutSourceId ?? edge.sourceId) && (edge.layoutTargetId ?? edge.targetId)).map((edge) => ({
@@ -1784,5 +1801,5 @@ export async function calculateNativeAutoLayout(
     }
   }
 
-  return normalizePlan(projection, options, documentRevision, positions, routes);
+  return normalizePlan(projection, options, documentRevision, positions, routes, retainSourceCoordinates);
 }

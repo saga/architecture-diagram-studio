@@ -183,8 +183,73 @@ describe("read-only spatial region analysis", () => {
     }
   });
 
-  it("reports a node that straddles the boundary rather than counting it as a contained member", () => {
-    const xml = page(regionCells + `
+  it("treats an untitled container that dwarfs two enclosed members as a region", () => {
+    // A 300x600 panel holding two 140x60 stickies is a container by geometry, not by style or by
+    // member count. The three-member rule used to drop exactly this case and left the stickies to
+    // be laid out as unrelated nodes.
+    const xml = page(`
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#dae8fc;">
+        <mxGeometry x="0" y="0" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task 7" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="40" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="note-b" value="Task 8" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="150" width="140" height="60" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const region = detection.candidates.find((candidate) => candidate.regionCellId === "panel");
+    expect(region).toBeDefined();
+    expect(region?.memberCellIds.sort()).toEqual(["note-a", "note-b"]);
+    expect(region?.eligible).toBe(true);
+    expect(detection.unownedContainedVertexCellIds).toEqual([]);
+  });
+
+  it("still requires a title or a member count for a container holding a single member", () => {
+    const xml = page(`
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#dae8fc;">
+        <mxGeometry x="0" y="0" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task 7" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="40" width="140" height="60" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    expect(detection.candidates.filter((candidate) => candidate.regionCellId === "panel")).toHaveLength(0);
+    expect(detection.unownedContainedVertexCellIds).toEqual(["note-a"]);
+  });
+
+  it("attaches a title drawn just above the container edge", () => {
+    // The band tolerance in `isRegionBoundaryTitle` was unreachable: every caller pre-filtered with
+    // `containsCenter`, which a label above the top edge can never satisfy.
+    const xml = page(`
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#f8cecc;">
+        <mxGeometry x="0" y="0" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="panel-title" value="To do" vertex="1" parent="1" style="text;html=1;align=center;strokeColor=none;">
+        <mxGeometry x="120" y="-38" width="63" height="28" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task 1" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="40" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="note-b" value="Task 2" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="150" width="140" height="60" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const region = detection.candidates.find((candidate) => candidate.regionCellId === "panel");
+    expect(region?.memberCellIds).toContain("panel-title");
+    expect(region?.label).toBe("To do");
+  });
+
+  it("does not attach a caption that is wider than the container it floats above", () => {
+    const xml = page(`
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#f8cecc;">
+        <mxGeometry x="0" y="0" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="wide-caption" value="Simple sticky note shapes placed over rectangles" vertex="1" parent="1" style="text;html=1;align=center;strokeColor=none;">
+        <mxGeometry x="-200" y="-38" width="800" height="20" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task 1" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="40" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="note-b" value="Task 2" vertex="1" parent="1" style="shape=note;"><mxGeometry x="60" y="150" width="140" height="60" as="geometry"/></mxCell>
+    `);
+    const detection = detectSpatialRegionsForLayout(xml, "page-1");
+    const region = detection.candidates.find((candidate) => candidate.regionCellId === "panel");
+    expect(region?.memberCellIds).not.toContain("wide-caption");
+  });
+
+  it("reports a node that straddles the boundary rather than counting it as a contained member", () => {    const xml = page(regionCells + `
       <mxCell id="boundary-firewall" value="Firewall" vertex="1" parent="1">
         <mxGeometry x="470" y="350" width="80" height="70" as="geometry"/>
       </mxCell>

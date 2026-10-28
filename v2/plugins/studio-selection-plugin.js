@@ -501,7 +501,7 @@
       var changedVertices = 0; var changedEdges = 0;
       activeModel.beginUpdate();
       try {
-        plan.positions.forEach(function (item) { var cell = liveById[item.cellId]; var geometry = cell.geometry.clone(); geometry.x = item.x; geometry.y = item.y; activeModel.setGeometry(cell, geometry); changedVertices++; });
+        plan.positions.forEach(function (item) { var cell = liveById[item.cellId]; var geometry = cell.geometry.clone(); if (geometry.x === item.x && geometry.y === item.y) return; geometry.x = item.x; geometry.y = item.y; activeModel.setGeometry(cell, geometry); changedVertices++; });
         plan.edgeRoutes.forEach(function (route) {
           var cell = liveById[route.cellId];
           var geometry = cell.geometry.clone();
@@ -527,7 +527,7 @@
         if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) rollbackErrors.push("Native Undo/Redo history could not be restored to its pre-layout checkpoint.");
         fail("Studio auto layout failed while applying geometry: " + (mutationError && mutationError.message ? String(mutationError.message) : String(mutationError)) + (rollbackErrors.length ? "; geometry/history rollback was incomplete: " + rollbackErrors.join("; ") : "; prior geometry and native history were restored."), rollbackErrors.length === 0);
       } finally { activeModel.endUpdate(); }
-      if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
+      if ((changedVertices > 0 || changedEdges > 0) && ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
       if (typeof activeGraph.refresh === "function") activeGraph.refresh();
       return { changedVertices: changedVertices, changedEdges: changedEdges, engine: plan.engine, algorithm: plan.algorithm };
     }

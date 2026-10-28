@@ -342,8 +342,64 @@ describe("Studio-owned native-cell layout", () => {
     expect(plan.coverage.spatialRegionUnownedContainedVertexCount).toBe(1);
   });
 
-  it("routes a connector between two spatial regions through both native region boundaries", async () => {
-    const twoRegionXml = `<mxfile host="test"><diagram id="two-regions" name="Two Regions"><mxGraphModel><root>
+  it("moves both members of an untitled two-member container with the container", async () => {
+    // Regression: a 300x600 panel holding two stickies failed the three-member rule, so the stickies
+    // were planned as unrelated nodes and escaped the panel after a layout run.
+    const twoMemberXml = `<mxfile host="test"><diagram id="two-member" name="Two Member"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#dae8fc;">
+        <mxGeometry x="200" y="200" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task 7" vertex="1" parent="1" style="shape=note;"><mxGeometry x="260" y="240" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="note-b" value="Task 8" vertex="1" parent="1" style="shape=note;"><mxGeometry x="260" y="350" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="outside-node" value="Outside" vertex="1" parent="1"><mxGeometry x="900" y="300" width="100" height="50" as="geometry"/></mxCell>
+      <mxCell id="edge" edge="1" parent="1" source="panel" target="outside-node"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(twoMemberXml, "two-member", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    expect(plan.coverage.spatialRegionCount).toBe(1);
+    expect(plan.coverage.spatialRegionMemberCount).toBe(2);
+    expect(plan.coverage.spatialRegionUnownedContainedVertexCount).toBe(0);
+    expect(positions.get("note-a")!.x - positions.get("panel")!.x).toBeCloseTo(60, 4);
+    expect(positions.get("note-a")!.y - positions.get("panel")!.y).toBeCloseTo(40, 4);
+    expect(positions.get("note-b")!.x - positions.get("panel")!.x).toBeCloseTo(60, 4);
+    expect(positions.get("note-b")!.y - positions.get("panel")!.y).toBeCloseTo(150, 4);
+  });
+
+  it("retains source coordinates when the page has no connectors", async () => {
+    // With no connectors every vertex is its own connected component, so component packing orders
+    // them by an internal index and a deliberate collage becomes a scramble. Nothing is laid out
+    // because there is nothing to lay out; the source geometry is the plan.
+    const noConnectorXml = `<mxfile host="test"><diagram id="no-connectors" name="No connectors"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="panel" value="" vertex="1" parent="1" style="rounded=0;fillColor=#dae8fc;">
+        <mxGeometry x="200" y="200" width="300" height="600" as="geometry"/>
+      </mxCell>
+      <mxCell id="panel-title" value="Done" vertex="1" parent="1" style="text;html=1;align=center;strokeColor=none;">
+        <mxGeometry x="320" y="162" width="63" height="28" as="geometry"/>
+      </mxCell>
+      <mxCell id="note-a" value="Task 7" vertex="1" parent="1" style="shape=note;"><mxGeometry x="260" y="240" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="note-b" value="Task 8" vertex="1" parent="1" style="shape=note;"><mxGeometry x="260" y="350" width="140" height="60" as="geometry"/></mxCell>
+      <mxCell id="floating" value="Caption" vertex="1" parent="1" style="text;html=1;"><mxGeometry x="900" y="900" width="200" height="24" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(noConnectorXml, "no-connectors", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT"
+    });
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    expect(plan.coverage.sourceEdgeCount).toBe(0);
+    expect(plan.coverage.sourceCoordinatesRetainedVertexCount).toBeGreaterThan(0);
+    expect(plan.coverage.spatialRegionUnownedContainedVertexCount).toBe(0);
+    // The whole canvas keeps its origin instead of jumping to (margin, margin).
+    expect(positions.get("panel")).toMatchObject({ x: 200, y: 200 });
+    expect(positions.get("floating")).toMatchObject({ x: 900, y: 900 });
+    expect(positions.get("note-a")!.x - positions.get("panel")!.x).toBeCloseTo(60, 4);
+    expect(positions.get("note-b")!.y - positions.get("panel")!.y).toBeCloseTo(150, 4);
+    expect(positions.get("panel-title")!.y - positions.get("panel")!.y).toBeCloseTo(-38, 4);
+  });
+
+  it("routes a connector between two spatial regions through both native region boundaries", async () => {    const twoRegionXml = `<mxfile host="test"><diagram id="two-regions" name="Two Regions"><mxGraphModel><root>
       <mxCell id="0"/><mxCell id="1" parent="0"/>
       <mxCell id="region-left" value="" vertex="1" parent="1" style="shape=rect;fillColor=none;strokeColor=#6c8ebf;">
         <mxGeometry x="0" y="0" width="500" height="400" as="geometry"/>
@@ -556,7 +612,8 @@ describe("Studio-owned native-cell layout", () => {
       spatialAdjacencyClusterMemberCount: 0,
       spatialAdjacencyInternalEdgeCount: 0,
       spatialAdjacencyInternalEdgesTranslatedCount: 0,
-      spatialRegionUnownedContainedVertexCount: 0
+      spatialRegionUnownedContainedVertexCount: 0,
+      sourceCoordinatesRetainedVertexCount: 0
     });
     expect(plan.positions.map((position) => position.cellId).sort()).toEqual(["a", "b", "group"]);
     expect(plan.edgeRoutes.map((route) => route.cellId).sort()).toEqual(["edge-ab", "edge-nested-target"]);

@@ -1490,9 +1490,14 @@ export default function App() {
       const groupingSummary = coverage.spatialAdjacencyClusterCount > 0
         ? " · preserved " + coverage.spatialAdjacencyClusterCount + " local group(s)"
         : "";
+      // A page with no connectors has no graph structure: the plan kept the source coordinates, so
+      // say so instead of reporting a layout that did not move anything.
+      const retainedSummary = coverage.sourceCoordinatesRetainedVertexCount > 0
+        ? " · no connectors, arrangement kept"
+        : "";
       setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
-        routingSummary + regionSummary + groupingSummary);
+        routingSummary + regionSummary + groupingSummary + retainedSummary);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
