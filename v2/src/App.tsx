@@ -689,7 +689,7 @@ export default function App() {
           });
         });
         recordDiagnostic("copilot.native-edits.dispatch", "Dispatching an atomic native Draw.io edit batch to the active editor", {
-          requestId, editCount: edits.length, edits, pageId: selectedNativePageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+          requestId, editCount: edits.length, edits, pageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
         });
         setCellEditRequest({ cellId: "__batch__", pageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
         const watchdogTimerId = window.setTimeout(() => {
