@@ -304,6 +304,15 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId, layoutPlan);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
+        // Bind the dispatch to the page that was inspected for this turn. The editor bridge
+        // performs its own final page guard, but this catches page switches before queueing work.
+        if (getRuntimeInspection) {
+          const runtimeBeforeDispatch = await getRuntimeInspection({ documentRevision, pageId: activePageId });
+          if (runtimeBeforeDispatch.documentRevision !== documentRevision ||
+              runtimeBeforeDispatch.pageId !== activePageId) {
+            throw new Error("The active Draw.io page changed before the native edit could be dispatched. No change was applied; retry.");
+          }
+        }
         const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId, {
           requestId: plan.nativeEdits.requestId,
           sessionId: plan.sessionId || copilotSessionId,
