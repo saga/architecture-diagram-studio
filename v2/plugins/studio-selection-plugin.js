@@ -406,8 +406,20 @@
       } catch (_) { return { available: false, reason: "script_result_not_serializable" }; }
     }
 
+    function hasNestedLabelMarkup(source) {
+      var outer = /^\\s*<([a-z][\\w:-]*)\\b[^>]*>([\\s\\S]*)<\\/\\1>\\s*$/i.exec(source);
+      if (!outer) return /<[a-z][^>]*>/i.test(source);
+      return /<[a-z][^>]*>/i.test(outer[2]);
+    }
+
     function updateLabelMarkup(source, value) {
       if (typeof source !== "string" || !/<[a-z][^>]*>/i.test(source)) return value;
+      // Setting a whole plain-text label by replacing rich HTML would silently erase nested
+      // formatting, line breaks and placeholder spans. Require an explicit script for that case.
+      if (!/<[a-z][^>]*>/i.test(value) && hasNestedLabelMarkup(source)) {
+        throw new Error("This cell has a rich HTML label; a plain set_label would discard nested formatting or placeholders. Use run_drawio_script to patch the intended label text while preserving the existing markup.");
+      }
+      if (/<[a-z][^>]*>/i.test(value)) return value;
       var parsed = new DOMParser().parseFromString(source, "text/html");
       var container = parsed.body.firstElementChild;
       if (!container) return value;
