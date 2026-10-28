@@ -307,7 +307,7 @@ const scriptScope = scriptChecksPassed
 
 另外，普通元素搜索的默认返回上限从 5 提高到 10；当返回结果被截断时，工具明确禁止把子集当作“全部目标”，并引导通过 `inspect_drawio_graph` 按同一页和同一 `documentRevision` 分页，直到 `truncated:false`。另一个同类缺陷是精确 ID 命中会直接覆盖其余子串匹配；现在精确 ID 只提升排序，不会压掉其他含该查询文本的 cell。新增测试覆盖 12 个同名目标的截断、完整枚举，以及 `task-1` 不吞掉 `task-10` / `task-11`。
 
-补充修改已提交到 `main`；类型契约现在覆盖运行时支持的 `expectedTitle` 和完整几何断言字段。相关回归测试已增加，但本轮最终提交对应的 CI 尚未完成，不据此声称这些新增测试已经通过。
+补充修改已提交到 `main`；类型契约覆盖 `labelContains` 和完整几何断言字段，不再保留等价的标题专用别名。相关回归测试已增加，但新增提交对应的 CI 尚未完成，不据此声称这些新增测试已经通过。
 
 
 ### Follow-up：curated shape catalogue 的静默截断（2026-10-28）
