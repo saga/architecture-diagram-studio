@@ -143,7 +143,9 @@ export function normalizeDrawioRuntimeInspection(
   if (expected.documentRevision && documentRevision !== expected.documentRevision) return null;
 
   const pageId = stringOrNull(value.pageId, 200);
-  if (expected.pageId !== undefined && pageId !== expected.pageId) return null;
+  // null means the caller has not resolved the active page yet. Accept the live page ID
+  // as discovery data, while still enforcing exact matches whenever a page ID was supplied.
+  if (expected.pageId !== undefined && expected.pageId !== null && pageId !== expected.pageId) return null;
 
   const rawCapabilities = isRecord(value.capabilities) ? value.capabilities : {};
   const capabilities = {} as Record<RuntimeCapabilityGroup, string[]>;

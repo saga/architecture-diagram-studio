@@ -58,6 +58,14 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.liveShapeClasses).toEqual(["mxgraph.c4.person2", "mxgraph.flowchart.start"]);
   });
 
+  it("discovers the active page when the caller has not resolved a page ID yet", () => {
+    const result = normalizeDrawioRuntimeInspection(inspection({ pageId: "live-page-2" }), {
+      documentRevision: revision,
+      pageId: null
+    });
+    expect(result?.pageId).toBe("live-page-2");
+  });
+
   it("keeps source-registry truncation separate from per-query truncation", () => {
     const classes = Array.from(
       { length: RUNTIME_INSPECTION_LIMITS.liveShapeClasses + 1 },

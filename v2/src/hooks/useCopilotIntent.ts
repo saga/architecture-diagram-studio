@@ -130,7 +130,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const requestState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
       const sourceXml = requestState.drawioXml;
       let sourceSelectedCellId = requestState.selectedNativeCellId;
-      const sourcePageId = requestState.selectedNativePageId;
+      let sourcePageId = requestState.selectedNativePageId;
       let documentRevision = await calculateDrawioXmlRevision(sourceXml);
       if (!standaloneMode) {
         if (!persistWorkspaceDocument) throw new Error("Workspace revision handling is unavailable; no Copilot request was sent.");
@@ -151,57 +151,60 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       // context, but do not let a later selection change invalidate a label/ID-based edit.
       sourceSelectedCellId = stateBeforeSend.selectedNativeCellId;
 
-      let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
-      try {
-        nativeTargets = extractNativeEditTargets(sourceXml, sourcePageId).slice(0, 200);
-      } catch (error) {
-        recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
-          errorMessage: error instanceof Error ? error.message : String(error), xmlLength: drawioXml.length
-        }, "warn");
-      }
-
       const nativePage = getNativeDiagramPageInfo(sourceXml, sourcePageId);
-      const activePageId = nativePage.id || sourcePageId;
-      let selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
+      let activePageId = nativePage.id || sourcePageId;
       let runtimeInspection: DrawioRuntimeInspection | undefined;
       if (getRuntimeInspection) {
         const requestedJsShapeClassNames = new Set<string>();
         for (const match of requestText.match(/\bmxgraph(?:\.[A-Za-z0-9_-]+)+\b/gi) ?? []) {
           if (requestedJsShapeClassNames.size < 40) requestedJsShapeClassNames.add(match);
         }
+        // A multi-page mxfile may arrive before the iframe's initial page-selection event has
+        // reached React. Ask the live editor to identify its active page instead of rejecting a
+        // valid inspection merely because the caller supplied pageId=null.
         runtimeInspection = await getRuntimeInspection({
           documentRevision, pageId: activePageId, jsShapeClassNames: [...requestedJsShapeClassNames].slice(0, 40)
         });
-        if (runtimeInspection.documentRevision !== documentRevision || runtimeInspection.pageId !== activePageId) {
+        if (runtimeInspection.documentRevision !== documentRevision ||
+            (activePageId !== null && runtimeInspection.pageId !== activePageId)) {
           throw new Error("The live Draw.io inspection did not match the source XML revision and active page. No Agent request was sent.");
         }
+        if (activePageId === null) activePageId = runtimeInspection.pageId;
+        if (activePageId !== null && sourcePageId === null) sourcePageId = activePageId;
+        if (activePageId === null) {
+          throw new Error("The active Draw.io page ID is not available. Wait for the editor to finish loading; no Agent request was sent.");
+        }
+        if (runtimeInspection.pageId !== activePageId) {
+          throw new Error("The live Draw.io inspection could not establish the requested active page. No Agent request was sent.");
+        }
+        recordDiagnostic("copilot.native-context.active-page-resolved",
+          "Resolved the active Draw.io page from the live editor because the UI selection state was not yet available",
+          { pageId: activePageId, sourcePageId, documentRevision });
         const afterInspection = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        if (afterInspection.selectedNativePageId && afterInspection.selectedNativePageId !== activePageId) {
+          throw new Error("The active Draw.io page changed during runtime inspection. No Agent request was sent; retry.");
+        }
         assertCopilotRequestContextFresh(
           "during-runtime-inspection",
-          { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
-          afterInspection,
+          { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: activePageId },
+          { ...afterInspection, selectedNativePageId: activePageId },
           "during runtime inspection. No Agent request was sent; retry against the current state."
         );
         sourceSelectedCellId = afterInspection.selectedNativeCellId;
-        selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       }
-      const plan = await requestAIIntentPlan(
-        { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
-          diagramXml: sourceXml, documentRevision },
-        requestText,
-        {
-          kind: "drawio",
-          title: nativePage.title || "Draw.io diagram",
-          activePageId,
-          selectedCell: sourceSelectedCellId ? {
-            cellId: sourceSelectedCellId, pageId: activePageId,
-            label: selectedTarget?.name || ""
-          } : null,
-          cells: nativeTargets,
-          ...(runtimeInspection ? { runtimeInspection } : {})
-        }
-      );
 
+      let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
+      try {
+        nativeTargets = extractNativeEditTargets(sourceXml, activePageId).slice(0, 200);
+      } catch (error) {
+        recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
+          errorMessage: error instanceof Error ? error.message : String(error), xmlLength: sourceXml.length,
+          requestedPageId: activePageId, runtimePageId: runtimeInspection?.pageId ?? null
+        }, "error");
+        throw new Error("Could not read cells from the active Draw.io page: " +
+          (error instanceof Error ? error.message : String(error)) + ". No Agent request was sent.");
+      }
+      let selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const stateAfterResponse = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
       assertCopilotRequestContextFresh(
         "during-agent-response",
