@@ -211,6 +211,23 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           ? state
           : { ...state, selectedNativePageId: activePageId };
       };
+      const plan = await requestAIIntentPlan(
+        { model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
+          diagramXml: sourceXml, documentRevision },
+        requestText,
+        {
+          kind: "drawio",
+          title: nativePage.title || "Draw.io diagram",
+          activePageId,
+          selectedCell: sourceSelectedCellId ? {
+            cellId: sourceSelectedCellId, pageId: activePageId,
+            label: selectedTarget?.name || ""
+          } : null,
+          cells: nativeTargets,
+          ...(runtimeInspection ? { runtimeInspection } : {})
+        }
+      );
+
       const stateAfterResponse = getStateForResolvedPage();
       assertCopilotRequestContextFresh(
         "during-agent-response",
