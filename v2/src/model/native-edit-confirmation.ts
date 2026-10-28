@@ -460,9 +460,9 @@ export interface NativeScriptXmlCellAssertion {
   label?: string;
   /** Expected substring of the serialized native label, including rich labels/user objects. */
   labelContains?: string;
-  /** Expected translated/title text inside a serialized rich label. */
+  /** Studio-only assertion field: expected title substring inside the serialized label; not a Draw.io attribute. */
   expectedTitle?: string;
-  /** Recomputed by the host against serialized XML; requires labelContains or expectedTitle. */
+  /** Studio-only predicate echo; the host recomputes this against serialized XML and requires labelContains or expectedTitle. */
   labelContainsTitle?: boolean;
   parentId?: string | null;
   sourceId?: string | null;
