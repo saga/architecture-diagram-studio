@@ -1010,6 +1010,32 @@ describe("Copilot intent route result and revision contract", () => {
     ]);
   });
 
+  it("does not let an exact cell ID suppress other substring search hits", async () => {
+    const relatedCells = ["task-1", "task-10", "task-11"].map((id, index) =>
+      '<mxCell id="' + id + '" value="Component ' + index +
+      '" vertex="1" parent="1"><mxGeometry x="' + (index * 30) +
+      '" y="1" width="20" height="20" as="geometry"/></mxCell>'
+    ).join("");
+    const relatedXml = XML.replace("</root>", relatedCells + "</root>");
+    const revision = workspaceRevision(relatedXml);
+    const copilot = elementSearchingCopilot("task-1", "search_drawio_elements", { query: "task-1" });
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: relatedXml, revision })
+    });
+    const { response } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: 'Search for "task-1"',
+      diagramXml: relatedXml,
+      documentRevision: revision
+    }));
+    expect(response.status).toBe(200);
+    const result = (copilot as { searchResult?: {
+      matchCount: number; returnedCount: number; truncated: boolean; results: Array<{ id: string }>
+    } }).searchResult;
+    expect(result).toMatchObject({ matchCount: 3, returnedCount: 3, truncated: false });
+    expect(result?.results.map((cell) => cell.id)).toEqual(["task-1", "task-10", "task-11"]);
+  });
+
   it("does not let a truncated element search masquerade as a complete bulk-edit target set", async () => {
     const targets = Array.from({ length: 12 }, (_, index) =>
       '<mxCell id="task-' + index + '" value="Task 7" vertex="1" parent="1"><mxGeometry x="' +
