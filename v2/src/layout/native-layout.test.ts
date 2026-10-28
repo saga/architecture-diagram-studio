@@ -127,7 +127,7 @@ describe("Studio-owned native-cell layout", () => {
     expect(localGroupingXml).toContain('source="peer-b" target="outside"');
   });
 
-  it("reorients a preserved local pair for the requested direction and rotates its explicit waypoint", async () => {
+  it("reflows a preserved local pair for the requested direction and maps its explicit waypoint", async () => {
     const orientedXml = `<mxfile host="test"><diagram id="oriented-local-group" name="Oriented local group"><mxGraphModel><root>
       <mxCell id="0"/><mxCell id="1" parent="0"/>
       <mxCell id="peer-a" value="Peer A" vertex="1" parent="1"><mxGeometry x="100" y="100" width="80" height="40" as="geometry"/></mxCell>
