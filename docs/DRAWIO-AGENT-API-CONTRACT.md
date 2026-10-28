@@ -100,7 +100,7 @@ Use only methods observed on the current Graph/Model runtime and keep each reque
 ## Pitfalls
 
 - `model.getDefaultParent()` is invalid; default parent belongs to Graph.
-- `cell.value` can be a DOM Element/UserObject, not just a string. Use `graph.convertValueToString(cell)` for display labels. For a rename, clone the wrapper, change only its `label` attribute and set the cloned value; never stringify the element or replace it with plain text. Re-read every relevant label independently when checking postconditions.
+- `cell.value` can be a DOM Element/UserObject, not just a string. Use `graph.convertValueToString(cell)` for display labels. For a rename, clone the wrapper, change only its `label` attribute and set the cloned value; never stringify the element or replace it with plain text. Re-read every relevant label independently when checking postconditions. Typed `set_label` now fails closed when a rich HTML label has nested formatting/placeholders that a plain-text edit would flatten; use a script to patch the intended substring while preserving the original markup.
 - Styles are semicolon-delimited key/value entries. Patch keys rather than replacing the whole style string unless a full replacement is intended.
 - Clone geometry before changing it. Waypoints on nested/grouped cells may use parent-relative coordinates.
 - Do not assume a style setter or a model mutation guarantees the rendered canvas matches the user's request.
