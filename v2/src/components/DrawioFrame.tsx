@@ -517,6 +517,24 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     if (!cellEdit || !editorReady || !bridgeReady || lastHandledCellEditRequestRef.current === cellEdit.requestId) return;
     const target = iframeRef.current?.contentWindow;
     if (!target) return;
+    // Draw.io's export protocol has no request correlation ID. Never dispatch a second
+    // property mutation while a prior mutation is awaiting its XML serialization receipt:
+    // otherwise one export could incorrectly acknowledge multiple unrelated edits.
+    if (pendingSaveConfirmationsRef.current.size > 0) {
+      lastHandledCellEditRequestRef.current = cellEdit.requestId;
+      onNativeEditResultRef.current?.({
+        requestId: cellEdit.requestId,
+        success: false,
+        cellId: cellEdit.cellId,
+        path: cellEdit.path,
+        applicationState: "not-applied",
+        error: "Another native edit is still awaiting XML serialization. Wait for its confirmation before submitting another property edit."
+      });
+      recordDiagnostic("drawio.selection.property.blocked-pending-serialization",
+        "Blocked a concurrent property edit because Draw.io XML export receipts cannot be correlated to individual requests",
+        { requestId: cellEdit.requestId, pendingRequestIds: Array.from(pendingSaveConfirmationsRef.current.keys()) }, "warn");
+      return;
+    }
     lastHandledCellEditRequestRef.current = cellEdit.requestId;
     target.postMessage(JSON.stringify({
       event: "studioPropertyEditRequest",
