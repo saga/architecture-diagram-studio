@@ -138,7 +138,7 @@ export function createWorkspaceChangeSetService(access: WorkspaceChangeSetFileAc
       id: plan.id, workspaceId: plan.workspaceId, status: "prepared",
       createdAt: new Date().toISOString(),
       files: plan.prepared.map((item) => ({
-        filePath: item.target.filePath, pageIds: [item.target.pageId].filter((id): id is string => id !== null),
+        filePath: item.target.filePath, pageIds: plan.prepared.filter((candidate) => candidate.target.filePath === item.target.filePath)\n          .map((candidate) => candidate.target.pageId).filter((id): id is string => id !== null),
         beforeRevision: item.beforeRevision, afterRevision: item.afterRevision, status: "pending"
       }))
     };
