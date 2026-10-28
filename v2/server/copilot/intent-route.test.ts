@@ -31,6 +31,34 @@ const SAFE_CREATION_SCRIPT = [
   "return { nodeId: target.id, edgeId: edge.id, sourceId: model.getTerminal(edge, true).id, targetId: model.getTerminal(edge, false).id };"
 ].join("\n");
 
+function runtimeInspectionWithShapes(liveShapeClasses: string[], liveShapeClassesTruncated: boolean) {
+  const requirements = {
+    graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
+    model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
+    view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
+  };
+  return {
+    schemaVersion: 1,
+    bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
+    drawioVersion: PINNED_DRAWIO_VERSION,
+    documentRevision: workspaceRevision(XML),
+    pageId: "p1",
+    capabilities: requirements,
+    capabilityManifest: {
+      scriptSupported: true,
+      required: requirements,
+      missing: { graph: [], model: [], view: [] },
+      jsShapeClasses: { requested: [], registered: {} }
+    },
+    counts: { cells: 4, vertices: 2, edges: 0 },
+    cells: [],
+    liveShapeClasses,
+    liveShapeClassesTruncated,
+    renderedEdges: [],
+    truncated: liveShapeClassesTruncated
+  };
+}
+
 type ServerHarness = {
   baseUrl: string;
   server: Server;
@@ -1087,6 +1115,34 @@ describe("Copilot intent route result and revision contract", () => {
     expect(inspection?.results.map((cell) => cell.id)).toEqual(
       Array.from({ length: 12 }, (_, index) => "task-" + index)
     );
+  });
+
+  it("does not treat a truncated live shape registry as exhaustive", async () => {
+    const copilot = elementSearchingCopilot("", "search_drawio_runtime_shapes", {
+      query: "mxgraph.missing.shape", limit: 15
+    });
+    const harness = await createServer({ copilot });
+    const runtimeInspection = runtimeInspectionWithShapes([
+      "mxgraph.c4.person2", "mxgraph.test.cloud"
+    ], true);
+    const { response } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      context: {
+        kind: "drawio", activePageId: "p1", selectedCell: null, cells: [], runtimeInspection
+      }
+    }));
+    expect(response.status).toBe(200);
+    const result = (copilot as { searchResult?: Record<string, unknown> }).searchResult ?? {};
+    expect(result).toMatchObject({
+      source: "live-mxCellRenderer.defaultShapes",
+      liveSnapshotAvailable: true,
+      registrySnapshotTruncated: true,
+      matchCountComplete: false,
+      matchCount: 0,
+      returnedCount: 0,
+      resultSetTruncated: false,
+      truncated: true
+    });
+    expect(String(result.guidance)).toContain("do not conclude a class is unavailable");
   });
 
   it("returns a structured rejection when the reference tool receives null arguments", async () => {
