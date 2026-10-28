@@ -205,3 +205,8 @@ The most recent completed quality run exposed a stale test expectation: removing
 ## 2026-10-28：形状目录检索的截断完整性
 
 同类静默漏项还存在于 curated shape catalogue。普通 `search_drawio_shapes` 在结果超过 limit 时原先没有总命中数或 `truncated` 字段，模型可能把前几条 recipe 当成完整结果。现已新增 `searchDrawioShapeCatalogDetailed`，返回完整的 `matchCount` / `returnedCount` / `truncated` 元数据，并在工具描述中明确要求截断时缩小查询或使用 live Draw.io UI/runtime 发现流程。C4 directory alias 有单独回归，验证 Person、Software System、Container、Relationship 四项完整返回，不能被默认 limit 截断。新增 catalog 与 route 测试已提交；本轮最终 CI 尚未通过，因此测试结果仍待 CI 证明。
+
+
+### 2026-10-28：runtime shape registry 的源数据截断
+
+search_drawio_runtime_shapes 曾只报告查询是否超过 limit，没有报告源 registry 本身是否被 iframe 截断到 2000 项。因此即使查询返回 0，也不能证明完整的运行时 shape class 集合中不存在候选。现已在 iframe inspection 中加入 liveShapeClassesTruncated，由 normalizer 识别源集合超限，并由查询工具分别返回源截断和结果截断状态；只有源集合完整且查询未截断时，匹配数量才可视为完整。回归测试覆盖源快照标记、normalizer 超限推断和查询 0 命中时的提示。最新提交的 CI 仍需确认后，才可报告测试通过。
