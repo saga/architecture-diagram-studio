@@ -102,6 +102,19 @@ describe("applyWorkspaceDiagramChangeSet", () => {
     expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toContain("Before B");
   });
 
+  it("rejects duplicate stable page IDs before writing", async () => {
+    const before = xml("page-a", "Before");
+    const duplicatePage = xml("page-a", "Duplicate").replace("<mxfile>", "").replace("</mxfile>", "");
+    const duplicatePages = before.replace("</mxfile>", duplicatePage + "</mxfile>");
+    const env = await setup({ "a.drawio": before });
+    const result = await applyWorkspaceDiagramChangeSet({
+      changeSetId: "cs-duplicate-page", workspaceId: "workspace-1",
+      targets: [{ filePath: "a.drawio", expectedRevision: revision(before), resultXml: duplicatePages, changedPageIds: ["page-a"] }]
+    }, env.resolver);
+    expect(result.ok).toBe(false);
+    expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toBe(before);
+  });
+
   it("rejects changing the set of page IDs in a proposed file", async () => {
     const before = xml("page-a", "Before");
     const env = await setup({ "a.drawio": before });
