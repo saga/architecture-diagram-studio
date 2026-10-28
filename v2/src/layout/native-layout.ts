@@ -211,7 +211,15 @@ interface ProjectedCell {
   points: Point[];
 }
 
-type SpatialAdjacencyRotation = "NONE" | "CLOCKWISE" | "COUNTERCLOCKWISE";
+interface SpatialAdjacencyAxisTransform {
+  axis: "X_TO_Y" | "Y_TO_X";
+  /** Source and target centre coordinates for piecewise mapping along the group row/column. */
+  anchors: Array<{ source: number; target: number }>;
+  sourceCrossCenter: number;
+  targetCrossCenter: number;
+  /** Sign of the cross-axis coordinate when rotating the row/column. */
+  crossSign: 1 | -1;
+}
 
 interface SpatialAdjacencyLayoutCluster {
   /** Layout-only proxy; it is never a native Draw.io cell or a plan mutation target. */
@@ -223,9 +231,8 @@ interface SpatialAdjacencyLayoutCluster {
   y: number;
   width: number;
   height: number;
-  rotation: SpatialAdjacencyRotation;
-  rotationCenterX: number;
-  rotationCenterY: number;
+  /** Present only when a clearly linear row/column is reflowed for the requested axis. */
+  axisTransform: SpatialAdjacencyAxisTransform | null;
 }
 
 interface NativePageProjection {
@@ -461,33 +468,77 @@ function detectSpatialAdjacencyClusters(
     const sourceBottom = Math.max(...members.map((member) => member.y + member.height));
     const sourceWidth = sourceRight - sourceLeft;
     const sourceHeight = sourceBottom - sourceTop;
-    const rotationCenterX = (sourceLeft + sourceRight) / 2;
-    const rotationCenterY = (sourceTop + sourceBottom) / 2;
+    const sourceCenterX = (sourceLeft + sourceRight) / 2;
+    const sourceCenterY = (sourceTop + sourceBottom) / 2;
     const targetVertical = direction === "DOWN" || direction === "UP";
     const clearlyWide = sourceWidth > sourceHeight * 1.15;
     const clearlyTall = sourceHeight > sourceWidth * 1.15;
-    const rotation: SpatialAdjacencyRotation = direction === null
-      ? "NONE"
-      : targetVertical && clearlyWide
-        ? direction === "DOWN" ? "CLOCKWISE" : "COUNTERCLOCKWISE"
-        : !targetVertical && clearlyTall
-          ? direction === "RIGHT" ? "COUNTERCLOCKWISE" : "CLOCKWISE"
-          : "NONE";
-    const rotateCenter = (member: ProjectedCell): Point => {
-      const centerX = member.x + member.width / 2;
-      const centerY = member.y + member.height / 2;
-      const dx = centerX - rotationCenterX;
-      const dy = centerY - rotationCenterY;
-      if (rotation === "CLOCKWISE") return { x: rotationCenterX - dy, y: rotationCenterY + dx };
-      if (rotation === "COUNTERCLOCKWISE") return { x: rotationCenterX + dy, y: rotationCenterY - dx };
-      return { x: centerX, y: centerY };
-    };
-    // Rotate only node centres, not cell shapes: native Draw.io widths, heights and styles remain unchanged.
-    const oriented = members.map((member) => {
-      const center = rotateCenter(member);
-      return { cellId: member.id, x: center.x - member.width / 2, y: center.y - member.height / 2,
-        width: member.width, height: member.height };
-    });
+    const maxMemberWidth = Math.max(...members.map((member) => member.width));
+    const maxMemberHeight = Math.max(...members.map((member) => member.height));
+    const centerXValues = members.map((member) => member.x + member.width / 2);
+    const centerYValues = members.map((member) => member.y + member.height / 2);
+    const centerXRange = Math.max(...centerXValues) - Math.min(...centerXValues);
+    const centerYRange = Math.max(...centerYValues) - Math.min(...centerYValues);
+    const horizontalCenterCoordinatesAreDistinct = new Set(centerXValues.map((value) => Math.round(value * 1000))).size === members.length;
+    const verticalCenterCoordinatesAreDistinct = new Set(centerYValues.map((value) => Math.round(value * 1000))).size === members.length;
+    const reflowRowToColumn = direction !== null && targetVertical && clearlyWide &&
+      sourceHeight <= maxMemberHeight * 1.3 && horizontalCenterCoordinatesAreDistinct;
+    const reflowColumnToRow = direction !== null && !targetVertical && clearlyTall &&
+      sourceWidth <= maxMemberWidth * 1.3 && verticalCenterCoordinatesAreDistinct;
+    let oriented: Array<{ cellId: string; x: number; y: number; width: number; height: number }>;
+    let axisTransform: SpatialAdjacencyAxisTransform | null = null;
+
+    if (reflowRowToColumn) {
+      const ordered = [...members].sort((a, b) => {
+        const difference = (a.x + a.width / 2) - (b.x + b.width / 2);
+        return (direction === "DOWN" ? difference : -difference) || a.id.localeCompare(b.id);
+      });
+      const gaps = ordered.slice(1).map((member, index) => Math.max(0, gapBetween(ordered[index], member)));
+      const totalHeight = ordered.reduce((sum, member) => sum + member.height, 0) + gaps.reduce((sum, gap) => sum + gap, 0);
+      let top = sourceCenterY - totalHeight / 2;
+      oriented = ordered.map((member, index) => {
+        const result = { cellId: member.id, x: sourceCenterX - member.width / 2, y: top, width: member.width, height: member.height };
+        top += member.height + (gaps[index] ?? 0);
+        return result;
+      });
+      axisTransform = {
+        axis: "X_TO_Y",
+        anchors: members.map((member) => ({
+          source: member.x + member.width / 2,
+          target: oriented.find((item) => item.cellId === member.id)!.y + member.height / 2
+        })).sort((a, b) => a.source - b.source),
+        sourceCrossCenter: sourceCenterY,
+        targetCrossCenter: sourceCenterX,
+        crossSign: direction === "DOWN" ? -1 : 1
+      };
+    } else if (reflowColumnToRow) {
+      const ordered = [...members].sort((a, b) => {
+        const difference = (a.y + a.height / 2) - (b.y + b.height / 2);
+        return (direction === "RIGHT" ? difference : -difference) || a.id.localeCompare(b.id);
+      });
+      const gaps = ordered.slice(1).map((member, index) => Math.max(0, gapBetween(ordered[index], member)));
+      const totalWidth = ordered.reduce((sum, member) => sum + member.width, 0) + gaps.reduce((sum, gap) => sum + gap, 0);
+      let left = sourceCenterX - totalWidth / 2;
+      oriented = ordered.map((member, index) => {
+        const result = { cellId: member.id, x: left, y: sourceCenterY - member.height / 2, width: member.width, height: member.height };
+        left += member.width + (gaps[index] ?? 0);
+        return result;
+      });
+      axisTransform = {
+        axis: "Y_TO_X",
+        anchors: members.map((member) => ({
+          source: member.y + member.height / 2,
+          target: oriented.find((item) => item.cellId === member.id)!.x + member.width / 2
+        })).sort((a, b) => a.source - b.source),
+        sourceCrossCenter: sourceCenterX,
+        targetCrossCenter: sourceCenterY,
+        crossSign: direction === "RIGHT" ? -1 : 1
+      };
+    } else {
+      oriented = members.map((member) => ({
+        cellId: member.id, x: member.x, y: member.y, width: member.width, height: member.height
+      }));
+    }
     const x = Math.min(...oriented.map((member) => member.x));
     const y = Math.min(...oriented.map((member) => member.y));
     const right = Math.max(...oriented.map((member) => member.x + member.width));
@@ -514,10 +565,48 @@ function detectSpatialAdjacencyClusters(
       proxy,
       memberCellIds: members.map((member) => member.id),
       memberOffsets: oriented.map((member) => ({ cellId: member.cellId, x: member.x - x, y: member.y - y })),
-      x, y, width, height, rotation, rotationCenterX, rotationCenterY
+      x, y, width, height, axisTransform
     });
   });
   return clusters;
+}
+
+function mapSpatialAdjacencyPoint(cluster: SpatialAdjacencyLayoutCluster, point: Point): Point {
+  const transform = cluster.axisTransform;
+  if (!transform) return point;
+  const anchors = transform.anchors;
+  if (anchors.length === 0) return point;
+  const value = transform.axis === "X_TO_Y" ? point.x : point.y;
+  let left = anchors[0];
+  let right = anchors[anchors.length - 1];
+  if (value <= anchors[0].source) {
+    left = anchors[0];
+    right = anchors.find((anchor) => anchor.source > left.source) ?? left;
+  } else if (value >= anchors[anchors.length - 1].source) {
+    right = anchors[anchors.length - 1];
+    left = [...anchors].reverse().find((anchor) => anchor.source < right.source) ?? right;
+  } else {
+    for (let index = 1; index < anchors.length; index += 1) {
+      if (value <= anchors[index].source) {
+        left = anchors[index - 1];
+        right = anchors[index];
+        break;
+      }
+    }
+  }
+  const span = right.source - left.source;
+  const ratio = Math.abs(span) < 1e-6 ? 0.5 : (value - left.source) / span;
+  const along = left.target + (right.target - left.target) * ratio;
+  if (transform.axis === "X_TO_Y") {
+    return {
+      x: transform.targetCrossCenter + transform.crossSign * (point.y - transform.sourceCrossCenter),
+      y: along
+    };
+  }
+  return {
+    x: along,
+    y: transform.targetCrossCenter + transform.crossSign * (point.x - transform.sourceCrossCenter)
+  };
 }
 
 function projectNativePage(
@@ -1427,13 +1516,7 @@ function normalizePlan(
     const finalOrigin = proxyId ? adjacencyFinalOriginByProxyId.get(proxyId) : undefined;
     if (!cluster || !finalOrigin) throw new Error("An internal local-group connector had no corresponding cluster translation: " + edge.id);
     const translated = edge.points.map((point) => {
-      const dx = point.x - cluster.rotationCenterX;
-      const dy = point.y - cluster.rotationCenterY;
-      const oriented = cluster.rotation === "CLOCKWISE"
-        ? { x: cluster.rotationCenterX - dy, y: cluster.rotationCenterY + dx }
-        : cluster.rotation === "COUNTERCLOCKWISE"
-          ? { x: cluster.rotationCenterX + dy, y: cluster.rotationCenterY - dx }
-          : point;
+      const oriented = mapSpatialAdjacencyPoint(cluster, point);
       return { x: finalOrigin.x + oriented.x - cluster.x, y: finalOrigin.y + oriented.y - cluster.y };
     });
     if (translated.some((point) => !finiteCoordinate(point.x) || !finiteCoordinate(point.y))) {
