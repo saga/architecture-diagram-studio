@@ -20,6 +20,7 @@ describe("native diagram always-on instructions", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("graph.convertValueToString(cell)");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("UserObject DOM Element");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("independently of postconditions");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("typed set_label; that fails closed");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("diagram.cells");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("no reference lookup");
   });
