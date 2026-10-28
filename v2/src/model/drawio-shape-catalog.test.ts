@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog
+  C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog, searchDrawioShapeCatalogDetailed
 } from "./drawio-shape-catalog";
 
 describe("curated Draw.io shape catalogue", () => {
@@ -49,6 +49,15 @@ describe("curated Draw.io shape catalogue", () => {
   it("does not imply exhaustive availability when there is no match", () => {
     expect(searchDrawioShapeCatalog("aws transit gateway")).toEqual([]);
     expect(DRAWIO_SHAPE_CATALOG_VERSION).toBe("drawio-v32.0.2-curated-4");
+  });
+  it("exposes total matches and truncation instead of silently presenting a limited list as complete", () => {
+    const limited = searchDrawioShapeCatalogDetailed("a", 3);
+    expect(limited.matchCount).toBeGreaterThan(limited.returnedCount);
+    expect(limited.returnedCount).toBe(3);
+    expect(limited.truncated).toBe(true);
+
+    const c4Bundle = searchDrawioShapeCatalogDetailed("C4 directory", 4);
+    expect(c4Bundle).toMatchObject({ matchCount: 4, returnedCount: 4, truncated: false });
   });
   it("caps the result count", () => {
     expect(searchDrawioShapeCatalog("service", 100).length).toBeLessThanOrEqual(8);
