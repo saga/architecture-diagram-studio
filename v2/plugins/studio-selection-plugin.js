@@ -464,6 +464,7 @@
           !boundedPlanNumber(anchorDiagnostics.maximumVectorDrift, 0, 10000000) ||
           !boundedPlanNumber(anchorDiagnostics.meanVectorDrift, 0, 10000000) ||
           !boundedPlanNumber(anchorDiagnostics.toleranceBandPx, 0, 100000) ||
+          !Number.isInteger(anchorDiagnostics.toleranceViolationCount) || anchorDiagnostics.toleranceViolationCount < 0 ||
           !Number.isInteger(anchorDiagnostics.directionalOrderViolations) ||
           !Number.isInteger(anchorDiagnostics.refinementIterations) ||
           !Number.isInteger(anchorDiagnostics.collisionAdjustments) ||

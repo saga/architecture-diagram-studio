@@ -118,6 +118,7 @@ describe("Studio-owned native-cell layout", () => {
       resolvedAnchorCount: 2,
       effectiveAnchorUnitCount: 2,
       evaluatedPairCount: 1,
+      toleranceViolationCount: 0,
       directionalOrderViolations: 0
     });
   });

@@ -199,6 +199,7 @@ export interface NativeRelativeAnchorDiagnostics {
   maximumVectorDrift: number;
   meanVectorDrift: number;
   toleranceBandPx: number;
+  toleranceViolationCount: number;
   directionalOrderViolations: number;
   refinementIterations: number;
   collisionAdjustments: number;
@@ -1754,7 +1755,7 @@ function optimizeRelativeAnchorPositions(
   const emptyDiagnostics: NativeRelativeAnchorDiagnostics = {
     outcome: "not-requested", requestedAnchorCount: 0, resolvedAnchorCount: 0,
     effectiveAnchorUnitCount: 0, evaluatedPairCount: 0, maximumVectorDrift: 0,
-    meanVectorDrift: 0, toleranceBandPx: 0, directionalOrderViolations: 0,
+    meanVectorDrift: 0, toleranceBandPx: 0, toleranceViolationCount: 0, directionalOrderViolations: 0,
     refinementIterations: 0, collisionAdjustments: 0
   };
   if (!enabled) {
@@ -1971,6 +1972,7 @@ function optimizeRelativeAnchorPositions(
   let maximumVectorDrift = 0;
   let totalVectorDrift = 0;
   let directionalOrderViolations = 0;
+  let toleranceViolationCount = 0;
   let toleranceBandPx = 0;
   for (const pair of pairs) {
     const positionA = positions.get(pair.a.unitId)!;
@@ -1985,12 +1987,15 @@ function optimizeRelativeAnchorPositions(
     maximumVectorDrift = Math.max(maximumVectorDrift, drift);
     totalVectorDrift += drift;
     toleranceBandPx = Math.max(toleranceBandPx, pair.tolerance);
+    // Each pair has its own scale-derived tolerance. Comparing every pair with the largest
+    // tolerance in the whole anchor set would let a distant pair mask a local relation failure.
+    if (drift > pair.tolerance + 0.5) toleranceViolationCount += 1;
     const reversedX = Math.abs(pair.dx) > 8 && (pair.dx > 0 ? currentDx <= 0 : currentDx >= 0);
     const reversedY = Math.abs(pair.dy) > 8 && (pair.dy > 0 ? currentDy <= 0 : currentDy >= 0);
     if (reversedX || reversedY) directionalOrderViolations += 1;
   }
   const meanVectorDrift = pairs.length ? totalVectorDrift / pairs.length : 0;
-  const degraded = maximumVectorDrift > Math.max(8, toleranceBandPx) + 0.5 || directionalOrderViolations > 0;
+  const degraded = toleranceViolationCount > 0 || directionalOrderViolations > 0;
   return {
     changed,
     diagnostics: {
@@ -2002,6 +2007,7 @@ function optimizeRelativeAnchorPositions(
       maximumVectorDrift: Math.round(maximumVectorDrift * 100) / 100,
       meanVectorDrift: Math.round(meanVectorDrift * 100) / 100,
       toleranceBandPx: Math.round(toleranceBandPx * 100) / 100,
+      toleranceViolationCount,
       directionalOrderViolations,
       refinementIterations,
       collisionAdjustments
