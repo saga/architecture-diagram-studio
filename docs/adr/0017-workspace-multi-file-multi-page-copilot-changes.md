@@ -1,6 +1,6 @@
 # ADR-0017 — Workspace-Scoped Multi-File, Multi-Page Copilot Changes
 
-- Status: Accepted (backend foundation in progress)
+- Status: Accepted (backend prepare/apply foundation implemented; Copilot and UI integration pending)
 - Date: 2026-10-28
 - Related: [ADR-0001 — Project Workspace as the Authoritative Project Context](./0001-project-workspace-as-authoritative-context.md), [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0016 — Node-Owned Local Draw.io File I/O](./0016-node-owned-local-drawio-file-io.md)
 
@@ -61,4 +61,17 @@ The current Draw.io iframe remains the editor for one open document. A multi-fil
 
 ## Implementation status (2026-10-28)
 
-The initial implementation adds a validated target contract and a preparation endpoint at `POST /api/workspace/diagram-change-set/prepare`. The endpoint resolves every target through the workspace file service, validates Draw.io XML, verifies each page ID and SHA-256 content revision, and returns a target manifest without returning document XML. It is preparation-only: it does not apply operations or persist changed files. Multi-file mutation remains gated until the apply/journal/recovery service and proposal UI are implemented.
+Implemented backend foundation:
+
+- `POST /api/workspace/diagram-change-set/prepare` resolves explicit targets through the workspace file service, validates Draw.io XML, verifies page IDs and SHA-256 revisions, and returns a manifest without returning full XML.
+- `POST /api/workspace/diagram-change-set/apply` accepts precomputed full XML outputs, validates every target before writing, rejects stale revisions and page-set changes, serializes writes per file, uses atomic per-file writes, and attempts compensating rollback on failure.
+- Unit tests cover target schema validation, preparation across files/pages, stale revisions, missing pages, multi-file apply, no-write preflight rejection, and preservation of untouched pages.
+
+Still incomplete for end-to-end Copilot support:
+
+- The Copilot agent does not yet have a workspace-scoped tool contract that reads selected diagram targets and returns a complete multi-file change set.
+- The user-facing preview/confirmation flow is not wired to these endpoints.
+- Recovery is compensating rollback plus logs, not yet a durable change-set journal with independently addressable recovery records.
+- The full multi-file workflow has not yet been verified by CI/E2E on these commits.
+
+Until those pieces are integrated and tested, do not advertise multi-file Copilot editing as available.
