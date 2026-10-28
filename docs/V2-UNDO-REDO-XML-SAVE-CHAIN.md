@@ -183,3 +183,17 @@ Undo/Redo 的所有权仍属于 Draw.io 原生 `undoManager`。Studio 没有引�
 当前插件在开始 Studio 原生事务前记录 pinned Draw.io 模型的 `currentEdit.changes` 检查点。仅当颜色预设、自动布局或原子批处理的补偿恢复成功且结构验证通过时，才移除该检查点之后的事务 change，再结束外层事务。这样失败但完整恢复的操作不会进入 Undo 栈，也不会清掉 Redo 栈。若模型检查点不可用、补偿不完整或原生 cell 树验证失败，则不会将该操作伪装为干净回滚；错误回执会显式标记恢复未获确认，保留可供用户恢复的原生状态。
 
 新增 `v2/src/model/native-undo-rollback.test.ts`，通过实际插件消息桥测试“颜色事务中途失败并恢复”与“批编辑第二步失败并恢复”两条路径，断言既有 Undo/Redo 栈与 cell 样式均未变化。它是当前 pinned Draw.io `mxGraphModel.currentEdit.changes` 实现的防回归测试；如果未来升级 Draw.io 并改变事务内部结构，测试需要随升级一起验证。
+
+
+## 5. 2026-10-28 复核补充：确认回执必须绑定真实序列化结果
+
+后续实现已将宿主请求改为 `{ action: "export", format: "xml" }`，而不是不存在的 `action: "save"`。因此，旧版 §4.1 关于当前代码仍发送 `action:"save"` 的描述已过时；当前确认流程等待 XML export/autosave 消息，并由 `pendingSaveConfirmationsRef` 的超时回收关闭未完成请求。
+
+仍需遵守的状态边界：
+
+- Draw.io bridge 的成功回执只表示编辑器执行阶段结束，不等于 XML 已序列化、工作区已落盘或服务器 ack 已接受。
+- `changed-unverified` 必须保持失败/待人工检查语义；即使为诊断目的保存了实际 XML，也不能把它报告为已验证成功。
+- 工作区模式只有在保存接口返回的 revision 与序列化 XML revision 一致、且取得 version ID 后，才能报告持久化成功；独立文件模式必须等待浏览器文件句柄写入完成。
+- 迟到的 native-edit 结果需要以原始 requestId 幂等关闭服务端回执；不得把超时后的旧结果归属到新的编辑请求。
+
+本补充是代码路径的复核记录，不代表已经完成所有并发竞态的 E2E 验证。当前 CI 状态未能从 GitHub 获取到可用的 workflow run 记录。
