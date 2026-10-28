@@ -196,7 +196,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
       let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
       try {
-        nativeTargets = extractNativeEditTargets(sourceXml, activePageId).slice(0, 200);
+        nativeTargets = extractNativeEditTargets(sourceXml, activePageId);
       } catch (error) {
         recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
           errorMessage: error instanceof Error ? error.message : String(error), xmlLength: sourceXml.length,
