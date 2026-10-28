@@ -183,7 +183,7 @@ describe("parseNativeEditOperations", () => {
   it("accepts a configurable Studio auto-layout operation and keeps it as a single-operation batch", () => {
     const parsed = parseNativeEditOperations([{
       op: "auto_layout", target: "active_page", engine: "elk", algorithm: "stress",
-      direction: "LEFT", nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
+      direction: "LEFT", preserveLocalGrouping: false, nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
       iterations: 600, randomSeed: 42, margin: 24
     }]);
     expect(parsed).toMatchObject({
@@ -207,7 +207,7 @@ describe("parseNativeEditOperations", () => {
     ["msagl", "layered"], ["cytoscape", "breadthfirst"], ["d3", "tree"]
   ] as const)("chooses an engine-specific default algorithm for %s when omitted", (engine, algorithm) => {
     const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine }]);
-    expect(parsed).toMatchObject({ ok: true, operations: [{ engine, algorithm }] });
+    expect(parsed).toMatchObject({ ok: true, operations: [{ engine, algorithm, preserveLocalGrouping: true }] });
     expect(defaultNativeLayoutAlgorithm(engine)).toBe(algorithm);
   });
 
