@@ -607,6 +607,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt.length).toBeLessThan(2800);
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
     expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
+    expect(firstRequest.editingGuidance).toContain("plain-text replacements that would flatten markup");
   });
 
   it("dispatches insertion-only native scripts without a confirmation step", async () => {
