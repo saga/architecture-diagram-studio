@@ -11,7 +11,7 @@ export const WorkspaceDiagramTargetSchema = z.object({
     (value) => !value.startsWith("/") &&
       !/^[a-zA-Z]:[\\/]/.test(value) &&
       !value.split(/[\\/]+/).some((part) => part === "..") &&
-      !value.includes("\\0"),
+      !value.includes("\0"),
     "filePath must be a workspace-relative path without traversal"
   ),
   /** Null is valid only for a bare mxGraphModel document. */
