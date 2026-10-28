@@ -102,6 +102,23 @@ describe("applyWorkspaceDiagramChangeSet", () => {
     expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toContain("Before B");
   });
 
+  it("rejects a combined XML payload above the change-set limit before resolving files", async () => {
+    const oversized = "x".repeat(18 * 1024 * 1024);
+    const result = await applyWorkspaceDiagramChangeSet({
+      changeSetId: "cs-oversized", workspaceId: "workspace-1",
+      targets: [
+        { filePath: "a.drawio", expectedRevision: "a".repeat(64), resultXml: oversized, changedPageIds: ["page-a"] },
+        { filePath: "b.drawio", expectedRevision: "b".repeat(64), resultXml: oversized, changedPageIds: ["page-b"] },
+        { filePath: "c.drawio", expectedRevision: "c".repeat(64), resultXml: oversized, changedPageIds: ["page-c"] }
+      ]
+    }, {
+      workspaceId: "workspace-1",
+      resolveWorkspaceFile: async () => { throw new Error("Must reject before resolving files"); }
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("50 MiB");
+  });
+
   it("rejects duplicate stable page IDs before writing", async () => {
     const before = xml("page-a", "Before");
     const duplicatePage = xml("page-a", "Duplicate").replace("<mxfile>", "").replace("</mxfile>", "");
