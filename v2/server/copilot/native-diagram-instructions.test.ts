@@ -21,6 +21,8 @@ describe("native diagram always-on instructions", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("UserObject DOM Element");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("independently of postconditions");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("typed set_label; that fails closed");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("These are Studio-only verifier fields, not Draw.io attributes");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("expectedTitle");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("diagram.cells");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("no reference lookup");
   });
