@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CopilotRuntime } from "./runtime";
-import { NativeExecutionAcknowledgements, registerCopilotIntentRoute } from "./intent-route";
+import { NativeExecutionAcknowledgements, registerCopilotIntentRoute, requiresExplicitConfirmation } from "./intent-route";
 import { workspaceRevision } from "../storage";
 import type { ResolvedNativeEditOperation } from "../../src/model/native-edit-operations";
 import {
@@ -1535,5 +1535,24 @@ describe("Copilot native-edit acknowledgement route", () => {
     }));
     expect(response.status).toBe(400);
     expect(body.outcome).toBe("failed");
+  });
+});
+
+
+describe("requiresExplicitConfirmation", () => {
+  const operations = (...ops: string[]) => ops.map((op) => ({ op })) as unknown as ResolvedNativeEditOperation[];
+
+  it("requires review for arbitrary scripts, including repair retries", () => {
+    expect(requiresExplicitConfirmation(operations("run_drawio_script"))).toBe(true);
+    expect(requiresExplicitConfirmation(operations("rename"), true)).toBe(true);
+  });
+
+  it("requires review for destructive deletes and whole-page layouts", () => {
+    expect(requiresExplicitConfirmation(operations("delete"))).toBe(true);
+    expect(requiresExplicitConfirmation(operations("auto_layout"))).toBe(true);
+  });
+
+  it("keeps ordinary typed edits on the fast path", () => {
+    expect(requiresExplicitConfirmation(operations("rename", "move", "style"))).toBe(false);
   });
 });
