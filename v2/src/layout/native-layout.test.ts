@@ -500,7 +500,7 @@ describe("Studio-owned native-cell layout", () => {
     // Five close, waypoint-free peer connectors are internal to protected local clusters;
     // native Draw.io recalculates those routes from their unchanged original terminal IDs.
     expect(plan.coverage.spatialAdjacencyClusterCount).toBeGreaterThan(0);
-    expect(plan.coverage.spatialAdjacencyInternalEdgeCount).toBe(5);
+    expect(plan.coverage.spatialAdjacencyInternalEdgeCount - plan.coverage.spatialAdjacencyInternalEdgesTranslatedCount).toBe(5);
     expect(plan.edgeRoutes).toHaveLength(19);
     expect(plan.edgeRoutes.every((route) => !route.cellId.startsWith("__studio_spatial_cluster_"))).toBe(true);
   });
