@@ -25,3 +25,5 @@
 | [0021](./0021-expanded-native-layout-engines.md) | Expanded Native Layout Engines and Algorithm Adapters | Accepted |
 | [0022](./0022-atomic-spatial-region-layout.md) | Atomic Layout for Geometry-Only Spatial Regions | Accepted |
 | [0023](./0023-category-preserving-curated-diagram-palettes.md) | Category-Preserving Curated Diagram Palettes | Accepted |
+| [0024](./0024-local-grouping-and-layout-density-options.md) | Preserve Local Grouping and Offer Layout Density Presets | Accepted |
+| [0025](./0025-relative-anchors-and-stability-preserving-layout.md) | Relative Anchors and Mental-Map-Preserving Layout | Accepted |

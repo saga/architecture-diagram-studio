@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-28
-- Related: ADR-0013 (Studio-owned layout), ADR-0021 (layout engine adapters), ADR-0022 (atomic spatial regions), ADR-0023 (native script runtime boundaries).
+- Related: ADR-0013 (Studio-owned layout), ADR-0021 (layout engine adapters), ADR-0022 (atomic spatial regions), ADR-0025 (relative anchors and stability refinement).
 
 ## Context
 
@@ -47,3 +47,8 @@ The UI offers three presets that set the existing `nodeSpacing` and `layerSpacin
 - Test that tightly adjacent uncontained nodes move by one shared translation when preservation is enabled, including a connected pair, and that no transient proxy ID is emitted.
 - Test that disabling preservation leaves nodes independently exposed to the selected layout algorithm.
 - Keep existing engine, region atomicity, connector-routing, stale-revision, native XML integrity and rollback tests in force.
+
+
+### 4. Distinguish inferred local grouping from explicit relative anchors
+
+The local grouping option is a conservative heuristic based on current geometry; it does not express the user's explicit selection of a stability-critical set. Relative-anchor selection, pairwise relation semantics, and engine-independent refinement are defined separately in [ADR-0025](./0025-relative-anchors-and-stability-preserving-layout.md). When the selected anchor set intersects a local adjacency cluster, the planner maps selected cells to the effective layout unit and suppresses that cluster's optional internal axis reflow for the current run. This prevents the grouping heuristic from undoing the user's explicit request. The two features remain separate options with separate diagnostics.

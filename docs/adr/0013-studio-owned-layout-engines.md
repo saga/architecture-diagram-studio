@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-23
 - Supersedes: layout-removal statements in [ADR-0011](./0011-native-drawio-only-model.md) and [ADR-0012](./0012-native-diagram-extension-contracts.md) that treated native-cell layout as retired or only future work
-- Related: [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md)
+- Related: [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md), [ADR-0025 — Relative Anchors and Mental-Map-Preserving Layout](./0025-relative-anchors-and-stability-preserving-layout.md)
 
 ## Context
 
@@ -32,7 +32,7 @@ The V2 architecture must keep native Draw.io XML and its editor as the only sour
 - `NativeAutoLayoutOptions` is the shared contract for the UI and Agent. It includes engine, algorithm, direction, node spacing, layer spacing, edge routing, iteration limit, random seed and margin.
 - The Copilot native-edit contract includes `auto_layout` as a typed operation targeting `active_page`. The agent must use this operation for whole-page layout or requests to change the layout engine/algorithm/spacing. It must not author a layout script or call the Draw.io built-in layout action.
 - `auto_layout` is the only operation allowed in its batch and always requires explicit user confirmation because it rearranges an entire page. The user can also trigger the configured layout explicitly from the toolbar.
-- The same planner and native geometry applier serve both entry points; no separate AI-only layout algorithm is allowed.
+- The same planner and native geometry applier serve both entry points; no separate AI-only layout algorithm is allowed. The engine-independent stability refinement and relative-anchor semantics are defined in [ADR-0025](./0025-relative-anchors-and-stability-preserving-layout.md); adapters may use native constraints as an optimization but must not change those user-visible semantics.
 
 ### 4. Preserve safety and native-document integrity
 

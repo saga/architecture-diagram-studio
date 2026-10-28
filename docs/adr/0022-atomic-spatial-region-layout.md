@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-26
-- Related: ADR-0011 (native Draw.io is the only diagram model), ADR-0012 (native capability contracts), ADR-0013 (Studio-owned layout core), ADR-0021 (expanded native layout engines).
+- Related: ADR-0011 (native Draw.io is the only diagram model), ADR-0012 (native capability contracts), ADR-0013 (Studio-owned layout core), ADR-0021 (expanded native layout engines), ADR-0025 (relative anchors and stability refinement).
 
 ## Context
 
@@ -41,3 +41,8 @@ Nested region candidates are skipped as atomic units in Phase 2. Supporting nest
 - Exercise the real upstream `industrial-iot-example.drawio` fixture and verify all eligible region/member IDs participate in the native layout plan.
 - Playwright E2E opens a real Draw.io workspace, performs a layout transaction, verifies the region and members move together, checks internal waypoints and cross-boundary native terminals, and observes saved XML.
 - Keep all existing engine, multi-page, nested native Group, stale revision, XML preservation, rollback, undo/redo and persistence tests passing.
+
+
+## Relationship to Relative Anchors
+
+[ADR-0025](./0025-relative-anchors-and-stability-preserving-layout.md) applies explicit user-selected relative constraints only after this ADR's region analysis has produced an eligible, unambiguous region unit. Selecting a region member maps that selection to the region's movable outer-layout unit; it does not loosen the region detector's confidence or membership rules. Member-to-region geometry remains exact, and ambiguous or rejected region candidates do not become eligible merely because one of their cells was selected as an anchor.

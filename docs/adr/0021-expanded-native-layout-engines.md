@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-25
-- Related: ADR-0011 (native Draw.io is the only diagram model), ADR-0012 (native capability contracts), ADR-0013 (Studio-owned layout core).
+- Related: ADR-0011 (native Draw.io is the only diagram model), ADR-0012 (native capability contracts), ADR-0013 (Studio-owned layout core), ADR-0025 (relative anchors and stability refinement).
 
 ## Context
 
