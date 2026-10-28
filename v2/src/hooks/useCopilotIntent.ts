@@ -205,7 +205,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           (error instanceof Error ? error.message : String(error)) + ". No Agent request was sent.");
       }
       let selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
-      const stateAfterResponse = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+      const getStateForResolvedPage = () => {
+        const state = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        return state.selectedNativePageId || !activePageId
+          ? state
+          : { ...state, selectedNativePageId: activePageId };
+      };
+      const stateAfterResponse = getStateForResolvedPage();
       assertCopilotRequestContextFresh(
         "during-agent-response",
         { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
@@ -271,7 +277,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation)
           : undefined;
         if (layoutOperation) {
-          const currentState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+          const currentState = getStateForResolvedPage();
           assertCopilotRequestContextFresh(
             "during-layout-calculation",
             { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
@@ -365,7 +371,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             typeof executionErrorStep.error === "string" &&
             executionErrorStep.error.trim().length > 0
           );
-          const repairState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+          const repairState = getStateForResolvedPage();
           const shouldTryScriptRepair = Boolean(
             failedAction &&
             failedScriptOperation?.mode !== "read" &&
