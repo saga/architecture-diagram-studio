@@ -341,6 +341,8 @@ describe("Studio-owned native-cell layout", () => {
     });
     expect(plan.coverage.spatialRegionCount).toBe(0);
     expect(plan.coverage.spatialRegionUnownedContainedVertexCount).toBe(1);
+    // The plan names the vertex, so a diagnostic can report which node lost its container.
+    expect(plan.unownedContainedVertexCellIds).toEqual(["lonely-child"]);
   });
 
   it("moves both members of an untitled two-member container with the container", async () => {

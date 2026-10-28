@@ -197,6 +197,9 @@ export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
   layoutLayerFallback: boolean;
   /** Every native cell ID on the source page, used for an optimistic stale-page check. */
   expectedPageCellIds: string[];
+  /** Vertices that a container geometrically encloses but no region owns, so the plan is free to
+   * move them out. Surfaced separately from the coverage counter so a diagnostic can name them. */
+  unownedContainedVertexCellIds: string[];
   /** Pre-mutation geometry and terminals for all cells used by this plan. */
   expectedCells: NativeLayoutExpectedCell[];
   positions: NativeLayoutPosition[];
@@ -280,6 +283,8 @@ interface NativePageProjection {
   spatialRegionMemberCount: number;
   spatialRegionBoundaryVertexCount: number;
   spatialRegionUnownedContainedVertexCount: number;
+  /** The vertices behind that count, so a diagnostic can name them instead of only counting them. */
+  spatialRegionUnownedContainedVertexCellIds: string[];
   /** All source cells are transient input to resolve native and inferred nested terminals. */
   allCells: ProjectedCell[];
   edges: ProjectedCell[];
@@ -840,6 +845,8 @@ function projectNativePage(
   const spatialRegionBoundaryVertexCount = new Set(
     spatialRegions.flatMap((region) => region.boundaryCellIds).filter((id) => rawVertexIds.has(id))
   ).size;
+  const unownedContainedVertexCellIds = regionDetection.unownedContainedVertexCellIds
+    .filter((id) => rawVertexIds.has(id));
   return {
     pageId: parsed.pageId,
     pageTitle: parsed.pageTitle,
@@ -876,8 +883,8 @@ function projectNativePage(
     spatialRegionCandidatesSkippedCount: candidatesForLayer.length - spatialRegions.length,
     spatialRegionMemberCount: spatialRegionMemberIds.size,
     spatialRegionBoundaryVertexCount,
-    spatialRegionUnownedContainedVertexCount: regionDetection.unownedContainedVertexCellIds
-      .filter((id) => rawVertexIds.has(id)).length,
+    spatialRegionUnownedContainedVertexCount: unownedContainedVertexCellIds.length,
+    spatialRegionUnownedContainedVertexCellIds: unownedContainedVertexCellIds,
     allCells: all,
     edges,
     regionInternalEdges,
@@ -1687,6 +1694,7 @@ function normalizePlan(
       sourceCoordinatesRetainedVertexCount: retainSourceCoordinates ? nativePositions.length : 0
     },
     expectedPageCellIds: projection.allCellIds,
+    unownedContainedVertexCellIds: projection.spatialRegionUnownedContainedVertexCellIds,
     expectedCells: Array.from(cellsToGuard.values()),
     positions: nativePositions,
     edgeRoutes: nativeRoutes

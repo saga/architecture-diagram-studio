@@ -15,7 +15,7 @@ import { readDiagnosticEntries, recordDiagnostic, setDiagnosticScope } from "./d
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
-import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_LAYOUT_DENSITY_PRESETS, nativeLayoutDensityForSpacing, type NativeLayoutDensitySelection } from "./layout/native-layout";
+import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_LAYOUT_DENSITY_PRESETS, nativeLayoutDensityForSpacing, type NativeLayoutCoverage, type NativeLayoutDensitySelection } from "./layout/native-layout";
 import { spatialRegionAnalysisProvider } from "./layout/spatial-region-analysis";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
@@ -1410,6 +1410,10 @@ export default function App() {
     }
     setAutoLayoutRunning(true);
     setLastAction("Calculating Studio " + algorithmLabel + "…");
+    // Kept outside the try so a failure still reports what the plan had computed instead of losing
+    // the only record of which nodes would have moved.
+    let plannedCoverage: NativeLayoutCoverage | null = null;
+    let plannedUnownedCellIds: string[] = [];
     try {
       const source = latestDiagramStateRef.current;
       const sourceXml = source.drawioXml;
@@ -1467,6 +1471,8 @@ export default function App() {
         throw new Error("The active Draw.io page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
       const coverage = nativePlan.coverage;
+      plannedCoverage = coverage;
+      plannedUnownedCellIds = nativePlan.unownedContainedVertexCellIds;
       recordDiagnostic("drawio.layout.ui.requested", "The user requested a Studio-owned auto layout", {
         pageId: nativePlan.pageId, documentRevision, drawioVersion: DRAWIO_VERSION,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
@@ -1504,22 +1510,49 @@ export default function App() {
       const containmentWarning = coverage.spatialRegionUnownedContainedVertexCount > 0
         ? " · warning: " + coverage.spatialRegionUnownedContainedVertexCount + " contained node(s) remain ungrouped"
         : "";
-      setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
+      // One string, used both for the on-canvas status line and for the trace record. Building it
+      // twice is how the two views drifted apart: the trace used to carry only raw counters.
+      const layoutSummary = "Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
-        routingSummary + regionSummary + groupingSummary + retainedSummary + originSummary + containmentWarning);
-      recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
+        routingSummary + regionSummary + groupingSummary + retainedSummary + originSummary + containmentWarning;
+      setLastAction(layoutSummary);
+      // The message is the trace card title, so it carries the same sentence the canvas showed.
+      // A generic "layout applied" line is why the status details never showed up in the trace list.
+      recordDiagnostic("drawio.layout.ui.serialized", layoutSummary, {
+        summary: layoutSummary,
+        note: "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately",
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
         coverage, engine: options.engine,
         algorithm: options.algorithm, direction: options.direction, vertexCount: nativePlan.positions.length,
         edgeCount: nativePlan.edgeRoutes.length
       });
+      // A container that geometrically holds nodes but was not recognised as a region is the exact
+      // condition that lets members drift out. The status line calls it a warning, so the trace has
+      // to record it at warning level with the cell IDs; a count alone cannot be acted on.
+      if (coverage.spatialRegionUnownedContainedVertexCount > 0) {
+        recordDiagnostic("drawio.layout.containment.unowned",
+          "Layout left " + coverage.spatialRegionUnownedContainedVertexCount +
+          " contained node(s) ungrouped: " + nativePlan.unownedContainedVertexCellIds.slice(0, 5).join(", ") +
+          (nativePlan.unownedContainedVertexCellIds.length > 5 ? " …" : ""), {
+          pageId: nativePlan.pageId, engine: options.engine, algorithm: options.algorithm,
+          unownedContainedVertexCount: coverage.spatialRegionUnownedContainedVertexCount,
+          unownedContainedVertexCellIds: nativePlan.unownedContainedVertexCellIds,
+          spatialRegionCount: coverage.spatialRegionCount,
+          spatialRegionMemberCount: coverage.spatialRegionMemberCount,
+          spatialRegionCandidatesSkippedCount: coverage.spatialRegionCandidatesSkippedCount,
+          coverage, summary: layoutSummary
+        }, "warn");
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setLastAction("Auto layout failed: " + errorMessage);
       recordDiagnostic("drawio.layout.ui.failed", "Studio auto layout failed or could not be confirmed", {
         pageId: selectedNativePageId, errorMessage, engine: options.engine, algorithm: options.algorithm,
-        direction: options.direction
+        direction: options.direction,
+        // The plan may already have been calculated, and its coverage is the only record of what the
+        // layout intended before it failed.
+        ...(plannedCoverage ? { coverage: plannedCoverage, unownedContainedVertexCellIds: plannedUnownedCellIds } : {})
       }, "error");
     } finally {
       setAutoLayoutRunning(false);
