@@ -1503,8 +1503,8 @@ function normalizePlan(
   }
 
   // Local-group edges bypass the outer solver because their endpoints move atomically.
-  // Explicit waypoints undergo the same local rotation as their member centres and then follow
-  // the translated cluster; absent waypoints stay absent for native Draw.io routing.
+  // Explicit waypoints undergo the same local axis reflow as their member centres and then
+  // follow the translated cluster; absent waypoints stay absent for native Draw.io routing.
   for (const edge of projection.adjacencyInternalEdges) {
     if (edge.points.length === 0) continue;
     const proxyId = edge.layoutSourceId;
