@@ -15,7 +15,7 @@ import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../s
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
-import { searchDrawioShapeCatalog, C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
+import { searchDrawioShapeCatalogDetailed, C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -588,24 +588,34 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
           return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape name or concept in English or Chinese." };
         }
-        const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
+        const requestedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.floor(args.limit) : 5;
         const c4Directory = isC4DirectoryQuery(args.query);
         // The C4 alias is a bundle: never truncate the relationship recipe out of it.
-        const results = searchDrawioShapeCatalog(args.query, c4Directory ? Math.max(limit, 4) : limit);
-        const queryStatus = await logQueryResult(sessionId, "search_drawio_shapes", args.query.trim(), results.length, deps.writeLog);
+        const searchPage = searchDrawioShapeCatalogDetailed(args.query, c4Directory ? Math.max(requestedLimit, 4) : requestedLimit);
+        const results = searchPage.results;
+        const queryStatus = await logQueryResult(sessionId, "search_drawio_shapes", args.query.trim(), searchPage.matchCount, deps.writeLog);
         return {
-          found: results.length > 0,
+          found: searchPage.matchCount > 0,
+          query: args.query.trim(),
           catalogueVersion: DRAWIO_SHAPE_CATALOG_VERSION,
           exhaustive: false,
+          matchCount: searchPage.matchCount,
+          returnedCount: searchPage.returnedCount,
+          truncated: searchPage.truncated,
           results,
+          ...(searchPage.truncated ? {
+            guidance: "The curated catalogue matched " + searchPage.matchCount +
+              " entries but returned only " + searchPage.returnedCount +
+              ". Do not treat this subset as the complete candidate set. Retry with a more specific name/category or use the live Draw.io UI/runtime discovery path; the catalogue is intentionally non-exhaustive."
+          } : {}),
           ...(c4Directory ? {
             scriptTemplate: C4_DIRECTORY_SCRIPT_TEMPLATE,
             guidance: "These recipes answer the whole C4 creation turn: build the script now. Replace the *_STYLE placeholders with the exact style strings above and keep their width/height; assert only the cells you create (one xmlAssertion each, at most 3 postconditions). Do not call get_drawio_reference or repeat this search in this turn."
           } : {}),
-          ...(results.length ? {} : {
-            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified.",
-            ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
-          })
+          ...(!searchPage.matchCount ? {
+            ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
+            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified."
+          } : {})
         };
       }
     });
