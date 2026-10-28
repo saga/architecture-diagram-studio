@@ -190,7 +190,7 @@ describe("parseNativeEditOperations", () => {
       ok: true,
       operations: [{
         op: "auto_layout", target: "active_page", engine: "elk", algorithm: "stress",
-        direction: "LEFT", nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
+        direction: "LEFT", preserveLocalGrouping: false, nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
         iterations: 600, randomSeed: 42, margin: 24
       }]
     });
