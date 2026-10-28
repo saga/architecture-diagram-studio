@@ -6,6 +6,7 @@ import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as 
 import { useCopilotIntent } from "./hooks/useCopilotIntent";
 import { calculateDrawioXmlRevision } from "./intent/aiProvider";
 import { calculateNativePalettePlan, detectDrawioDiagramTheme, type DrawioDiagramTheme } from "./model/drawio-theme";
+import { isBareNativeGraphModel } from "./model/native-edit-operations";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
 import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions, type NativeHistoryState } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
@@ -760,7 +761,9 @@ export default function App() {
       const frame = drawioFrameRef.current;
       if (!frame) throw new Error("The native Draw.io editor is unavailable; no colors were changed.");
       const runtimeBefore = await frame.inspectRuntime({ documentRevision, pageId });
-      if (runtimeBefore.documentRevision !== documentRevision || !runtimeBefore.pageId) {
+      const bareGraphModel = isBareNativeGraphModel(sourceXml);
+      if (runtimeBefore.documentRevision !== documentRevision ||
+          (!runtimeBefore.pageId && !bareGraphModel)) {
         throw new Error("Draw.io has not reported a valid active page. Select a page in the editor and retry; no colors were changed.");
       }
       pageId = runtimeBefore.pageId;
@@ -1416,7 +1419,7 @@ export default function App() {
         throw new Error("The live Draw.io document changed while resolving the active page. Nothing was laid out; retry.");
       }
       const pageId = runtimeInspection.pageId;
-      if (!pageId) {
+      if (!pageId && !isBareNativeGraphModel(sourceXml)) {
         throw new Error("Draw.io has not reported an active page ID. Select a page in the editor and retry; no page was laid out.");
       }
       const stateAfterInspection = latestDiagramStateRef.current;
