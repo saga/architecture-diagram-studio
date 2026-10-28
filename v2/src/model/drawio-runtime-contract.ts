@@ -68,6 +68,8 @@ export interface DrawioRuntimeInspection {
   cells: DrawioRuntimeCell[];
   /** Bounded live mxCellRenderer.defaultShapes registry from the current iframe. */
   liveShapeClasses: string[];
+  /** True when the registry itself exceeded the transport cap; search counts are then incomplete. */
+  liveShapeClassesTruncated: boolean;
   renderedEdges: Array<{
     id: string;
     stateAvailable: boolean;
@@ -207,6 +209,16 @@ export function normalizeDrawioRuntimeInspection(
       })
     : [];
 
+  const liveShapeClassNames = Array.isArray(value.liveShapeClasses)
+    ? [...new Set(value.liveShapeClasses.filter((name): name is string =>
+        typeof name === "string" && name.length <= 160 && /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) &&
+        !["__proto__", "constructor", "prototype"].includes(name)
+      ))]
+    : [];
+  const liveShapeClassesTruncated = value.liveShapeClassesTruncated === true ||
+    liveShapeClassNames.length > RUNTIME_INSPECTION_LIMITS.liveShapeClasses;
+  const boundedLiveShapeClasses = liveShapeClassNames.slice(0, RUNTIME_INSPECTION_LIMITS.liveShapeClasses);
+
   const requiredGroups = normalizeMethodGroups(rawManifest.required);
   const missingGroups = normalizeMethodGroups(rawManifest.missing);
   const rawJsShapeClasses = isRecord(rawManifest.jsShapeClasses) ? rawManifest.jsShapeClasses : {};
@@ -245,14 +257,11 @@ export function normalizeDrawioRuntimeInspection(
     capabilities,
     counts: { cells: count("cells"), vertices: count("vertices"), edges: count("edges") },
     cells,
-    liveShapeClasses: Array.isArray(value.liveShapeClasses)
-      ? [...new Set(value.liveShapeClasses.filter((name): name is string =>
-          typeof name === "string" && name.length <= 160 && /^[A-Za-z0-9_$:.-]{1,160}$/.test(name) &&
-          !["__proto__", "constructor", "prototype"].includes(name)
-        ))].slice(0, RUNTIME_INSPECTION_LIMITS.liveShapeClasses)
-      : [],
+    liveShapeClasses: boundedLiveShapeClasses,
+    liveShapeClassesTruncated,
     renderedEdges,
     truncated: value.truncated === true ||
+      liveShapeClassesTruncated ||
       (Array.isArray(value.cells) && value.cells.length > RUNTIME_INSPECTION_LIMITS.cells) ||
       (Array.isArray(value.renderedEdges) && value.renderedEdges.length > RUNTIME_INSPECTION_LIMITS.renderedEdges)
   };
