@@ -242,10 +242,13 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
   });
 }
 
-function requiresExplicitConfirmation(_operations: ResolvedNativeEditOperation[], _forceScriptReview = false): boolean {
-  // Local single-user mode: no edit-size, script, or delete-based approval gate.
-  // Native XML snapshots and version history are the recovery mechanism.
-  return false;
+function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
+  // Scripts execute arbitrary Draw.io JavaScript in the editor runtime. Until execution is
+  // capability-restricted, they must always be reviewed explicitly, including repair attempts.
+  if (forceScriptReview || operations.some((operation) => operation.op === "run_drawio_script")) return true;
+  // Whole-page layout and destructive edits can affect many cells; require a deliberate review
+  // even in local single-user mode. Ordinary typed edits retain the fast path.
+  return operations.some((operation) => operation.op === "delete" || operation.op === "auto_layout");
 }
 
 function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): string {
