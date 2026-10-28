@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
+import { XMLSerializer } from "@xmldom/xmldom";
 import { parseDrawioXml } from "../src/model/drawio-xml-dom";
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
 import { runCompensatingTransaction, writeTextAtomic } from "./storage";
@@ -64,11 +65,20 @@ function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-function pageIds(xml: string): Set<string> | null {
+function pageXmlById(xml: string): Map<string, string> {
   const document = parseDrawioXml(xml);
-  if (document.documentElement.nodeName === "mxGraphModel") return new Set(["__bare_graph_model__"]);
+  if (document.documentElement.nodeName === "mxGraphModel") {
+    return new Map([["__bare_graph_model__", new XMLSerializer().serializeToString(document.documentElement)]]);
+  }
   if (document.documentElement.nodeName !== "mxfile") throw new Error("Draw.io XML root must be mxfile or mxGraphModel.");
-  return new Set(Array.from(document.getElementsByTagName("diagram")).map((page) => page.getAttribute("id") ?? "").filter(Boolean));
+  const serializer = new XMLSerializer();
+  return new Map(Array.from(document.getElementsByTagName("diagram"))
+    .map((page) => [page.getAttribute("id") ?? "", serializer.serializeToString(page)] as const)
+    .filter(([id]) => Boolean(id)));
+}
+
+function pageIds(xml: string): Set<string> {
+  return new Set(pageXmlById(xml).keys());
 }
 
 /**
@@ -99,8 +109,10 @@ export async function applyWorkspaceDiagramChangeSet(
         if (beforeRevision !== target.expectedRevision.toLowerCase()) {
           return { ok: false, error: "Target revision changed; no files were written.", failedPath: target.filePath };
         }
-        const beforePages = pageIds(beforeXml);
-        const afterPages = pageIds(target.resultXml);
+        const beforePageXml = pageXmlById(beforeXml);
+        const afterPageXml = pageXmlById(target.resultXml);
+        const beforePages = new Set(beforePageXml.keys());
+        const afterPages = new Set(afterPageXml.keys());
         const validation = validateDrawioXmlDocument(target.resultXml);
         if (!validation.success) {
           return { ok: false, error: "Proposed XML is invalid: " + validation.issues.slice(0, 3).join("; "), failedPath: target.filePath };
@@ -119,6 +131,17 @@ export async function applyWorkspaceDiagramChangeSet(
         }
         if (beforePages.size !== afterPages.size || [...beforePages].some((id) => !afterPages.has(id))) {
           return { ok: false, error: "A change set must preserve every existing page ID; page creation/deletion requires a separate explicit capability.", failedPath: target.filePath };
+        }
+        const actuallyChangedPages = [...beforePages].filter((id) => beforePageXml.get(id) !== afterPageXml.get(id)).sort();
+        const declaredChangedPages = [...ids].sort();
+        if (actuallyChangedPages.length !== declaredChangedPages.length ||
+            actuallyChangedPages.some((id, index) => id !== declaredChangedPages[index])) {
+          return {
+            ok: false,
+            error: "changedPageIds must exactly match the pages whose XML changed. Actual: " +
+              (actuallyChangedPages.join(", ") || "(none)") + "; declared: " + (declaredChangedPages.join(", ") || "(none)"),
+            failedPath: target.filePath
+          };
         }
         prepared.push({
           filePath: target.filePath, absolutePath: resolved.absolutePath, beforeXml, resultXml: target.resultXml,
