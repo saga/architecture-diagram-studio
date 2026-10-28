@@ -353,10 +353,10 @@ function spatialAdjacencyPairKey(first: string, second: string): string {
 }
 
 /**
- * Finds conservative spatial-neighbour clusters. Explicit graph edges already communicate
- * relationships and should normally be free to drive a new layout; only directly connected
- * nodes that are almost touching are clustered. Complete-link merging prevents a chain of
- * individually close nodes from collapsing an entire flow into one cluster.
+ * Finds conservative spatial-neighbour clusters. A connector does not rule out a local
+ * grouping when its endpoints were already very close; however, larger gaps are left to the
+ * graph layout so ordinary directed flows can be rearranged. Complete-link merging prevents
+ * a chain of individually close nodes from collapsing an entire flow into one cluster.
  */
 function detectSpatialAdjacencyClusters(
   vertices: ProjectedCell[],
@@ -402,7 +402,7 @@ function detectSpatialAdjacencyClusters(
       const gap = gapBetween(a, b);
       if (!Number.isFinite(gap) || gap > pairThreshold(a, b)) continue;
       const directlyConnected = directlyConnectedPairs.has(spatialAdjacencyPairKey(a.id, b.id));
-      if (directlyConnected && gap > 8) continue;
+      if (directlyConnected && gap > Math.min(18, pairThreshold(a, b) * 0.75)) continue;
       pairDistances.set(spatialAdjacencyPairKey(a.id, b.id), gap);
       candidatePairs.push({ first, second, gap });
     }
