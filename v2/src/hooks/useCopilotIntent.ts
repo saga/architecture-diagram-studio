@@ -4,6 +4,7 @@ import {
   describeNativeEditOperation,
   extractNativeEditTargets,
   getNativeDiagramPageInfo,
+  isBareNativeGraphModel,
   toNativeCellEdits,
   type NativeCellEdit,
   type NativeEditExecution
@@ -171,7 +172,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         if (activePageId === null) activePageId = runtimeInspection.pageId;
         if (activePageId !== null && sourcePageId === null) sourcePageId = activePageId;
-        if (activePageId === null) {
+        if (activePageId === null && !isBareNativeGraphModel(sourceXml)) {
           throw new Error("The active Draw.io page ID is not available. Wait for the editor to finish loading; no Agent request was sent.");
         }
         if (runtimeInspection.pageId !== activePageId) {
@@ -656,7 +657,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         activePageId = runtimeInspection.pageId;
       }
-      if (!activePageId) {
+      if (!activePageId && !isBareNativeGraphModel(sourceXml)) {
         throw new Error("The active Draw.io page ID is not available. Select a page and retry confirming this proposal.");
       }
       const pageInfo = getNativeDiagramPageInfo(sourceXml, activePageId);
