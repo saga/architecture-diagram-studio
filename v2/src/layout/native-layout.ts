@@ -87,6 +87,8 @@ export interface NativeAutoLayoutOptions {
   direction: NativeAutoLayoutDirection;
   /** Keep confidently adjacent, uncontained nodes together as a transient layout cluster. */
   preserveLocalGrouping: boolean;
+  /** Keep the final native content bounding box anchored to the source bounding box's top-left. */
+  preserveCanvasOrigin: boolean;
   nodeSpacing: number;
   layerSpacing: number;
   edgeRouting: NativeAutoLayoutEdgeRouting;
@@ -100,6 +102,7 @@ export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
   algorithm: "layered",
   direction: "RIGHT",
   preserveLocalGrouping: true,
+  preserveCanvasOrigin: false,
   nodeSpacing: 64,
   layerSpacing: 90,
   edgeRouting: "ORTHOGONAL",
@@ -1001,7 +1004,7 @@ function normalizePlan(
   documentRevision: string,
   positions: Map<string, Point>,
   routes: Map<string, Point[]>,
-  preserveCanvasOrigin: boolean
+  retainSourceCoordinates: boolean
 ): NativeLayoutPlan {
   if (projection.layoutVertices.length === 0) {
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page. Nested group contents and nonstandard cells are intentionally left untouched.");
@@ -1014,11 +1017,67 @@ function normalizePlan(
   const minX = Math.min(...projection.layoutVertices.map((cell) => positions.get(cell.id)!.x));
   const minY = Math.min(...projection.layoutVertices.map((cell) => positions.get(cell.id)!.y));
   const preserveNativePositions = options.engine === "elk" && options.algorithm === "fixed";
-  // Re-origining the whole plan at (margin, margin) is invisible when the engine actually rearranged
-  // the graph, but it is pure loss when the plan retained the source coordinates: the entire drawing
-  // would jump to the top-left corner for no reason.
-  const dx = preserveNativePositions || preserveCanvasOrigin ? 0 : options.margin - minX;
-  const dy = preserveNativePositions || preserveCanvasOrigin ? 0 : options.margin - minY;
+  const cellsById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
+
+  // Compute bounds from actual native vertices, not just solver proxies. Region members and local
+  // group members are written separately; boundary titles may also sit outside a container.
+  const sourceNativePositionById = new Map<string, Point>();
+  const finalNativePositionById = new Map<string, Point>();
+  for (const cell of projection.vertices) {
+    const point = positions.get(cell.id);
+    if (!point) throw new Error("A native vertex was missing while normalizing the layout origin: " + cell.id);
+    sourceNativePositionById.set(cell.id, { x: cell.x, y: cell.y });
+    finalNativePositionById.set(cell.id, { x: point.x, y: point.y });
+  }
+  for (const cluster of projection.spatialAdjacencyClusters) {
+    const proxyPosition = positions.get(cluster.proxy.id);
+    if (!proxyPosition) throw new Error("A spatial adjacency cluster was missing while normalizing the layout origin.");
+    for (const memberOffset of cluster.memberOffsets) {
+      const member = cellsById.get(memberOffset.cellId);
+      if (!member || member.kind !== "vertex" || !member.hasGeometry) {
+        throw new Error("A spatial adjacency member was missing while normalizing the layout origin: " + memberOffset.cellId);
+      }
+      sourceNativePositionById.set(member.id, { x: member.x, y: member.y });
+      finalNativePositionById.set(member.id, {
+        x: proxyPosition.x + memberOffset.x,
+        y: proxyPosition.y + memberOffset.y
+      });
+    }
+  }
+  for (const region of projection.spatialRegions) {
+    const sourceRegion = cellsById.get(region.regionCellId);
+    const finalRegion = positions.get(region.regionCellId);
+    if (!sourceRegion || !finalRegion) {
+      throw new Error("A detected spatial region was missing while normalizing the layout origin: " + region.regionCellId);
+    }
+    const delta = { x: finalRegion.x - sourceRegion.x, y: finalRegion.y - sourceRegion.y };
+    for (const memberId of region.memberCellIds) {
+      const member = cellsById.get(memberId);
+      if (!member || member.kind !== "vertex" || !member.hasGeometry) {
+        throw new Error("A spatial region member was missing while normalizing the layout origin: " + memberId);
+      }
+      sourceNativePositionById.set(member.id, { x: member.x, y: member.y });
+      finalNativePositionById.set(member.id, { x: member.x + delta.x, y: member.y + delta.y });
+    }
+  }
+  const sourceNativePoints = Array.from(sourceNativePositionById.values());
+  const finalNativePoints = Array.from(finalNativePositionById.values());
+  if (sourceNativePoints.length === 0 || finalNativePoints.length === 0) {
+    throw new Error("No native content bounds were available while normalizing the layout origin.");
+  }
+  const nativeSourceMinX = Math.min(...sourceNativePoints.map((point) => point.x));
+  const nativeSourceMinY = Math.min(...sourceNativePoints.map((point) => point.y));
+  const nativeTargetMinX = Math.min(...finalNativePoints.map((point) => point.x));
+  const nativeTargetMinY = Math.min(...finalNativePoints.map((point) => point.y));
+  const preserveSourceCoordinates = retainSourceCoordinates || preserveNativePositions;
+  // Default mode retains existing margin-based normalization. The opt-in mode keeps the source
+  // content's top-left anchor while allowing relative node positions to change.
+  const dx = preserveSourceCoordinates ? 0 : options.preserveCanvasOrigin
+    ? nativeSourceMinX - nativeTargetMinX
+    : options.margin - minX;
+  const dy = preserveSourceCoordinates ? 0 : options.preserveCanvasOrigin
+    ? nativeSourceMinY - nativeTargetMinY
+    : options.margin - minY;
   const finiteCoordinate = (value: number) => Number.isFinite(value) && Math.abs(value) <= 1_000_000;
   const routeAxisEpsilon = 0.5;
   const orthogonalizeRoute = (sourcePoints: Point[]): Point[] => {
@@ -1070,7 +1129,6 @@ function normalizePlan(
     }
     return result;
   };
-  const cellsById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
   const nativePositions = projection.vertices.map((cell) => {
     const point = positions.get(cell.id)!;
     const x = point.x + dx;
@@ -1626,7 +1684,7 @@ function normalizePlan(
       spatialAdjacencyInternalEdgeCount: projection.adjacencyInternalEdges.length,
       spatialAdjacencyInternalEdgesTranslatedCount: projection.adjacencyInternalEdges.filter((edge) => edge.points.length > 0).length,
       spatialRegionUnownedContainedVertexCount: projection.spatialRegionUnownedContainedVertexCount,
-      sourceCoordinatesRetainedVertexCount: preserveCanvasOrigin ? nativePositions.length : 0
+      sourceCoordinatesRetainedVertexCount: retainSourceCoordinates ? nativePositions.length : 0
     },
     expectedPageCellIds: projection.allCellIds,
     expectedCells: Array.from(cellsToGuard.values()),

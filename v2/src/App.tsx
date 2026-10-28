@@ -68,6 +68,8 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
       engine, algorithm, direction, edgeRouting,
       preserveLocalGrouping: typeof saved.preserveLocalGrouping === "boolean"
         ? saved.preserveLocalGrouping : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping,
+      preserveCanvasOrigin: typeof saved.preserveCanvasOrigin === "boolean"
+        ? saved.preserveCanvasOrigin : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin,
       nodeSpacing: boundedNumber("nodeSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing, 5, 500),
       layerSpacing: boundedNumber("layerSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing, 10, 800),
       iterations: boundedNumber("iterations", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations, 20, 3000),
@@ -1470,6 +1472,7 @@ export default function App() {
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
         coverage, engine: options.engine, algorithm: options.algorithm, direction: options.direction,
         preserveLocalGrouping: options.preserveLocalGrouping,
+        preserveCanvasOrigin: options.preserveCanvasOrigin,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
         vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length,
@@ -1495,12 +1498,15 @@ export default function App() {
       const retainedSummary = coverage.sourceCoordinatesRetainedVertexCount > 0
         ? " · no connectors, arrangement kept"
         : "";
+      const originSummary = options.preserveCanvasOrigin && coverage.sourceCoordinatesRetainedVertexCount === 0
+        ? " · original content origin kept"
+        : "";
       const containmentWarning = coverage.spatialRegionUnownedContainedVertexCount > 0
         ? " · warning: " + coverage.spatialRegionUnownedContainedVertexCount + " contained node(s) remain ungrouped"
         : "";
       setLastAction("Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
-        routingSummary + regionSummary + groupingSummary + retainedSummary + containmentWarning);
+        routingSummary + regionSummary + groupingSummary + retainedSummary + originSummary + containmentWarning);
       recordDiagnostic("drawio.layout.ui.serialized", "Native Draw.io applied the geometry and exported XML; workspace persistence is tracked separately", {
         xmlLength: serializedXml.length, pageId: nativePlan.pageId,
         layoutLayerId: nativePlan.layoutLayerId, layoutLayerFallback: nativePlan.layoutLayerFallback,
@@ -1815,6 +1821,14 @@ export default function App() {
                 onChange={(preserveLocalGrouping) => setNativeLayoutOptions((current) => ({ ...current, preserveLocalGrouping }))}
               />
             </label>
+            <label className="native-layout-settings-field native-layout-toggle-field">
+              <span>Preserve canvas origin</span>
+              <Switch
+                aria-label="Preserve canvas origin"
+                checked={nativeLayoutOptions.preserveCanvasOrigin}
+                onChange={(preserveCanvasOrigin) => setNativeLayoutOptions((current) => ({ ...current, preserveCanvasOrigin }))}
+              />
+            </label>
             <label className="native-layout-settings-field">
               <span>Layout density</span>
               <Select<NativeLayoutDensitySelection>
@@ -1901,7 +1915,7 @@ export default function App() {
               />
             </label>
           </div>
-          <p className="native-layout-settings-help">Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Settings are saved in this browser.</p>
+          <p className="native-layout-settings-help">Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Preserve canvas origin aligns the final content bounds with the original content bounds instead of shifting them to the configured margin. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Settings are saved in this browser.</p>
         </Modal>
 
         <div className="canvas-stage">

@@ -83,6 +83,7 @@ describe("Studio-owned native-cell layout", () => {
     )).toBe("SPACIOUS");
     expect(nativeLayoutDensityForSpacing(77, 101)).toBe("CUSTOM");
     expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping).toBe(true);
+    expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin).toBe(false);
   });
 
   it("keeps close uncontained siblings together as a transient cluster when enabled", async () => {
@@ -406,6 +407,33 @@ describe("Studio-owned native-cell layout", () => {
       positions.get("b")!.x !== 100 || positions.get("b")!.y !== 350 ||
       positions.get("c")!.x !== 700 || positions.get("c")!.y !== 600
     ).toBe(true);
+  });
+
+  it("preserves the source content top-left while rearranging a connected graph", async () => {
+    const connectedXml = `<mxfile host="test"><diagram id="origin" name="Origin"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="-400" y="220" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="-160" y="400" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="c" value="C" vertex="1" parent="1"><mxGeometry x="90" y="520" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="ab" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="bc" edge="1" parent="1" source="b" target="c"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const preservedPlan = await calculateNativeAutoLayout(connectedXml, "origin", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT",
+      preserveCanvasOrigin: true, margin: 30
+    });
+    const preservedPositions = new Map(preservedPlan.positions.map((position) => [position.cellId, position] as const));
+    expect(Math.min(...preservedPlan.positions.map((position) => position.x))).toBeCloseTo(-400, 4);
+    expect(Math.min(...preservedPlan.positions.map((position) => position.y))).toBeCloseTo(220, 4);
+    expect(preservedPositions.get("b")!.x).not.toBe(-160);
+    expect(preservedPlan.coverage.sourceCoordinatesRetainedVertexCount).toBe(0);
+
+    const defaultPlan = await calculateNativeAutoLayout(connectedXml, "origin", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "elk", algorithm: "layered", direction: "RIGHT",
+      preserveCanvasOrigin: false, margin: 30
+    });
+    expect(Math.min(...defaultPlan.positions.map((position) => position.x))).toBeCloseTo(30, 4);
+    expect(Math.min(...defaultPlan.positions.map((position) => position.y))).toBeCloseTo(30, 4);
   });
 
   it("retains source coordinates when the page has no connectors", async () => {

@@ -36,12 +36,14 @@ The UI offers three presets that set the existing `nodeSpacing` and `layerSpacin
 ### 3. One contract for UI, Copilot and the native editor
 
 - The UI and Copilot operation use the same typed options, planner and native geometry apply path. The `auto_layout` Zod schema defaults the new boolean for older callers that omit it.
-- The calculated plan must match the requested grouping option as well as the engine, algorithm, direction, spacing and routing options before it is accepted. The native bridge validates that the option is a boolean.
+- The calculated plan must match the requested grouping and canvas-origin options as well as the engine, algorithm, direction, spacing and routing options before it is accepted. The native bridge validates both options as booleans.
+- `preserveCanvasOrigin` is opt-in and defaults to `false`. When enabled, the planner aligns the final native-cell bounding box with the source native-cell bounding box instead of translating the result to the configured margin. It preserves the content's overall anchor while allowing relative layout changes; it does not preserve every node's individual position.
 - Planning remains bound to the exact native XML revision, active page and expected native cell set. Only original native cell IDs can be emitted as geometry targets.
 
 ## Validation
 
 - Test the density-to-spacing mapping, including Custom detection.
+- Test canvas-origin preservation with connected nodes at negative/non-zero coordinates, while verifying that disabling it retains existing margin-based normalization.
 - Test that tightly adjacent uncontained nodes move by one shared translation when preservation is enabled, including a connected pair, and that no transient proxy ID is emitted.
 - Test that disabling preservation leaves nodes independently exposed to the selected layout algorithm.
 - Keep existing engine, region atomicity, connector-routing, stale-revision, native XML integrity and rollback tests in force.

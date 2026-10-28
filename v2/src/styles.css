@@ -92,7 +92,7 @@ button:disabled { opacity: .58; cursor: wait; }
 .layout-direction-button.ant-btn:hover, .layout-settings-button.ant-btn:hover { border-color: #bec9ef; color: #334ab4; }
 .native-layout-settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 16px; }
 .native-layout-settings-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; color: #536276; font-size: 12px; }
-.native-layout-grouping-field .ant-switch { align-self: flex-start; }
+.native-layout-grouping-field .ant-switch, .native-layout-toggle-field .ant-switch { align-self: flex-start; }
 .native-layout-routing-field { grid-column: 1 / -1; }
 .native-layout-settings-help { margin: 18px 0 0; color: #8a96a6; font-size: 11px; line-height: 1.6; }
 .canvas-kicker { font-size: 8px; letter-spacing: 1.15px; } .canvas-kicker span { color: #c0c6d0; margin: 0 3px; }

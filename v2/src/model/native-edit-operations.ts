@@ -260,6 +260,8 @@ const nativeEditOperationOptions = {
       .describe("Layout direction."),
     preserveLocalGrouping: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping)
       .describe("Keep confidently close, uncontained nodes together as a temporary cluster while allowing the cluster to move with the new layout direction."),
+    preserveCanvasOrigin: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin)
+      .describe("Keep the final native content bounding box aligned with its original top-left instead of translating it to the configured canvas margin."),
     nodeSpacing: z.number().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
     layerSpacing: z.number().min(10).max(800).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing).describe("Gap between ranks/layers."),
     edgeRouting: z.enum(["ORTHOGONAL", "POLYLINE", "SPLINES"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting).describe("Connector routing style where supported by the selected engine."),
@@ -380,7 +382,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
       };
       return "Auto-layout the active page using " + engineLabels[operation.engine] + " " + operation.algorithm +
         " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing +
-        ", preserve local grouping " + (operation.preserveLocalGrouping ? "on" : "off") + ").";
+        ", preserve local grouping " + (operation.preserveLocalGrouping ? "on" : "off") +
+        ", preserve canvas origin " + (operation.preserveCanvasOrigin ? "on" : "off") + ").";
     }
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
@@ -457,6 +460,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
           layoutPlan.algorithm === operation.algorithm &&
           layoutPlan.direction === operation.direction &&
           layoutPlan.preserveLocalGrouping === operation.preserveLocalGrouping &&
+          layoutPlan.preserveCanvasOrigin === operation.preserveCanvasOrigin &&
           layoutPlan.nodeSpacing === operation.nodeSpacing &&
           layoutPlan.layerSpacing === operation.layerSpacing &&
           layoutPlan.edgeRouting === operation.edgeRouting &&

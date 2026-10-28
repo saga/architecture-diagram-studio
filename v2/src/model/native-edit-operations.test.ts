@@ -183,14 +183,14 @@ describe("parseNativeEditOperations", () => {
   it("accepts a configurable Studio auto-layout operation and keeps it as a single-operation batch", () => {
     const parsed = parseNativeEditOperations([{
       op: "auto_layout", target: "active_page", engine: "elk", algorithm: "stress",
-      direction: "LEFT", preserveLocalGrouping: false, nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
+      direction: "LEFT", preserveLocalGrouping: false, preserveCanvasOrigin: true, nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
       iterations: 600, randomSeed: 42, margin: 24
     }]);
     expect(parsed).toMatchObject({
       ok: true,
       operations: [{
         op: "auto_layout", target: "active_page", engine: "elk", algorithm: "stress",
-        direction: "LEFT", preserveLocalGrouping: false, nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
+        direction: "LEFT", preserveLocalGrouping: false, preserveCanvasOrigin: true, nodeSpacing: 72, layerSpacing: 108, edgeRouting: "SPLINES",
         iterations: 600, randomSeed: 42, margin: 24
       }]
     });
@@ -207,7 +207,7 @@ describe("parseNativeEditOperations", () => {
     ["msagl", "layered"], ["cytoscape", "breadthfirst"], ["d3", "tree"]
   ] as const)("chooses an engine-specific default algorithm for %s when omitted", (engine, algorithm) => {
     const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine }]);
-    expect(parsed).toMatchObject({ ok: true, operations: [{ engine, algorithm, preserveLocalGrouping: true }] });
+    expect(parsed).toMatchObject({ ok: true, operations: [{ engine, algorithm, preserveLocalGrouping: true, preserveCanvasOrigin: false }] });
     expect(defaultNativeLayoutAlgorithm(engine)).toBe(algorithm);
   });
 
@@ -247,6 +247,24 @@ describe("parseNativeEditOperations", () => {
       algorithm: "layered",
       direction: "DOWN",
       preserveLocalGrouping: false
+    });
+    expect(toNativeCellEdits(resolved, XML, "p1", mismatchedPlan)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("does not match")
+    });
+  });
+
+  it("rejects a layout plan calculated with a different canvas-origin option", async () => {
+    const parsed = parseNativeEditOperations([{
+      op: "auto_layout", target: "active_page", engine: "dagre", direction: "DOWN", preserveCanvasOrigin: false
+    }]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation, cellId: "__active_page__", targetLabel: "active Draw.io page"
+    })) as ResolvedNativeEditOperation[];
+    const mismatchedPlan = await calculateNativeAutoLayout(XML, "p1", "a".repeat(64), {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", direction: "DOWN", preserveCanvasOrigin: true
     });
     expect(toNativeCellEdits(resolved, XML, "p1", mismatchedPlan)).toMatchObject({
       ok: false,
