@@ -294,4 +294,6 @@ const scriptScope = scriptChecksPassed
 3. **后置条件失败不再遮住序列化 XML 证据。** `DrawioFrame.tsx` 无条件运行 `validateNativeScriptResultAgainstXml` 和 before/after scope audit。失败结果现在可同时包含 postcondition 名称、XML 不匹配的 cell ID/字段和未声明变更，而不是只给出泛化的 assertions 错误。
 4. **补充回归测试并更新契约文档。** 覆盖精确+子串搜索合并、postconditions 失败时仍检查 XML、UserObject 包装标签的序列化验证；更新 ADR-0020 与 API 合约文档。
 
-本轮已提交的主要代码提交：`91b238cabd773bf32b3d445332d1d1639255507a`（搜索完整性）、`d5f64da3806b263efea23fea8caf9b2b15c4b603`（独立验证与诊断）、`fed40fbf571c6d1eb7e65b83fecbb8573fff78a4`（验证回归测试）。测试已添加，但尚未在本轮实际运行；不能据此宣称构建或测试已通过。
+本轮已提交的主要代码提交：`91b238cabd773bf32b3d445332d1d1639255507a`（搜索完整性）、`d5f64da3806b263efea23fea8caf9b2b15c4b603`（独立验证与诊断）、`fed40fbf571c6d1eb7e65b83fecbb8573fff78a4`（验证回归测试）、`0362b3c25f1cc39fb3fdb9c22a25ed800b719c9f`（恢复常驻提示词契约并保留 2800 字符上下文预算）。
+
+验证记录：CI 的 TypeScript `Type check` 已通过。第一次质量任务执行了 409 个测试，其中 406 个通过、3 个失败；失败项是压缩常驻提示词时移除了旧测试要求的契约短语，未指向新的搜索/XML 回归测试。已把必须保留的契约短语恢复到提示词，并将新 CI 触发为 [V2 CI run 40606566296](https://github.com/saga/architecture-diagram-studio/actions/runs/40606566296)。记录更新时该次 CI 仍在运行，因此尚不能声称全套测试或 E2E 已通过。
