@@ -462,8 +462,6 @@ export interface NativeScriptXmlCellAssertion {
   labelContains?: string;
   /** Studio-only assertion field: expected title substring inside the serialized label; not a Draw.io attribute. */
   expectedTitle?: string;
-  /** Studio-only predicate echo; the host recomputes this against serialized XML and requires labelContains or expectedTitle. */
-  labelContainsTitle?: boolean;
   parentId?: string | null;
   sourceId?: string | null;
   targetId?: string | null;
@@ -646,11 +644,10 @@ export function validateNativeScriptResultAgainstXml(
       fail({ kind: "invalid-document", index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
       return finish();
     }
-    // labelContains/expectedTitle/labelContainsTitle accept the earlier predicate-style
-    // assertions used by the title-translation workflow. Unknown extra keys are warnings,
-    // not a reason to discard otherwise independently verifiable facts.
+    // These are Studio-side assertion keys, not Draw.io cell attributes. expectedTitle
+    // is verified directly as a substring of the serialized label; no model-reported boolean echo is needed.
     const allowedFields = new Set([
-      "cellId", "exists", "kind", "label", "labelContains", "expectedTitle", "labelContainsTitle",
+      "cellId", "exists", "kind", "label", "labelContains", "expectedTitle",
       "parentId", "sourceId", "targetId", "style", "geometry"
     ]);
     const evidenceFieldsAllowed = new Set([
@@ -725,17 +722,6 @@ export function validateNativeScriptResultAgainstXml(
             "non-empty string", assertion[key]);
           shapeInvalid = true;
         }
-      }
-      if (assertion.labelContainsTitle !== undefined && typeof assertion.labelContainsTitle !== "boolean") {
-        invalid("labelContainsTitle", "labelContainsTitle must be a boolean checked against the serialized label.",
-          "boolean", assertion.labelContainsTitle);
-        shapeInvalid = true;
-      }
-      if (assertion.labelContainsTitle !== undefined &&
-          typeof assertion.expectedTitle !== "string" && typeof assertion.labelContains !== "string") {
-        invalid("labelContainsTitle", "labelContainsTitle requires expectedTitle or labelContains as the expected title.",
-          "expectedTitle or labelContains", assertion.labelContainsTitle);
-        shapeInvalid = true;
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
         if (assertion[key] !== undefined && assertion[key] !== null && typeof assertion[key] !== "string") {
@@ -852,15 +838,6 @@ export function validateNativeScriptResultAgainstXml(
         if (typeof expected !== "string") continue;
         if (!normalizedActualLabel.includes(normalizeLabel(expected))) {
           invalid(field, "Serialized label did not contain the expected title text.", expected, actualLabel, "mismatch");
-        }
-      }
-      if (typeof assertion.labelContainsTitle === "boolean") {
-        const expectedTitle = typeof assertion.expectedTitle === "string" ? assertion.expectedTitle : assertion.labelContains;
-        const actualContainsTitle = typeof expectedTitle === "string" &&
-          normalizedActualLabel.includes(normalizeLabel(expectedTitle));
-        if (assertion.labelContainsTitle !== actualContainsTitle) {
-          invalid("labelContainsTitle", "The serialized label title-containment result did not match.",
-            assertion.labelContainsTitle, actualContainsTitle, "mismatch");
         }
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
