@@ -1781,7 +1781,7 @@ export default function App() {
             <Button
               className="layout-settings-button"
               disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
-              title="Configure spacing and connector routing"
+              title="Configure local grouping, density, spacing and connector routing"
               aria-label="Advanced layout settings"
               onClick={() => setLayoutSettingsOpen(true)}
             >
