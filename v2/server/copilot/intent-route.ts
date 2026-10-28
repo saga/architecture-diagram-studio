@@ -742,6 +742,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           pageId: typeof context.activePageId === "string" ? context.activePageId : null,
           documentRevision: typeof context.documentRevision === "string" ? context.documentRevision : null,
           matchCount: matches.length,
+          returnedCount: results.length,
           truncated: matches.length > results.length,
           results,
           ...(matches.length > results.length ? {
