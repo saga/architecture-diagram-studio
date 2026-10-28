@@ -520,19 +520,26 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     // Draw.io's export protocol has no request correlation ID. Never dispatch a second
     // property mutation while a prior mutation is awaiting its XML serialization receipt:
     // otherwise one export could incorrectly acknowledge multiple unrelated edits.
-    if (pendingSaveConfirmationsRef.current.size > 0) {
+    if (pendingNativeEditsRef.current.size > 0 || pendingSaveConfirmationsRef.current.size > 0 ||
+        pendingAutoLayoutRef.current !== null || pendingNativePaletteRef.current !== null) {
       lastHandledCellEditRequestRef.current = cellEdit.requestId;
+      const blockingTransactions = [
+        ...Array.from(pendingNativeEditsRef.current.keys()).map((id) => `native-edit:${id}`),
+        ...Array.from(pendingSaveConfirmationsRef.current.keys()).map((id) => `serialization:${id}`),
+        ...(pendingAutoLayoutRef.current ? ["auto-layout"] : []),
+        ...(pendingNativePaletteRef.current ? ["palette"] : [])
+      ];
       onNativeEditResultRef.current?.({
         requestId: cellEdit.requestId,
         success: false,
         cellId: cellEdit.cellId,
         path: cellEdit.path,
         applicationState: "not-applied",
-        error: "Another native edit is still awaiting XML serialization. Wait for its confirmation before submitting another property edit."
+        error: "Another canvas transaction is still in flight. Wait for its completion before submitting another property edit."
       });
       recordDiagnostic("drawio.selection.property.blocked-pending-serialization",
         "Blocked a concurrent property edit because Draw.io XML export receipts cannot be correlated to individual requests",
-        { requestId: cellEdit.requestId, pendingRequestIds: Array.from(pendingSaveConfirmationsRef.current.keys()) }, "warn");
+        { requestId: cellEdit.requestId, blockingTransactions }, "warn");
       return;
     }
     lastHandledCellEditRequestRef.current = cellEdit.requestId;
