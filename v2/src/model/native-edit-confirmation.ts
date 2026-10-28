@@ -460,8 +460,6 @@ export interface NativeScriptXmlCellAssertion {
   label?: string;
   /** Expected substring of the serialized native label, including rich labels/user objects. */
   labelContains?: string;
-  /** Studio-only assertion field: expected title substring inside the serialized label; not a Draw.io attribute. */
-  expectedTitle?: string;
   parentId?: string | null;
   sourceId?: string | null;
   targetId?: string | null;
@@ -644,14 +642,14 @@ export function validateNativeScriptResultAgainstXml(
       fail({ kind: "invalid-document", index: null, field: "pageId", reason: "The requested page or native model was not found uniquely in the serialized XML.", expected: pageId, actual: scoped.length });
       return finish();
     }
-    // These are Studio-side assertion keys, not Draw.io cell attributes. expectedTitle
-    // is verified directly as a substring of the serialized label; no model-reported boolean echo is needed.
+    // These are Studio-side assertion keys, not Draw.io cell attributes. labelContains is
+    // the sole substring predicate; use it for titles embedded in rich labels as well.
     const allowedFields = new Set([
-      "cellId", "exists", "kind", "label", "labelContains", "expectedTitle",
+      "cellId", "exists", "kind", "label", "labelContains",
       "parentId", "sourceId", "targetId", "style", "geometry"
     ]);
     const evidenceFieldsAllowed = new Set([
-      "kind", "label", "labelContains", "expectedTitle", "parentId", "sourceId", "targetId", "style", "geometry"
+      "kind", "label", "labelContains", "parentId", "sourceId", "targetId", "style", "geometry"
     ]);
     const geometryFields = new Set(["x", "y", "width", "height", "relative", "points", "offset", "sourcePoint", "targetPoint"]);
 
@@ -715,7 +713,7 @@ export function validateNativeScriptResultAgainstXml(
         invalid("label", "label must be a string; an empty string is valid.", "string", assertion.label);
         shapeInvalid = true;
       }
-      for (const key of ["labelContains", "expectedTitle"] as const) {
+      for (const key of ["labelContains"] as const) {
         if (assertion[key] !== undefined &&
             (typeof assertion[key] !== "string" || !assertion[key].trim())) {
           invalid(key, key + " must be a non-empty string that the serialized label is expected to contain.",
@@ -830,15 +828,9 @@ export function validateNativeScriptResultAgainstXml(
           !(actualLabel === assertionLabel || normalizedActualLabel === normalizeLabel(assertionLabel))) {
         invalid("label", "Serialized label did not match.", assertionLabel, actualLabel, "mismatch");
       }
-      const titleExpectations = [
-        ["labelContains", assertion.labelContains],
-        ["expectedTitle", assertion.expectedTitle]
-      ] as const;
-      for (const [field, expected] of titleExpectations) {
-        if (typeof expected !== "string") continue;
-        if (!normalizedActualLabel.includes(normalizeLabel(expected))) {
-          invalid(field, "Serialized label did not contain the expected title text.", expected, actualLabel, "mismatch");
-        }
+      if (typeof assertion.labelContains === "string" &&
+          !normalizedActualLabel.includes(normalizeLabel(assertion.labelContains))) {
+        invalid("labelContains", "Serialized label did not contain the expected substring.", assertion.labelContains, actualLabel, "mismatch");
       }
       for (const key of ["parentId", "sourceId", "targetId"] as const) {
         if (assertion[key] === undefined) continue;
@@ -993,8 +985,7 @@ export function findUndeclaredNativeScriptChanges(
     if (!oldRecord || !nextRecord || !assertion) return ["cell assertion"];
     const missing: string[] = [];
     const hasLabelEvidence = matchesField(assertion, "label") ||
-      (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
-      (typeof assertion.expectedTitle === "string" && Boolean(assertion.expectedTitle.trim()));
+      (typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim()));
     if (changedFields.includes("label") && !hasLabelEvidence) missing.push("label");
     if (changedFields.includes("parent") && !matchesField(assertion, "parentId")) missing.push("parentId");
     if (changedFields.includes("source") && !matchesField(assertion, "sourceId")) missing.push("sourceId");
@@ -1051,8 +1042,7 @@ export function findUndeclaredNativeScriptChanges(
     }
     const assertion = assertionForCell(cell.id);
     const hasLabelEvidence = matchesField(assertion, "label") ||
-      (assertion !== null && typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim())) ||
-      (assertion !== null && typeof assertion.expectedTitle === "string" && Boolean(assertion.expectedTitle.trim()));
+      (assertion !== null && typeof assertion.labelContains === "string" && Boolean(assertion.labelContains.trim()));
     const missing = cell.kind === "vertex"
       ? ["kind"].filter((field) => !matchesField(assertion, field)).concat(hasLabelEvidence ? [] : ["label"])
       : cell.kind === "edge"
