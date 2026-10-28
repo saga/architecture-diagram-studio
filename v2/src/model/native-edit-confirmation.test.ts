@@ -2,7 +2,8 @@ import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import {
   declaredNativeScriptCellIds, findUndeclaredNativeScriptChanges, nativeEditIsReflectedInXml,
-  nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml
+  nativeScriptResultMatchesXml, summarizeNativeDiagramXmlDiff, validateNativeScriptResultAgainstXml,
+  type NativeScriptXmlCellAssertion
 } from "./native-edit-confirmation";
 
 const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
@@ -18,6 +19,24 @@ const styleAndGeometryEdited = before
   .replace('x="10" y="20" width="100" height="40"', 'x="40" y="20" width="140" height="50"');
 
 describe("native edit XML confirmation", () => {
+  it("keeps the exported assertion type aligned with rich-label and full geometry evidence", () => {
+    const assertion: NativeScriptXmlCellAssertion = {
+      cellId: "rich-edge",
+      labelContains: "AI agent",
+      chineseTitle: "AI agent 任务",
+      labelContainsTitle: true,
+      geometry: {
+        relative: true,
+        points: [{ x: 10, y: 20 }],
+        offset: { x: 0, y: null },
+        sourcePoint: null,
+        targetPoint: { x: 20, y: 30 }
+      }
+    };
+    expect(assertion.labelContainsTitle).toBe(true);
+    expect(assertion.geometry?.points?.[0]).toEqual({ x: 10, y: 20 });
+  });
+
   it("confirms the requested label value in the targeted cell", () => {
     expect(nativeEditIsReflectedInXml({
       beforeXml: before, xml: labelEdited, cellId: "api", pageId: "p1", path: "label", value: "New API"
