@@ -294,6 +294,23 @@ describe("native Draw.io script bridge", () => {
   });
 
 
+  it("rejects a typed rename that would silently strip rich-label formatting or placeholders", () => {
+    const harness = createHarness();
+    const wrapped = mockElement();
+    const richLabel = '<div>Task 7<br><span class="status">%status%</span></div>';
+    wrapped.setAttribute("label", richLabel);
+    wrapped.setAttribute("placeholders", "1");
+    harness.service.value = wrapped;
+
+    const result = harness.runOperation("service", "label", "AI agent 任务");
+
+    expect(result).toMatchObject({ event: "studioPropertyEditResult", success: false, batchRolledBack: true });
+    expect(String(result.error)).toContain("rich HTML label");
+    expect(String(result.error)).toContain("run_drawio_script");
+    expect(harness.service.value.getAttribute("label")).toBe(richLabel);
+    expect(harness.service.value.getAttribute("placeholders")).toBe("1");
+  });
+
   it("adds a node with Draw.io default styling and source-derived dimensions without inventing edge styling or rewriting its label", () => {
     const harness = createHarness();
     harness.service.geometry = mockGeometry(10, 20, 180, 90);
