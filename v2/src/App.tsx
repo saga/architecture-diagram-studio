@@ -1,5 +1,5 @@
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, Input, InputNumber, Layout, Modal, Select, Switch, theme as antdTheme } from "antd";
+import { App as AntApp, Button, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
 import type { ButtonHTMLAttributes, ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
@@ -10,12 +10,13 @@ import { isBareNativeGraphModel } from "./model/native-edit-operations";
 import { getDrawioXmlDiagnostics, isDrawioXmlDocument } from "./model/drawio-xml-source";
 import DrawioFrame, { DRAWIO_VERSION, DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, type DrawioFrameHandle, type NativeAutoLayoutOptions, type NativeHistoryState } from "./components/DrawioFrame";
 import NativeSelectionInspector from "./components/NativeSelectionInspector";
+import { LayoutSettingsFields } from "./components/LayoutSettingsFields";
 import WorkspacePages, { type WorkspacePage } from "./components/WorkspacePages";
 import { readDiagnosticEntries, recordDiagnostic, setDiagnosticScope } from "./diagnostics";
 import type { DiagnosticEntry } from "./diagnostics";
 import { useWorkspacePersistence, type WorkspaceSaveState } from "./hooks/useWorkspacePersistence";
 import { useWorkspaceBootstrap } from "./hooks/useWorkspaceBootstrap";
-import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_LAYOUT_DENSITY_PRESETS, nativeLayoutDensityForSpacing, type NativeLayoutCoverage, type NativeLayoutDensitySelection } from "./layout/native-layout";
+import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAlgorithmsForEngine, nativeLayoutSupportsDirection, nativeLayoutSupportsAlgorithm, NATIVE_AUTO_LAYOUT_ENGINES, type NativeLayoutCoverage } from "./layout/native-layout";
 import { spatialRegionAnalysisProvider } from "./layout/spatial-region-analysis";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
@@ -1898,140 +1899,19 @@ export default function App() {
           title="Layout settings"
           open={layoutSettingsOpen}
           onCancel={() => setLayoutSettingsOpen(false)}
+          width={640}
+          className="native-layout-settings-modal"
           footer={[
             <Button key="reset" onClick={() => setNativeLayoutOptions({ ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS })}>Reset</Button>,
             <Button key="done" type="primary" onClick={() => setLayoutSettingsOpen(false)}>Done</Button>
           ]}
         >
-          <div className="native-layout-settings-grid">
-            <label className="native-layout-settings-field native-layout-grouping-field">
-              <span>Preserve local grouping</span>
-              <Switch
-                aria-label="Preserve local grouping"
-                checked={nativeLayoutOptions.preserveLocalGrouping}
-                onChange={(preserveLocalGrouping) => setNativeLayoutOptions((current) => ({ ...current, preserveLocalGrouping }))}
-              />
-            </label>
-            <label className="native-layout-settings-field native-layout-relative-anchor-field">
-              <span>Preserve relative positions of selected cells</span>
-              <Switch
-                aria-label="Preserve relative positions of selected cells"
-                checked={nativeLayoutOptions.preserveRelativeAnchors}
-                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict" ||
-                  (!nativeLayoutOptions.preserveRelativeAnchors &&
-                    (selectedNativeCellIds.length < 2 || selectedNativeCellIds.length > 32))}
-                onChange={(preserveRelativeAnchors) => setNativeLayoutOptions((current) => ({ ...current, preserveRelativeAnchors }))}
-              />
-              <span className="native-layout-field-hint">
-                {selectedNativeCellIds.length < 2
-                  ? nativeLayoutOptions.preserveRelativeAnchors
-                    ? "Default is on; normal layout runs until at least 2 vertices are selected."
-                    : "Select at least 2 vertices to enable relative anchoring."
-                  : selectedNativeCellIds.length > 32
-                    ? nativeLayoutOptions.preserveRelativeAnchors
-                      ? "Normal layout runs with more than 32 selected; select up to 32 to anchor them."
-                      : "Select no more than 32 vertices."
-                    : selectedNativeCellIds.length + " selected vertex(es); the set can move together."}
-              </span>
-            </label>
-            <label className="native-layout-settings-field native-layout-toggle-field">
-              <span>Preserve canvas origin</span>
-              <Switch
-                aria-label="Preserve canvas origin"
-                checked={nativeLayoutOptions.preserveCanvasOrigin}
-                onChange={(preserveCanvasOrigin) => setNativeLayoutOptions((current) => ({ ...current, preserveCanvasOrigin }))}
-              />
-              <span className="native-layout-field-hint">
-                Keep the overall diagram content's top-left position; this does not pin individual cells.
-              </span>
-            </label>
-            <label className="native-layout-settings-field">
-              <span>Layout density</span>
-              <Select<NativeLayoutDensitySelection>
-                aria-label="Layout density"
-                value={nativeLayoutDensityForSpacing(nativeLayoutOptions.nodeSpacing, nativeLayoutOptions.layerSpacing)}
-                options={[
-                  { value: "COMPACT", label: "Compact" },
-                  { value: "BALANCED", label: "Balanced" },
-                  { value: "SPACIOUS", label: "Spacious" },
-                  { value: "CUSTOM", label: "Custom", disabled: true }
-                ]}
-                onChange={(density) => {
-                  if (density === "CUSTOM") return;
-                  const spacing = NATIVE_LAYOUT_DENSITY_PRESETS[density];
-                  setNativeLayoutOptions((current) => ({ ...current, ...spacing }));
-                }}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label className="native-layout-settings-field">
-              <span>Node spacing</span>
-              <InputNumber
-                aria-label="Node spacing"
-                min={5}
-                max={500}
-                step={5}
-                value={nativeLayoutOptions.nodeSpacing}
-                onChange={(value) => {
-                  if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, nodeSpacing: value }));
-                }}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label className="native-layout-settings-field">
-              <span>Layer spacing</span>
-              <InputNumber
-                aria-label="Layer spacing"
-                min={10}
-                max={800}
-                step={10}
-                disabled={!((nativeLayoutOptions.engine === "dagre") || (nativeLayoutOptions.engine === "elk" && nativeLayoutOptions.algorithm === "layered") || (nativeLayoutOptions.engine === "graphviz" && nativeLayoutOptions.algorithm === "dot") || (nativeLayoutOptions.engine === "msagl" && nativeLayoutOptions.algorithm === "layered") || (nativeLayoutOptions.engine === "d3" && (nativeLayoutOptions.algorithm === "tree" || nativeLayoutOptions.algorithm === "cluster")))}
-                value={nativeLayoutOptions.layerSpacing}
-                onChange={(value) => {
-                  if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, layerSpacing: value }));
-                }}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label className="native-layout-settings-field">
-              <span>Iterations</span>
-              <InputNumber aria-label="ELK iterations" min={20} max={3000} step={20}
-                disabled={!((nativeLayoutOptions.engine === "elk" && (nativeLayoutOptions.algorithm === "stress" || nativeLayoutOptions.algorithm === "force")) || (nativeLayoutOptions.engine === "d3" && nativeLayoutOptions.algorithm === "force") || (nativeLayoutOptions.engine === "cytoscape" && (nativeLayoutOptions.algorithm === "cose" || nativeLayoutOptions.algorithm === "fcose")) || (nativeLayoutOptions.engine === "msagl" && (nativeLayoutOptions.algorithm === "mds" || nativeLayoutOptions.algorithm === "ipsepcola")))}
-                value={nativeLayoutOptions.iterations}
-                onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, iterations: value })); }}
-                style={{ width: "100%" }} />
-            </label>
-            <label className="native-layout-settings-field">
-              <span>Random seed</span>
-              <InputNumber aria-label="Layout random seed" min={0} max={100000} step={1}
-                disabled={!((nativeLayoutOptions.engine === "elk" && (nativeLayoutOptions.algorithm === "stress" || nativeLayoutOptions.algorithm === "force")) || (nativeLayoutOptions.engine === "d3" && nativeLayoutOptions.algorithm === "force") || (nativeLayoutOptions.engine === "graphviz" && ["neato", "fdp", "sfdp"].includes(nativeLayoutOptions.algorithm)))}
-                value={nativeLayoutOptions.randomSeed}
-                onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, randomSeed: value })); }}
-                style={{ width: "100%" }} />
-            </label>
-            <label className="native-layout-settings-field">
-              <span>Canvas margin</span>
-              <InputNumber aria-label="Layout canvas margin" min={0} max={300} step={10}
-                value={nativeLayoutOptions.margin}
-                onChange={(value) => { if (typeof value === "number") setNativeLayoutOptions((current) => ({ ...current, margin: value })); }}
-                style={{ width: "100%" }} />
-            </label>
-            <label className="native-layout-settings-field native-layout-routing-field">
-              <span>Connector routing</span>
-              <Select<NativeAutoLayoutOptions["edgeRouting"]>
-                aria-label="Connector routing"
-                value={nativeLayoutOptions.edgeRouting}
-                options={[
-                  { value: "ORTHOGONAL", label: "Orthogonal" },
-                  { value: "POLYLINE", label: "Polyline" },
-                  { value: "SPLINES", label: "Curved / splines" }
-                ]}
-                onChange={(edgeRouting) => setNativeLayoutOptions((current) => ({ ...current, edgeRouting }))}
-                style={{ width: "100%" }}
-              />
-            </label>
-          </div>
-          <p className="native-layout-settings-help">Relative anchoring is on by default. When 2–32 vertices are selected, their pairwise direction and approximate distance are preserved while the set may move together; without a valid selection, ordinary layout still runs. Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Preserve canvas origin aligns the final content bounding box's top-left with its original canvas position rather than moving the result to the configured margin; it does not lock individual cells or preserve internal spacing. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Preferences are saved in this browser; selected anchor IDs are used only for the current layout run.</p>
+          <LayoutSettingsFields
+            options={nativeLayoutOptions}
+            onChange={(patch) => setNativeLayoutOptions((current) => ({ ...current, ...patch }))}
+            anchorSelectionCount={selectedNativeCellIds.length}
+            editorBlocked={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict"}
+          />
         </Modal>
 
         <div className="canvas-stage">

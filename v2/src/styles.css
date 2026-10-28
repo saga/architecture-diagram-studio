@@ -90,13 +90,58 @@ button:disabled { opacity: .58; cursor: wait; }
 .layout-direction-button.ant-btn, .layout-settings-button.ant-btn { box-shadow: none; font-size: 11px; padding-inline: 10px; }
 .layout-direction-button.ant-btn { color: #506075; }
 .layout-direction-button.ant-btn:hover, .layout-settings-button.ant-btn:hover { border-color: #bec9ef; color: #334ab4; }
-.native-layout-settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 16px; }
-.native-layout-settings-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; color: #536276; font-size: 12px; }
-.native-layout-grouping-field .ant-switch, .native-layout-toggle-field .ant-switch { align-self: flex-start; }
-.native-layout-relative-anchor-field .ant-switch { align-self: flex-start; }
-.native-layout-field-hint { color: #8a96a6; font-size: 10px; line-height: 1.4; }
-.native-layout-routing-field { grid-column: 1 / -1; }
-.native-layout-settings-help { margin: 18px 0 0; color: #8a96a6; font-size: 11px; line-height: 1.6; }
+/* Layout settings: one toggle axis, one 2-column input grid, one glossary. Every switch sits on the
+   same right-hand edge so the three containment options read as a list rather than a ragged grid. */
+.native-layout-settings-modal .ant-modal-body { padding-top: 4px; }
+/* The settings list is taller than a laptop viewport. Scroll the body, never the page, so the
+   Reset/Done footer stays reachable without hunting for it. */
+.native-layout-settings-modal .ant-modal-body {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+.native-layout-settings { display: flex; flex-direction: column; gap: 18px; }
+.native-layout-settings-section > h3 {
+  margin: 0 0 8px; font-size: 10px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: #97a2b1;
+}
+.native-layout-toggle-list { display: flex; flex-direction: column; }
+.native-layout-toggle-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start;
+  gap: 0 16px; padding: 9px 0; border-top: 1px solid #eef1f5;
+}
+.native-layout-toggle-row:first-child { padding-top: 0; border-top: none; }
+.native-layout-toggle-row:last-child { padding-bottom: 0; }
+/* The switch lines up with the label line, not with the middle of a two-line description. */
+.native-layout-toggle-row > .ant-switch { margin-top: 2px; }
+.native-layout-toggle-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.native-layout-toggle-title { font-size: 12px; font-weight: 500; color: #3f4c5e; }
+.native-layout-settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 16px; }
+.native-layout-settings-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: #536276; font-size: 12px; }
+.native-layout-settings-field > span { font-weight: 500; color: #3f4c5e; }
+.native-layout-field-hint { color: #8a96a6; font-size: 11px; line-height: 1.45; font-weight: 400; }
+.native-layout-settings-more { border-top: 1px solid #eef1f5; padding-top: 12px; }
+.native-layout-settings-more > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; color: #5d6b7e; user-select: none;
+}
+.native-layout-settings-more > summary::-webkit-details-marker { display: none; }
+.native-layout-settings-more > summary::before {
+  content: ""; width: 0; height: 0; border-left: 4px solid #9aa5b4;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform .12s ease;
+}
+.native-layout-settings-more[open] > summary::before { transform: rotate(90deg); }
+.native-layout-settings-more > summary:hover { color: #334ab4; }
+.native-layout-settings-notes {
+  margin: 12px 0 0; padding: 14px 16px; border: 1px solid #eef1f5; border-radius: 10px;
+  background: #fafbfd; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 22px; color: #7b8797; font-size: 11px; line-height: 1.5;
+}
+.native-layout-settings-notes > div { min-width: 0; }
+.native-layout-settings-notes dt { margin: 0 0 2px; font-weight: 600; color: #4a586b; }
+.native-layout-settings-notes dd { margin: 0; }
 .canvas-kicker { font-size: 8px; letter-spacing: 1.15px; } .canvas-kicker span { color: #c0c6d0; margin: 0 3px; }
 .canvas-subtitle { border-left: 1px solid #dfe4eb; padding-left: 10px; font-size: 10px; color: #8b97a7; font-weight: 400; letter-spacing: 0; }
 .canvas-tools { display: flex; align-items: center; gap: 9px; }
@@ -121,7 +166,7 @@ button:disabled { opacity: .58; cursor: wait; }
   .native-layout-field { flex: 1 1 150px; }
   .native-layout-select, .native-layout-algorithm.ant-select, .native-layout-direction.ant-select { width: 100%; }
   .native-layout-settings-grid { grid-template-columns: minmax(0, 1fr); }
-  .native-layout-routing-field { grid-column: auto; }
+  .native-layout-settings-notes { grid-template-columns: minmax(0, 1fr); }
 }
 .canvas-stage { position: relative; min-height: 250px; flex: 1; margin: 0; overflow: hidden; background: #fbfcfd; }
 .diagram-svg { width: 100%; height: 100%; display: block; touch-action: none; }
