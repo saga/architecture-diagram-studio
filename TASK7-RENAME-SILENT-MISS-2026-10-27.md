@@ -308,3 +308,8 @@ const scriptScope = scriptChecksPassed
 另外，普通元素搜索的默认返回上限从 5 提高到 10；当返回结果被截断时，工具明确禁止把子集当作“全部目标”，并引导通过 `inspect_drawio_graph` 按同一页和同一 `documentRevision` 分页，直到 `truncated:false`。另一个同类缺陷是精确 ID 命中会直接覆盖其余子串匹配；现在精确 ID 只提升排序，不会压掉其他含该查询文本的 cell。新增测试覆盖 12 个同名目标的截断、完整枚举，以及 `task-1` 不吞掉 `task-10` / `task-11`。
 
 补充修改已提交到 `main`；类型契约现在覆盖运行时支持的 `expectedTitle` 和完整几何断言字段。相关回归测试已增加，但本轮最终提交对应的 CI 尚未完成，不据此声称这些新增测试已经通过。
+
+
+### Follow-up：curated shape catalogue 的静默截断（2026-10-28）
+
+同类完整性问题也出现在 `search_drawio_shapes`：catalogue 搜索原先仅返回 limit 条，未告知总命中数或 `truncated`。模型容易把宽泛 query 的前几项当作完整候选集。现在底层新增 `searchDrawioShapeCatalogDetailed`，保留兼容的数组 API，同时返回 `matchCount`、`returnedCount`、`truncated`；Copilot 工具把这些字段显式传给模型，截断时指导缩小 query 或改用 live Draw.io 发现流程。C4 directory 的四个 bundle recipe 明确要求完整返回，并有测试验证 `truncated:false`。
