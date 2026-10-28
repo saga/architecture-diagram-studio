@@ -70,6 +70,8 @@ function loadNativeLayoutOptions(): NativeAutoLayoutOptions {
         ? saved.preserveLocalGrouping : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping,
       preserveCanvasOrigin: typeof saved.preserveCanvasOrigin === "boolean"
         ? saved.preserveCanvasOrigin : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin,
+      preserveRelativeAnchors: typeof saved.preserveRelativeAnchors === "boolean"
+        ? saved.preserveRelativeAnchors : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors,
       nodeSpacing: boundedNumber("nodeSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing, 5, 500),
       layerSpacing: boundedNumber("layerSpacing", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing, 10, 800),
       iterations: boundedNumber("iterations", DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.iterations, 20, 3000),
@@ -134,6 +136,8 @@ export default function App() {
     try { window.localStorage.removeItem("architecture-diagram-studio:v2:document"); } catch { /* Storage may be disabled. */ }
   }, []);
   const [selectedNativeCellId, setSelectedNativeCellId] = useState<string | null>(null);
+  const [selectedNativeCellIds, setSelectedNativeCellIds] = useState<string[]>([]);
+  const selectedNativeCellIdsRef = useRef<string[]>([]);
   const [selectedNativePageId, setSelectedNativePageId] = useState<string | null>(null);
   const [nativeHistoryState, setNativeHistoryState] = useState<NativeHistoryState>({ canUndo: false, canRedo: false });
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
@@ -1402,6 +1406,9 @@ export default function App() {
   async function runAutoLayout(overrides: Partial<NativeAutoLayoutOptions> = {}) {
     if (autoLayoutRunning) return;
     const options: NativeAutoLayoutOptions = { ...nativeLayoutOptions, ...overrides };
+    const selectedAnchorCellIds = options.preserveRelativeAnchors
+      ? Array.from(new Set(selectedNativeCellIdsRef.current)).sort()
+      : [];
     const algorithmLabel = NATIVE_LAYOUT_ENGINE_LABELS[options.engine] + " " + options.algorithm;
     const frame = drawioFrameRef.current;
     if (!frame) {
@@ -1457,7 +1464,10 @@ export default function App() {
       const ambiguousRegionCount = regionFindings.filter((finding) =>
         finding.ruleId === "spatial-region.overlap-ambiguous" || finding.ruleId === "spatial-region.membership-ambiguous"
       ).length;
-      const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options);
+      if (options.preserveRelativeAnchors && selectedNativePageId !== null && selectedNativePageId !== pageId) {
+        throw new Error("The selected anchor cells belong to another Draw.io page. Select the anchors on the active page and retry.");
+      }
+      const nativePlan = await calculateNativeAutoLayout(sourceXml, pageId, documentRevision, options, selectedAnchorCellIds);
       const latestState = latestDiagramStateRef.current;
       if (latestState.drawioXml !== sourceXml ||
           (latestState.selectedNativePageId !== null && latestState.selectedNativePageId !== pageId)) {
@@ -1470,6 +1480,13 @@ export default function App() {
       if (runtimeBeforeApply.documentRevision !== documentRevision || runtimeBeforeApply.pageId !== pageId) {
         throw new Error("The active Draw.io page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
+      if (options.preserveRelativeAnchors) {
+        const currentAnchorSelection = Array.from(new Set(selectedNativeCellIdsRef.current)).sort();
+        if (currentAnchorSelection.length !== selectedAnchorCellIds.length ||
+            currentAnchorSelection.some((id, index) => id !== selectedAnchorCellIds[index])) {
+          throw new Error("The selected anchor cells changed while Studio was calculating the layout. Nothing was applied; select the anchors and retry.");
+        }
+      }
       const coverage = nativePlan.coverage;
       plannedCoverage = coverage;
       plannedUnownedCellIds = nativePlan.unownedContainedVertexCellIds;
@@ -1479,6 +1496,9 @@ export default function App() {
         coverage, engine: options.engine, algorithm: options.algorithm, direction: options.direction,
         preserveLocalGrouping: options.preserveLocalGrouping,
         preserveCanvasOrigin: options.preserveCanvasOrigin,
+        preserveRelativeAnchors: options.preserveRelativeAnchors,
+        anchorCellIds: nativePlan.anchorCellIds,
+        anchorDiagnostics: nativePlan.anchorDiagnostics,
         nodeSpacing: options.nodeSpacing, layerSpacing: options.layerSpacing, edgeRouting: options.edgeRouting,
         iterations: options.iterations, randomSeed: options.randomSeed, margin: options.margin,
         vertexCount: nativePlan.positions.length, edgeCount: nativePlan.edgeRoutes.length,
@@ -1507,6 +1527,20 @@ export default function App() {
       const originSummary = options.preserveCanvasOrigin && coverage.sourceCoordinatesRetainedVertexCount === 0
         ? " · original content origin kept"
         : "";
+      const anchorDiagnostics = nativePlan.anchorDiagnostics;
+      const anchorSummary = options.preserveRelativeAnchors
+        ? " · relative anchors " + (anchorDiagnostics.outcome === "applied" ? "preserved" : "degraded") +
+          " (" + anchorDiagnostics.effectiveAnchorUnitCount + " units, max drift " +
+          anchorDiagnostics.maximumVectorDrift + " px" +
+          (anchorDiagnostics.directionalOrderViolations > 0 ? ", " + anchorDiagnostics.directionalOrderViolations + " direction violation(s)" : "") + ")"
+        : "";
+      if (options.preserveRelativeAnchors && anchorDiagnostics.outcome === "degraded") {
+        recordDiagnostic("drawio.layout.relative-anchors.degraded",
+          "The layout was applied, but the relative-anchor stability target was not fully met", {
+            pageId: nativePlan.pageId, anchorCellIds: nativePlan.anchorCellIds,
+            anchorDiagnostics, engine: options.engine, algorithm: options.algorithm
+          }, "warn");
+      }
       const containmentWarning = coverage.spatialRegionUnownedContainedVertexCount > 0
         ? " · warning: " + coverage.spatialRegionUnownedContainedVertexCount + " contained node(s) remain ungrouped"
         : "";
@@ -1514,7 +1548,7 @@ export default function App() {
       // twice is how the two views drifted apart: the trace used to carry only raw counters.
       const layoutSummary = "Auto layout · " + coverage.plannedVertexCount + "/" + coverage.sourceVertexCount +
         " nodes, " + coverage.plannedEdgeCount + "/" + coverage.sourceEdgeCount + " connectors" + untouchedSummary +
-        routingSummary + regionSummary + groupingSummary + retainedSummary + originSummary + containmentWarning;
+        routingSummary + regionSummary + groupingSummary + retainedSummary + originSummary + anchorSummary + containmentWarning;
       setLastAction(layoutSummary);
       // The message is the trace card title, so it carries the same sentence the canvas showed.
       // A generic "layout applied" line is why the status details never showed up in the trace list.
@@ -1854,6 +1888,23 @@ export default function App() {
                 onChange={(preserveLocalGrouping) => setNativeLayoutOptions((current) => ({ ...current, preserveLocalGrouping }))}
               />
             </label>
+            <label className="native-layout-settings-field native-layout-relative-anchor-field">
+              <span>Preserve relative positions of selected cells</span>
+              <Switch
+                aria-label="Preserve relative positions of selected cells"
+                checked={nativeLayoutOptions.preserveRelativeAnchors}
+                disabled={!nativeEditorReady || autoLayoutRunning || documentSaveState === "conflict" ||
+                  selectedNativeCellIds.length < 2 || selectedNativeCellIds.length > 32}
+                onChange={(preserveRelativeAnchors) => setNativeLayoutOptions((current) => ({ ...current, preserveRelativeAnchors }))}
+              />
+              <span className="native-layout-field-hint">
+                {selectedNativeCellIds.length < 2
+                  ? "Select at least 2 vertices on the canvas."
+                  : selectedNativeCellIds.length > 32
+                    ? "Select no more than 32 vertices."
+                    : selectedNativeCellIds.length + " selected vertex(es); anchors may move together."}
+              </span>
+            </label>
             <label className="native-layout-settings-field native-layout-toggle-field">
               <span>Preserve canvas origin</span>
               <Switch
@@ -1948,7 +1999,7 @@ export default function App() {
               />
             </label>
           </div>
-          <p className="native-layout-settings-help">Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Preserve canvas origin aligns the final content bounds with the original content bounds instead of shifting them to the configured margin. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Settings are saved in this browser.</p>
+          <p className="native-layout-settings-help">Preserve relative positions applies to the currently selected 2–32 vertices on the active canvas; it preserves their pairwise direction and approximate distance, allows the set to move together, and reports any degraded result. Preserve local grouping keeps confidently adjacent nodes together while allowing the group to move with the new layout. Preserve canvas origin aligns the final content bounds with the original content bounds instead of shifting them to the configured margin. Density presets update the existing node and layer spacing values; choose Custom to keep or edit exact values. Orthogonal routes avoid visible node bounds with a clearance margin. Polyline preserves engine-provided waypoint geometry; Curved renders those waypoints as a smooth path where supported. Preferences are saved in this browser; selected anchor IDs are used only for the current layout run.</p>
         </Modal>
 
         <div className="canvas-stage">
@@ -2292,8 +2343,11 @@ export default function App() {
                 }
               }
             }}
-            onSelectionChange={(cellId, pageId) => {
+            onSelectionChange={(cellId, pageId, vertexCellIds) => {
               setSelectedNativeCellId(cellId);
+              const canonicalVertexCellIds = Array.from(new Set(vertexCellIds)).sort();
+              selectedNativeCellIdsRef.current = canonicalVertexCellIds;
+              setSelectedNativeCellIds(canonicalVertexCellIds);
               setSelectedNativePageId(pageId);
               setDiagramTheme(detectDrawioDiagramTheme(latestDiagramStateRef.current.drawioXml, pageId));
             }}

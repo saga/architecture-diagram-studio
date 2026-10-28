@@ -291,7 +291,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const operations = plan.nativeEdits.operations;
         const layoutOperation = operations.length === 1 && operations[0].op === "auto_layout" ? operations[0] : undefined;
         const layoutPlan = layoutOperation
-          ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation)
+          ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
           : undefined;
         if (layoutOperation) {
           const currentState = getStateForResolvedPage();
@@ -706,7 +706,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       const layoutOperation = command.operations.length === 1 && command.operations[0].op === "auto_layout"
         ? command.operations[0] : undefined;
       const layoutPlan = layoutOperation
-        ? await calculateNativeAutoLayout(sourceXml, command.pageId, documentRevision, layoutOperation)
+        ? await calculateNativeAutoLayout(sourceXml, command.pageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
         : undefined;
       if (layoutOperation) {
         const stateAfterLayout = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };

@@ -262,6 +262,10 @@ const nativeEditOperationOptions = {
       .describe("Keep confidently close, uncontained nodes together as a temporary cluster while allowing the cluster to move with the new layout direction."),
     preserveCanvasOrigin: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin)
       .describe("Keep the final native content bounding box aligned with its original top-left instead of translating it to the configured canvas margin."),
+    preserveRelativeAnchors: z.boolean().default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors)
+      .describe("Preserve relative positions among the explicitly identified anchor cells; the anchors may translate together and are not pinned to absolute coordinates."),
+    anchorCellIds: z.array(z.string().trim().min(1).max(200)).max(32).default([])
+      .describe("Exact native vertex cell IDs selected as relative anchors for this layout run; provide 2–32 IDs only when preserveRelativeAnchors is true."),
     nodeSpacing: z.number().min(5).max(500).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.nodeSpacing).describe("Gap between peer nodes."),
     layerSpacing: z.number().min(10).max(800).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.layerSpacing).describe("Gap between ranks/layers."),
     edgeRouting: z.enum(["ORTHOGONAL", "POLYLINE", "SPLINES"]).default(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.edgeRouting).describe("Connector routing style where supported by the selected engine."),
@@ -326,11 +330,18 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
   const normalizedInput = input.map((raw) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
     const item = raw as Record<string, unknown>;
-    if (item.op !== "auto_layout" || typeof item.algorithm === "string") return raw;
+    if (item.op !== "auto_layout") return raw;
     const engine = NATIVE_AUTO_LAYOUT_ENGINES.includes(item.engine as NativeAutoLayoutEngine)
       ? item.engine as NativeAutoLayoutEngine
       : DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.engine;
-    return { ...item, algorithm: defaultNativeLayoutAlgorithm(engine) };
+    const anchorCellIds = Array.isArray(item.anchorCellIds) && item.anchorCellIds.every((id) => typeof id === "string")
+      ? Array.from(new Set((item.anchorCellIds as string[]).map((id) => id.trim()).filter(Boolean))).sort()
+      : item.anchorCellIds;
+    return {
+      ...item,
+      algorithm: typeof item.algorithm === "string" ? item.algorithm : defaultNativeLayoutAlgorithm(engine),
+      anchorCellIds
+    };
   });
   const parsed = NativeEditOperationBatchSchema.safeParse(normalizedInput);
   if (!parsed.success) {
@@ -355,6 +366,12 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
       }
       if (!nativeLayoutSupportsAlgorithm(operation.engine, operation.algorithm)) {
         return { ok: false, error: `Operation ${index + 1}: algorithm “${operation.algorithm}” is not supported by “${operation.engine}".` };
+      }
+      if (operation.preserveRelativeAnchors && operation.anchorCellIds.length < 2) {
+        return { ok: false, error: `Operation ${index + 1}: preserveRelativeAnchors requires at least two exact anchorCellIds.` };
+      }
+      if (!operation.preserveRelativeAnchors && operation.anchorCellIds.length > 0) {
+        return { ok: false, error: `Operation ${index + 1}: anchorCellIds require preserveRelativeAnchors=true.` };
       }
       operations.push(operation);
     } else {
@@ -383,7 +400,8 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
       return "Auto-layout the active page using " + engineLabels[operation.engine] + " " + operation.algorithm +
         " (" + operation.direction + ", node spacing " + operation.nodeSpacing + ", layer spacing " + operation.layerSpacing +
         ", preserve local grouping " + (operation.preserveLocalGrouping ? "on" : "off") +
-        ", preserve canvas origin " + (operation.preserveCanvasOrigin ? "on" : "off") + ").";
+        ", preserve canvas origin " + (operation.preserveCanvasOrigin ? "on" : "off") +
+        ", preserve relative anchors " + (operation.preserveRelativeAnchors ? "on for " + operation.anchorCellIds.length + " cell(s)" : "off") + ").";
     }
     case "move": return `Move “${target}” by ${operation.dx}, ${operation.dy}`;
     case "resize": return `Resize “${target}” to ${operation.width} × ${operation.height}`;
@@ -461,6 +479,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
           layoutPlan.direction === operation.direction &&
           layoutPlan.preserveLocalGrouping === operation.preserveLocalGrouping &&
           layoutPlan.preserveCanvasOrigin === operation.preserveCanvasOrigin &&
+          layoutPlan.preserveRelativeAnchors === operation.preserveRelativeAnchors &&
+          layoutPlan.anchorCellIds.length === operation.anchorCellIds.length &&
+          layoutPlan.anchorCellIds.every((id, index) => id === operation.anchorCellIds[index]) &&
           layoutPlan.nodeSpacing === operation.nodeSpacing &&
           layoutPlan.layerSpacing === operation.layerSpacing &&
           layoutPlan.edgeRouting === operation.edgeRouting &&

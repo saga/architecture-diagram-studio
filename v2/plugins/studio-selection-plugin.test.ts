@@ -134,6 +134,8 @@ function createHarness(options: { customShapeAvailable?: boolean; extraShapeClas
   let editorModifiedCalls = 0;
   let graphRefreshCalls = 0;
   let generatedCellCount = 0;
+  let selectedCells: MockCell[] = [];
+  const selectionChangeListeners: Array<() => void> = [];
   const graph: Record<string, any> = {
     gridSize: 10,
     background: null as string | null,
@@ -156,8 +158,8 @@ function createHarness(options: { customShapeAvailable?: boolean; extraShapeClas
       return created;
     },
     getModel: () => model,
-    getSelectionModel: () => ({ addListener: () => undefined }),
-    getSelectionCells: () => [],
+    getSelectionModel: () => ({ addListener: (_event: string, listener: () => void) => { selectionChangeListeners.push(listener); } }),
+    getSelectionCells: () => selectedCells,
     getDefaultParent: () => layer,
     setCellStyles: (key: string, value: string | null, cells: MockCell[]) => {
       for (const cell of cells) {
@@ -254,7 +256,18 @@ function createHarness(options: { customShapeAvailable?: boolean; extraShapeClas
     return messages.find((message) => message.event === "studioNativePaletteResult");
   }
 
-  return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect, runPalette,
+  function selectCells(cellIds: string[]) {
+    selectedCells = cellIds.map((id) => byId.get(id)).filter((cell): cell is MockCell => Boolean(cell));
+    messageHandler!({
+      source: parent,
+      origin: "http://studio.test",
+      data: JSON.stringify({ event: "studioDrawioWelcome" })
+    });
+    selectionChangeListeners.forEach((listener) => listener());
+    return messages.filter((message) => message.event === "studioSelectionChanged").slice(-1)[0];
+  }
+
+  return { rootEdge, nestedEdge, service, runScript, runOperation, runOperations, runRuntimeInspect, runPalette, selectCells,
     getBackground: () => graph.background,
     setBackground: (value: string | null) => { graph.background = value; },
     getCreatedCells: () => [...byId.values()].filter((cell) => cell.id.startsWith("created-")),
@@ -579,6 +592,19 @@ describe("native Draw.io script bridge", () => {
   });
 });
 
+
+describe("native Draw.io selection bridge", () => {
+  it("publishes all selected vertex IDs for relative-anchor layout without replacing the inspector's primary ID", () => {
+    const harness = createHarness();
+    const selection = harness.selectCells(["service", "edge-root", "database"]);
+    expect(selection).toMatchObject({
+      event: "studioSelectionChanged",
+      cellId: "service",
+      cellIds: ["service", "edge-root", "database"],
+      vertexCellIds: ["service", "database"]
+    });
+  });
+});
 
 describe("native Draw.io palette bridge", () => {
   it("allows theme colors on existing gradients and labels while preserving other native style keys", () => {

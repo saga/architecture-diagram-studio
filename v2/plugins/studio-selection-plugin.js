@@ -126,9 +126,15 @@
       var cells = typeof selectedGraph.getSelectionCells === "function" ? selectedGraph.getSelectionCells() : [];
       var cell = cells && cells.length ? cells[0] : null;
       var id = cell && (typeof cell.getId === "function" ? cell.getId() : cell.id);
+      var nativeCellIds = (cells || []).map(runtimeCellId).filter(Boolean);
+      var vertexCellIds = (cells || []).filter(function (selected) {
+        return !!selected && selected.vertex === true;
+      }).map(runtimeCellId).filter(Boolean);
       publish({
         event: "studioSelectionChanged",
         cellId: typeof id === "string" && id ? id : null,
+        cellIds: nativeCellIds,
+        vertexCellIds: vertexCellIds,
         pageId: currentPageId()
       });
       publishHistoryState();
@@ -439,7 +445,43 @@
       if (!Object.prototype.hasOwnProperty.call(supportedAlgorithms, plan.engine)) fail("Unsupported Studio layout engine.", true);
       if (!supportedAlgorithms[plan.engine].includes(plan.algorithm) || !["RIGHT", "LEFT", "DOWN", "UP"].includes(plan.direction) || ((plan.algorithm === "box" || plan.algorithm === "rectpacking") && plan.edgeRoutes.length > 0)) fail("Unsupported Studio layout algorithm or direction.", true);
       function boundedPlanNumber(value, min, max) { return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max; }
-      if (typeof plan.preserveLocalGrouping !== "boolean" || typeof plan.preserveCanvasOrigin !== "boolean" || !boundedPlanNumber(plan.nodeSpacing, 5, 500) || !boundedPlanNumber(plan.layerSpacing, 10, 800) || !boundedPlanNumber(plan.iterations, 20, 3000) || !boundedPlanNumber(plan.randomSeed, 0, 100000) || !Number.isInteger(plan.iterations) || !Number.isInteger(plan.randomSeed) || !boundedPlanNumber(plan.margin, 0, 300) || ["ORTHOGONAL", "POLYLINE", "SPLINES"].indexOf(plan.edgeRouting) < 0) fail("The Studio layout plan contains invalid or out-of-range configuration values.", true);
+      if (typeof plan.preserveLocalGrouping !== "boolean" || typeof plan.preserveCanvasOrigin !== "boolean" ||
+          typeof plan.preserveRelativeAnchors !== "boolean" || !Array.isArray(plan.anchorCellIds) ||
+          plan.anchorCellIds.length > 32 || !boundedPlanNumber(plan.nodeSpacing, 5, 500) ||
+          !boundedPlanNumber(plan.layerSpacing, 10, 800) || !boundedPlanNumber(plan.iterations, 20, 3000) ||
+          !boundedPlanNumber(plan.randomSeed, 0, 100000) || !Number.isInteger(plan.iterations) ||
+          !Number.isInteger(plan.randomSeed) || !boundedPlanNumber(plan.margin, 0, 300) ||
+          ["ORTHOGONAL", "POLYLINE", "SPLINES"].indexOf(plan.edgeRouting) < 0) fail("The Studio layout plan contains invalid or out-of-range configuration values.", true);
+      if ((!plan.preserveRelativeAnchors && plan.anchorCellIds.length !== 0) ||
+          (plan.preserveRelativeAnchors && plan.anchorCellIds.length < 2)) fail("The Studio layout plan's relative-anchor selection does not match its settings.", true);
+      var anchorDiagnostics = plan.anchorDiagnostics;
+      if (!anchorDiagnostics || typeof anchorDiagnostics !== "object" ||
+          ["not-requested", "applied", "degraded"].indexOf(anchorDiagnostics.outcome) < 0 ||
+          !Number.isInteger(anchorDiagnostics.requestedAnchorCount) ||
+          !Number.isInteger(anchorDiagnostics.resolvedAnchorCount) ||
+          !Number.isInteger(anchorDiagnostics.effectiveAnchorUnitCount) ||
+          !Number.isInteger(anchorDiagnostics.evaluatedPairCount) ||
+          !boundedPlanNumber(anchorDiagnostics.maximumVectorDrift, 0, 10000000) ||
+          !boundedPlanNumber(anchorDiagnostics.meanVectorDrift, 0, 10000000) ||
+          !boundedPlanNumber(anchorDiagnostics.toleranceBandPx, 0, 100000) ||
+          !Number.isInteger(anchorDiagnostics.directionalOrderViolations) ||
+          !Number.isInteger(anchorDiagnostics.refinementIterations) ||
+          !Number.isInteger(anchorDiagnostics.collisionAdjustments) ||
+          anchorDiagnostics.refinementIterations < 0 || anchorDiagnostics.refinementIterations > 200 ||
+          anchorDiagnostics.directionalOrderViolations < 0 || anchorDiagnostics.collisionAdjustments < 0) {
+        fail("The Studio layout plan's relative-anchor diagnostics are invalid.", true);
+      }
+      if (plan.preserveRelativeAnchors &&
+          (anchorDiagnostics.outcome === "not-requested" ||
+           anchorDiagnostics.requestedAnchorCount !== plan.anchorCellIds.length ||
+           anchorDiagnostics.resolvedAnchorCount !== plan.anchorCellIds.length ||
+           anchorDiagnostics.effectiveAnchorUnitCount < 2 ||
+           anchorDiagnostics.evaluatedPairCount !== anchorDiagnostics.effectiveAnchorUnitCount * (anchorDiagnostics.effectiveAnchorUnitCount - 1) / 2)) {
+        fail("The Studio layout plan's relative-anchor result is incomplete or inconsistent.", true);
+      }
+      if (!plan.preserveRelativeAnchors && anchorDiagnostics.outcome !== "not-requested") {
+        fail("The Studio layout plan reports anchor optimization when relative-anchor mode is disabled.", true);
+      }
       if (typeof plan.documentRevision !== "string" || !/^[a-f0-9]{64}$/i.test(plan.documentRevision)) fail("The Studio layout plan is not bound to a valid native XML revision.", true);
       if (plan.positions.length < 1 || plan.positions.length > 5000 || plan.expectedPageCellIds.length > 20000 || plan.expectedCells.length > 10000 || plan.edgeRoutes.length > 10000) fail("The Studio layout plan exceeds native editor limits.", true);
       var livePageId = currentPageId();
@@ -461,6 +503,17 @@
       var expectedIds = plan.expectedPageCellIds.slice().map(String).sort();
       var liveIds = liveCells.map(runtimeCellId).filter(Boolean).sort();
       if (expectedIds.length !== liveIds.length || expectedIds.some(function (id, index) { return id !== liveIds[index]; })) fail("The native page's cell set changed while the layout was being calculated. No layout was applied.", true);
+      var seenAnchorCellIds = Object.create(null);
+      plan.anchorCellIds.forEach(function (anchorCellId) {
+        if (typeof anchorCellId !== "string" || !anchorCellId || seenAnchorCellIds[anchorCellId]) {
+          fail("The relative-anchor list contains an empty or duplicate native cell ID.", true);
+        }
+        seenAnchorCellIds[anchorCellId] = true;
+        var anchorCell = liveById[anchorCellId];
+        if (!anchorCell || !anchorCell.vertex || !anchorCell.geometry) {
+          fail("A relative anchor is missing or is not a native vertex with geometry: " + anchorCellId, true);
+        }
+      });
       function near(actual, expected) { return Number.isFinite(Number(actual)) && Math.abs(Number(actual) - Number(expected)) < 0.02; }
       plan.expectedCells.forEach(function (expected) {
         var cell = liveById[expected.cellId];

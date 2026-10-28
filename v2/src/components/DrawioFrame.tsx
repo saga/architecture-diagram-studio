@@ -193,7 +193,7 @@ interface Props {
   onNativeEditResult?: (result: NativeEditResult) => void;
   xml: string;
   onDocumentChange: (nativeXml: string) => void;
-  onSelectionChange: (cellId: string | null, pageId: string | null) => void;
+  onSelectionChange: (cellId: string | null, pageId: string | null, vertexCellIds: string[]) => void;
   onHistoryStateChange?: (state: NativeHistoryState) => void;
   cellEdit: CellPropertyEdit | null;
   /** Reports the embed handshake state so the app's single status bar can show it. */
@@ -667,7 +667,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       if (data.event === "studioSelectionChanged") {
         const cellId = typeof data.cellId === "string" && data.cellId ? data.cellId : null;
         const pageId = typeof data.pageId === "string" && data.pageId ? data.pageId : null;
-        onSelectionChangeRef.current(cellId, pageId);
+        const vertexCellIds = Array.isArray(data.vertexCellIds)
+          ? Array.from(new Set(data.vertexCellIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0))).slice(0, 200)
+          : [];
+        onSelectionChangeRef.current(cellId, pageId, vertexCellIds);
       }
       if (data.event === "studioHistoryState") {
         onHistoryStateChangeRef.current?.({ canUndo: data.canUndo === true, canRedo: data.canRedo === true });

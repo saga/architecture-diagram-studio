@@ -211,6 +211,26 @@ describe("parseNativeEditOperations", () => {
     expect(defaultNativeLayoutAlgorithm(engine)).toBe(algorithm);
   });
 
+  it("accepts relative-anchor IDs only when relative-anchor preservation is enabled", () => {
+    expect(parseNativeEditOperations([{
+      op: "auto_layout", target: "active_page", engine: "elk",
+      preserveRelativeAnchors: true, anchorCellIds: ["anchor-b", "anchor-a", "anchor-a"]
+    }])).toMatchObject({
+      ok: true,
+      operations: [{
+        op: "auto_layout",
+        preserveRelativeAnchors: true,
+        anchorCellIds: ["anchor-a", "anchor-b"]
+      }]
+    });
+    expect(parseNativeEditOperations([{
+      op: "auto_layout", target: "active_page", engine: "elk", preserveRelativeAnchors: true
+    }])).toMatchObject({ ok: false, error: expect.stringContaining("requires at least two") });
+    expect(parseNativeEditOperations([{
+      op: "auto_layout", target: "active_page", engine: "elk", anchorCellIds: ["anchor-a", "anchor-b"]
+    }])).toMatchObject({ ok: false, error: expect.stringContaining("require preserveRelativeAnchors=true") });
+  });
+
   it("rejects an unsupported Dagre algorithm rather than silently mapping it to layered", () => {
     expect(parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", algorithm: "radial" }]))
       .toMatchObject({ ok: false, error: expect.stringContaining("does not support") });

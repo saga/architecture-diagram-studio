@@ -84,6 +84,74 @@ describe("Studio-owned native-cell layout", () => {
     expect(nativeLayoutDensityForSpacing(77, 101)).toBe("CUSTOM");
     expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveLocalGrouping).toBe(true);
     expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveCanvasOrigin).toBe(false);
+    expect(DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS.preserveRelativeAnchors).toBe(false);
+  });
+
+  it("preserves selected vertices' pairwise relative geometry while allowing the anchor set to move", async () => {
+    const anchorXml = `<mxfile host="test"><diagram id="relative-anchors" name="Relative anchors"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="anchor-a" value="Anchor A" vertex="1" parent="1"><mxGeometry x="40" y="80" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="relay" value="Relay" vertex="1" parent="1"><mxGeometry x="220" y="420" width="90" height="45" as="geometry"/></mxCell>
+      <mxCell id="anchor-b" value="Anchor B" vertex="1" parent="1"><mxGeometry x="430" y="220" width="100" height="50" as="geometry"/></mxCell>
+      <mxCell id="edge-a-relay" edge="1" parent="1" source="anchor-a" target="relay"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="edge-relay-b" edge="1" parent="1" source="relay" target="anchor-b"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(anchorXml, "relative-anchors", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "elk",
+      algorithm: "layered",
+      preserveLocalGrouping: false,
+      preserveRelativeAnchors: true
+    }, ["anchor-a", "anchor-b"]);
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    const a = positions.get("anchor-a")!;
+    const b = positions.get("anchor-b")!;
+    const sourceDx = (430 + 100 / 2) - (40 + 80 / 2);
+    const sourceDy = (220 + 50 / 2) - (80 + 40 / 2);
+    const outputDx = (b.x + 100 / 2) - (a.x + 80 / 2);
+    const outputDy = (b.y + 50 / 2) - (a.y + 40 / 2);
+    expect(Math.hypot(outputDx - sourceDx, outputDy - sourceDy)).toBeLessThanOrEqual(25);
+    expect(plan.anchorCellIds).toEqual(["anchor-a", "anchor-b"]);
+    expect(plan.anchorDiagnostics).toMatchObject({
+      outcome: "applied",
+      requestedAnchorCount: 2,
+      resolvedAnchorCount: 2,
+      effectiveAnchorUnitCount: 2,
+      evaluatedPairCount: 1,
+      directionalOrderViolations: 0
+    });
+  });
+
+  it("rejects relative anchoring with fewer than two selected cells or an invalid ID", async () => {
+    const options = { ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, preserveRelativeAnchors: true };
+    await expect(calculateNativeAutoLayout(xml, "page-1", revision, options, ["api"]))
+      .rejects.toThrow("between 2 and 32");
+    await expect(calculateNativeAutoLayout(xml, "page-1", revision, options, ["api", "missing"]))
+      .rejects.toThrow("missing, hidden, non-vertex or has no geometry");
+  });
+
+  it("does not reflow a local cluster's internal axis when an anchor belongs to that cluster", async () => {
+    const localGroupingXml = `<mxfile host="test"><diagram id="anchored-cluster" name="Anchored cluster"><mxGraphModel><root>
+      <mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="peer-a" value="Peer A" vertex="1" parent="1"><mxGeometry x="100" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-b" value="Peer B" vertex="1" parent="1"><mxGeometry x="190" y="100" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="peer-c" value="Peer C" vertex="1" parent="1"><mxGeometry x="145" y="150" width="80" height="40" as="geometry"/></mxCell>
+      <mxCell id="outside" value="Outside" vertex="1" parent="1"><mxGeometry x="500" y="100" width="90" height="45" as="geometry"/></mxCell>
+      <mxCell id="peer-inner" edge="1" parent="1" source="peer-a" target="peer-b"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="peer-to-outside" edge="1" parent="1" source="peer-b" target="outside"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel></diagram></mxfile>`;
+    const plan = await calculateNativeAutoLayout(localGroupingXml, "anchored-cluster", revision, {
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS,
+      engine: "elk",
+      algorithm: "layered",
+      preserveLocalGrouping: true,
+      preserveRelativeAnchors: true,
+      direction: "DOWN"
+    }, ["peer-a", "outside"]);
+    const positions = new Map(plan.positions.map((position) => [position.cellId, position] as const));
+    expect(plan.coverage.spatialAdjacencyClusterCount).toBe(1);
+    expect(positions.get("peer-b")!.x - positions.get("peer-a")!.x).toBeCloseTo(90, 5);
+    expect(positions.get("peer-b")!.y - positions.get("peer-a")!.y).toBeCloseTo(0, 5);
   });
 
   it("keeps close uncontained siblings together as a transient cluster when enabled", async () => {

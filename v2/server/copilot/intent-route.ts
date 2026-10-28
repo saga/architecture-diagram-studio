@@ -531,6 +531,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         preserveLocalGrouping: operation.preserveLocalGrouping,
         preserveCanvasOrigin: operation.preserveCanvasOrigin,
+        preserveRelativeAnchors: operation.preserveRelativeAnchors,
+        anchorCellIds: operation.anchorCellIds,
         nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
         iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {})
     }));

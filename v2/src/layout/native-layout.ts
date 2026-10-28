@@ -89,6 +89,8 @@ export interface NativeAutoLayoutOptions {
   preserveLocalGrouping: boolean;
   /** Keep the final native content bounding box anchored to the source bounding box's top-left. */
   preserveCanvasOrigin: boolean;
+  /** Preserve relative geometry among the explicitly selected anchor cells while allowing the set to move. */
+  preserveRelativeAnchors: boolean;
   nodeSpacing: number;
   layerSpacing: number;
   edgeRouting: NativeAutoLayoutEdgeRouting;
@@ -103,6 +105,7 @@ export const DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS: NativeAutoLayoutOptions = {
   direction: "RIGHT",
   preserveLocalGrouping: true,
   preserveCanvasOrigin: false,
+  preserveRelativeAnchors: false,
   nodeSpacing: 64,
   layerSpacing: 90,
   edgeRouting: "ORTHOGONAL",
@@ -186,7 +189,26 @@ export interface NativeLayoutCoverage {
   sourceCoordinatesRetainedVertexCount: number;
 }
 
+export type NativeRelativeAnchorOutcome = "not-requested" | "applied" | "degraded";
+export interface NativeRelativeAnchorDiagnostics {
+  outcome: NativeRelativeAnchorOutcome;
+  requestedAnchorCount: number;
+  resolvedAnchorCount: number;
+  effectiveAnchorUnitCount: number;
+  evaluatedPairCount: number;
+  maximumVectorDrift: number;
+  meanVectorDrift: number;
+  toleranceBandPx: number;
+  directionalOrderViolations: number;
+  refinementIterations: number;
+  collisionAdjustments: number;
+}
+
 export interface NativeLayoutPlan extends NativeAutoLayoutOptions {
+  /** Per-run native cell IDs selected for relative anchoring; never stored as user preferences. */
+  anchorCellIds: string[];
+  /** Measured result of the relative-anchor stability pass. */
+  anchorDiagnostics: NativeRelativeAnchorDiagnostics;
   /** Native page scope so the UI can report what will change and what remains untouched. */
   coverage: NativeLayoutCoverage;
   documentRevision: string;
@@ -392,7 +414,8 @@ function detectSpatialAdjacencyClusters(
   allCells: ProjectedCell[],
   protectedCellIds: Set<string>,
   nodeSpacing: number,
-  direction: NativeAutoLayoutDirection | null
+  direction: NativeAutoLayoutDirection | null,
+  preserveInternalGeometryCellIds: ReadonlySet<string>
 ): SpatialAdjacencyLayoutCluster[] {
   const candidates = vertices.filter((cell) =>
     !protectedCellIds.has(cell.id) && cell.kind === "vertex" && cell.visible &&
@@ -494,9 +517,12 @@ function detectSpatialAdjacencyClusters(
     const centerYValues = members.map((member) => member.y + member.height / 2);
     const horizontalCenterCoordinatesAreDistinct = new Set(centerXValues.map((value) => Math.round(value * 1000))).size === members.length;
     const verticalCenterCoordinatesAreDistinct = new Set(centerYValues.map((value) => Math.round(value * 1000))).size === members.length;
-    const reflowRowToColumn = direction !== null && targetVertical && clearlyWide &&
+    // Explicitly anchored members retain their local offsets for this run; rotating/reflowing
+    // the inferred cluster would contradict the user's selected relative-geometry constraint.
+    const hasAnchoredMember = members.some((member) => preserveInternalGeometryCellIds.has(member.id));
+    const reflowRowToColumn = !hasAnchoredMember && direction !== null && targetVertical && clearlyWide &&
       sourceHeight <= maxMemberHeight * 1.3 && horizontalCenterCoordinatesAreDistinct;
-    const reflowColumnToRow = direction !== null && !targetVertical && clearlyTall &&
+    const reflowColumnToRow = !hasAnchoredMember && direction !== null && !targetVertical && clearlyTall &&
       sourceWidth <= maxMemberWidth * 1.3 && verticalCenterCoordinatesAreDistinct;
     let oriented: Array<{ cellId: string; x: number; y: number; width: number; height: number }>;
     let axisTransform: SpatialAdjacencyAxisTransform | null = null;
@@ -627,7 +653,8 @@ function projectNativePage(
   requestedPageId: string | null,
   preserveLocalGrouping: boolean,
   nodeSpacing: number,
-  direction: NativeAutoLayoutDirection | null
+  direction: NativeAutoLayoutDirection | null,
+  preserveInternalGeometryCellIds: ReadonlySet<string>
 ): NativePageProjection {
   const parsed = parseGraphModel(xml, requestedPageId);
   const cells = Array.from(parsed.model.getElementsByTagName("mxCell")) as Element[];
@@ -756,7 +783,7 @@ function projectNativePage(
   vertices = vertices.filter((cell) => !spatialRegionMemberIds.has(cell.id));
   const hasSourceEdges = all.some((cell) => cell.kind === "edge");
   const spatialAdjacencyClusters = preserveLocalGrouping
-    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing, hasSourceEdges ? direction : null)
+    ? detectSpatialAdjacencyClusters(vertices, all, protectedRegionCellIds, nodeSpacing, hasSourceEdges ? direction : null, preserveInternalGeometryCellIds)
     : [];
   const spatialAdjacencyMemberIds = new Set(spatialAdjacencyClusters.flatMap((cluster) => cluster.memberCellIds));
   const adjacencyOwnerByMemberId = new Map<string, string>();
@@ -1011,7 +1038,9 @@ function normalizePlan(
   documentRevision: string,
   positions: Map<string, Point>,
   routes: Map<string, Point[]>,
-  retainSourceCoordinates: boolean
+  retainSourceCoordinates: boolean,
+  anchorCellIds: string[],
+  anchorDiagnostics: NativeRelativeAnchorDiagnostics
 ): NativeLayoutPlan {
   if (projection.layoutVertices.length === 0) {
     throw new Error("No top-level native Draw.io vertices with geometry were found on the active page. Nested group contents and nonstandard cells are intentionally left untouched.");
@@ -1653,6 +1682,8 @@ function normalizePlan(
 
   return {
     ...options,
+    anchorCellIds,
+    anchorDiagnostics,
     direction: mapDirection(options.direction),
     documentRevision,
     pageId: projection.pageId,
@@ -1701,6 +1732,283 @@ function normalizePlan(
   };
 }
 
+
+interface ResolvedRelativeAnchor {
+  cellId: string;
+  unitId: string;
+  sourceCenter: Point;
+  offsetFromUnit: Point;
+}
+
+/**
+ * Refines a base engine layout with engine-independent relative anchor constraints.
+ * The optimizer changes movable layout-unit positions jointly; it never pins anchors to
+ * absolute source coordinates. All constraints use source geometry from this revision.
+ */
+function optimizeRelativeAnchorPositions(
+  projection: NativePageProjection,
+  positions: Map<string, Point>,
+  anchorCellIds: string[],
+  enabled: boolean
+): { diagnostics: NativeRelativeAnchorDiagnostics; changed: boolean } {
+  const emptyDiagnostics: NativeRelativeAnchorDiagnostics = {
+    outcome: "not-requested", requestedAnchorCount: 0, resolvedAnchorCount: 0,
+    effectiveAnchorUnitCount: 0, evaluatedPairCount: 0, maximumVectorDrift: 0,
+    meanVectorDrift: 0, toleranceBandPx: 0, directionalOrderViolations: 0,
+    refinementIterations: 0, collisionAdjustments: 0
+  };
+  if (!enabled) {
+    if (anchorCellIds.length > 0) {
+      throw new Error("Relative anchor cell IDs were supplied while relative-anchor mode is disabled.");
+    }
+    return { diagnostics: emptyDiagnostics, changed: false };
+  }
+
+  const selectedIds = Array.from(new Set(anchorCellIds.map((id) => String(id).trim()).filter(Boolean))).sort();
+  if (selectedIds.length < 2) {
+    throw new Error("Preserve relative positions requires at least two selected vertex cells on the active Draw.io page.");
+  }
+  if (selectedIds.length > 32) {
+    throw new Error("Relative anchoring supports at most 32 selected cells per layout run.");
+  }
+
+  const allById = new Map(projection.allCells.map((cell) => [cell.id, cell] as const));
+  const unitsById = new Map(projection.layoutVertices.map((unit) => [unit.id, unit] as const));
+  const regionOwnerByMemberId = new Map<string, string>();
+  for (const region of projection.spatialRegions) {
+    for (const memberId of region.memberCellIds) regionOwnerByMemberId.set(memberId, region.regionCellId);
+  }
+  const adjacencyOwnerByMemberId = new Map<string, string>();
+  for (const cluster of projection.spatialAdjacencyClusters) {
+    for (const memberId of cluster.memberCellIds) adjacencyOwnerByMemberId.set(memberId, cluster.proxy.id);
+  }
+
+  const sourceAbsoluteCenter = (cellId: string): Point | null => {
+    let current = allById.get(cellId);
+    if (!current || current.kind !== "vertex" || !current.hasGeometry || !current.visible ||
+        current.width <= 0 || current.height <= 0) return null;
+    let x = 0;
+    let y = 0;
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      x += current.x;
+      y += current.y;
+      if (current.parentId === projection.layoutLayerId) {
+        return { x: x + current.width / 2, y: y + current.height / 2 };
+      }
+      current = current.parentId ? allById.get(current.parentId) : undefined;
+    }
+    return null;
+  };
+
+  const resolveUnitId = (cellId: string): string | null => {
+    let current = allById.get(cellId);
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      if (unitsById.has(current.id)) return current.id;
+      const regionOwner = regionOwnerByMemberId.get(current.id);
+      if (regionOwner && unitsById.has(regionOwner)) return regionOwner;
+      const adjacencyOwner = adjacencyOwnerByMemberId.get(current.id);
+      if (adjacencyOwner && unitsById.has(adjacencyOwner)) return adjacencyOwner;
+      current = current.parentId ? allById.get(current.parentId) : undefined;
+    }
+    return null;
+  };
+
+  const resolved: ResolvedRelativeAnchor[] = [];
+  for (const cellId of selectedIds) {
+    const cell = allById.get(cellId);
+    if (!cell || cell.kind !== "vertex" || !cell.hasGeometry || !cell.visible) {
+      throw new Error("Relative anchor “" + cellId + "” is missing, hidden, non-vertex or has no geometry on the active page.");
+    }
+    const unitId = resolveUnitId(cellId);
+    const center = sourceAbsoluteCenter(cellId);
+    const unit = unitId ? unitsById.get(unitId) : undefined;
+    if (!unitId || !unit || !center) {
+      throw new Error("Relative anchor “" + cellId + "” cannot be mapped unambiguously to a movable layout unit. Select visible top-level vertices or cells inside an eligible group/container.");
+    }
+    resolved.push({
+      cellId, unitId, sourceCenter: center,
+      offsetFromUnit: { x: center.x - unit.x, y: center.y - unit.y }
+    });
+  }
+
+  // Several selected children may belong to one atomic region or local cluster. Such a unit
+  // already preserves those children internally; choose one stable representative for its
+  // external pair constraints instead of counting redundant pairs as independent constraints.
+  const representativeByUnitId = new Map<string, ResolvedRelativeAnchor>();
+  for (const anchor of resolved) {
+    if (!representativeByUnitId.has(anchor.unitId)) representativeByUnitId.set(anchor.unitId, anchor);
+  }
+  const anchors = Array.from(representativeByUnitId.values()).sort((a, b) => a.unitId.localeCompare(b.unitId));
+  if (anchors.length < 2) {
+    throw new Error("The selected cells belong to fewer than two movable layout units. Select cells from at least two independent groups or nodes.");
+  }
+  const anchorUnitIds = new Set(anchors.map((anchor) => anchor.unitId));
+  const pairs: Array<{ a: ResolvedRelativeAnchor; b: ResolvedRelativeAnchor; dx: number; dy: number; tolerance: number }> = [];
+  for (let i = 0; i < anchors.length; i += 1) {
+    for (let j = i + 1; j < anchors.length; j += 1) {
+      const a = anchors[i];
+      const b = anchors[j];
+      const dx = b.sourceCenter.x - a.sourceCenter.x;
+      const dy = b.sourceCenter.y - a.sourceCenter.y;
+      const distance = Math.hypot(dx, dy);
+      pairs.push({ a, b, dx, dy, tolerance: Math.min(24, Math.max(8, distance * 0.03)) });
+    }
+  }
+  const sourceByUnitId = new Map(projection.layoutVertices.map((unit) => [unit.id, { x: unit.x, y: unit.y }] as const));
+  let refinementIterations = 0;
+  let collisionAdjustments = 0;
+  let stableIterations = 0;
+  let changed = false;
+
+  const overlap = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => ({
+    x: Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x),
+    y: Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+  });
+  const hasAreaOverlap = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => {
+    const amount = overlap(a, b);
+    return amount.x > 1 && amount.y > 1;
+  };
+
+  for (let iteration = 0; iteration < 200; iteration += 1) {
+    const before = new Map(Array.from(positions, ([id, point]) => [id, { x: point.x, y: point.y }] as const));
+    const correctionByUnit = new Map<string, { x: number; y: number; count: number }>();
+    const addCorrection = (unitId: string, x: number, y: number) => {
+      const previous = correctionByUnit.get(unitId) ?? { x: 0, y: 0, count: 0 };
+      previous.x += x; previous.y += y; previous.count += 1;
+      correctionByUnit.set(unitId, previous);
+    };
+
+    // All pair constraints are translation-invariant. Their equal-and-opposite corrections
+    // preserve the anchor-set centroid unless collision avoidance needs to move surrounding units.
+    for (const pair of pairs) {
+      const positionA = positions.get(pair.a.unitId);
+      const positionB = positions.get(pair.b.unitId);
+      if (!positionA || !positionB) throw new Error("A relative anchor unit disappeared from the layout result.");
+      const currentAX = positionA.x + pair.a.offsetFromUnit.x;
+      const currentAY = positionA.y + pair.a.offsetFromUnit.y;
+      const currentBX = positionB.x + pair.b.offsetFromUnit.x;
+      const currentBY = positionB.y + pair.b.offsetFromUnit.y;
+      const errorX = currentBX - currentAX - pair.dx;
+      const errorY = currentBY - currentAY - pair.dy;
+      const drift = Math.hypot(errorX, errorY);
+      if (drift <= pair.tolerance) continue;
+      const scale = ((drift - pair.tolerance) / drift) * 0.55 * 0.5;
+      addCorrection(pair.a.unitId, errorX * scale, errorY * scale);
+      addCorrection(pair.b.unitId, -errorX * scale, -errorY * scale);
+    }
+    for (const [unitId, correction] of correctionByUnit) {
+      const point = positions.get(unitId)!;
+      const next = {
+        x: point.x + correction.x / correction.count,
+        y: point.y + correction.y / correction.count
+      };
+      if (Math.abs(next.x - point.x) > 0.001 || Math.abs(next.y - point.y) > 0.001) changed = true;
+      positions.set(unitId, next);
+    }
+
+    // Collision projection is shared across engines. Sweep by x and cap pathological dense
+    // candidate sets; it moves unselected units first and leaves source overlaps alone.
+    const orderedUnits = [...projection.layoutVertices].sort((a, b) =>
+      positions.get(a.id)!.x - positions.get(b.id)!.x || a.id.localeCompare(b.id)
+    );
+    let candidateCount = 0;
+    for (let i = 0; i < orderedUnits.length && candidateCount < 25000; i += 1) {
+      const a = orderedUnits[i];
+      const pa = positions.get(a.id)!;
+      const sourceA = sourceByUnitId.get(a.id)!;
+      for (let j = i + 1; j < orderedUnits.length && candidateCount < 25000; j += 1) {
+        const b = orderedUnits[j];
+        const pb = positions.get(b.id)!;
+        if (pb.x >= pa.x + a.width - 1) break;
+        candidateCount += 1;
+        const currentA = { ...pa, width: a.width, height: a.height };
+        const currentB = { ...pb, width: b.width, height: b.height };
+        if (!hasAreaOverlap(currentA, currentB)) continue;
+        const sourceB = sourceByUnitId.get(b.id)!;
+        if (hasAreaOverlap(
+          { ...sourceA, width: a.width, height: a.height },
+          { ...sourceB, width: b.width, height: b.height }
+        )) continue;
+        const aAnchored = anchorUnitIds.has(a.id);
+        const bAnchored = anchorUnitIds.has(b.id);
+        if (aAnchored && bAnchored) continue;
+
+        const amounts = overlap(currentA, currentB);
+        const horizontalSeparation = amounts.x <= amounts.y;
+        const centerA = horizontalSeparation ? pa.x + a.width / 2 : pa.y + a.height / 2;
+        const centerB = horizontalSeparation ? pb.x + b.width / 2 : pb.y + b.height / 2;
+        const negativeOnA = centerA < centerB || (Math.abs(centerA - centerB) < 0.001 && a.id.localeCompare(b.id) < 0);
+        const direction = negativeOnA ? 1 : -1;
+        const push = (horizontalSeparation ? amounts.x : amounts.y) + 4;
+        if (aAnchored) {
+          positions.set(b.id, horizontalSeparation ? { x: pb.x + direction * push, y: pb.y } : { x: pb.x, y: pb.y + direction * push });
+        } else if (bAnchored) {
+          positions.set(a.id, horizontalSeparation ? { x: pa.x - direction * push, y: pa.y } : { x: pa.x, y: pa.y - direction * push });
+        } else {
+          const half = push / 2;
+          positions.set(a.id, horizontalSeparation ? { x: pa.x - direction * half, y: pa.y } : { x: pa.x, y: pa.y - direction * half });
+          positions.set(b.id, horizontalSeparation ? { x: pb.x + direction * half, y: pb.y } : { x: pb.x, y: pb.y + direction * half });
+        }
+        collisionAdjustments += 1;
+        changed = true;
+      }
+    }
+
+    let maxMovement = 0;
+    for (const [id, point] of positions) {
+      const previous = before.get(id);
+      if (previous) maxMovement = Math.max(maxMovement, Math.hypot(point.x - previous.x, point.y - previous.y));
+    }
+    refinementIterations = iteration + 1;
+    stableIterations = maxMovement < 0.5 ? stableIterations + 1 : 0;
+    if (stableIterations >= 5) break;
+  }
+
+  let maximumVectorDrift = 0;
+  let totalVectorDrift = 0;
+  let directionalOrderViolations = 0;
+  let toleranceBandPx = 0;
+  for (const pair of pairs) {
+    const positionA = positions.get(pair.a.unitId)!;
+    const positionB = positions.get(pair.b.unitId)!;
+    const currentAX = positionA.x + pair.a.offsetFromUnit.x;
+    const currentAY = positionA.y + pair.a.offsetFromUnit.y;
+    const currentBX = positionB.x + pair.b.offsetFromUnit.x;
+    const currentBY = positionB.y + pair.b.offsetFromUnit.y;
+    const currentDx = currentBX - currentAX;
+    const currentDy = currentBY - currentAY;
+    const drift = Math.hypot(currentDx - pair.dx, currentDy - pair.dy);
+    maximumVectorDrift = Math.max(maximumVectorDrift, drift);
+    totalVectorDrift += drift;
+    toleranceBandPx = Math.max(toleranceBandPx, pair.tolerance);
+    const reversedX = Math.abs(pair.dx) > 8 && (pair.dx > 0 ? currentDx <= 0 : currentDx >= 0);
+    const reversedY = Math.abs(pair.dy) > 8 && (pair.dy > 0 ? currentDy <= 0 : currentDy >= 0);
+    if (reversedX || reversedY) directionalOrderViolations += 1;
+  }
+  const meanVectorDrift = pairs.length ? totalVectorDrift / pairs.length : 0;
+  const degraded = maximumVectorDrift > Math.max(8, toleranceBandPx) + 0.5 || directionalOrderViolations > 0;
+  return {
+    changed,
+    diagnostics: {
+      outcome: degraded ? "degraded" : "applied",
+      requestedAnchorCount: selectedIds.length,
+      resolvedAnchorCount: resolved.length,
+      effectiveAnchorUnitCount: anchors.length,
+      evaluatedPairCount: pairs.length,
+      maximumVectorDrift: Math.round(maximumVectorDrift * 100) / 100,
+      meanVectorDrift: Math.round(meanVectorDrift * 100) / 100,
+      toleranceBandPx: Math.round(toleranceBandPx * 100) / 100,
+      directionalOrderViolations,
+      refinementIterations,
+      collisionAdjustments
+    }
+  };
+}
+
 /** Calculate geometry from a disposable projection of native Draw.io mxCells. This never
  * creates a persisted graph model or serializes XML; only the returned plan is sent back
  * to the live Draw.io editor for a revision/page checked native mutation. */
@@ -1708,7 +2016,8 @@ export async function calculateNativeAutoLayout(
   xml: string,
   pageId: string | null,
   documentRevision: string,
-  options: NativeAutoLayoutOptions
+  options: NativeAutoLayoutOptions,
+  requestedAnchorCellIds: string[] = []
 ): Promise<NativeLayoutPlan> {
   if (!documentRevision || !/^[a-f0-9]{64}$/i.test(documentRevision)) {
     throw new Error("Auto layout requires the revision of the exact native Draw.io XML snapshot.");
@@ -1719,11 +2028,20 @@ export async function calculateNativeAutoLayout(
   if (!nativeLayoutSupportsAlgorithm(options.engine, options.algorithm)) {
     throw new Error("The selected algorithm is not supported by the chosen layout engine.");
   }
+  const anchorCellIds = Array.from(new Set(requestedAnchorCellIds.map((id) => String(id).trim()).filter(Boolean))).sort();
+  if (!options.preserveRelativeAnchors && anchorCellIds.length > 0) {
+    throw new Error("Relative anchor cell IDs were supplied while relative-anchor mode is disabled.");
+  }
+  if (options.preserveRelativeAnchors && (anchorCellIds.length < 2 || anchorCellIds.length > 32)) {
+    throw new Error("Preserve relative positions requires between 2 and 32 selected vertex cells.");
+  }
   // Layouts that explicitly preserve node coordinates or do not support direction must not
-  // rotate the local composition as a side effect.
+  // rotate the local composition as a side effect. Anchored cluster members retain their offsets
+  // instead of being internally reflowed to match a new direction.
   const projectionDirection = nativeLayoutSupportsDirection(options.engine, options.algorithm)
     ? options.direction : null;
-  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing, projectionDirection);
+  const anchorIdsForProjection = options.preserveRelativeAnchors ? new Set(anchorCellIds) : new Set<string>();
+  const projection = projectNativePage(xml, pageId, options.preserveLocalGrouping, options.nodeSpacing, projectionDirection, anchorIdsForProjection);
   if (projection.layoutVertices.length === 0) {
     throw new Error(describeEmptyLayoutScope(projection));
   }
@@ -1870,5 +2188,14 @@ export async function calculateNativeAutoLayout(
     }
   }
 
-  return normalizePlan(projection, options, documentRevision, positions, routes, retainSourceCoordinates);
+  const anchorRefinement = optimizeRelativeAnchorPositions(
+    projection, positions, anchorCellIds, options.preserveRelativeAnchors
+  );
+  // Waypoints from the original engine solution can no longer be trusted after a non-orthogonal
+  // route's terminals move. Let native Draw.io recalculate those routes rather than applying stale bends.
+  if (anchorRefinement.changed && options.edgeRouting !== "ORTHOGONAL") routes.clear();
+  return normalizePlan(
+    projection, options, documentRevision, positions, routes, retainSourceCoordinates,
+    anchorCellIds, anchorRefinement.diagnostics
+  );
 }
