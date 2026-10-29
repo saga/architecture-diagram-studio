@@ -1517,8 +1517,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       }
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
-      const toolsUsed = plan.capturedNativeEdits
-        ? ["propose_native_edits"]
+      const toolsUsed = pendingXmlPatches.has(sessionId)
+        ? ["edit_drawio_xml"]
+        : plan.capturedNativeEdits ? ["propose_native_edits"]
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
         ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
@@ -1536,6 +1537,27 @@ function createDrawioElementSearchTool(sessionId: string) {
       if (pendingXmlPatch) {
         pendingXmlPatches.delete(sessionId);
         try {
+          if (pendingXmlPatch.standalone) {
+            if (typeof pendingXmlPatch.sourceXml !== "string" ||
+                workspaceRevision(pendingXmlPatch.sourceXml) !== pendingXmlPatch.baseRevision) {
+              throw new Error("The standalone Draw.io source changed before the XML patch could be applied.");
+            }
+            const patched = applyDrawioXmlPatch(
+              pendingXmlPatch.sourceXml, pendingXmlPatch.patch as Parameters<typeof applyDrawioXmlPatch>[1], pendingXmlPatch.pageId
+            );
+            const patchedRevision = workspaceRevision(patched.drawioXml);
+            await deps.writeLog("turn.completed.xml-patch-prepared-for-browser-save", {
+              requestId, sessionId, summary: pendingXmlPatch.summary, baseRevision: pendingXmlPatch.baseRevision,
+              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds
+            });
+            res.json({
+              outcome: "xml_patch_ready",
+              reply: pendingXmlPatch.summary + "。服务端已修改并校验原生 Draw.io XML，正在交由浏览器写回所选本地文件。",
+              requestId, drawioXml: patched.drawioXml, documentRevision: pendingXmlPatch.baseRevision,
+              patchedRevision, changedCellIds: patched.changedCellIds, ...shared
+            });
+            return;
+          }
           const receipt = await deps.commitWorkspaceXmlPatch!({
             patch: pendingXmlPatch.patch,
             baseRevision: pendingXmlPatch.baseRevision,
