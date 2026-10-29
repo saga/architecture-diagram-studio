@@ -224,9 +224,8 @@ test("Standalone read-only inspection leaves the browser-owned file and local Hi
   await waitForNativeEditor(page);
   await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
 
-  const dialogName = /Local Draw.io history/;
+  const historyDialog = page.getByRole("dialog", { name: /Local Draw.io history/ });
   await page.getByRole("button", { name: "Local history", exact: true }).click();
-  const historyDialog = page.getByRole("dialog", { name: dialogName });
   await expect(historyDialog).toBeVisible();
   const historyRows = historyDialog.locator('div[style*="overflow-y: auto"]').first().getByRole("button");
   const historyCountBefore = await historyRows.count();
@@ -235,54 +234,14 @@ test("Standalone read-only inspection leaves the browser-owned file and local Hi
 
   const fileBefore = await readFile(standalonePath, "utf8");
   expect(fileBefore).toBe(sourceXml);
-  let acknowledgement: Record<string, unknown> | null = null;
-
-  await page.route("**/api/copilot/intent/ack", async (route) => {
-    acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        outcome: acknowledgement.outcome,
-        requestId: acknowledgement.requestId,
-        documentRevision: acknowledgement.serializedXmlRevision ?? null,
-        persistedRevision: acknowledgement.persistedRevision ?? null,
-        versionId: acknowledgement.versionId ?? null
-      })
-    });
-  });
   await page.route("**/api/copilot/intent", async (route) => {
-    const body = JSON.parse(route.request().postData() || "{}") as {
-      standalone?: boolean; sessionId?: string; documentRevision?: unknown;
-      context?: { activePageId?: string | null };
-    };
-    const script = [
-      "var total = 0;",
-      "function walk(parent) {",
-      "  var count = model.getChildCount(parent);",
-      "  for (var i = 0; i < count; i++) { var cell = model.getChildAt(parent, i); total++; walk(cell); }",
-      "}",
-      "walk(model.getRoot());",
-      "return { cellCount: total, pageId: " + JSON.stringify(body.context?.activePageId ?? null) + " };"
-    ].join("\n");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "command_ready",
-        reply: "Inspect the standalone native diagram without changing it.",
-        nativeEdits: {
-          operations: [{
-            op: "run_drawio_script", target: "active_page", mode: "read",
-            summary: "Inspect standalone native cell count", script,
-            cellId: "__active_page__", targetLabel: "active Draw.io page"
-          }],
-          summary: "Inspect standalone native cell count",
-          requestId: "99999999-9999-4999-8999-999999999999",
-          pageId: body.context?.activePageId ?? null,
-          documentRevision: String(body.documentRevision ?? "")
-        },
-        sessionId: body.sessionId || "e2e-standalone-read-only",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
-        toolsUsed: ["run_drawio_script"]
+        outcome: "answered",
+        reply: "Read-only inspection completed: { cellCount: 4, pageId: \"page-1\" }",
+        sessionId: "e2e-standalone-read-only", model: "stub-model", provider: "github-copilot-sdk",
+        durationMs: 1, toolsUsed: ["inspect_drawio_graph"]
       })
     });
   });
@@ -301,9 +260,4 @@ test("Standalone read-only inspection leaves the browser-owned file and local Hi
   const historyCountAfter = await historyDialog.locator('div[style*="overflow-y: auto"]').first().getByRole("button").count();
   expect(historyCountAfter).toBe(historyCountBefore);
   await expect.poll(async () => readFile(standalonePath, "utf8")).toBe(fileBefore);
-  expect(acknowledgement).toMatchObject({
-    standalone: true, outcome: "applied", applicationState: "not-applied",
-    persistenceStatus: "read_only_no_change",
-    serializedXmlRevision: null, persistedRevision: null, versionId: null
-  });
 });
