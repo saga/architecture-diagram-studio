@@ -1564,7 +1564,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
-        // Local single-user Studio applies native edits directly by default, scripts included.
+        // Local single-user Studio applies supported native edits directly by default.
         // STUDIO_REQUIRE_EDIT_CONFIRMATION=1 restores the proposal/review gate.
         const reviewRequired = requiresNativeEditReview() &&
           requiresExplicitConfirmation(nativeEdits.operations);
