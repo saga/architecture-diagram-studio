@@ -1,5 +1,5 @@
 export const PINNED_DRAWIO_VERSION = "v32.0.2";
-export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/3";
+export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/4";
 
 export const PINNED_RUNTIME_CAPABILITY_REQUIREMENTS = {
   graph: ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"],
