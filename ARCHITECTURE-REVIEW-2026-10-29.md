@@ -118,7 +118,7 @@ Vite 开发与预览服务绑定 `0.0.0.0` 是用户明确接受的选择，不�
 
 ### P2：CI 的依赖解析方式降低可复现性
 
-**事实：** v2/package.json 定义测试、typecheck、build 和 E2E。当前 .github/workflows/v2.yml 使用 npm install，并在 PR CI 中把解析后的 package-lock.json 回写到 PR 分支。
+**事实（审查时）：** v2/package.json 定义测试、typecheck、build 和 E2E。审查时 .github/workflows/v2.yml 使用 npm install，并在 PR CI 中把解析后的 package-lock.json 回写到 PR 分支。该项已在后续提交 ef1962d 修复：改用 npm ci、以 lockfile 作为缓存键、删除 PR 自动回写步骤，并将 workflow 权限收紧为 contents: read。
 
 **风险：** 依赖解析结果可能随时间变化；CI 在验证期间修改被测分支，使提交内容和实际测试的依赖图不完全一致；回写步骤增加权限、竞态和工作流副作用。
 
