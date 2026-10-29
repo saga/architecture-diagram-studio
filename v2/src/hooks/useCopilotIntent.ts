@@ -75,14 +75,14 @@ interface CopilotIntentOptions {
   setChatInput: (value: string) => void;
   setChatBusy: (busy: boolean) => void;
   setCopilotSessionId: (id: string) => void;
-  applyNativeCellEdit?: (cellId: string, path: string, value: string, pageId?: string | null) => void | Promise<void>;
+  selectNativeCell?: (cellId: string, pageId?: string | null) => void | Promise<void>;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted, onStandaloneXmlPatchReady,
-    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, selectNativeCell
   } = options;
 
   const sendIntent = useCallback(async (promptOverride?: string) => {
