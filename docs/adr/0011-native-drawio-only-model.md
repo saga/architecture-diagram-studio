@@ -5,7 +5,7 @@
 
 > **Layout decision update:** Layout-specific removal statements in this ADR are superseded by [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](./0013-studio-owned-layout-engines.md). The single native Draw.io model decision remains in force; only the implementation of layout capability is restored.
 >
-> **Copilot execution update:** The original typed-operation allowlist in Decision #3 and the migration checklist is superseded by [ADR-0018 — AI-First Native Draw.io Execution](./0018-ai-first-native-drawio-execution.md). Typed operations remain convenience shortcuts for common edits; `run_drawio_script` is the full-capability path. The native XML source-of-truth and no-replacement-XML constraints remain in force.
+ > **Copilot execution update:** The script-first decision in ADR-0018 is retired by [ADR-0026 — Server-Side XML-First Copilot Editing and Frontend Version Synchronization](./0026-server-side-xml-first-copilot-editing.md). Copilot edits native XML directly on the server by default; scripts are an optional advanced fallback. The native XML single-source-of-truth and no-shadow-model constraints remain in force. Any blanket prohibition on agent-produced XML is retired. Automatic layout remains unchanged under ADR-0013.
 - Supersedes: the `DiagramDocument`-centric editing, layout and proposal flows in ADR-0005, ADR-0006 and ADR-0010 where they require a complete semantic projection.
 
 ## Context
@@ -18,7 +18,7 @@ Maintaining two graph models, import/export conversion, completeness checks, pro
 
 **Delete `DiagramDocument` from the active v2 architecture. Do not replace it with another persisted or parallel graph model.**
 
-1. The native Draw.io model/XML is the only document representation used by the application, server, Copilot, persistence, revisions, snapshots and export.
+1. The native Draw.io XML is the only authoritative document representation used by the application, server, Copilot, persistence, revisions, snapshots and export. The Copilot may edit that XML directly on the server under ADR-0026.
 2. The bundled Draw.io editor owns interactive editing, selection, undo/redo, geometry, styles and relationships. Use its native model for editor-side changes.
 3. Copilot uses typed native-cell operations for common deterministic edits and `run_drawio_script` for direct access to the live Draw.io API. Typed operations are convenience shortcuts rather than a capability ceiling. The model must not author arbitrary replacement XML. Because Draw.io owns serialization, an edit may normalize XML formatting or attribute order; unrelated cells, relationships, pages, custom attributes and styles must remain present, but byte-for-byte identity after an edit is not promised.
 4. Delete the `DiagramDocument` import/export projection, fixture model, semantic mutation pipeline, and layout/quality/template features that require that parallel representation. Do not rebuild their full behavior on a second custom graph abstraction.
