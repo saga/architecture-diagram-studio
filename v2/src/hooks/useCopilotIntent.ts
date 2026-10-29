@@ -367,16 +367,21 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         const layoutOperationForTrace = operations.find((operation) => operation.op === "auto_layout");
         const readOnlyRequest = operations.length === 1 &&
           operations[0].op === "run_drawio_script" && operations[0].mode === "read";
+        const timedOutPendingReconciliation = !execution.ok &&
+          execution.applicationState === "unknown" &&
+          /outcome is still unknown|wait timeout|awaiting a final editor result/i.test(execution.error || "");
         const finalStatus = execution.ok
           ? readOnlyRequest ? "completed-readonly" as const : "committed" as const
-          : execution.applicationState === "changed-unverified" || execution.applicationState === "unknown"
-            ? "partial" as const
-            : "failed" as const;
+          : timedOutPendingReconciliation
+            ? "timed-out-pending-reconciliation" as const
+            : execution.applicationState === "changed-unverified" || execution.applicationState === "unknown"
+              ? "partial" as const
+              : "failed" as const;
         executionReceipt = transitionNativeExecution(executionReceipt, finalStatus, {
           ...(afterXml !== null ? { afterXmlHash: await calculateDrawioXmlRevision(afterXml) } : {}),
           ...(execution.failureStage ? { failureStage: execution.failureStage } : {}),
           ...(execution.error ? { error: execution.error } : {}),
-          reconciliationRequired: finalStatus === "partial"
+          reconciliationRequired: finalStatus === "partial" || finalStatus === "timed-out-pending-reconciliation"
         });
         let scriptHash: string | null = null;
         if (scriptOperation?.op === "run_drawio_script") {
@@ -412,7 +417,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               fields: change.fields
             }))
           } : null
-        }, finalStatus === "partial" || finalStatus === "failed" ? "warn" : "info");
+        }, finalStatus === "partial" || finalStatus === "failed" || finalStatus === "timed-out-pending-reconciliation" ? "warn" : "info");
         if (execution.ok) {
           const readOnlyInspection = operations.find((operation) =>
             operation.op === "run_drawio_script" && operation.mode === "read"
