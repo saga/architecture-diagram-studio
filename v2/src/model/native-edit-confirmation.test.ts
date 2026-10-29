@@ -1,4 +1,3 @@
-import { deflateSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "./native-edit-confirmation";
 
@@ -36,7 +35,7 @@ describe("native edit XML confirmation", () => {
       beforeXml: before, xml: labelEdited, cellId: "api", pageId: "", path: "label", value: "New API"
     })).toBe(false);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: labelEdited, cellId: "__active_page__", pageId: "", path: "cell:execute-script", value: "return true;"
+      beforeXml: before, xml: labelEdited, cellId: "__active_page__", pageId: "", path: "cell:unsupported-operation", value: "not-supported"
     })).toBe(false);
   });
 
