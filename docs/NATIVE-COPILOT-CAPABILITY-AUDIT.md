@@ -1,5 +1,7 @@
 # Native Copilot / Draw.io Capability Audit
 
+> **Historical / superseded:** This audit describes the former `run_drawio_script` execution path. ADR-0026 removes that tool and its runtime path entirely. Do not treat script-specific recommendations, contracts or examples below as current implementation guidance. Copilot edits native Draw.io XML directly on the server; automatic layout is unchanged.
+
 - Date: 2026-10-23
 - Scope: V2 tool schema, Copilot HTTP contract, native Draw.io bridge, persistence, and ADR alignment.
 - Reference: [Architecture V2](../ARCHITECTURE-V2.md), [ADR-0010](adr/0010-unified-server-side-copilot-intent-processing.md), [ADR-0011](adr/0011-native-drawio-only-model.md), [ADR-0012](adr/0012-native-diagram-extension-contracts.md).
