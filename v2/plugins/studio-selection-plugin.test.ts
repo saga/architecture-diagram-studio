@@ -355,6 +355,13 @@ describe("native Draw.io script bridge", () => {
     expect(edge.style).not.toContain("edgeStyle=");
   });
 
+  it("contains no model-authored JavaScript execution primitive or tool name", () => {
+    const source = readFileSync(new URL("./studio-selection-plugin.js", import.meta.url), "utf8");
+    expect(source).not.toContain("new Function(");
+    expect(source).not.toContain("run_drawio_script");
+    expect(source).not.toContain("executeNativeScriptSynchronously");
+  });
+
   it("rejects the removed JavaScript execution operation without running it", () => {
     const harness = createHarness();
     const result = harness.runOperation("__active_page__", "cell:execute-script", 'graph.insertVertex(graph.getDefaultParent(), null, "SHOULD NOT RUN", 1, 1, 10, 10);');
