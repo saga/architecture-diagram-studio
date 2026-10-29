@@ -105,6 +105,23 @@ function validateResponse(value: unknown): AIIntentResponse {
       return { outcome: "unsupported", reply: reply || "This operation is not supported by the current native-edit allowlist.", ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 1000) } : {}), ...metadata };
     case "answered":
       return { outcome: "answered", reply: reply || "No diagram change was requested.", ...metadata };
+    case "xml_committed": {
+      if (typeof item.requestId !== "string" || !item.requestId.trim() ||
+          !item.persistence || typeof item.persistence !== "object" || Array.isArray(item.persistence)) {
+        throw new Error("The xml_committed outcome requires a request ID and persistence receipt");
+      }
+      const persistence = item.persistence as Record<string, unknown>;
+      if (typeof persistence.workspaceRevision !== "string" || !persistence.workspaceRevision.trim()) {
+        throw new Error("The XML persistence receipt is missing the committed workspace revision");
+      }
+      return {
+        outcome: "xml_committed",
+        reply: reply || "The server committed the native Draw.io XML edit.",
+        requestId: item.requestId,
+        persistence: persistence as { workspaceRevision: string; [key: string]: unknown },
+        ...metadata
+      };
+    }
     case "applied": {
       if (typeof item.requestId !== "string" || !item.requestId.trim() ||
           typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||
