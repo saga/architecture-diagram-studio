@@ -28,7 +28,7 @@ Keep the native Draw.io XML and editor as the only document model and canvas. Ad
 4. **Analysis capabilities return findings only.** Quality, contrast, geometry and routing analyzers return native page/cell IDs and diagnostics. A finding does not itself block ordinary native editing or saving. A separately approved operation may define its own validation policy.
 5. **No implicit semantic model.** Providers may use the shared XML DOM/schema utilities and derive temporary facts needed for one operation. They must not persist nodes/edges as a substitute for mxCells, assign a closed Studio-specific shape taxonomy to the document, or serialize a derived representation over the original XML.
 6. **Capability availability is explicit.** A descriptor or future registry entry is not proof of an implemented capability. Only registered providers with concrete handlers, validation and tests may be exposed to the UI or Copilot.
-7. **Keep the native editor as the renderer.** Styling or layout operations change explicitly targeted native cell properties through the relevant native XML or Studio layout path. UI theme changes remain presentation-only and must not rewrite cell styles implicitly.
+7. **Keep the native editor as the renderer.** Copilot changes native cell properties through revision-bound XML patches; Studio layout changes only planned geometry through its native editor bridge. UI theme changes remain presentation-only and must not rewrite cell styles implicitly.
 
 ## How to reuse prior research
 
