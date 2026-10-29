@@ -44,18 +44,6 @@ export type CopilotIntentResponse =
       patchedRevision: string;
       changedCellIds: string[];
     })
-  | (OutcomeBase & {
-      outcome: "applied";
-      requestId: string;
-      documentRevision: string;
-      persistedRevision?: string | null;
-      /** Native editor confirmation and resulting XML serialization are required for every applied outcome. */
-      editorAcknowledged: true;
-      persistenceStatus: string;
-      resolvedTargets: Array<{ cellId: string; label: string }>;
-      /** Null for standalone mode; required so workspace outcomes cannot omit the immutable version reference. */
-      versionId: string | null;
-    })
   | (OutcomeBase & { outcome: "answered" })
   | (OutcomeBase & {
       outcome: "selected";
