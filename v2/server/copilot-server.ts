@@ -1115,7 +1115,8 @@ app.put("/api/workspace/document", async (req, res) => {
         res.status(409).json({ error: "No active Draw.io XML document is available to patch." });
         return;
       }
-      const patched = applyDrawioXmlPatch(baseState.drawioXml, req.body.patch as DrawioXmlPatch[]);
+      const pageId = typeof req.body?.pageId === "string" ? req.body.pageId : null;
+      const patched = applyDrawioXmlPatch(baseState.drawioXml, req.body.patch as DrawioXmlPatch[], pageId);
       drawioXml = patched.drawioXml;
       await writeLog("workspace.document.xml-patch.applied", {
         operationCount: patched.operationCount,
@@ -1647,7 +1648,7 @@ registerCopilotIntentRoute(app, {
     );
     return version ? { drawioXml: version.drawioXml, revision: cachedXmlRevision(diagramVersionRevisionCache, version, version.drawioXml), versionId: version.id } : null;
   },
-  commitWorkspaceXmlPatch: async ({ patch, baseRevision, label }) => {
+  commitWorkspaceXmlPatch: async ({ patch, baseRevision, pageId, label }) => {
     // Re-enter the canonical document-save route rather than duplicating its transaction,
     // external-file conflict handling, immutable version index, or rollback logic.
     const response = await fetch(`http://127.0.0.1:${PORT}/api/workspace/document`, {
@@ -1656,7 +1657,7 @@ registerCopilotIntentRoute(app, {
         "content-type": "application/json",
         origin: `http://127.0.0.1:${PORT}`
       },
-      body: JSON.stringify({ patch, baseRevision, label })
+      body: JSON.stringify({ patch, baseRevision, pageId, label })
     });
     let body: unknown;
     try { body = await response.json(); }
