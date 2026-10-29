@@ -365,8 +365,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         const scriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
         const layoutOperationForTrace = operations.find((operation) => operation.op === "auto_layout");
+        const readOnlyRequest = operations.length === 1 &&
+          operations[0].op === "run_drawio_script" && operations[0].mode === "read";
         const finalStatus = execution.ok
-          ? "committed" as const
+          ? readOnlyRequest ? "completed-readonly" as const : "committed" as const
           : execution.applicationState === "changed-unverified" || execution.applicationState === "unknown"
             ? "partial" as const
             : "failed" as const;
