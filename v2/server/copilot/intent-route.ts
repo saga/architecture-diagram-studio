@@ -101,7 +101,7 @@ interface IntentDependencies {
   getWorkspaceVersionSnapshot(versionId: string): Promise<{ drawioXml: string; revision: string; versionId: string } | null>;
   collectAgentWorkspaceContext(prompt?: string): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
-  commitWorkspaceXmlPatch?(input: { patch: Array<Record<string, unknown>>; baseRevision: string; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
+  commitWorkspaceXmlPatch?(input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
   acknowledgements?: NativeExecutionAcknowledgements;
 }
 
@@ -116,7 +116,7 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 const pendingNativeProposals = new Map<string, PendingNativeProposal>();
 type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
-const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; summary: string }>();
+const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; summary: string }>();
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -992,7 +992,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!deps.commitWorkspaceXmlPatch) {
           return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };
         }
-        const context = contextBySession.get(sessionId) as { documentRevision?: string } | undefined;
+        const context = contextBySession.get(sessionId) as { documentRevision?: string; activePageId?: string | null } | undefined;
         const snapshot = await deps.getWorkspaceDiagramSnapshot();
         if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
           return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
@@ -1004,6 +1004,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         pendingXmlPatches.set(sessionId, {
           patch: args.patch as Array<Record<string, unknown>>,
           baseRevision: snapshot.revision,
+          pageId: typeof context.activePageId === "string" ? context.activePageId : null,
           summary: args.summary.trim()
         });
         await deps.writeLog("tool.edit_drawio_xml.accepted", {
@@ -1522,6 +1523,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           const receipt = await deps.commitWorkspaceXmlPatch!({
             patch: pendingXmlPatch.patch,
             baseRevision: pendingXmlPatch.baseRevision,
+            pageId: pendingXmlPatch.pageId,
             label: "Copilot: " + pendingXmlPatch.summary
           });
           const body = receipt.body && typeof receipt.body === "object" ? receipt.body as Record<string, unknown> : {};
