@@ -371,10 +371,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           execution.applicationState === "unknown" &&
           /outcome is still unknown|wait timeout|awaiting a final editor result/i.test(execution.error || "");
         const finalStatus = execution.ok
-          ? readOnlyRequest ? "completed-readonly" as const : "committed" as const
+          ? readOnlyRequest ? "completed-readonly" as const : execution.auditWarning ? "partial" as const : "committed" as const
           : timedOutPendingReconciliation
             ? "timed-out-pending-reconciliation" as const
-            : execution.applicationState === "changed-unverified" || execution.applicationState === "unknown"
+            : execution.applicationState === "changed-unverified" || execution.applicationState === "unknown" || execution.failureStage === "persistence"
               ? "partial" as const
               : "failed" as const;
         executionReceipt = transitionNativeExecution(executionReceipt, finalStatus, {
