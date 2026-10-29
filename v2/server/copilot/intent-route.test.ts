@@ -423,37 +423,6 @@ function terminalConflictCopilot(
   return copilot;
 }
 
-function compatibleRuntimeInspection() {
-  const revision = workspaceRevision(XML);
-  return {
-    schemaVersion: 1,
-    bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
-    drawioVersion: PINNED_DRAWIO_VERSION,
-    documentRevision: revision,
-    pageId: "p1",
-    capabilities: {
-      ui: [], editor: [],
-      graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-      model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-      view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view],
-      vertexCell: [], edgeCell: []
-    },
-    capabilityManifest: {
-      scriptSupported: true,
-      required: {
-        graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-      },
-      missing: { graph: [], model: [], view: [] }
-    },
-    counts: { cells: 2, vertices: 2, edges: 0 },
-    cells: [],
-    renderedEdges: [],
-    truncated: false
-  };
-}
-
 function conflictingCopilot() {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
