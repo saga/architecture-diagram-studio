@@ -78,40 +78,6 @@ export function searchDrawioShapeCatalog(query: string, limit = 5): DrawioShapeS
 }
 export const DRAWIO_SHAPE_CATALOG_VERSION = "drawio-v32.0.2-curated-4";
 
-/**
- * `C4 directory` answers a complete C4 creation turn: the three element recipes, the
- * relationship edge recipe, and this script skeleton. A C4 creation request therefore needs one
- * catalogue query and no reference lookup.
- */
-export const C4_DIRECTORY_SCRIPT_TEMPLATE = [
-  "const parent = graph.getDefaultParent();",
-  "const created = [];",
-  "const add = (label, style, width, height, x, y) => {",
-  "  const cell = graph.insertVertex(parent, null, label, x, y, width, height, style);",
-  "  created.push(cell);",
-  "  return cell;",
-  "};",
-  "const link = (source, target, label, style) => {",
-  "  const edge = graph.insertEdge(parent, null, label, source, target, style);",
-  "  created.push(edge);",
-  "  return edge;",
-  "};",
-  "// Paste the exact style string and dimensions returned for each recipe; do not rewrite them.",
-  "const person = add(\"Person\", PERSON_STYLE, 200, 180, 40, 40);",
-  "const system = add(\"System\", SYSTEM_STYLE, 240, 120, 320, 60);",
-  "// Keep the edge label empty unless the request supplies the protocol or action.",
-  "const relationship = link(person, system, \"\", RELATIONSHIP_STYLE);",
-  "return {",
-  "  ok: true,",
-  "  postconditions: { created: created.length > 0 },",
-  "  xmlAssertions: [",
-  "    { cellId: person.id, exists: true, kind: \"vertex\", label: \"Person\" },",
-  "    { cellId: system.id, exists: true, kind: \"vertex\", label: \"System\" },",
-  "    { cellId: relationship.id, exists: true, kind: \"edge\", sourceId: person.id, targetId: system.id }",
-  "  ]",
-  "};"
-].join("\n");
-
 export function isC4DirectoryQuery(query: string): boolean {
   const tokens = tokenize(query);
   return tokens.includes("c4") && tokens.includes("directory");
