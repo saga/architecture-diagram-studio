@@ -379,7 +379,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               : "failed" as const;
         executionReceipt = transitionNativeExecution(executionReceipt, finalStatus, {
           ...(afterXml !== null ? { afterXmlHash: await calculateDrawioXmlRevision(afterXml) } : {}),
-          ...(execution.failureStage ? { failureStage: execution.failureStage } : {}),
+          ...(execution.failureStage ? { failureStage: execution.failureStage === "editor" ? "editor-export" : "persistence" } : {}),
           ...(execution.error ? { error: execution.error } : {}),
           reconciliationRequired: finalStatus === "partial" || finalStatus === "timed-out-pending-reconciliation"
         });
