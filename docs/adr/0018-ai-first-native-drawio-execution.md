@@ -1,13 +1,13 @@
 # ADR-0018: AI-First Native Draw.io Execution
 
-- **Status:** Accepted; implementation merged to `main` by [PR #14](https://github.com/saga/architecture-diagram-studio/pull/14). The PR's V2 CI run passed.
+- **Status:** Retired by [ADR-0026 — Server-Side XML-First Copilot Editing and Frontend Version Synchronization](./0026-server-side-xml-first-copilot-editing.md). Historical implementation details remain for reference; the script-first decision is no longer current.
 - **Date:** 2026-10-24
 - **Scope:** V2 local, single-user Architecture Diagram Studio
 - **Supersedes:** The restrictive interpretation of the script path in the Native Copilot Capability Audit and V2 README. This ADR does not introduce a second diagram model.
 
-## Decision in one sentence
+## Historical decision (retired)
 
-Treat the bundled Draw.io runtime as the primary execution environment for diagram work: give the agent broad, direct access to its native JavaScript APIs, let the agent execute and iterate without a confirmation gate, and use native XML snapshots, version history, execution traces, and recovery to handle mistakes rather than limiting capability through an operation allowlist.
+This ADR records the former script-first design and implementation history. Do not use its decision or migration checklist as current implementation guidance. ADR-0026 makes direct server-side native XML editing the default Copilot path, followed by validation, versioned persistence and frontend synchronization. `run_drawio_script` is an optional advanced fallback, not the normal edit path. Automatic layout remains governed by ADR-0013 and is unchanged.
 
 ## User and operating assumptions
 
