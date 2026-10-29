@@ -24,6 +24,7 @@ interface SaveOptions {
 export function useWorkspacePersistence(options: Options) {
   const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, setSaveState, onDiagnostic, onAuthoritativeRevision } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const saveInFlightRef = useRef(0);
   const lastPersistedXmlRef = useRef<string | null>(null);
   const lastPersistedVersionIdRef = useRef<string | null>(null);
   const currentXmlRef = useRef(drawioXml);
@@ -137,17 +138,20 @@ export function useWorkspacePersistence(options: Options) {
       const baseRevision = serverRevisionRef.current;
       setSaveState("saving");
       let response: Response;
+      saveInFlightRef.current += 1;
       try {
         response = await fetch("/api/workspace/document", {
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ drawioXml: xml, label, baseRevision })
         });
       } catch (error) {
+        saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1);
         if (scheduledSaveEpoch === saveEpochRef.current && scheduledWorkspaceKey === currentWorkspaceKeyRef.current && currentXmlRef.current === xml) {
           setSaveState(saveConflictRef.current ? "conflict" : "failed");
         }
         throw error;
       }
+      saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1);
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
         // A request can finish after restore/workspace-switch invalidated its context.
@@ -226,7 +230,7 @@ export function useWorkspacePersistence(options: Options) {
     let polling = false;
     const workspaceKey = currentWorkspaceKeyRef.current;
     const pollAuthoritativeRevision = async () => {
-      if (polling || !active || workspaceKey !== currentWorkspaceKeyRef.current) return;
+      if (polling || saveInFlightRef.current > 0 || !active || workspaceKey !== currentWorkspaceKeyRef.current) return;
       polling = true;
       const observedRevision = serverRevisionRef.current;
       const observedXml = currentXmlRef.current;
