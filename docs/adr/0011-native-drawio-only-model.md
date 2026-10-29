@@ -43,7 +43,7 @@ ADR-0012 defines the allowed way to add future layout, style, structural-edit an
 - [x] Remove `DiagramDocument` and its semantic type definitions from active v2 runtime code.
 - [x] Remove runtime use of `fromDrawioXml` / `toDrawioXml` as the editing or persistence path.
 - [x] Remove `projectionComplete` as a gate or Agent instruction for ordinary native cell edits.
-- [ ] Replace the former typed-operation/script execution paths for Copilot edits with the server-side XML-first document-editing path defined in ADR-0026.
+- [x] Replace the former script execution path for Copilot edits with the server-side XML-first document-editing path defined in ADR-0026.
 - [x] Simplify App, workspace hydration/persistence and Agent tools so they carry the authoritative XML and revision, not a parallel document.
 - [x] Remove semantic layout/quality/templates from the active UI/server path if they require the deleted model; do not retain them through a renamed duplicate abstraction.
 - [x] Add E2E coverage for add-node/add-edge, rename, delete and move with opaque XML attributes; verify unrelated cells, relationships and page metadata remain intact. Draw.io may normalize serialized XML formatting after edits, so tests assert preservation of content rather than byte-identical XML.
