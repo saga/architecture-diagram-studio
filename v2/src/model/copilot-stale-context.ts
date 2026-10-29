@@ -41,7 +41,10 @@ export function compareCopilotRequestContext(
   const diff = xmlChanged ? summarizeNativeDiagramXmlDiff(source.drawioXml, current.drawioXml) : null;
   const semanticDiffAvailable = diff ? diff.available : true;
   const semanticDocumentChanged = xmlChanged && (!diff || !diff.available || diff.changed !== false);
-  const pageChanged = source.selectedNativePageId !== current.selectedNativePageId;
+  // A null page ID means the caller has not resolved the editor's runtime page yet.
+  // It is not evidence of a page switch; callers that know the resolved page normalize it first.
+  const pageChanged = source.selectedNativePageId !== null && current.selectedNativePageId !== null &&
+    source.selectedNativePageId !== current.selectedNativePageId;
   const selectionChanged = source.selectedNativeCellId !== current.selectedNativeCellId;
   const staleField: CopilotStaleField = semanticDocumentChanged ? "document" : pageChanged ? "page" : null;
 
