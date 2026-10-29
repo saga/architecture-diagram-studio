@@ -35,7 +35,7 @@ export function isBareNativeGraphModel(xml: string): boolean {
  * layer's ID against the other rejects valid work, so callers read the identity for their own
  * layer instead of re-deriving the bare-model exception at each comparison:
  *
- * - `documentPageId` — what the XML declares. Use it for requests, proposals, plans and any
+ * - `documentPageId` — what the XML declares. Use it for revision-bound XML patches and any
  *   comparison against a document revision. It is null for bare models.
  * - `runtimePageId` — what addresses the page inside the live editor, which is the editor UUID
  *   for bare models and the declared page ID otherwise.
