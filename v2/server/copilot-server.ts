@@ -1,6 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import path from "node:path";
-import { appendFile, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { appendRotatingJsonl, readRecentJsonl } from "./jsonl-log";
 import { parseEnv } from "node:util";
