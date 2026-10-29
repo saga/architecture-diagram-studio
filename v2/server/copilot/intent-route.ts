@@ -246,19 +246,13 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
   });
 }
 
-export function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
-  // Scripts execute arbitrary Draw.io JavaScript in the editor runtime. Until execution is
-  // capability-restricted, they must always be reviewed explicitly, including repair attempts.
-  if (forceScriptReview || operations.some((operation) => operation.op === "run_drawio_script")) return true;
+export function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[]): boolean {
   // Whole-page layout and destructive edits can affect many cells; require a deliberate review
   // even in local single-user mode. Ordinary typed edits retain the fast path.
   return operations.some((operation) => operation.op === "delete" || operation.op === "auto_layout");
 }
 
 function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): string {
-  if (operations.some((operation) => operation.op === "run_drawio_script")) {
-    return "Review the native Draw.io script and expected postcondition checks before applying it. Studio only confirms success if the serialized XML and script verification results pass.";
-  }
   if (operations.some((operation) => operation.op === "auto_layout")) {
     return "Review this whole-page layout change before applying it. Studio will calculate positions with its configured layout engine, then update only native cell geometry and connector waypoints.";
   }
@@ -447,9 +441,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       body.applicationState === "changed-unverified" || body.applicationState === "not-applied" ||
       body.applicationState === "unknown" ? body.applicationState : null;
     const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
-    const readOnlyNoChange = pending.operations.some((operation) =>
-      operation.op === "run_drawio_script" && operation.mode === "read"
-    ) && applicationState === "not-applied" && persistenceStatus === "read_only_no_change";
+    const readOnlyNoChange = false;
     if (!outcome) {
       await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "invalid_outcome", receivedOutcome: body.outcome ?? null });
       res.status(400).json({
@@ -530,7 +522,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       targetLabel: operation.targetLabel,
       ...(operation.op === "set_label" ? { newLabel: operation.label } : {}),
       ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
-      ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         preserveLocalGrouping: operation.preserveLocalGrouping,
         preserveCanvasOrigin: operation.preserveCanvasOrigin,
@@ -1060,7 +1051,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use run_drawio_script for a markup-preserving substring edit. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use run_drawio_script; never fabricate cell IDs.",
+      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use the XML-first editing tool for markup-preserving edits. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use edit_drawio_xml; never fabricate cell IDs.",
       parameters: {
         type: "object",
         properties: {
@@ -1106,7 +1097,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), 
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         preserveLocalGrouping: operation.preserveLocalGrouping,
         preserveCanvasOrigin: operation.preserveCanvasOrigin,
@@ -1630,9 +1621,8 @@ function createDrawioElementSearchTool(sessionId: string) {
       }
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
-      const toolsUsed = plan.capturedNativeEdits
-        ? (plan.capturedNativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
-            ? ["run_drawio_script"] : ["propose_native_edits"])
+      const toolsUsed = plan.capturedXmlPatch ? ["edit_drawio_xml"] : plan.capturedNativeEdits
+        ? ["propose_native_edits"]
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
         ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
@@ -1691,7 +1681,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         // Local single-user Studio applies native edits directly by default, scripts included.
         // STUDIO_REQUIRE_EDIT_CONFIRMATION=1 restores the proposal/review gate.
         const reviewRequired = requiresNativeEditReview() &&
-          requiresExplicitConfirmation(nativeEdits.operations, Boolean(context.scriptRepair));
+          requiresExplicitConfirmation(nativeEdits.operations);
         if (reviewRequired) {
           const proposalId = randomUUID();
           await logPendingProposalSweep(prunePendingNativeProposals(Date.now(), 1), deps.writeLog);
@@ -1726,9 +1716,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
           outcome: "command_ready" as const,
           commands: [],
-          reply: terminalIntentWarning + (nativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
-            ? "执行原生 Draw.io 脚本：" + nativeEdits.summary + "。等待编辑器序列化和保存确认。"
-            : nativeEdits.summary),
+          reply: terminalIntentWarning + nativeEdits.summary,
           selection,
           nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
           ...shared
