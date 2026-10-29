@@ -75,6 +75,7 @@ interface CopilotIntentOptions {
   getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   onServerXmlCommitted?: () => Promise<void>;
+  onStandaloneXmlPatchReady?: (xml: string) => Promise<void>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setChatInput: (value: string) => void;
@@ -90,7 +91,7 @@ interface CopilotIntentOptions {
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted, onStandaloneXmlPatchReady,
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
   } = options;
 
@@ -274,6 +275,29 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         recordDiagnostic("copilot.xml-edit.refreshed", "Reloaded the server-committed Draw.io XML revision", {
           requestId: plan.requestId, workspaceRevision: plan.persistence.workspaceRevision
         });
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply }]);
+        return;
+      }
+      if (plan.outcome === "xml_patch_ready") {
+        if (!standaloneMode) throw new Error("A standalone XML patch was returned for a workspace document; no canvas state was changed.");
+        if (!onStandaloneXmlPatchReady) throw new Error("The server prepared the XML patch, but browser-owned file persistence is unavailable.");
+        if (plan.documentRevision !== documentRevision ||
+            await calculateDrawioXmlRevision(sourceXml) !== plan.documentRevision ||
+            await calculateDrawioXmlRevision(plan.drawioXml) !== plan.patchedRevision) {
+          throw new Error("The standalone XML patch failed revision verification. The local file was not changed.");
+        }
+        const currentState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        assertCopilotRequestContextFresh(
+          "before-standalone-xml-apply",
+          { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
+          currentState,
+          "before applying the server-generated XML. No change was applied; retry against the current state."
+        );
+        await onStandaloneXmlPatchReady(plan.drawioXml);
+        recordDiagnostic("copilot.xml-edit.standalone-patch-applied",
+          "Applied a revision-checked server XML patch to the standalone editor; browser file-handle persistence will confirm the write",
+          { requestId: plan.requestId, sourceRevision: plan.documentRevision,
+            patchedRevision: plan.patchedRevision, changedCellIds: plan.changedCellIds });
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply }]);
         return;
       }
