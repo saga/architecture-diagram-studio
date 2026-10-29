@@ -407,7 +407,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       body.applicationState === "changed-unverified" || body.applicationState === "not-applied" ||
       body.applicationState === "unknown" ? body.applicationState : null;
     const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
-    const readOnlyNoChange = false;
     if (!outcome) {
       await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "invalid_outcome", receivedOutcome: body.outcome ?? null });
       res.status(400).json({
@@ -417,7 +416,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       return;
     }
-    if (outcome === "applied" && (!editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange))) {
+    if (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) {
       await deps.writeLog("turn.native-edit.ack-rejected", {
         requestId, sessionId, reason: "incomplete_applied_evidence",
         editorAcknowledged, serializedXmlRevision, persistenceStatus
@@ -429,7 +428,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       return;
     }
-    if (outcome === "applied" && !readOnlyNoChange && applicationState !== "applied-and-verified") {
+    if (outcome === "applied" && applicationState !== "applied-and-verified") {
       await deps.writeLog("turn.native-edit.ack-rejected", {
         requestId, sessionId, reason: "editor_state_not_verified", applicationState,
         failureStage, serializedXmlRevision
@@ -450,11 +449,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       return;
     }
-    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server" && !readOnlyNoChange) {
+    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server") {
       res.status(400).json({ outcome: "failed", reply: "Standalone file persistence is owned by the browser.", error: "Standalone acknowledgements must not claim a server-managed workspace save." });
       return;
     }
-    if (outcome === "applied" && !pending.standalone && !readOnlyNoChange) {
+    if (outcome === "applied" && !pending.standalone) {
       let savedVersion: { drawioXml: string; revision: string; versionId: string } | null;
       try {
         savedVersion = versionId ? await deps.getWorkspaceVersionSnapshot(versionId) : null;
