@@ -10,6 +10,7 @@ export interface NativeLayoutAdapterDescriptor {
   supportedEdgeRouting: readonly NativeAutoLayoutEdgeRouting[];
   /** Options not supported by an adapter must be reported, never silently implied. */
   unsupportedOptions: readonly ("randomSeed" | "iterations" | "margin" | "nodeSpacing" | "layerSpacing")[];
+  unsupportedOptionsByAlgorithm?: Partial<Record<NativeAutoLayoutAlgorithm, readonly ("randomSeed" | "iterations" | "margin" | "nodeSpacing" | "layerSpacing")[]>>;
 }
 
 export interface NativeLayoutOptionDiagnostics {
@@ -37,9 +38,10 @@ export function diagnoseNativeLayoutOptions(
   if (!descriptor.supportedEdgeRouting.includes(input.edgeRouting)) {
     unsupported.push("edgeRouting:" + input.edgeRouting);
   } else applied.push("edgeRouting:" + input.edgeRouting);
+  const unsupportedForAlgorithm = descriptor.unsupportedOptionsByAlgorithm?.[input.algorithm] ?? descriptor.unsupportedOptions;
   for (const [key, value] of Object.entries(input.options ?? {})) {
     if (value === undefined) continue;
-    if (descriptor.unsupportedOptions.includes(key as NativeLayoutAdapterDescriptor["unsupportedOptions"][number])) {
+    if (unsupportedForAlgorithm.includes(key as NativeLayoutAdapterDescriptor["unsupportedOptions"][number])) {
       unsupported.push(key);
     } else applied.push(key);
   }
