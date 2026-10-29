@@ -23,7 +23,7 @@ The toolbar exposes ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 thr
 
 ## Supported native operations
 
-Copilot's default edit path is server-side XML-first and does not require the typed operation allowlist or `run_drawio_script`. The script path is retained only as an explicit advanced fallback for capabilities requiring the live Draw.io runtime. Automatic layout remains on its existing typed planner/application path and is explicitly out of scope for ADR-0026; its engine set, algorithms, parameters and geometry application are unchanged. The model cannot write arbitrary workspace paths or bypass the server's validated document persistence service.
+Copilot edits native XML directly on the server. The `run_drawio_script` tool and model-generated JavaScript execution path are removed entirely; do not retain a fallback under another name. Automatic layout remains on its existing typed planner/application path and is explicitly out of scope for ADR-0026; its engine set, algorithms, parameters and geometry application are unchanged. The model cannot write arbitrary workspace paths or bypass the server's validated document persistence service.
 
 ## Extension contracts without porting the old implementation
 
