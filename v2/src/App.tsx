@@ -719,11 +719,6 @@ export default function App() {
         reportNativeEditNotDispatched(acknowledgement, error);
         return Promise.resolve({ ok: false, error, rolledBack: false, applicationState: "not-applied", steps: [] });
       }
-      if (edits.some((edit) => edit.path === "cell:execute-script")) {
-        const error = "The native JavaScript execution path has been removed. Copilot edits must use server-side XML patches or typed native operations.";
-        recordDiagnostic("copilot.native-edit.script-rejected", error, { editCount: edits.length }, "error");
-        return Promise.resolve({ ok: false, error, rolledBack: false, applicationState: "not-applied", steps: [] });
-      }
       const requestId = ++cellEditRequestSequenceRef.current;
       await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
       const watchdogTimeoutMs = 30_000;
