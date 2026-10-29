@@ -298,7 +298,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           "Applied a revision-checked server XML patch to the standalone editor; browser file-handle persistence will confirm the write",
           { requestId: plan.requestId, sourceRevision: plan.documentRevision,
             patchedRevision: plan.patchedRevision, changedCellIds: plan.changedCellIds });
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply }]);
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply.replace("正在交由浏览器写回所选本地文件。", "浏览器已将变更写回所选本地文件。") }]);
         return;
       }
       if (plan.outcome === "applied") {
