@@ -51,9 +51,9 @@ Change geometry without touching style or terminals:
 { "op": "set-geometry", "cellId": "cell-id-from-current-context", "geometry": { "x": 240, "y": 120 } }
 \`\`\`
 
-Add a native vertex under an existing page root:
+Add a native vertex under an existing parent cell. Replace both parent placeholders with the exact ID of an existing native parent from the current page; never assume the root or layer uses a particular ID:
 \`\`\`json
-{ "op": "insert-cell-xml", "parentId": "1", "cellXml": "<mxCell id=\\"new-unique-id\\" value=\\"New node\\" vertex=\\"1\\" parent=\\"1\\"><mxGeometry x=\\"240\\" y=\\"120\\" width=\\"120\\" height=\\"60\\" as=\\"geometry\\"/></mxCell>" }
+{ "op": "insert-cell-xml", "parentId": "existing-parent-id-from-current-context", "cellXml": "<mxCell id=\\"new-unique-id\\" value=\\"New node\\" vertex=\\"1\\" parent=\\"existing-parent-id-from-current-context\\"><mxGeometry x=\\"240\\" y=\\"120\\" width=\\"120\\" height=\\"60\\" as=\\"geometry\\"/></mxCell>" }
 \`\`\`
 
 For edges, preserve valid source/target cell IDs and native geometry. For UserObject/object cells, keep the wrapper and inner mxCell together. Never invent IDs from stale context or assume IDs are unique across different pages; every patch must specify the active page ID.
