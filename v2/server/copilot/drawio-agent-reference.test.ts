@@ -23,7 +23,7 @@ describe("on-demand Draw.io reference", () => {
       "## Shape discovery", "Catalogue misses are not exhaustive.",
       "### C4 shape recipes", "new Function legacy recipe",
       "## Validation and postconditions", "script execution legacy"
-    ].join("\\n");
+    ].join("\n");
     for (const topic of ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"] as const) {
       const content = selectDrawioReferenceSections(markdown, topic);
       expect(content, topic).not.toContain("run_drawio_script");
