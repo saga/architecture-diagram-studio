@@ -1,9 +1,13 @@
 # ADR-0023: Native Script Runtime Boundaries and Late Outcomes
 
-- **Status:** Accepted
+- **Status:** Retired by [ADR-0026](./0026-server-side-xml-first-copilot-editing.md); retained as historical runtime analysis
 - **Date:** 2026-10-27
 - **Scope:** V2 native Draw.io script execution, transaction integrity, edit watchdogs, XML validation, and user-visible outcomes
 - **Related:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0018 — AI-First Native Draw.io Execution](./0018-ai-first-native-drawio-execution.md), [ADR-0020 — Native Script Assertion Contracts and Accurate Edit Outcomes](./0020-native-script-assertion-contract-and-outcome-reporting.md)
+
+## Scope after ADR-0026
+
+This ADR records runtime issues from the former script-execution path. That path is removed by ADR-0026; do not preserve its script-specific source scanning, transaction balancing or iframe watchdog solely for the removed tool. The general requirements remain: timeouts are not proof of failure, late results must be reconciled, and user-visible outcomes must follow the actual persisted revision. Automatic layout remains unchanged.
 
 ## Context
 

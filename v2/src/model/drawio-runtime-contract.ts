@@ -1,5 +1,5 @@
 export const PINNED_DRAWIO_VERSION = "v32.0.2";
-export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/3";
+export const DRAWIO_RUNTIME_BRIDGE_VERSION = "studio-native-runtime/4";
 
 export const PINNED_RUNTIME_CAPABILITY_REQUIREMENTS = {
   graph: ["getModel", "getDefaultParent", "getChildCells", "setCellStyles", "insertVertex", "insertEdge", "removeCells", "refresh", "convertValueToString"],
@@ -54,7 +54,6 @@ export interface DrawioJavaScriptShapeClassManifest {
 export interface DrawioRuntimeInspection {
   schemaVersion: 1;
   capabilityManifest: {
-    scriptSupported: boolean;
     required: Partial<Record<RuntimeCapabilityGroup, string[]>>;
     missing: Partial<Record<RuntimeCapabilityGroup, string[]>>;
     jsShapeClasses: DrawioJavaScriptShapeClassManifest;
@@ -235,19 +234,9 @@ export function normalizeDrawioRuntimeInspection(
   const rawRegisteredShapes = isRecord(rawJsShapeClasses.registered) ? rawJsShapeClasses.registered : {};
   const registeredJsShapeClasses: Record<string, boolean> = {};
   for (const name of requestedJsShapeClassNames) registeredJsShapeClasses[name] = rawRegisteredShapes[name] === true;
-  const manifestMatchesContract = (Object.keys(PINNED_RUNTIME_CAPABILITY_REQUIREMENTS) as Array<keyof typeof PINNED_RUNTIME_CAPABILITY_REQUIREMENTS>)
-    .every((group) => {
-      const advertisedRequired = requiredGroups[group] ?? [];
-      const missing = missingGroups[group] ?? [];
-      const actuallyAvailable = capabilities[group] ?? [];
-      return PINNED_RUNTIME_CAPABILITY_REQUIREMENTS[group].every((method) =>
-        advertisedRequired.includes(method) && actuallyAvailable.includes(method) && !missing.includes(method)
-      );
-    });
   return {
     schemaVersion: 1,
     capabilityManifest: {
-      scriptSupported: rawManifest.scriptSupported === true && manifestMatchesContract,
       required: requiredGroups,
       missing: missingGroups,
       jsShapeClasses: { requested: requestedJsShapeClassNames, registered: registeredJsShapeClasses }

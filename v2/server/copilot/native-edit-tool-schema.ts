@@ -16,13 +16,7 @@ if (!Array.isArray(branches)) {
   throw new Error("Native edit operation schema did not generate a JSON Schema union.");
 }
 // Keep the provider-facing shape stable: emit enum singletons for op and target literals.
-const normalizedBranches = branches.filter((raw) => {
-  const branch = raw as { properties?: Record<string, unknown> };
-  const op = branch.properties?.op as { const?: unknown; enum?: unknown[] } | undefined;
-  const operationNames = Array.isArray(op?.enum) ? op.enum : op && "const" in op ? [op.const] : [];
-  // Raw scripts have their own tool and must not appear in propose_native_edits.
-  return !operationNames.includes("run_drawio_script");
-}).map((raw) => {
+const normalizedBranches = branches.map((raw) => {
   const branch = raw as { properties?: Record<string, unknown> };
   const properties = { ...(branch.properties ?? {}) };
   for (const [key, value] of Object.entries(properties)) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog, searchDrawioShapeCatalogDetailed
+  DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog, searchDrawioShapeCatalogDetailed
 } from "./drawio-shape-catalog";
 
 describe("curated Draw.io shape catalogue", () => {
@@ -32,13 +32,6 @@ describe("curated Draw.io shape catalogue", () => {
       kind: "edge",
       style: "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#707070;fontColor=#404040;fontSize=10;"
     });
-  });
-  it("ships a C4 creation template with a parseable, minimal assertion set", () => {
-    const template = C4_DIRECTORY_SCRIPT_TEMPLATE;
-    expect(() => new Function("ui", "editor", "graph", "model", "inspectRuntime", template)).not.toThrow();
-    expect(template).toContain("xmlAssertions");
-    expect(template.split("cellId:").length - 1).toBeLessThanOrEqual(3);
-    expect(template).toContain("postconditions: { created: created.length > 0 }");
   });
   it("recognises the C4 directory alias only for that bundle", () => {
     expect(isC4DirectoryQuery("C4 directory")).toBe(true);

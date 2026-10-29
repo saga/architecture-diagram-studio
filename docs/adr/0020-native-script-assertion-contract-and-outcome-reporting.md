@@ -1,9 +1,13 @@
 # ADR-0020: Native Script Assertion Contracts and Accurate Edit Outcomes
 
-- **Status:** Accepted
+- **Status:** Retired by [ADR-0026](./0026-server-side-xml-first-copilot-editing.md); retained as historical incident documentation
 - **Date:** 2026-10-27
 - **Scope:** V2 Copilot native Draw.io script execution, XML verification, and user-facing outcomes
 - **Related:** [ADR-0012 — Native Diagram Extension Contracts](./0012-native-diagram-extension-contracts.md), [ADR-0015 — Tool-Guided Copilot Instructions and Draw.io Shape Discovery](./0015-tool-guided-copilot-shape-discovery.md), [ADR-0018 — AI-First Native Draw.io Execution](./0018-ai-first-native-drawio-execution.md)
+
+## Scope after ADR-0026
+
+This ADR documents the former script execution contract and the incidents that motivated accurate outcome reporting. The script tool and its execution path are removed under ADR-0026. XML validation, revision consistency, accurate outcomes and persistence acknowledgement continue to apply to the XML-first edit path; do not implement this script assertion protocol in the new path.
 
 ## Context
 

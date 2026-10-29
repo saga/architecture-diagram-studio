@@ -23,7 +23,6 @@ function inspection(overrides: Record<string, unknown> = {}) {
       view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
     },
     capabilityManifest: {
-      scriptSupported: true,
       required: {
         graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
         model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
@@ -52,7 +51,6 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result).not.toBeNull();
     expect(result?.capabilities.graph).toContain("getDefaultParent");
     expect(result?.capabilities.view).toContain("getState");
-    expect(result?.capabilityManifest.scriptSupported).toBe(true);
     expect(result?.capabilityManifest.jsShapeClasses.registered["mxgraph.c4.person2"]).toBe(true);
     expect(result?.cells[0]?.geometry).toMatchObject({ x: 10, y: 20, width: 100, height: 60 });
     expect(result?.liveShapeClasses).toEqual(["mxgraph.c4.person2", "mxgraph.flowchart.start"]);
@@ -91,7 +89,6 @@ describe("Draw.io runtime inspection contract", () => {
   it("normalizes shape registration queries independently from stencil lookup", () => {
     const result = normalizeDrawioRuntimeInspection(inspection({
       capabilityManifest: {
-        scriptSupported: true,
         required: {
           graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
           model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
@@ -115,7 +112,6 @@ describe("Draw.io runtime inspection contract", () => {
     const registered = Object.fromEntries(names.map((name) => [name, true]));
     const result = normalizeDrawioRuntimeInspection(inspection({
       capabilityManifest: {
-        scriptSupported: true,
         required: {
           graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
           model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
@@ -167,7 +163,6 @@ describe("Draw.io runtime inspection contract", () => {
         view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
       },
       capabilityManifest: {
-        scriptSupported: true,
         required: {
           graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
           model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
@@ -187,7 +182,7 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.truncated).toBe(true);
   });
 
-  it("fails closed when a required Graph method is missing from the runtime", () => {
+  it("reports missing Graph methods as diagnostics without an execution gate", () => {
     const graph = [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph].filter((method) => method !== "getDefaultParent");
     const result = normalizeDrawioRuntimeInspection(inspection({
       capabilities: {
@@ -196,7 +191,6 @@ describe("Draw.io runtime inspection contract", () => {
         view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
       },
       capabilityManifest: {
-        scriptSupported: true,
         required: {
           graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
           model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
@@ -205,7 +199,8 @@ describe("Draw.io runtime inspection contract", () => {
         missing: { graph: ["getDefaultParent"], model: [], view: [] }
       }
     }));
-    expect(result?.capabilityManifest.scriptSupported).toBe(false);
+    expect(result?.capabilityManifest.missing.graph).toContain("getDefaultParent");
+    expect(result?.capabilities.graph).not.toContain("getDefaultParent");
   });
 
   it("drops invalid methods and non-finite rendered coordinates", () => {
@@ -216,7 +211,6 @@ describe("Draw.io runtime inspection contract", () => {
         view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
       },
       capabilityManifest: {
-        scriptSupported: true,
         required: {
           graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
           model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],

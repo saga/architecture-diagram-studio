@@ -12,6 +12,7 @@ interface Options {
   projectWorkspace: Workspace; copilotSessionId: string; messages: ChatMessage[];
   saveLabelRef: MutableRefObject<string>; serverRevisionRef: MutableRefObject<string | null>;
   setLastAction: (message: string) => void; setSaveState: (state: WorkspaceSaveState) => void; onDiagnostic: Diagnostic;
+  onAuthoritativeRevision: (xml: string, revision: string) => void;
 }
 interface SaveResult { saved: boolean; workspaceRevision?: string | null; version?: { id?: string } | null; error?: string; }
 interface SaveOptions {
@@ -21,8 +22,9 @@ interface SaveOptions {
   expectedWorkspaceKey?: string | null;
 }
 export function useWorkspacePersistence(options: Options) {
-  const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, setSaveState, onDiagnostic } = options;
+  const { drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef, serverRevisionRef, setLastAction, setSaveState, onDiagnostic, onAuthoritativeRevision } = options;
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const saveInFlightRef = useRef(0);
   const lastPersistedXmlRef = useRef<string | null>(null);
   const lastPersistedVersionIdRef = useRef<string | null>(null);
   const currentXmlRef = useRef(drawioXml);
@@ -136,17 +138,20 @@ export function useWorkspacePersistence(options: Options) {
       const baseRevision = serverRevisionRef.current;
       setSaveState("saving");
       let response: Response;
+      saveInFlightRef.current += 1;
       try {
         response = await fetch("/api/workspace/document", {
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ drawioXml: xml, label, baseRevision })
         });
       } catch (error) {
+        saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1);
         if (scheduledSaveEpoch === saveEpochRef.current && scheduledWorkspaceKey === currentWorkspaceKeyRef.current && currentXmlRef.current === xml) {
           setSaveState(saveConflictRef.current ? "conflict" : "failed");
         }
         throw error;
       }
+      saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1);
       const payload = await response.json().catch(() => ({})) as SaveResult & { currentRevision?: string | null };
       if (response.status === 409) {
         // A request can finish after restore/workspace-switch invalidated its context.
@@ -219,6 +224,65 @@ export function useWorkspacePersistence(options: Options) {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, persistDocumentNow, saveLabelRef, onDiagnostic, setSaveState]);
+  useEffect(() => {
+    if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
+    let active = true;
+    let polling = false;
+    const workspaceKey = currentWorkspaceKeyRef.current;
+    const pollAuthoritativeRevision = async () => {
+      if (polling || saveInFlightRef.current > 0 || !active || workspaceKey !== currentWorkspaceKeyRef.current) return;
+      polling = true;
+      const observedRevision = serverRevisionRef.current;
+      const observedXml = currentXmlRef.current;
+      try {
+        const response = await fetch("/api/workspace/state");
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const state = await response.json() as {
+          drawioXml?: unknown; workspaceRevision?: unknown; workspaceMismatch?: boolean;
+        };
+        if (!active || workspaceKey !== currentWorkspaceKeyRef.current || state.workspaceMismatch ||
+            typeof state.drawioXml !== "string" || typeof state.workspaceRevision !== "string" ||
+            state.workspaceRevision === observedRevision) return;
+        if (serverRevisionRef.current !== observedRevision || currentXmlRef.current !== observedXml) return;
+        if (lastPersistedXmlRef.current !== observedXml) {
+          saveConflictRef.current = { workspaceKey, currentRevision: state.workspaceRevision };
+          setSaveState("conflict");
+          setLastAction("The server document changed while this editor had unsaved changes. The local draft was preserved; automatic saving is paused until the newer server version is reloaded or the draft is exported.");
+          onDiagnostic("workspace.persist.external-revision-conflict",
+            "A newer authoritative server revision was detected while local XML differed from the last persisted snapshot; local XML was not overwritten",
+            { previousRevision: observedRevision, currentRevision: state.workspaceRevision,
+              localXmlLength: observedXml.length, workspaceKey }, "error");
+          return;
+        }
+        const authoritativeXml = state.drawioXml;
+        // Invalidate autosaves captured before this server-side commit and update the baseline
+        // synchronously before React applies the XML state update.
+        saveEpochRef.current += 1;
+        currentXmlRef.current = authoritativeXml;
+        lastObservedAutosaveXmlRef.current = authoritativeXml;
+        lastPersistedXmlRef.current = authoritativeXml;
+        serverRevisionRef.current = state.workspaceRevision;
+        saveConflictRef.current = null;
+        pausedAutosaveLoggedRef.current = false;
+        onAuthoritativeRevision(authoritativeXml, state.workspaceRevision);
+        setSaveState("saved");
+        onDiagnostic("workspace.persist.external-revision-reloaded",
+          "Loaded a newer native Draw.io XML revision committed by the server",
+          { previousRevision: observedRevision, currentRevision: state.workspaceRevision,
+            xmlLength: authoritativeXml.length }, "info");
+      } catch (error) {
+        if (active) onDiagnostic("workspace.persist.revision-poll.failed",
+          "Could not check for newer server-side diagram revisions",
+          { errorMessage: error instanceof Error ? error.message : String(error) }, "warn");
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = window.setInterval(() => { void pollAuthoritativeRevision(); }, 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [serverHydrated, workspaceContentReady, projectWorkspace?.id, projectWorkspace?.primaryDiagram,
+    onAuthoritativeRevision, onDiagnostic, setLastAction, setSaveState, serverRevisionRef]);
+
   useEffect(() => {
     if (!serverHydrated || !workspaceContentReady || !projectWorkspace) return;
     fetch("/api/workspace/chat", {

@@ -1,7 +1,6 @@
 import { recordDiagnostic } from "../diagnostics";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
-import type { NativeScriptScopeViolation, NativeScriptXmlAssertionFailure } from "../model/native-edit-confirmation";
 import { isCopilotIntentOutcome, type CopilotIntentResponse } from "./copilot-intent-outcome";
 
 export interface AIProviderConfig {
@@ -24,19 +23,6 @@ export interface AIIntentContext {
   cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
   /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
   runtimeInspection?: DrawioRuntimeInspection;
-  /** One bounded repair context after a failed native script with a confirmed rollback. */
-  scriptRepair?: {
-    originalRequest: string;
-    failedScript: string;
-    error: string;
-    stack?: string;
-    toolResult: {
-      toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string;
-      rollbackConfirmed: boolean; failedPath: string;
-      assertionFailures?: NativeScriptXmlAssertionFailure[];
-      scopeViolations?: NativeScriptScopeViolation[];
-    };
-  };
 }
 
 export type AIIntentResponse = CopilotIntentResponse;
@@ -105,6 +91,37 @@ function validateResponse(value: unknown): AIIntentResponse {
       return { outcome: "unsupported", reply: reply || "This operation is not supported by the current native-edit allowlist.", ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 1000) } : {}), ...metadata };
     case "answered":
       return { outcome: "answered", reply: reply || "No diagram change was requested.", ...metadata };
+    case "xml_committed": {
+      if (typeof item.requestId !== "string" || !item.requestId.trim() ||
+          !item.persistence || typeof item.persistence !== "object" || Array.isArray(item.persistence)) {
+        throw new Error("The xml_committed outcome requires a request ID and persistence receipt");
+      }
+      const persistence = item.persistence as Record<string, unknown>;
+      if (typeof persistence.workspaceRevision !== "string" || !persistence.workspaceRevision.trim()) {
+        throw new Error("The XML persistence receipt is missing the committed workspace revision");
+      }
+      return {
+        outcome: "xml_committed",
+        reply: reply || "The server committed the native Draw.io XML edit.",
+        requestId: item.requestId,
+        persistence: persistence as { workspaceRevision: string; [key: string]: unknown },
+        ...metadata
+      };
+    }
+    case "xml_patch_ready": {
+      if (typeof item.requestId !== "string" || !item.requestId.trim() ||
+          typeof item.drawioXml !== "string" || !item.drawioXml.trim() ||
+          typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||
+          typeof item.patchedRevision !== "string" || !item.patchedRevision.trim() ||
+          !Array.isArray(item.changedCellIds) || !item.changedCellIds.every((id) => typeof id === "string")) {
+        throw new Error("The xml_patch_ready outcome requires validated XML, source/result revisions and changed cell IDs");
+      }
+      return {
+        outcome: "xml_patch_ready", reply: reply || "The server prepared the native XML edit for browser-owned persistence.",
+        requestId: item.requestId, drawioXml: item.drawioXml, documentRevision: item.documentRevision,
+        patchedRevision: item.patchedRevision, changedCellIds: item.changedCellIds as string[], ...metadata
+      };
+    }
     case "applied": {
       if (typeof item.requestId !== "string" || !item.requestId.trim() ||
           typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||

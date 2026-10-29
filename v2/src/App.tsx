@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useRef, useState } from "react";
+import { Children, isValidElement, useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
@@ -163,20 +163,12 @@ export default function App() {
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
-  const nativeScriptWatchdogTimeoutMs = (() => {
-    const configured = Number(import.meta.env.VITE_NATIVE_SCRIPT_WATCHDOG_TIMEOUT_MS);
-    return Number.isFinite(configured) && configured >= 30_000 && configured <= 180_000
-      ? Math.floor(configured)
-      : 75_000;
-  })();
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
   const nativeEditResolversRef = useRef(new Map<number, (result: {
     success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string;
     batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
-    batchRolledBack?: boolean | null; scriptResult?: unknown; semanticChanged?: boolean;
+    batchRolledBack?: boolean | null; 
     applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string;
-    assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string; expected?: unknown; actual?: unknown }>;
-    scopeViolations?: Array<{ kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[] }>;
   }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const lateNativeEditRequestsRef = useRef(new Set<number>());
@@ -308,7 +300,19 @@ export default function App() {
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, setSaveState: setDocumentSaveState, onDiagnostic: recordDiagnostic });
+  const handleAuthoritativeRevision = useCallback((xml: string, _serverRevision: string) => {
+    setNativeXmlOverride(xml);
+    setRevision((value) => value + 1);
+    setWorkspaceContentReady(true);
+    setServerXmlAvailable(true);
+    setDocumentSaveState("saved");
+    setLastAction("Loaded the latest server-saved Draw.io revision.");
+  }, []);
+  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({
+    drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages,
+    saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, setSaveState: setDocumentSaveState,
+    onDiagnostic: recordDiagnostic, onAuthoritativeRevision: handleAuthoritativeRevision
+  });
 
   useEffect(() => {
     function handleHistoryShortcut(event: KeyboardEvent) {
@@ -620,6 +624,43 @@ export default function App() {
       return frame.inspectRuntime({ documentRevision, pageId, jsShapeClassNames });
     },
     persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
+    onServerXmlCommitted: async () => {
+      const response = await fetch("/api/workspace/state");
+      if (!response.ok) throw new Error("The server committed the XML edit, but Studio could not reload the saved workspace state.");
+      const state = await response.json() as { drawioXml?: unknown; workspaceRevision?: unknown; workspaceMismatch?: unknown };
+      if (state.workspaceMismatch || typeof state.drawioXml !== "string" || typeof state.workspaceRevision !== "string") {
+        throw new Error("The server committed the XML edit, but the active workspace returned no current XML revision.");
+      }
+      const actualRevision = await calculateDrawioXmlRevision(state.drawioXml);
+      if (actualRevision !== state.workspaceRevision) {
+        throw new Error("The refreshed Draw.io XML does not match the server-issued revision; refusing to replace the current canvas.");
+      }
+      // Mark this exact XML as already persisted before updating React state, so autosave
+      // cannot race the server commit with the stale pre-edit document.
+      clearSaveConflict("copilot-server-xml-commit", state.drawioXml, true);
+      serverRevisionRef.current = state.workspaceRevision;
+      setNativeXmlOverride(state.drawioXml);
+      setRevision((value) => value + 1);
+      setWorkspaceContentReady(true);
+      setServerXmlAvailable(true);
+      setDocumentSaveState("saved");
+    },
+    onStandaloneXmlPatchReady: async (xml) => {
+      const binding = standaloneFileBindingRef.current;
+      if (!binding || !standaloneFileHandleRef.current || !standaloneFileName) {
+        throw new Error("The standalone file handle is no longer available; the XML patch was not written.");
+      }
+      const expectedToken = binding.fileToken;
+      await enqueueStandaloneSave(xml, expectedToken);
+      const savedBinding = standaloneFileBindingRef.current;
+      const savedRevision = await calculateDrawioXmlRevision(xml);
+      if (!savedBinding || savedBinding.fileToken !== expectedToken || savedBinding.revision !== savedRevision) {
+        throw new Error("The browser did not confirm the standalone file revision; the canvas was not replaced.");
+      }
+      setNativeXmlOverride(xml);
+      setRevision((value) => value + 1);
+      setDocumentSaveState("saved");
+    },
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
     applyNativeCellEdit: async (cellId, path, value, requestedPageId) => {
       const targetPageId = requestedPageId !== undefined ? requestedPageId : selectedNativePageId;
@@ -679,28 +720,8 @@ export default function App() {
         return Promise.resolve({ ok: false, error, rolledBack: false, applicationState: "not-applied", steps: [] });
       }
       const requestId = ++cellEditRequestSequenceRef.current;
-      const containsReadOnlyScript = edits.length === 1 && edits[0].path === "cell:execute-script" && (() => {
-        try {
-          const payload = JSON.parse(edits[0].value) as { mode?: unknown; script?: unknown };
-          return payload && payload.mode === "read" && typeof payload.script === "string";
-        } catch {
-          return false;
-        }
-      })();
-      // An inspection is not a diagram edit. Do not create the "Before Copilot" standalone
-      // history snapshot before knowing whether it is read-only; the snapshot itself would
-      // pollute History even when DrawioFrame correctly skips persistence.
-      if (containsReadOnlyScript) {
-        recordDiagnostic("copilot.native-inspection.history-skipped",
-          "Skipped the pre-edit standalone History snapshot for a read-only native inspection",
-          { requestId, pageId, operationCount: edits.length });
-      } else {
-        await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
-      }
-      const containsScript = edits.some((edit) => edit.path === "cell:execute-script");
-      // DrawioFrame starts its XML-export confirmation window after the editor ACK.
-      // Give that window plus a small scheduling buffer time to finish before the App watchdog.
-      const watchdogTimeoutMs = containsScript ? nativeScriptWatchdogTimeoutMs + 40_000 : 30_000;
+      await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
+      const watchdogTimeoutMs = 30_000;
       return new Promise((resolve) => {
         nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
@@ -710,7 +731,6 @@ export default function App() {
             errorStack: result.errorStack,
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
-            scriptResult: result.scriptResult,
             applicationState: result.applicationState,
             // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
             rolledBack: result.success ? false : result.batchRolledBack === true,
@@ -733,7 +753,7 @@ export default function App() {
           const timeoutError = "The native Draw.io editor has not returned a final serialized result within " +
             Math.round(watchdogTimeoutMs / 1000) + " seconds. The edit outcome is still unknown.";
           recordDiagnostic("copilot.native-edits.timeout", "Stopped waiting for a native edit without declaring its final outcome", {
-            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs,
+            requestId, editCount: edits.length, watchdogTimeoutMs,
             reconciliationPending: true
           }, "warn");
           resolve({
@@ -1932,9 +1952,6 @@ export default function App() {
               const isLateNativeSelection = result.path === "cell:select" && requestId !== null &&
                 !resolver && lateNativeSelectionRequestsRef.current.has(requestId);
               const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
-              const readOnlyNoChange = result.path === "cell:batch" &&
-                result.scriptMode === "read" && result.applicationState === "not-applied" &&
-                (result.success === true || result.batchRolledBack === true);
               let finalResult = result;
               let serializedXmlRevision: string | null = null;
               let persistedRevision: string | null = null;
@@ -1942,19 +1959,14 @@ export default function App() {
               let persistenceStatus = "not_attempted";
               const lateResultHasSnapshot = typeof result.serializedXml === "string" ||
                 result.batchRolledBack === true || result.applicationState === "not-applied";
-              if (readOnlyNoChange) {
-                // An inspection receipt is terminal for the agent turn, but it is not a file edit.
-                // Do not hash/export its transient serialized XML, rewrite a standalone file, or create a workspace version.
-                persistenceStatus = "read_only_no_change";
-              } else if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
+              if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
                 if (typeof result.serializedXml !== "string") {
                   if (result.success) {
                     finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
                     persistenceStatus = "failed";
                   } else {
-                    // Failed scripts also request XML serialization so any partial native edits can be
-                    // saved as a version and shown to the agent. If serialization timed out, retain the
-                    // original script failure and leave the last good persisted revision untouched.
+                    // Failed native edits may have changed the editor. Preserve the last good revision
+                    // unless a valid serialized XML snapshot is available.
                     persistenceStatus = "not_attempted";
                   }
                 } else {
@@ -2075,7 +2087,7 @@ export default function App() {
                   await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
                 }
                 const expectedOutcome = finalResult.success ? "applied" : "failed";
-                const appliedReceiptMismatch = finalResult.success && !readOnlyNoChange && (
+                const appliedReceiptMismatch = finalResult.success && (
                   ackBody?.documentRevision !== serializedXmlRevision ||
                   ackBody?.persistedRevision !== persistedRevision ||
                   ackBody?.versionId !== persistedVersionId
@@ -2127,13 +2139,7 @@ export default function App() {
                   { requestId, applicationState: finalResult.applicationState ?? null, rollbackConfirmed: finalResult.batchRolledBack === true }, "error");
                 return;
               }
-              const status = readOnlyNoChange
-                ? (finalResult.success
-                    ? "Read-only inspection completed; the diagram, source file and History were left unchanged."
-                    : "Read-only inspection failed; the diagram, source file and History were left unchanged: " + (finalResult.error || "Unknown error"))
-                : (finalResult.success && finalResult.semanticChanged === false
-                ? "Native script assertions passed; the requested state was already present, so no semantic diagram change was needed."
-                : finalResult.success
+              const status = finalResult.success
                 ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
                   (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
                     ? "; workspace save confirmed."
@@ -2150,7 +2156,7 @@ export default function App() {
                       ? "No document change was detected for this edit: " + (finalResult.error || "No matching change")
                       : finalResult.applicationState === "unknown"
                         ? "The native edit outcome is unknown: " + (finalResult.error || "No reliable serialized result")
-                        : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error")) +
+                         : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error") +
                 (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
               if (wasLateNativeEdit) {
@@ -2185,8 +2191,7 @@ export default function App() {
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
-                assertionFailures: finalResult.assertionFailures ?? [], scopeViolations: finalResult.scopeViolations ?? []
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
               if (isLateNativeSelection && requestId !== null && lateNativeSelectionRequestsRef.current.delete(requestId)) {
                 const reconciledText = finalResult.success
@@ -2235,8 +2240,6 @@ export default function App() {
                         batchRolledBack: result.batchRolledBack ?? null,
                         applicationState: result.applicationState === "not-applied" ? "not-applied" : "unknown",
                         auditWarning: "The final native XML/persistence result could not be reconciled. Do not retry.",
-                        assertionFailures: result.assertionFailures,
-                        scopeViolations: result.scopeViolations
                       });
                     }
                     return;

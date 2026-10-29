@@ -10,6 +10,7 @@ import {
 } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
+import { applyDrawioXmlPatch } from "./xml-first-edit";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
@@ -17,7 +18,7 @@ import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./
 import { requiresNativeEditReview } from "./edit-confirmation-policy";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
-import { searchDrawioShapeCatalogDetailed, C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
+import { searchDrawioShapeCatalogDetailed, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -101,6 +102,7 @@ interface IntentDependencies {
   getWorkspaceVersionSnapshot(versionId: string): Promise<{ drawioXml: string; revision: string; versionId: string } | null>;
   collectAgentWorkspaceContext(prompt?: string): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
+  commitWorkspaceXmlPatch?(input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
   acknowledgements?: NativeExecutionAcknowledgements;
 }
 
@@ -115,6 +117,7 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 const pendingNativeProposals = new Map<string, PendingNativeProposal>();
 type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
+const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; summary: string; standalone: boolean; sourceXml?: string }>();
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -244,19 +247,13 @@ function acknowledgementFingerprint(body: Record<string, unknown>): string {
   });
 }
 
-export function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[], forceScriptReview = false): boolean {
-  // Scripts execute arbitrary Draw.io JavaScript in the editor runtime. Until execution is
-  // capability-restricted, they must always be reviewed explicitly, including repair attempts.
-  if (forceScriptReview || operations.some((operation) => operation.op === "run_drawio_script")) return true;
+export function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[]): boolean {
   // Whole-page layout and destructive edits can affect many cells; require a deliberate review
   // even in local single-user mode. Ordinary typed edits retain the fast path.
   return operations.some((operation) => operation.op === "delete" || operation.op === "auto_layout");
 }
 
 function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): string {
-  if (operations.some((operation) => operation.op === "run_drawio_script")) {
-    return "Review the native Draw.io script and expected postcondition checks before applying it. Studio only confirms success if the serialized XML and script verification results pass.";
-  }
   if (operations.some((operation) => operation.op === "auto_layout")) {
     return "Review this whole-page layout change before applying it. Studio will calculate positions with its configured layout engine, then update only native cell geometry and connector waypoints.";
   }
@@ -270,41 +267,6 @@ function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): s
  * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
  * attempt receives the concrete serialized value it must assert, not just the missing field name.
  */
-function boundedSuggestedAssertion(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const source = value as Record<string, unknown>;
-  const bounded: Record<string, unknown> = {};
-  if (typeof source.label === "string") bounded.label = source.label.slice(0, 300);
-  if (source.style && typeof source.style === "object" && !Array.isArray(source.style)) {
-    const style: Record<string, string | null> = {};
-    for (const [key, expected] of Object.entries(source.style as Record<string, unknown>).slice(0, 10)) {
-      if (expected !== null && typeof expected !== "string") continue;
-      style[key.slice(0, 60)] = expected === null ? null : expected.slice(0, 120);
-    }
-    if (Object.keys(style).length) bounded.style = style;
-  }
-  if (source.geometry && typeof source.geometry === "object" && !Array.isArray(source.geometry)) {
-    const geometry: Record<string, unknown> = {};
-    for (const [key, expected] of Object.entries(source.geometry as Record<string, unknown>).slice(0, 10)) {
-      if (Array.isArray(expected)) {
-        geometry[key.slice(0, 40)] = expected.slice(0, 20).flatMap((point) => {
-          if (!point || typeof point !== "object" || Array.isArray(point)) return [];
-          const source = point as Record<string, unknown>;
-          const x = typeof source.x === "number" && Number.isFinite(source.x) ? source.x : null;
-          const y = typeof source.y === "number" && Number.isFinite(source.y) ? source.y : null;
-          // Keep null coordinates: dropping the point would shorten the array and turn a correct
-          // hint into an assertion that cannot match.
-          return [{ x, y }];
-        });
-      } else if (expected === null || typeof expected === "number" || typeof expected === "boolean") {
-        geometry[key.slice(0, 40)] = expected;
-      }
-    }
-    if (Object.keys(geometry).length) bounded.geometry = geometry;
-  }
-  return Object.keys(bounded).length ? bounded : undefined;
-}
-
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   const acknowledgements = deps.acknowledgements ?? acknowledgementsDefault;
   app.post("/api/copilot/intent/confirm", async (req, res) => {
@@ -445,9 +407,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       body.applicationState === "changed-unverified" || body.applicationState === "not-applied" ||
       body.applicationState === "unknown" ? body.applicationState : null;
     const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
-    const readOnlyNoChange = pending.operations.some((operation) =>
-      operation.op === "run_drawio_script" && operation.mode === "read"
-    ) && applicationState === "not-applied" && persistenceStatus === "read_only_no_change";
     if (!outcome) {
       await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "invalid_outcome", receivedOutcome: body.outcome ?? null });
       res.status(400).json({
@@ -457,7 +416,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       return;
     }
-    if (outcome === "applied" && (!editorAcknowledged || (!serializedXmlRevision && !readOnlyNoChange))) {
+    if (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) {
       await deps.writeLog("turn.native-edit.ack-rejected", {
         requestId, sessionId, reason: "incomplete_applied_evidence",
         editorAcknowledged, serializedXmlRevision, persistenceStatus
@@ -469,7 +428,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       return;
     }
-    if (outcome === "applied" && !readOnlyNoChange && applicationState !== "applied-and-verified") {
+    if (outcome === "applied" && applicationState !== "applied-and-verified") {
       await deps.writeLog("turn.native-edit.ack-rejected", {
         requestId, sessionId, reason: "editor_state_not_verified", applicationState,
         failureStage, serializedXmlRevision
@@ -490,11 +449,11 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       });
       return;
     }
-    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server" && !readOnlyNoChange) {
+    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server") {
       res.status(400).json({ outcome: "failed", reply: "Standalone file persistence is owned by the browser.", error: "Standalone acknowledgements must not claim a server-managed workspace save." });
       return;
     }
-    if (outcome === "applied" && !pending.standalone && !readOnlyNoChange) {
+    if (outcome === "applied" && !pending.standalone) {
       let savedVersion: { drawioXml: string; revision: string; versionId: string } | null;
       try {
         savedVersion = versionId ? await deps.getWorkspaceVersionSnapshot(versionId) : null;
@@ -528,7 +487,6 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       targetLabel: operation.targetLabel,
       ...(operation.op === "set_label" ? { newLabel: operation.label } : {}),
       ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
-      ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         preserveLocalGrouping: operation.preserveLocalGrouping,
         preserveCanvasOrigin: operation.preserveCanvasOrigin,
@@ -620,7 +578,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
   function createDrawioShapeSearchTool(sessionId: string) {
     return defineTool("search_drawio_shapes", {
-      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a minimal script skeleton; use those exact styles and dimensions directly in one native script. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
+      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a relationship edge recipe. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
         type: "object",
         properties: {
@@ -657,8 +615,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               ". Do not treat this subset as the complete candidate set. Retry with a more specific name/category or use the live Draw.io UI/runtime discovery path; the catalogue is intentionally non-exhaustive."
           } : {}),
           ...(c4Directory ? {
-            scriptTemplate: C4_DIRECTORY_SCRIPT_TEMPLATE,
-            guidance: "These recipes answer the whole C4 creation turn: build the script now. Replace the *_STYLE placeholders with the exact style strings above and keep their width/height; assert only the cells you create (one xmlAssertion each, at most 3 postconditions). Do not call get_drawio_reference or repeat this search in this turn."
+            guidance: "These recipes answer the whole C4 creation turn. Use the exact native style strings and dimensions returned above to create mxCell XML fragments through edit_drawio_xml. Create native edge fragments for relationships and preserve existing cells; do not generate or execute JavaScript."
           } : {}),
           ...(!searchPage.matchCount ? {
             ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
@@ -955,7 +912,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         properties: {
           topic: {
             type: "string",
-            enum: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"],
+            enum: ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"],
             description: "Choose the smallest relevant reference section."
           }
         },
@@ -966,7 +923,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         const topic = args?.topic;
         if (!isDrawioReferenceTopic(topic)) {
           await deps.writeLog("tool.get_drawio_reference.rejected", { sessionId, reason: "invalid_reference_topic" });
-          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
+          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"] };
         }
         try {
           return { accepted: true, topic, reference: await readDrawioAgentReference(topic) };
@@ -986,86 +943,88 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createRunDrawioScriptTool(sessionId: string) {
-    return defineTool("run_drawio_script", {
-      description: "Execute a synchronous JavaScript mutation against the live native Draw.io editor. This is a terminal action that runs only after the model turn ends. Do not use mode=read for discovery: it returns no data and is rejected because deferred scripts cannot feed inspection results into the same turn. Use inspect_drawio_graph/search_drawio_elements for non-terminal read-only data, then make the requested edit. Mutation scripts require ok=true, non-empty true postconditions, and xmlAssertions for every changed cell. For label access use graph.convertValueToString(cell); model.getValue may be a UserObject DOM Element, which must be cloned and have only its label attribute updated. Independently re-scan labels for postconditions. Allowed xmlAssertions fields are cellId, exists, kind, label, labelContains, parentId, sourceId, targetId, style and geometry. These are Studio-only verifier fields, not Draw.io XML attributes. Prefer {cellId,label:fullFinalLabel} for a full-label edit; for a title embedded in a rich label use {cellId,labelContains:titleSubstring}; the host verifies that substring against serialized XML. Do not invent fields or compose IDs: cell IDs are opaque strings and must be copied verbatim. Unknown extra fields are diagnostic-only and never replace required concrete evidence. style is a non-empty key/value map, not a style string; geometry must contain explicit expected fields. Edges have no bounding box: Draw.io omits x/y/width/height from an edge's serialized mxGeometry, so never assert those four fields for an edge. To prove a connector reroute, assert geometry.points with the waypoints you just set, because style curved=1 alone bends nothing without a waypoint. The iframe is sandboxed on a separate origin; do not access the Studio parent DOM, local APIs or network side effects. Do not replace saved mxfile XML. Do not call graph.refresh(), graph.view.validate() or graph.view.getState() after mutation/endUpdate.",
+  function createEditDrawioXmlTool(sessionId: string) {
+    return defineTool("edit_drawio_xml", {
+      description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge.",
       parameters: {
         type: "object",
         properties: {
-          summary: { type: "string", minLength: 1, maxLength: 1000, description: "Brief description of the inspection or requested change." },
-          mode: { type: "string", enum: ["read", "mutate"], default: "mutate", description: "Use mutate for edits. read is retained only for compatibility and returns an explicit rejection with no data; use inspect_drawio_graph for same-turn inspection." },
-          script: { type: "string", minLength: 1, maxLength: 50000, description: "Synchronous JavaScript source with live ui, editor, graph, model and inspectRuntime bindings. For mutate mode, return {ok:true, postconditions:{checkName:true}, xmlAssertions:[...]}; each assertion must contain cellId and concrete, host-verifiable evidence. Read labels with graph.convertValueToString(cell), not String(model.getValue(cell)); wrapped values are DOM Elements and must be cloned when editing so metadata remains intact. Re-scan independently for postconditions. Allowed fields are Studio-only xmlAssertions verifier keys, not Draw.io XML attributes: cellId, exists, kind, label, labelContains, parentId, sourceId, targetId, style, geometry. Use {cellId,label:exactFinalLabel} or {cellId,labelContains:titleSubstring} for an embedded title substring. Unknown extras are diagnostic-only and do not count as evidence. IDs are opaque: copy verbatim, never add prefixes. style must be a non-empty key/value object; geometry must contain at least one explicit field. All postcondition values must be true booleans. mode=read is compatibility-only and rejected with no execution or result; use inspect_drawio_graph for same-turn reads." }
+          summary: { type: "string", minLength: 1, maxLength: 1000 },
+          patch: {
+            type: "array", minItems: 1, maxItems: 100,
+            items: {
+              oneOf: [
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-cell-attributes"] },
+                  cellId: { type: "string", minLength: 1 },
+                  attributes: { type: "object", additionalProperties: { oneOf: [{ type: "string" }, { type: "null" }] } }
+                }, required: ["op", "cellId", "attributes"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-geometry"] },
+                  cellId: { type: "string", minLength: 1 },
+                  geometry: { type: "object", properties: {
+                    x: { type: "number" }, y: { type: "number" },
+                    width: { type: "number" }, height: { type: "number" }
+                  }, minProperties: 1, additionalProperties: false }
+                }, required: ["op", "cellId", "geometry"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-geometry-xml"] },
+                  cellId: { type: "string", minLength: 1 },
+                  geometryXml: { type: "string", minLength: 1, maxLength: 100000 }
+                }, required: ["op", "cellId", "geometryXml"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["delete-cell"] },
+                  cellId: { type: "string", minLength: 1 }
+                }, required: ["op", "cellId"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["insert-cell-xml"] },
+                  parentId: { type: "string", minLength: 1 },
+                  cellXml: { type: "string", minLength: 1, maxLength: 200000 }
+                }, required: ["op", "parentId", "cellXml"], additionalProperties: false }
+              ]
+            }
+          }
         },
-        required: ["summary", "script"],
+        required: ["summary", "patch"],
         additionalProperties: false
       },
-      handler: async (args: { summary?: unknown; script?: unknown; mode?: unknown }) => {
-        if (typeof args?.summary !== "string" || !args.summary.trim() || args.summary.length > 1000) {
-          return { accepted: false, terminal: false, result_available: false, reason: "invalid_summary", error: "run_drawio_script requires a summary from 1 to 1000 characters." };
+      handler: async (args: { summary?: unknown; patch?: unknown }) => {
+        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
+            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
+          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };
         }
-        if (typeof args?.script !== "string" || !args.script.trim() || args.script.length > 50000) {
-          return { accepted: false, terminal: false, result_available: false, reason: "invalid_script", error: "run_drawio_script requires a non-empty JavaScript program no longer than 50000 characters." };
+        const context = contextBySession.get(sessionId) as {
+          documentRevision?: string; activePageId?: string | null; standalone?: boolean; sourceXml?: string;
+        } | undefined;
+        if (!context?.standalone && !deps.commitWorkspaceXmlPatch) {
+          return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };
         }
-        if (args?.mode !== undefined && args.mode !== "read" && args.mode !== "mutate") {
-          return { accepted: false, terminal: false, result_available: false, reason: "invalid_mode", error: "run_drawio_script mode must be read or mutate." };
+        const snapshot = context?.standalone && typeof context.sourceXml === "string"
+          ? { drawioXml: context.sourceXml, revision: workspaceRevision(context.sourceXml) }
+          : await deps.getWorkspaceDiagramSnapshot();
+        if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
+          return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
         }
-        const mode = args.mode === "read" ? "read" : "mutate";
-        if (mode === "read") {
-          await deps.writeLog("tool.run_drawio_script.read.rejected", {
-            sessionId, reason: "deferred_script_has_no_current_turn_result",
-            scriptLength: args.script.length,
-            documentRevision: (contextBySession.get(sessionId) as { documentRevision?: string } | undefined)?.documentRevision ?? null
-          });
-          return {
-            accepted: false, mode: "read", result_available: false, terminal: false,
-            reason: "deferred_script_has_no_current_turn_result",
-            instructions: "No script was executed and no data was returned. This script tool executes only after the model turn ends. Use inspect_drawio_graph or search_drawio_elements for read-only data available in this turn, then continue with the requested edit. Do not report inspection success."
-          };
-        }
-        const parsed = parseNativeEditOperations([{
-          op: "run_drawio_script", target: "active_page", summary: args.summary, script: args.script, mode
-        }]);
-        if (!parsed.ok) {
-          await deps.writeLog("tool.run_drawio_script.rejected", { sessionId, reason: "invalid_native_script", error: parsed.error });
-          return { accepted: false, terminal: false, result_available: false, reason: "invalid_native_script", error: parsed.error, instructions: "Correct the script operation payload. No script was queued or executed." };
-        }
-        const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
-        if (!resolved.ok) {
-          await deps.writeLog("tool.run_drawio_script.rejected", { sessionId, reason: "unresolved_target", error: resolved.error });
-          return { accepted: false, terminal: false, result_available: false, reason: "unresolved_target", error: resolved.error, instructions: "Use the current page context and exact native IDs or uniquely resolved labels. No script was queued or executed." };
-        }
-        const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
         const registration = registerTerminalIntent(sessionId, "native_edit");
         if (!registration.accepted) {
-          await deps.writeLog("tool.terminal-intent.rejected", {
-            sessionId, requestedKind: "native_edit", registeredKind: registration.registeredKind,
-            reason: "terminal_action_already_registered", operationCount: resolved.operations.length
-          });
-          return {
-            accepted: false, reason: "terminal_action_already_registered",
-            registeredKind: registration.registeredKind,
-            instructions: "This terminal action was not queued. The previously registered action remains authoritative. Do not retry or call another terminal tool; if the registered action is a native edit, let it dispatch."
-          };
+          return { accepted: false, terminal: false, reason: "terminal_action_already_registered", registeredKind: registration.registeredKind };
         }
-        pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
-        if (registration.replaced) {
-          await deps.writeLog("tool.terminal-intent.promoted-to-edit", {
-            sessionId, replacedKind: registration.replaced, operationCount: resolved.operations.length
-          });
-        }
-        const activeContext = contextBySession.get(sessionId);
-        const context = activeContext && typeof activeContext === "object"
-          ? activeContext as { documentRevision?: string; activePageId?: string | null; runtimeInspection?: { drawioVersion?: string } }
-          : {};
-        await deps.writeLog("tool.run_drawio_script.accepted", {
-          sessionId, summary, mode, script: args.script, scriptLength: args.script.length,
-          documentRevision: context.documentRevision ?? null, pageId: context.activePageId ?? null,
-          drawioVersion: context.runtimeInspection?.drawioVersion ?? PINNED_DRAWIO_VERSION
+        pendingXmlPatches.set(sessionId, {
+          patch: args.patch as Array<Record<string, unknown>>,
+          baseRevision: snapshot.revision,
+          pageId: typeof context.activePageId === "string" ? context.activePageId : null,
+          summary: args.summary.trim(),
+          standalone: context.standalone === true,
+          ...(context.standalone === true ? { sourceXml: context.sourceXml } : {})
+        });
+        await deps.writeLog("tool.edit_drawio_xml.accepted", {
+          sessionId, summary: args.summary.trim(), operationCount: args.patch.length,
+          baseRevision: snapshot.revision
         });
         return {
-          accepted: true, execution: "after_model_turn", summary, mode: "mutate",
-          scriptLength: args.script.length, terminal: true,
-          instructions: "This is the terminal editing action for this turn. The editor will execute the script after this model call ends. Return and verify postconditions plus XML assertions; do not claim success before serialization and persistence are confirmed."
+          accepted: true, terminal: true, execution: "after_model_turn",
+          summary: args.summary.trim(), operationCount: args.patch.length,
+          instructions: "The server will apply and persist this XML patch after the model turn. Do not call another editing tool and do not claim success until the final persistence receipt is returned."
         };
       }
     });
@@ -1073,7 +1032,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
-      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use run_drawio_script for a markup-preserving substring edit. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use run_drawio_script; never fabricate cell IDs.",
+      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use the XML-first editing tool for markup-preserving edits. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use edit_drawio_xml; never fabricate cell IDs.",
       parameters: {
         type: "object",
         properties: {
@@ -1119,7 +1078,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
         await deps.writeLog("tool.propose_native_edits.accepted", {
           sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), 
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         preserveLocalGrouping: operation.preserveLocalGrouping,
         preserveCanvasOrigin: operation.preserveCanvasOrigin,
@@ -1131,7 +1090,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           accepted: true, queued: true, execution: "after_model_turn", terminal: true, result_available: false,
           instructions: "The native edit intent is queued, but the diagram has not been changed or saved yet. Do not call another terminal tool or claim success. Studio will validate the current revision and dispatch the operation for native XML and persistence verification; in local single-user mode there is no second confirmation click.",
           operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), ...(operation.op === "run_drawio_script" ? { summary: operation.summary, scriptLength: operation.script.length } : {}),
+          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
       ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
         preserveLocalGrouping: operation.preserveLocalGrouping,
         preserveCanvasOrigin: operation.preserveCanvasOrigin,
@@ -1299,96 +1258,6 @@ function createDrawioElementSearchTool(sessionId: string) {
     if (selectedCell && !visibleCells.some((cell) => cell.id === selectedCell!.cellId)) {
       visibleCells = [...visibleCells.slice(0, 199), allNativeCells.find((cell) => cell.id === selectedCell!.cellId)!];
     }
-    const suppliedRepair = (requestedContext as { scriptRepair?: unknown }).scriptRepair;
-    let scriptRepair: {
-      originalRequest: string; failedScript: string; error: string; stack?: string;
-      toolResult: {
-        toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string;
-        rollbackConfirmed: boolean; failedPath: string;
-        assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string }>;
-        scopeViolations?: Array<{
-          kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[];
-          suggestedAssertion?: Record<string, unknown>;
-        }>;
-      };
-    } | undefined;
-    if (suppliedRepair !== undefined) {
-      if (!suppliedRepair || typeof suppliedRepair !== "object" || Array.isArray(suppliedRepair)) {
-        res.status(400).json({ outcome: "failed", reply: "The native edit repair context could not be validated.", error: "scriptRepair must be an object", documentRevision, requestId, sessionId });
-        return;
-      }
-      const repair = suppliedRepair as Record<string, unknown>;
-      const toolResult = repair.toolResult && typeof repair.toolResult === "object" && !Array.isArray(repair.toolResult)
-        ? repair.toolResult as Record<string, unknown>
-        : null;
-      if (typeof repair.originalRequest !== "string" || !repair.originalRequest.trim() || repair.originalRequest.length > 1500 ||
-          typeof repair.failedScript !== "string" || !repair.failedScript.trim() || repair.failedScript.length > 12_000 ||
-          typeof repair.error !== "string" || !repair.error.trim() || repair.error.length > 1200 ||
-          (repair.stack !== undefined && (typeof repair.stack !== "string" || repair.stack.length > 8000)) ||
-          !toolResult ||
-          (toolResult.toolName !== "run_drawio_script" && toolResult.toolName !== "propose_native_edits") || toolResult.success !== false ||
-          typeof toolResult.error !== "string" || !toolResult.error.trim() || toolResult.error.length > 1200 ||
-          typeof toolResult.rollbackConfirmed !== "boolean" ||
-          typeof toolResult.failedPath !== "string" || toolResult.failedPath.length > 80 ||
-          (toolResult.stack !== undefined && (typeof toolResult.stack !== "string" || toolResult.stack.length > 8000)) ||
-          (toolResult.assertionFailures !== undefined && (!Array.isArray(toolResult.assertionFailures) || toolResult.assertionFailures.length > 25)) ||
-          (toolResult.scopeViolations !== undefined && (!Array.isArray(toolResult.scopeViolations) || toolResult.scopeViolations.length > 25))) {
-        res.status(400).json({ outcome: "failed", reply: "The native edit repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, failed action <=12000 chars, error <=1200 chars, and a bounded failed native tool result", documentRevision, requestId, sessionId });
-        return;
-      }
-      scriptRepair = {
-        originalRequest: repair.originalRequest,
-        failedScript: repair.failedScript,
-        error: repair.error,
-        ...(typeof repair.stack === "string" ? { stack: repair.stack } : {}),
-        toolResult: {
-          toolName: toolResult.toolName as "run_drawio_script" | "propose_native_edits",
-          success: false,
-          error: (toolResult as Record<string, unknown>).error as string,
-          ...(typeof toolResult.stack === "string" ? { stack: toolResult.stack.slice(0, 8000) } : {}),
-          rollbackConfirmed: toolResult.rollbackConfirmed as boolean,
-          failedPath: toolResult.failedPath as string,
-          ...(Array.isArray(toolResult.assertionFailures) ? {
-            assertionFailures: toolResult.assertionFailures.slice(0, 25).flatMap((raw) => {
-              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-              const item = raw as Record<string, unknown>;
-              if (typeof item.field !== "string" || typeof item.reason !== "string" ||
-                  !["invalid-result", "invalid-assertion", "invalid-document", "mismatch"].includes(String(item.kind))) return [];
-              return [{
-                kind: String(item.kind),
-                index: typeof item.index === "number" && Number.isInteger(item.index) ? item.index : null,
-                ...(typeof item.cellId === "string" ? { cellId: item.cellId.slice(0, 200) } : {}),
-                field: item.field.slice(0, 120), reason: item.reason.slice(0, 400)
-              }];
-            })
-          } : {}),
-          ...(Array.isArray(toolResult.scopeViolations) ? {
-            scopeViolations: toolResult.scopeViolations.slice(0, 25).flatMap((raw) => {
-              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-              const item = raw as Record<string, unknown>;
-              if (typeof item.kind !== "string" || typeof item.cellId !== "string" ||
-                  typeof item.label !== "string" || (item.pageId !== null && typeof item.pageId !== "string")) return [];
-              const changedFields = Array.isArray(item.changedFields)
-                ? item.changedFields.filter((field): field is string => typeof field === "string").slice(0, 20).map((field) => field.slice(0, 120))
-                : undefined;
-              const suggestedAssertion = boundedSuggestedAssertion(item.suggestedAssertion);
-              return [{
-                kind: item.kind.slice(0, 40), cellId: item.cellId.slice(0, 200),
-                pageId: item.pageId as string | null, label: item.label.slice(0, 200),
-                ...(changedFields?.length ? { changedFields } : {}),
-                ...(suggestedAssertion ? { suggestedAssertion } : {})
-              }];
-            })
-          } : {})
-        }
-      };
-      await deps.writeLog("request.script-repair.received", {
-        requestId, sessionId, failedActionLength: scriptRepair.failedScript.length, failedTool: scriptRepair.toolResult.toolName, errorLength: scriptRepair.error.length,
-        originalRequestLength: scriptRepair.originalRequest.length, errorStackLength: scriptRepair.stack?.length ?? 0,
-        toolResult: scriptRepair.toolResult,
-        revision: computedRevision, activePageId: identity.documentPageId
-      });
-    }
     const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
     const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
       documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION
@@ -1417,7 +1286,6 @@ function createDrawioElementSearchTool(sessionId: string) {
       selectedCell,
       cells: promptCells,
       ...(runtimeInspection ? { runtimeInspection } : {}),
-      ...(scriptRepair ? { scriptRepair } : {})
     };
     if (!standalone) {
       let authoritative: { drawioXml: string; revision: string } | null;
@@ -1491,7 +1359,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioElementSearchTool(sessionId),
               createDrawioGraphInspectionTool(sessionId),
               createDrawioReferenceTool(sessionId),
-              createRunDrawioScriptTool(sessionId),
+              createEditDrawioXmlTool(sessionId),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
             ],
@@ -1510,11 +1378,16 @@ function createDrawioElementSearchTool(sessionId: string) {
         // Keep the complete server-derived target index private to tools. The model-facing context is
         // intentionally capped for prompt size, but target uniqueness must be checked against every cell
         // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
-        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: identity.documentPageId, cells: allNativeCells, runtimeInspection: context.runtimeInspection });
+        contextBySession.set(sessionId, {
+          ...context, documentRevision, activePageId: identity.documentPageId,
+          cells: allNativeCells, runtimeInspection: context.runtimeInspection,
+          standalone, ...(standalone ? { sourceXml: diagramXml } : {})
+        });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
+        pendingXmlPatches.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -1601,7 +1474,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use run_drawio_script to patch only the intended text. Re-scan postconditions independently via graph.convertValueToString; do not reuse the mutation's changed-count list as proof. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Use propose_native_edits for common simple operations and Studio-owned auto_layout; use edit_drawio_xml for non-trivial native XML changes. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), and preserve existing XML whenever possible. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use edit_drawio_xml to patch only the intended text while preserving the native XML. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml when the typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1610,7 +1483,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script for non-trivial native edits or when direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. Never use run_drawio_script(mode:read) for discovery: it is deferred and returns no data. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
+            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use edit_drawio_xml for non-trivial native edits beyond the typed-operation allowlist. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
@@ -1643,9 +1516,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       }
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
-      const toolsUsed = plan.capturedNativeEdits
-        ? (plan.capturedNativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
-            ? ["run_drawio_script"] : ["propose_native_edits"])
+      const toolsUsed = pendingXmlPatches.has(sessionId)
+        ? ["edit_drawio_xml"]
+        : plan.capturedNativeEdits ? ["propose_native_edits"]
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
         ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
@@ -1659,12 +1532,74 @@ function createDrawioElementSearchTool(sessionId: string) {
         ...(plan.modelCallUsages.length ? { modelCallUsages: plan.modelCallUsages } : {}),
         ...(plan.contextUsage ? { contextUsage: plan.contextUsage } : {})
       };
+      const pendingXmlPatch = pendingXmlPatches.get(sessionId);
+      if (pendingXmlPatch) {
+        pendingXmlPatches.delete(sessionId);
+        try {
+          if (pendingXmlPatch.standalone) {
+            if (typeof pendingXmlPatch.sourceXml !== "string" ||
+                workspaceRevision(pendingXmlPatch.sourceXml) !== pendingXmlPatch.baseRevision) {
+              throw new Error("The standalone Draw.io source changed before the XML patch could be applied.");
+            }
+            const patched = applyDrawioXmlPatch(
+              pendingXmlPatch.sourceXml, pendingXmlPatch.patch as Parameters<typeof applyDrawioXmlPatch>[1], pendingXmlPatch.pageId
+            );
+            const patchedRevision = workspaceRevision(patched.drawioXml);
+            await deps.writeLog("turn.completed.xml-patch-prepared-for-browser-save", {
+              requestId, sessionId, summary: pendingXmlPatch.summary, baseRevision: pendingXmlPatch.baseRevision,
+              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds
+            });
+            res.json({
+              outcome: "xml_patch_ready",
+              reply: pendingXmlPatch.summary + "。服务端已修改并校验原生 Draw.io XML，正在交由浏览器写回所选本地文件。",
+              requestId, drawioXml: patched.drawioXml, documentRevision: pendingXmlPatch.baseRevision,
+              patchedRevision, changedCellIds: patched.changedCellIds, ...shared
+            });
+            return;
+          }
+          const receipt = await deps.commitWorkspaceXmlPatch!({
+            patch: pendingXmlPatch.patch,
+            baseRevision: pendingXmlPatch.baseRevision,
+            pageId: pendingXmlPatch.pageId,
+            label: "Copilot: " + pendingXmlPatch.summary
+          });
+          const body = receipt.body && typeof receipt.body === "object" ? receipt.body as Record<string, unknown> : {};
+          if (!receipt.ok) {
+            const message = typeof body.error === "string" ? body.error : "The server rejected the XML patch.";
+            await deps.writeLog("turn.completed.xml-patch-failed", {
+              requestId, sessionId, status: receipt.status, baseRevision: pendingXmlPatch.baseRevision, error: message
+            });
+            res.status(receipt.status >= 400 ? receipt.status : 409).json({
+              outcome: "failed", reply: message, error: message, requestId, ...shared
+            });
+            return;
+          }
+          await deps.writeLog("turn.completed.xml-patch-committed", {
+            requestId, sessionId, summary: pendingXmlPatch.summary,
+            baseRevision: pendingXmlPatch.baseRevision, receipt: body
+          });
+          res.json({
+            outcome: "xml_committed",
+            reply: typeof body.workspaceRevision === "string"
+              ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
+              : pendingXmlPatch.summary + "。服务端已接受 XML 修改。",
+            requestId, persistence: body, ...shared
+          });
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await deps.writeLog("turn.completed.xml-patch-failed", { requestId, sessionId, error: message });
+          res.status(500).json({ outcome: "failed", reply: "服务端 XML 修改失败：" + message, error: message, requestId, ...shared });
+          return;
+        }
+      }
+
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
-        // Local single-user Studio applies native edits directly by default, scripts included.
+        // Local single-user Studio applies supported native edits directly by default.
         // STUDIO_REQUIRE_EDIT_CONFIRMATION=1 restores the proposal/review gate.
         const reviewRequired = requiresNativeEditReview() &&
-          requiresExplicitConfirmation(nativeEdits.operations, Boolean(context.scriptRepair));
+          requiresExplicitConfirmation(nativeEdits.operations);
         if (reviewRequired) {
           const proposalId = randomUUID();
           await logPendingProposalSweep(prunePendingNativeProposals(Date.now(), 1), deps.writeLog);
@@ -1699,9 +1634,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
           outcome: "command_ready" as const,
           commands: [],
-          reply: terminalIntentWarning + (nativeEdits.operations.some((operation) => operation.op === "run_drawio_script")
-            ? "执行原生 Draw.io 脚本：" + nativeEdits.summary + "。等待编辑器序列化和保存确认。"
-            : nativeEdits.summary),
+          reply: terminalIntentWarning + nativeEdits.summary,
           selection,
           nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
           ...shared
@@ -1744,6 +1677,7 @@ function createDrawioElementSearchTool(sessionId: string) {
       abortActiveTurn = null;
       contextBySession.delete(sessionId);
       pendingNativeEdits.delete(sessionId);
+      pendingXmlPatches.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);

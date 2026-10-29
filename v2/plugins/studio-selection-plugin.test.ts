@@ -224,10 +224,6 @@ function createHarness(options: { customShapeAvailable?: boolean; extraShapeClas
     return runOperations([{ cellId, path, value }]);
   }
 
-  function runScript(script: string) {
-    return runOperation("__active_page__", "cell:execute-script", script);
-  }
-
   function runRuntimeInspect(jsShapeClassNames: string[] = []) {
     messages.length = 0;
     messageHandler!({
@@ -359,161 +355,11 @@ describe("native Draw.io script bridge", () => {
     expect(edge.style).not.toContain("edgeStyle=");
   });
 
-  it("returns values from IIFE expression scripts to the host", () => {
-    const harness = createHarness();
-    const result = harness.runScript('(function () { return { ok: true, postconditions: { edgePresent: true } }; })();');
-
-    expect(result).toMatchObject({
-      success: true,
-      scriptResult: {
-        available: true,
-        value: { ok: true, postconditions: { edgePresent: true } }
-      }
-    });
-  });
-
-  it("does not execute a script twice when execution itself throws SyntaxError", () => {
-    const harness = createHarness();
-    const result = harness.runOperations([{
-      cellId: "__active_page__",
-      path: "cell:execute-script",
-      value: '(function () { graph.insertVertex(graph.getDefaultParent(), null, "Created once", 1, 2, 30, 20); throw new SyntaxError("runtime syntax error"); })();'
-    }]);
-
-    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
-    expect(harness.getCreatedCells()).toHaveLength(0);
-  });
-
-  it("does not patch Draw.io internal timers while executing native insertion", () => {
-    const harness = createHarness();
-    const beforeTimerCalls = harness.getInternalTimerCalls();
-    const result = harness.runScript(
-      "var created = graph.insertVertex(graph.getDefaultParent(), null, 'Timer-safe node', 100, 200, 80, 40, 'rounded=1;'); " +
-      "return { ok: true, postconditions: { created: !!created && created.vertex }, " +
-      "xmlAssertions: [{ cellId: created.id, exists: true, kind: 'vertex', label: 'Timer-safe node' }] };"
-    );
-    expect(result).toMatchObject({ success: true });
-    expect(harness.getInternalTimerCalls()).toBe(beforeTimerCalls + 1);
-    expect(harness.getCreatedCells()).toHaveLength(1);
-  });
-
-  it("executes whole-page curved-edge changes including connectors inside groups", () => {
-    const harness = createHarness();
-    const result = harness.runScript(curveAllConnectorsScript);
-
-    expect(result).toMatchObject({
-      success: true,
-      scriptResult: { available: true, value: { affectedEdges: 2, checkedApiOwner: true } }
-    });
-    expect(harness.rootEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
-    expect(harness.rootEdge.style).toContain("curved=1");
-    expect(harness.rootEdge.style).toContain("dashed=1");
-    expect(harness.rootEdge.style).toContain("endArrow=block");
-    expect(harness.nestedEdge.style).toContain("edgeStyle=orthogonalEdgeStyle");
-    expect(harness.nestedEdge.style).toContain("curved=1");
-    expect(harness.nestedEdge.style).toContain("endArrow=block");
-    expect(harness.service.style).toContain("fillColor=#ffffff");
-    expect(harness.service.style).not.toContain("curved=1");
-  });
-
-  it("restores an originally undefined connectability field after a failed batch", () => {
-    const harness = createHarness();
-    harness.service.connectable = undefined as unknown as boolean;
-    const result = harness.runOperations([
-      { cellId: "service", path: "cell:connectable", value: "false" },
-      { cellId: "missing-cell", path: "label", value: "fail after connectability mutation" }
-    ]);
-    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
-    expect(harness.service.connectable).toBeUndefined();
-  });
-
-  it("rejects timer-based deferred edits before they can escape the native transaction", () => {
-    const harness = createHarness();
-    const beforeStyle = harness.rootEdge.style;
-    const result = harness.runScript(
-      "window.setTimeout(function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }, 1); return { ok: true };"
-    );
-    expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toMatch(/synchronous|asynchronous|deferred/i);
-    expect(harness.rootEdge.style).toBe(beforeStyle);
-    expect(harness.getGraphRefreshCalls()).toBe(0);
-  });
-
-  it("rejects async/await continuations before running script code", () => {
-    const harness = createHarness();
-    const beforeStyle = harness.rootEdge.style;
-    const result = harness.runScript(
-      "var changeLater = async function () { await Promise.resolve(); graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }; changeLater(); return { ok: true };"
-    );
-    expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toContain("async functions and await");
-    expect(harness.rootEdge.style).toBe(beforeStyle);
-  });
-
-  it("rejects computed timer references without patching Draw.io's runtime globals", () => {
-    const harness = createHarness();
-    const beforeStyle = harness.rootEdge.style;
-    const result = harness.runScript(
-      "var schedulerName = ['set', 'Timeout'].join(''); window[schedulerName](function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }, 1); return { ok: true };"
-    );
-    expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toMatch(/asynchronous|deferred/i);
-    expect(harness.rootEdge.style).toBe(beforeStyle);
-  });
-
-  it("rejects computed Promise continuation references statically", () => {
-    const harness = createHarness();
-    const beforeStyle = harness.rootEdge.style;
-    const result = harness.runScript(
-      "var callbackName = ['the', 'n'].join(''); Promise.resolve()[callbackName](function () { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); }); return { ok: true };"
-    );
-    expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toContain("Promise callbacks are not supported");
-    expect(harness.rootEdge.style).toBe(beforeStyle);
-  });
-
-  it("rejects async/await hidden inside template interpolation", () => {
-    const harness = createHarness();
-    const result = harness.runScript(
-      "var label = \u0060\u0024{(async function () { await Promise.resolve(); graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); })()}\u0060; return { ok: true };"
-    );
-    expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toContain("async functions and await");
-  });
-
-  it("ignores asynchronous API names inside labels and comments", () => {
-    const harness = createHarness();
-    const result = harness.runScript(
-      "var label = 'setTimeout async await parent'; /* await Promise.resolve(); */ return { ok: true, postconditions: { inspected: true }, xmlAssertions: [{ cellId: 'edge-root', exists: true, kind: 'edge' }] };"
-    );
-    expect(result).toMatchObject({ success: true });
-  });
-
-  it("rejects unbalanced nested model transactions and unwinds them for rollback", () => {
-    const harness = createHarness();
-    const beforeStyle = harness.rootEdge.style;
-    const result = harness.runScript(
-      "model.beginUpdate(); graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); return { ok: true };"
-    );
-    expect(result).toMatchObject({ success: false, batchRolledBack: true, rollbackErrors: [] });
-    expect(String(result.error)).toContain("left 1 nested beginUpdate call(s) unbalanced");
-    expect(harness.rootEdge.style).toBe(beforeStyle);
-  });
-
-  it("does not let a script close the bridge-owned outer model transaction", () => {
-    const harness = createHarness();
-    const result = harness.runScript("model.endUpdate(); return { ok: true };");
-    expect(result).toMatchObject({ success: false, batchRolledBack: true });
-    expect(String(result.error)).toContain("must not close the bridge-owned outer model transaction");
-  });
-
-  it("allows a script to use a balanced nested native transaction", () => {
-    const harness = createHarness();
-    const result = harness.runScript(
-      "model.beginUpdate(); try { graph.setCellStyles('curved', '1', [model.getCell('edge-root')]); } finally { model.endUpdate(); } return { ok: true, postconditions: { updated: true }, xmlAssertions: [{ cellId: 'edge-root', exists: true, kind: 'edge', style: { curved: '1' } }] };"
-    );
-    expect(result).toMatchObject({ success: true });
-    expect(harness.rootEdge.style).toContain("curved=1");
+  it("contains no model-authored JavaScript execution primitive or tool name", () => {
+    const source = readFileSync(new URL("./studio-selection-plugin.js", import.meta.url), "utf8");
+    expect(source).not.toContain("new Function(");
+    expect(source).not.toContain("run_drawio_script");
+    expect(source).not.toContain("executeNativeScriptSynchronously");
   });
 
   it("inspects native runtime capabilities and cells recursively, including edges inside groups", () => {
@@ -524,11 +370,11 @@ describe("native Draw.io script bridge", () => {
       success: true,
       inspection: {
         schemaVersion: 1,
-        bridgeVersion: "studio-native-runtime/3",
+        bridgeVersion: "studio-native-runtime/4",
         drawioVersion: "v32.0.2",
         documentRevision: "a".repeat(64),
         counts: { cells: 6, vertices: 4, edges: 2 },
-        capabilityManifest: { scriptSupported: false }
+        capabilityManifest: {}
       }
     });
     const inspected = result?.inspection as { cells: Array<{ id: string }>; capabilities: { graph: string[]; model: string[] } };
@@ -556,31 +402,6 @@ describe("native Draw.io script bridge", () => {
         }
       }
     });
-  });
-
-  it("does not claim rollback succeeded after a script detaches the default layer", () => {
-    const harness = createHarness();
-    const result = harness.runScript('model.remove(model.getCell("1")); throw new Error("intentional failure");');
-    expect(result).toMatchObject({ success: false, batchRolledBack: false });
-    expect(result.rollbackErrors).toEqual(expect.arrayContaining([
-      expect.objectContaining({ cellId: "__active_page__", error: expect.stringContaining("cell tree/order") })
-    ]));
-  });
-
-  it("restores mutations after a script error even when mxGraphModel lacks setConnectable", () => {
-    const harness = createHarness();
-    const beforeRootEdge = harness.rootEdge.style;
-    const beforeNestedEdge = harness.nestedEdge.style;
-    const result = harness.runScript("graph.setCellStyles('curved', '1', [graph.getModel().getCell('edge-root')]); model.getDefaultParent();");
-
-    expect(result).toMatchObject({
-      success: false,
-      batchRolledBack: true,
-      rollbackErrors: []
-    });
-    expect(result.error).toContain("model.getDefaultParent is not a function");
-    expect(harness.rootEdge.style).toBe(beforeRootEdge);
-    expect(harness.nestedEdge.style).toBe(beforeNestedEdge);
   });
 
   it("edits connectability without relying on a non-existent mxGraphModel setter", () => {

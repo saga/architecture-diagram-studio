@@ -201,40 +201,6 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
     .not.toEqual(before);
 }
 
-/** Returns all native edge styles from inline or compressed Draw.io pages. */
-function edgeStyles(xml: string): string[] {
-  try {
-    const source = parseDrawioXml(xml);
-    const documentRoot = source.documentElement;
-    const models: Element[] = [];
-    if (documentRoot.nodeName === "mxGraphModel") {
-      models.push(documentRoot as unknown as Element);
-    } else if (documentRoot.nodeName === "mxfile") {
-      for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
-        const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
-        if (inlineModel) {
-          models.push(inlineModel);
-          continue;
-        }
-        const payload = (page.textContent || "").trim();
-        if (!payload) continue;
-        try {
-          const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
-          if (decoded.documentElement.nodeName === "mxGraphModel") {
-            models.push(decoded.documentElement as unknown as Element);
-          }
-        } catch { /* Continue with the other pages. */ }
-      }
-    }
-    return models.flatMap((model) =>
-      Array.from(model.getElementsByTagName("mxCell"))
-        .filter((cell) => cell.getAttribute("edge") === "1")
-        .map((cell) => cell.getAttribute("style") || "")
-    );
-  } catch {
-    return [];
-  }
-}
 
 test.describe("原生画布", () => {
   test("加载工作区的 Draw.io 文件并渲染全部节点", async ({ page }) => {
@@ -646,52 +612,16 @@ test.describe("原生画布", () => {
       throw new Error(String(error) + "\\nNative property diagnostics: " + JSON.stringify(diagnostics));
     }
   });
-  test("Copilot 可以通过通用原生脚本修改 Draw.io 连线样式", async ({ page }) => {
+  test("legacy native script requests are rejected without changing the diagram", async ({ page }) => {
     const before = await readWorkspaceXml(workspace);
-    expect(edgeStyles(before).length, "fixture should contain native connector cells").toBeGreaterThan(0);
-
     const result = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
-      const requestId = 938272;
-      const script = `
-        const edges = [];
-        function collect(parent) {
-          const count = model.getChildCount(parent);
-          for (let i = 0; i < count; i += 1) {
-            const cell = model.getChildAt(parent, i);
-            if (cell && cell.edge) edges.push(cell);
-            collect(cell);
-          }
-        }
-        collect(model.getRoot());
-        if (!edges.length) throw new Error("No connector cells found on the active page");
-        graph.setCellStyles("edgeStyle", "orthogonalEdgeStyle", edges);
-        graph.setCellStyles("curved", "1", edges);
-        graph.refresh();
-        if (graph.view && typeof graph.view.validate === "function") graph.view.validate();
-        const stylesVerified = edges.every((edge) => {
-          const style = model.getStyle(edge) || "";
-          return /(?:^|;)edgeStyle=orthogonalEdgeStyle(?:;|$)/.test(style) && /(?:^|;)curved=1(?:;|$)/.test(style);
-        });
-        const renderedEdges = edges.slice(0, 20).map((edge) => {
-          const state = graph.view && typeof graph.view.getState === "function" ? graph.view.getState(edge) : null;
-          return { id: edge.id, stateAvailable: Boolean(state), pointCount: state && state.absolutePoints ? state.absolutePoints.length : 0 };
-        });
-        return {
-          ok: stylesVerified,
-          postconditions: { edgesFound: edges.length > 0, stylesVerified: stylesVerified },
-          xmlAssertions: edges.map((edge) => ({
-            cellId: edge.id, exists: true, kind: "edge",
-            style: { edgeStyle: "orthogonalEdgeStyle", curved: "1" }
-          })),
-          affectedEdges: edges.length, stylesVerified, renderedEdges
-        };
-      `;
+      const requestId = 938274;
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           window.removeEventListener("message", receive);
-          reject(new Error("Timed out waiting for native script acknowledgement"));
+          reject(new Error("Timed out waiting for removed-script rejection"));
         }, 8000);
         const receive = (event: MessageEvent) => {
           if (event.source !== frame.contentWindow) return;
@@ -710,67 +640,15 @@ test.describe("原生画布", () => {
         requestId,
         cellId: "__batch__",
         path: "cell:batch",
-        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
+        value: JSON.stringify([{
+          cellId: "__active_page__", path: "cell:execute-script",
+          value: 'graph.insertVertex(graph.getDefaultParent(), null, "SHOULD NOT RUN", 1, 1, 10, 10);'
+        }])
       }), new URL(frame.src).origin);
       return response;
     });
-
-    expect(result.success, String(result.error || "The native Draw.io script was not executed")).toBe(true);
-    expect(result.scriptResult).toMatchObject({
-      available: true,
-      value: {
-        ok: true,
-        postconditions: { edgesFound: true, stylesVerified: true },
-        affectedEdges: expect.any(Number), stylesVerified: true, renderedEdges: expect.any(Array)
-      }
-    });
-    await expect.poll(async () => {
-      const styles = edgeStyles(await readWorkspaceXml(workspace));
-      return styles.length > 0 && styles.every((style) => /(?:^|;)curved=1(?:;|$)/.test(style));
-    }, { timeout: 30_000, intervals: [500] }).toBe(true);
-  });
-
-  test("通用原生脚本抛错时会回滚新建的节点", async ({ page }) => {
-    const before = await readWorkspaceXml(workspace);
-    const result = await page.evaluate(async () => {
-      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
-      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
-      const requestId = 938273;
-      const script = 'graph.insertVertex(graph.getDefaultParent(), null, "Temporary script node", 100, 100, 120, 60); throw new Error("intentional rollback");';
-      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          window.removeEventListener("message", receive);
-          reject(new Error("Timed out waiting for native script rollback acknowledgement"));
-        }, 8000);
-        const receive = (event: MessageEvent) => {
-          if (event.source !== frame.contentWindow) return;
-          let data: Record<string, unknown>;
-          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
-          catch { return; }
-          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
-          window.clearTimeout(timeout);
-          window.removeEventListener("message", receive);
-          resolve(data);
-        };
-        window.addEventListener("message", receive);
-      });
-      frame.contentWindow.postMessage(JSON.stringify({
-        event: "studioPropertyEditRequest",
-        requestId,
-        cellId: "__batch__",
-        path: "cell:batch",
-        value: JSON.stringify([{ cellId: "__active_page__", path: "cell:execute-script", value: script }])
-      }), new URL(frame.src).origin);
-      return response;
-    });
-
     expect(result.success).toBe(false);
-    expect(result.batchRolledBack).toBe(true);
-    expect(result.rollbackErrors).toEqual([]);
-    await expect.poll(async () => {
-      const xml = await readWorkspaceXml(workspace);
-      return cellX(xml, "Temporary script node") !== null;
-    }, { timeout: 10_000, intervals: [250] }).toBe(false);
+    expect(String(result.error).toLowerCase()).toContain("script execution has been removed");
     expect(await readWorkspaceXml(workspace)).toBe(before);
   });
 

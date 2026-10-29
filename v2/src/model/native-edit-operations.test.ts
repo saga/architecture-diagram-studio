@@ -8,7 +8,6 @@ import {
   nativePageAccepts,
   resolveNativePageIdentity,
   MAX_NATIVE_EDIT_OPERATIONS,
-  MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
   NativeEditOperationBatchSchema,
   parseNativeEditOperations,
@@ -316,22 +315,6 @@ describe("parseNativeEditOperations", () => {
     expect(parsed.error).toContain("newLabel");
   });
 
-  it("accepts general Draw.io code and requires it to be the only operation", () => {
-    const script = "const cells = graph.getChildCells(graph.getDefaultParent(), true, true); return { inspected: cells.length };";
-    expect(parseNativeEditOperations([{
-      op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script
-    }])).toEqual({
-      ok: true, operations: [{ op: "run_drawio_script", target: "active_page", summary: "Inspect and restyle the diagram", script }]
-    });
-    expect(parseNativeEditOperations([
-      { op: "run_drawio_script", target: "active_page", summary: "Script", script },
-      { op: "set_label", target: "db", label: "Renamed" }
-    ])).toMatchObject({ ok: false, error: expect.stringContaining("only operation") });
-    expect(parseNativeEditOperations([{
-      op: "run_drawio_script", target: "active_page", summary: "Script", script: "x".repeat(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH + 1)
-    }])).toMatchObject({ ok: false, error: expect.stringContaining("exceeds") });
-  });
-
   it.each([
     ["Rename the Database to Data Store", "Data Store"],
     ["把 Database 改名为数据仓库", "数据仓库"]
@@ -456,33 +439,6 @@ describe("toNativeCellEdits", () => {
     ]);
   });
 
-  it("maps general native Draw.io code to the active-page execution bridge", () => {
-    const script = 'graph.getChildCells(graph.getDefaultParent(), false, true).forEach((edge) => graph.setCellStyles("curved", "1", [edge]));';
-    const plan = toNativeCellEdits([{
-      op: "run_drawio_script", target: "active_page", summary: "Curve all connectors", script,
-      cellId: "__active_page__", targetLabel: "active Draw.io page"
-    }], XML);
-    expect(plan).toEqual({
-      ok: true,
-      edits: [{
-        cellId: "__active_page__", path: "cell:execute-script",
-        value: JSON.stringify({ mode: "mutate", script })
-      }]
-    });
-    const readOnlyPlan = toNativeCellEdits([{
-      op: "run_drawio_script", target: "active_page", summary: "Inspect furniture",
-      mode: "read", script: "return { tables: 3 };",
-      cellId: "__active_page__", targetLabel: "active Draw.io page"
-    }], XML);
-    expect(readOnlyPlan).toEqual({
-      ok: true,
-      edits: [{
-        cellId: "__active_page__", path: "cell:execute-script",
-        value: JSON.stringify({ mode: "read", script: "return { tables: 3 };" })
-      }]
-    });
-  });
-
   it("passes a move delta to the native editor for live-coordinate execution", () => {
     const plan = toNativeCellEdits([{ op: "move", target: "Database", cellId: "db", targetLabel: "Database", dx: -20, dy: 15 }], XML);
     expect(plan.ok).toBe(true);
@@ -524,9 +480,6 @@ describe("describeNativeEditOperation", () => {
     expect(describeNativeEditOperation({ op: "set_style", target: "db", key: "fillColor", color: "#ff0000" }))
       .toBe("Set fillColor of “db” to #ff0000");
     expect(describeNativeEditOperation({ op: "select", target: "db" })).toBe("Select “db”");
-    expect(describeNativeEditOperation({
-      op: "run_drawio_script", target: "active_page", summary: "Rework layout", script: "return true;"
-    })).toBe("Rework layout");
     expect(describeNativeEditOperation({ op: "add_node_after", target: "xxx", newLabel: "bbb" })).toBe("Add “bbb” to the right of “xxx” and connect it");
     expect(describeNativeEditOperation({
       op: "add_node_after", target: "MRDE1TfU6mpqhOhdJKLE-1", targetLabel: "xxx", newLabel: "bbb"

@@ -3,7 +3,6 @@ import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
 import { Button, Select } from "antd";
 import { recordDiagnostic } from "../diagnostics";
-import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import type { DiagnosticEntry } from "../diagnostics";
 
 
@@ -277,7 +276,7 @@ export default function WorkspacePages(props: Props) {
               {messages.length > 0 && <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
-                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.role === "assistant" ? (hideNativeScriptDetails(message.text) || (message.proposal ? "A diagram change is ready for review." : " ")) : message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
+                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.role === "assistant" ? (message.text || (message.proposal ? "A diagram change is ready for review." : " ")) : message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
                     {message.proposal && <div className="proposal-actions"><UiButton type="button" className="button button-primary" disabled={chatBusy} onClick={() => confirmProposal(message.proposal!.id)}>Confirm changes</UiButton><span>Nothing is applied until you confirm. This proposal expires after 10 minutes.</span></div>}
                   </div>
                 </article>)}
@@ -426,7 +425,7 @@ export default function WorkspacePages(props: Props) {
               <Select value={reasoningEffort} onChange={(value: "low" | "medium" | "high" | "max") => setReasoningEffort(value)} options={[{ value: "medium", label: "Medium — balanced speed and reasoning (default)" }, { value: "low", label: "Low — faster for simple edits" }, { value: "high", label: "High — complex edits" }, { value: "max", label: "Max — highest reasoning effort" }]} style={{ width: "100%" }} />
             </label>
             <p className="settings-description">Passed to the Copilot SDK as reasoningEffort. Medium is the default for routine diagram edits; use High/Max for complex transformations. The server maps the requested level to capabilities advertised by the selected model.</p>
-            <div className="settings-security-note"><strong>Agent capabilities and boundaries</strong><span>The agent uses typed operations for common edits and run_drawio_script for full native Draw.io API access. Scripts run in a separate-origin sandboxed iframe, not in Node.js; this is browser-origin isolation, not an OS-level sandbox. Use trusted local model providers for sensitive diagrams. The browser accepts changes only after native XML serialization and save/version acknowledgement. Model credentials never pass through the browser.</span></div>
+            <div className="settings-security-note"><strong>Agent capabilities and boundaries</strong><span>The agent edits native Draw.io XML through a revision-bound server-side patch tool. Workspace edits use the versioned server save transaction; standalone edits are written through the selected browser file handle. No model-generated JavaScript is executed in the editor. Use trusted local model providers for sensitive diagrams. Model credentials never pass through the browser.</span></div>
             <div className="settings-card-actions"><UiButton type="button" className="button button-quiet" onClick={() => setModelsRefreshKey((key) => key + 1)}>Reload models</UiButton><UiButton type="button" className="button button-quiet" onClick={clearAISettings}>Clear model settings</UiButton><UiButton type="button" className="button button-primary" onClick={saveAISettings}>Save settings</UiButton></div>
           </section>
 

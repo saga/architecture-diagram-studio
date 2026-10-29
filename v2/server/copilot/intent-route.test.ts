@@ -16,21 +16,6 @@ const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '<mxCell id="api" value="API Service" vertex="1" parent="1"><mxGeometry x="200" y="20" width="120" height="60" as="geometry"/></mxCell>' +
   '</root></mxGraphModel></diagram></mxfile>';
 
-const SAFE_CREATION_SCRIPT = [
-  "var parent = graph.getDefaultParent();",
-  "var source = model.getCell('db');",
-  "if (!source) { throw new Error('source cell not found'); }",
-  "var target = null;",
-  "var edge = null;",
-  "model.beginUpdate();",
-  "try {",
-  "  target = graph.insertVertex(parent, null, 'ddd', 100, 160, 120, 60, 'rounded=0;whiteSpace=wrap;html=1;');",
-  "  edge = graph.insertEdge(parent, null, '', source, target, 'endArrow=block;endFill=1;curved=1;');",
-  "} finally { model.endUpdate(); }",
-  "graph.refresh();",
-  "return { nodeId: target.id, edgeId: edge.id, sourceId: model.getTerminal(edge, true).id, targetId: model.getTerminal(edge, false).id };"
-].join("\n");
-
 function runtimeInspectionWithShapes(liveShapeClasses: string[], liveShapeClassesTruncated: boolean) {
   const requirements = {
     graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
@@ -45,7 +30,6 @@ function runtimeInspectionWithShapes(liveShapeClasses: string[], liveShapeClasse
     pageId: "p1",
     capabilities: requirements,
     capabilityManifest: {
-      scriptSupported: true,
       required: requirements,
       missing: { graph: [], model: [], view: [] },
       jsShapeClasses: { requested: [], registered: {} }
@@ -75,6 +59,7 @@ async function createServer(options: {
   snapshot?: () => Promise<{ drawioXml: string; revision: string } | null>;
   copilot?: Record<string, unknown>;
   acknowledgements?: NativeExecutionAcknowledgements;
+  commitWorkspaceXmlPatch?: (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => Promise<{ ok: boolean; status: number; body: unknown }>;
 } = {}): Promise<ServerHarness> {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
@@ -97,6 +82,7 @@ async function createServer(options: {
     getWorkspaceVersionSnapshot: async (versionId) => versionId === "version-1"
       ? { drawioXml: XML, revision: workspaceRevision(XML), versionId }
       : null,
+    ...(options.commitWorkspaceXmlPatch ? { commitWorkspaceXmlPatch: options.commitWorkspaceXmlPatch } : {}),
     collectAgentWorkspaceContext: async () => ({}),
     persistSessionId,
     acknowledgements
@@ -132,6 +118,38 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
     sessionId: "route-test-session",
     standalone: false,
     ...overrides
+  };
+}
+
+function xmlEditingCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "edit_drawio_xml");
+        if (!tool?.handler) throw new Error("edit_drawio_xml tool was not registered");
+        await tool.handler({
+          summary: "Rename Database",
+          patch: [{ op: "set-cell-attributes", cellId: "db", attributes: { value: "Data Store" } }]
+        });
+        return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
+      }
+    })
   };
 }
 
@@ -375,41 +393,8 @@ function ambiguousTargetCopilot() {
   };
 }
 
-function scriptProposingCopilot(
-  script = "return { checked: true };",
-  summary = "Read-only runtime script for confirmation-gate test",
-  mode: "read" | "mutate" = "mutate"
-) {
-  let activeSession: Record<string, unknown> = {};
-  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
-  return {
-    providerInfo: { mode: "byok", host: null },
-    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
-    lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
-      prepared = await request.prepare();
-      activeSession = {
-        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
-        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
-        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
-      };
-      return activeSession;
-    },
-    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
-      get session() { return activeSession; },
-      send: async () => {
-        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "run_drawio_script");
-        if (!tool?.handler) throw new Error("run_drawio_script tool was not registered");
-        await tool.handler({ summary, script, mode });
-        return { message: { data: { content: "Inspect and modify the diagram." } }, modelCallUsages: [] };
-      }
-    })
-  };
-}
-
 function terminalConflictCopilot(
-  scenario: "read-edit-report" | "report-edit" | "duplicate-edit" | "throw-after-edit" | "select-only" | "invalid-select"
+  scenario: "report-edit" | "duplicate-edit" | "throw-after-edit" | "select-only" | "invalid-select"
 ) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -446,15 +431,7 @@ function terminalConflictCopilot(
         const report = async () => invoke("report_intent_outcome", {
           outcome: "answered", reply: "No diagram changes are needed."
         });
-        if (scenario === "read-edit-report") {
-          await invoke("run_drawio_script", {
-            summary: "Inspect existing labels before translation",
-            script: "return { labels: ['Database'] };",
-            mode: "read"
-          });
-          await propose("数据库");
-          await report();
-        } else if (scenario === "report-edit") {
+        if (scenario === "report-edit") {
           await report();
           await propose("数据库");
         } else if (scenario === "throw-after-edit") {
@@ -477,37 +454,6 @@ function terminalConflictCopilot(
   };
   Object.defineProperty(copilot, "toolResults", { get: () => toolResults });
   return copilot;
-}
-
-function compatibleRuntimeInspection() {
-  const revision = workspaceRevision(XML);
-  return {
-    schemaVersion: 1,
-    bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
-    drawioVersion: PINNED_DRAWIO_VERSION,
-    documentRevision: revision,
-    pageId: "p1",
-    capabilities: {
-      ui: [], editor: [],
-      graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-      model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-      view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view],
-      vertexCell: [], edgeCell: []
-    },
-    capabilityManifest: {
-      scriptSupported: true,
-      required: {
-        graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-      },
-      missing: { graph: [], model: [], view: [] }
-    },
-    counts: { cells: 2, vertices: 2, edges: 0 },
-    cells: [],
-    renderedEdges: [],
-    truncated: false
-  };
 }
 
 function conflictingCopilot() {
@@ -618,7 +564,33 @@ describe("Copilot intent route result and revision contract", () => {
       { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(String(copilot.getPreparedSystemMessage())).toContain("typed operations are shortcuts, not limits");
+    expect(String(copilot.getPreparedSystemMessage())).toContain("edit_drawio_xml");
+  });
+
+  it("returns a revision-checked XML patch for standalone browser-owned persistence", async () => {
+    const harness = await createServer({ copilot: xmlEditingCopilot() });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ standalone: true }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("xml_patch_ready");
+    expect(body.documentRevision).toBe(workspaceRevision(XML));
+    expect(body.drawioXml).toContain('value="Data Store"');
+    expect(body.patchedRevision).toBe(workspaceRevision(String(body.drawioXml)));
+    expect(body.changedCellIds).toEqual(["db"]);
+  });
+
+  it("commits the XML-first tool through the versioned server persistence callback", async () => {
+    const commitWorkspaceXmlPatch = vi.fn(async (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => ({
+      ok: true, status: 200, body: { ok: true, workspaceRevision: "new-revision", version: { id: "v-2" }, accepted: input.patch.length === 1 }
+    }));
+    const harness = await createServer({ copilot: xmlEditingCopilot(), commitWorkspaceXmlPatch });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("xml_committed");
+    expect(commitWorkspaceXmlPatch).toHaveBeenCalledWith(expect.objectContaining({
+      baseRevision: workspaceRevision(XML), pageId: "p1", label: "Copilot: Rename Database",
+      patch: [{ op: "set-cell-attributes", cellId: "db", attributes: { value: "Data Store" } }]
+    }));
+    expect(harness.logs.some((entry) => entry.event === "turn.completed.xml-patch-committed")).toBe(true);
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
@@ -631,12 +603,12 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("answered");
     const prompt = String(copilot.getPreparedSystemMessage());
     expect(prompt).toContain("Preserve rename text verbatim");
-    expect(prompt).toContain("up/left negative, down/right positive");
-    expect(prompt).toContain("selectedCell.cellId");
-    expect(prompt).toContain("catalogue misses do not prove absence");
-    expect(prompt).toContain("run_drawio_script");
-    expect(prompt).toContain("Scripts receive live ui/editor/graph/model/inspectRuntime bindings");
-    expect(prompt).toContain("exactly one terminal action per turn");
+    expect(prompt).toContain("geometry");
+    expect(prompt).toContain("exact native cell IDs");
+    expect(prompt).toContain("Catalogue misses do not prove a shape is absent");
+    expect(prompt).toContain("edit_drawio_xml");
+    expect(prompt).not.toContain("run_drawio_script");
+    expect(prompt).toContain("report_intent_outcome for information");
     expect(prompt.length).toBeLessThan(2800);
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
     expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
@@ -645,47 +617,6 @@ describe("Copilot intent route result and revision contract", () => {
     expect(firstRequest.editingGuidance).not.toContain("expectedTitle");
   });
 
-  it("queues insertion-only native scripts behind explicit confirmation", async () => {
-    const harness = await createServer({
-      copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
-    });
-    const requestContext = {
-      kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
-      runtimeInspection: compatibleRuntimeInspection()
-    };
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
-    expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    const proposal = body.proposal as { operations: Array<Record<string, unknown>> };
-    expect(proposal.operations).toMatchObject([{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]);
-    expect(harness.acknowledgements.pending.size).toBe(0);
-    expect(harness.logs.some((entry) => entry.event === "turn.completed.proposal-required")).toBe(true);
-  });
-
-  it("applies native scripts directly when the review gate is off (default)", async () => {
-    vi.stubEnv("STUDIO_REQUIRE_EDIT_CONFIRMATION", "");
-    try {
-      const harness = await createServer({
-        copilot: scriptProposingCopilot(SAFE_CREATION_SCRIPT, "Create ddd below Database and connect it with a curved edge")
-      });
-      const requestContext = {
-        kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
-        runtimeInspection: compatibleRuntimeInspection()
-      };
-      const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
-      expect(response.status).toBe(200);
-      expect(body.outcome).toBe("command_ready");
-      expect(body.nativeEdits).toMatchObject({
-        operations: [{ op: "run_drawio_script", script: SAFE_CREATION_SCRIPT }]
-      });
-      expect(harness.acknowledgements.pending.size).toBe(1);
-      expect(harness.logs.some((entry) =>
-        entry.event === "turn.completed.with-native-edits" && entry.fields?.editReview === "auto-approved"
-      )).toBe(true);
-    } finally {
-      vi.stubEnv("STUDIO_REQUIRE_EDIT_CONFIRMATION", "1");
-    }
-  });
   it("reports a queued selection without claiming the canvas has selected it", async () => {
     const copilot = terminalConflictCopilot("select-only");
     const harness = await createServer({ copilot });
@@ -713,31 +644,6 @@ describe("Copilot intent route result and revision contract", () => {
     });
     expect(String(results.select_diagram_element.error)).toContain("non-empty target");
     expect(results.report_intent_outcome).toMatchObject({ accepted: true, terminal: true, outcome: "needs_clarification" });
-  });
-
-  it("does not let a deferred read script consume the terminal slot before a Chinese label edit", async () => {
-    const copilot = terminalConflictCopilot("read-edit-report");
-    const harness = await createServer({ copilot });
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
-    expect(response.status).toBe(200);
-    expect(body.outcome).toBe("command_ready");
-    expect((body.nativeEdits as { operations: Array<Record<string, unknown>> }).operations)
-      .toMatchObject([{ op: "set_label", cellId: "db", label: "数据库", targetLabel: "Database" }]);
-    const results = (copilot as { toolResults: Record<string, Record<string, unknown>> }).toolResults;
-    expect(results.run_drawio_script).toMatchObject({
-      accepted: false, mode: "read", result_available: false, terminal: false,
-      reason: "deferred_script_has_no_current_turn_result"
-    });
-    expect(results.propose_native_edits).toMatchObject({ accepted: true, operationCount: 1 });
-    expect(results.report_intent_outcome).toMatchObject({
-      recorded: false, accepted: false, reason: "terminal_action_already_registered", registeredKind: "native_edit"
-    });
-    expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(harness.logs.some((entry) => entry.event === "tool.run_drawio_script.read.rejected")).toBe(true);
-    expect(harness.logs.some((entry) => entry.event === "tool.terminal-intent.rejected" &&
-      entry.fields?.requestedKind === "no_mutation" && entry.fields?.registeredKind === "native_edit")).toBe(true);
-    expect(harness.logs.some((entry) => entry.event === "turn.failed" &&
-      entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
   });
 
   it("preserves an accepted native edit when the SDK stream fails afterward", async () => {
@@ -791,19 +697,6 @@ describe("Copilot intent route result and revision contract", () => {
       entry.fields?.reason === "conflicting_terminal_tools")).toBe(false);
   });
 
-  it("queues no-op scripts for review instead of granting manifest-free dispatch", async () => {
-    const harness = await createServer({ copilot: scriptProposingCopilot() });
-    const requestContext = {
-      kind: "drawio", activePageId: "p1", selectedCell: null, cells: [],
-      runtimeInspection: compatibleRuntimeInspection()
-    };
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
-    expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    expect((body.proposal as { operations: Array<Record<string, unknown>> }).operations)
-      .toMatchObject([{ op: "run_drawio_script", script: "return { checked: true };" }]);
-    expect(harness.acknowledgements.pending.size).toBe(0);
-  });
   it("queues a single typed deletion behind explicit confirmation", async () => {
     const harness = await createServer({ copilot: proposingCopilot([{ op: "delete", target: "Database" }]) });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
@@ -811,16 +704,6 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("proposal_required");
     expect((body.proposal as { operations: Array<Record<string, unknown>> }).operations)
       .toMatchObject([{ op: "delete", cellId: "db", targetLabel: "Database" }]);
-    expect(harness.acknowledgements.pending.size).toBe(0);
-  });
-  it("queues scripts for review even when the runtime capability manifest is absent", async () => {
-    const harness = await createServer({ copilot: scriptProposingCopilot("graph.refresh();") });
-    const requestContext = { kind: "drawio", activePageId: "p1", selectedCell: null, cells: [] };
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ context: requestContext }));
-    expect(response.status).toBe(200);
-    expect(body.outcome).toBe("proposal_required");
-    expect((body.proposal as { operations: Array<Record<string, unknown>> }).operations)
-      .toMatchObject([{ op: "run_drawio_script", script: "graph.refresh();" }]);
     expect(harness.acknowledgements.pending.size).toBe(0);
   });
   it("returns stale_context when the source hash does not match the XML", async () => {
@@ -1347,8 +1230,9 @@ describe("Copilot intent route result and revision contract", () => {
     expect(ids).toContain("c4.person");
     expect(ids).toContain("c4.relationship");
     expect(result).toMatchObject({ matchCount: 4, returnedCount: 4, truncated: false });
-    expect(String(result.scriptTemplate)).toContain("xmlAssertions");
-    expect(String(result.guidance)).toContain("Do not call get_drawio_reference");
+    expect(result.scriptTemplate).toBeUndefined();
+    expect(String(result.guidance)).toContain("edit_drawio_xml");
+    expect(String(result.guidance)).toContain("mxCell XML fragments");
   });
 
   it("keeps the C4 bundle off single-shape queries", async () => {
@@ -1419,45 +1303,6 @@ describe("Copilot native-edit acknowledgement route", () => {
     expect(store.getReceipt(pending.requestId)?.body.outcome).toBe("failed");
     expect(harness.logs.some((entry) => entry.event === "turn.native-edit.final-outcome" &&
       entry.fields?.outcome === "failed")).toBe(true);
-  });
-
-  it("acknowledges a read-only inspection without requiring a persisted XML version", async () => {
-    const store = new NativeExecutionAcknowledgements();
-    const pending = seedAck(store, {
-      operationCount: 1,
-      summary: "Inspect floor-plan furniture",
-      operations: [{
-        op: "run_drawio_script", target: "active_page", summary: "Inspect floor-plan furniture",
-        script: "return { tableCount: 3 };", mode: "read",
-        cellId: "__active_page__", targetLabel: "active Draw.io page"
-      } as ResolvedNativeEditOperation]
-    });
-    const harness = await createServer({
-      acknowledgements: store,
-      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "unexpected-version" })
-    });
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", {
-      requestId: pending.requestId,
-      sessionId: pending.sessionId,
-      standalone: false,
-      documentRevision: pending.documentRevision,
-      outcome: "applied",
-      editorAcknowledged: true,
-      serializedXmlRevision: null,
-      persistenceStatus: "read_only_no_change",
-      persistedRevision: null,
-      versionId: null,
-      applicationState: "not-applied",
-      failureStage: null,
-      error: null
-    });
-
-    expect(response.status).toBe(200);
-    expect(body).toMatchObject({
-      outcome: "applied", applicationState: "not-applied",
-      persistenceStatus: "read_only_no_change", documentRevision: null, versionId: null
-    });
-    expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
   it("makes an exact acknowledgement replay idempotent but rejects a conflicting replay", async () => {
@@ -1609,12 +1454,7 @@ describe("Copilot native-edit acknowledgement route", () => {
 describe("requiresExplicitConfirmation", () => {
   const operations = (...ops: string[]) => ops.map((op) => ({ op })) as unknown as ResolvedNativeEditOperation[];
 
-  it("requires review for arbitrary scripts, including repair retries", () => {
-    expect(requiresExplicitConfirmation(operations("run_drawio_script"))).toBe(true);
-    expect(requiresExplicitConfirmation(operations("rename"), true)).toBe(true);
-  });
-
-  it("requires review for destructive deletes and whole-page layouts", () => {
+  it("requires review for destructive edits without a script-specific path", () => {
     expect(requiresExplicitConfirmation(operations("delete"))).toBe(true);
     expect(requiresExplicitConfirmation(operations("auto_layout"))).toBe(true);
   });

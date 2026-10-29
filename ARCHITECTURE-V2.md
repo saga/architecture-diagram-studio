@@ -8,7 +8,7 @@
 
 ## Core design
 
-Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Automatic layout is a core exception only in the computational sense: Studio derives a temporary native-cell projection for the selected layout engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
+Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Copilot edits native XML directly on the server by default (ADR-0026); the frontend follows persisted document revisions through push notifications with polling fallback. Draw.io scripts are an optional advanced fallback, not the ordinary edit path. Workspace XML is persisted by the server; standalone source files remain browser-owned under ADR-0016. Automatic layout is a core exception only in the computational sense: Studio derives a temporary native-cell projection for the selected layout engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
 
 Responsibilities are deliberately small:
 
@@ -23,7 +23,7 @@ The toolbar exposes ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 thr
 
 ## Supported native operations
 
-The current allowlist covers selection, label changes, fillColor/strokeColor/fontColor, move, resize, deletion, `add_node_after`, `add_node_below`, and `auto_layout`. Whole-page `auto_layout` is an Agent-native typed operation, must be alone in its batch, and always requires user confirmation. It uses the same configurable multi-engine planner as the toolbar; it never calls Draw.io's built-in layout action or asks the model to write a layout script. A typed batch that does not trigger the server's review gate otherwise executes after page/revision/target validation without a separate confirmation click. Broad batches and review-gated scripts require explicit confirmation; chat proposals show the intended changes, not script source. The model cannot submit raw replacement XML or arbitrary workspace writes.
+Copilot edits native XML directly on the server. The `run_drawio_script` tool and model-generated JavaScript execution path are removed entirely; do not retain a fallback under another name. Automatic layout remains on its existing typed planner/application path and is explicitly out of scope for ADR-0026; its engine set, algorithms, parameters and geometry application are unchanged. The model cannot write arbitrary workspace paths or bypass the server's validated document persistence service.
 
 ## Extension contracts without porting the old implementation
 
@@ -38,7 +38,7 @@ V2 does not include the former `DiagramDocument` model, semantic fixtures/templa
 | `NativeDiagramAnalysisProvider` | Geometry, contrast, routing and accessibility checks | Findings linked to native page/cell IDs; no mutation side effects |
 | `NativeDiagramCapabilityRegistry` | Explicit discovery of installed optional providers | Interface only; core layout is implemented separately and no optional quality provider is installed |
 
-A future provider should reuse the shared XML parser/schema, target resolver, typed operation validation, plugin bridge, editor acknowledgement, and XML revision/version path. Adding a new native operation requires synchronized updates to the operation union/schema, server validation, bridge execution and tests. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
+Future XML-first edits use the shared XML parser/schema, revision checks, native diff, version persistence and frontend synchronization. The existing layout planner and geometry-application path remain unchanged. Adding a new native operation requires synchronized updates to the operation union/schema, server validation, bridge execution and tests. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
 
 ## Native Draw.io diagram color presets
 

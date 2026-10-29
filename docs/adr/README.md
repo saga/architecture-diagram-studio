@@ -17,9 +17,9 @@
 | [0013](./0013-studio-owned-layout-engines.md) | Studio-Owned Dagre/ELK Layout Is a Core Feature | Accepted |
 | [0014](./0014-typed-native-drawio-c4-conversion.md) | Typed Native Draw.io C4 Conversion (historical) | Superseded by 0019 |
 | [0015](./0015-tool-guided-copilot-shape-discovery.md) | Tool-Guided Copilot Instructions and Draw.io Shape Discovery | Accepted |
-| [0016](./0016-node-owned-local-drawio-file-io.md) | Node.js-Owned Local Draw.io File I/O | Accepted |
+| [0016](./0016-node-owned-local-drawio-file-io.md) | Browser-Owned Standalone Draw.io File I/O | Accepted |
 | [0017](./0017-unified-runtime-storage-scope.md) | Unified Runtime Storage Scope for Workspace and Single-File Modes | Accepted |
-| [0018](./0018-ai-first-native-drawio-execution.md) | AI-First Native Draw.io Execution | Accepted |
+| [0018](./0018-ai-first-native-drawio-execution.md) | AI-First Native Draw.io Execution (historical script-first design) | Retired by 0026 |
 | [0019](./0019-additive-native-c4-elements.md) | Additive Native C4 Elements, No In-Place Conversion | Accepted |
 | [0020](./0020-native-drawio-diagram-theme-presets.md) | Native Draw.io Diagram Theme Presets | Accepted |
 | [0021](./0021-expanded-native-layout-engines.md) | Expanded Native Layout Engines and Algorithm Adapters | Accepted |

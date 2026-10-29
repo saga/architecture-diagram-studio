@@ -1,6 +1,5 @@
 import { findDrawioElements, parseDrawioXml, type DrawioDomDocument } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
-import type { NativeScriptScopeViolation, NativeScriptXmlAssertionFailure } from "./native-edit-confirmation";
 import { z } from "zod";
 import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_AUTO_LAYOUT_ALGORITHMS, defaultNativeLayoutAlgorithm, nativeLayoutSupportsAlgorithm, type NativeAutoLayoutEngine, type NativeLayoutPlan } from "../layout/native-layout";
 
@@ -13,9 +12,6 @@ import { DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, NATIVE_AUTO_LAYOUT_ENGINES, NATIVE_
  */
 export const NATIVE_EDIT_STYLE_KEYS = ["fillColor", "strokeColor", "fontColor"] as const;
 export type NativeEditStyleKey = (typeof NATIVE_EDIT_STYLE_KEYS)[number];
-
-/** Maximum length of a model-generated program executed by the local Draw.io editor. */
-export const MAX_NATIVE_DRAWIO_SCRIPT_LENGTH = 50_000;
 
 /** The bridge batch caps at 50 steps; typed moves are a single live-geometry delta. */
 export const MAX_NATIVE_EDIT_OPERATIONS = 20;
@@ -51,14 +47,6 @@ export interface NativeEditExecution {
   failureStage?: "editor" | "persistence";
   /** The local edit may be saved even if its final audit receipt could not be accepted by the server. */
   auditWarning?: string;
-  /** Bounded return value from a native Draw.io script, when one was supplied. */
-  scriptResult?: unknown;
-  /** Semantic before/after XML result for a validated native script. */
-  semanticChanged?: boolean;
-  /** Bounded field-level XML assertion failures from native script verification. */
-  assertionFailures?: NativeScriptXmlAssertionFailure[];
-  /** Bounded undeclared/unproven native cell changes from the before/after XML diff. */
-  scopeViolations?: NativeScriptScopeViolation[];
   /** Distinguishes a verified edit from a changed document whose requested postconditions remain unknown. */
   applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
   rolledBack: boolean;
@@ -304,18 +292,7 @@ const nativeEditOperationOptions = {
     key: z.enum(NATIVE_EDIT_STYLE_KEYS, { message: "Style key must be one of fillColor, strokeColor, fontColor" })
       .describe("Required native Draw.io color style key. Do not infer a key when the user did not specify which aspect to change."),
     color: z.string().trim().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, { message: "color must be an explicit 3- or 6-digit hex value such as #f00 or #ff0000" })
-      .describe("Explicit 3- or 6-digit hex color. Do not translate color names here; supply the concrete color requested or use run_drawio_script for native style values.")
-  }).strict(),
-  runScript: z.object({
-    op: z.literal("run_drawio_script"),
-    target: z.literal("active_page").describe("Execute inside the current native Draw.io editor and active page."),
-    summary: z.string().trim().min(1, { message: "summary must not be empty" }).max(1000, { message: "summary exceeds 1000 characters" })
-      .describe("Concise description of the requested inspection or diagram change."),
-    mode: z.enum(["read", "mutate"]).optional()
-      .describe("Use read for a strictly non-mutating inspection that returns JSON without postconditions; use mutate for diagram changes and require verified postconditions plus XML assertions."),
-    script: z.string().min(1, { message: "script must be a non-empty JavaScript program" })
-      .max(MAX_NATIVE_DRAWIO_SCRIPT_LENGTH, { message: `script exceeds ${MAX_NATIVE_DRAWIO_SCRIPT_LENGTH} characters` })
-      .describe("Synchronous JavaScript executed against the live pinned Draw.io runtime with ui, editor, graph, and model available. Use for complex or non-trivial native edits where direct Draw.io APIs are simpler than typed shortcuts. Do not author saved mxfile XML directly or bypass the Studio serialization and persistence acknowledgement chain.")
+      .describe("Explicit 3- or 6-digit hex color. Do not translate color names here; supply the concrete color requested.")
   }).strict(),
   autoLayout: z.object({
     op: z.literal("auto_layout"),
@@ -373,7 +350,7 @@ const nativeEditOperationOptions = {
 /** The single runtime contract for all Copilot-visible native edits. */
 export const NativeEditOperationSchema = z.discriminatedUnion("op", [
   nativeEditOperationOptions.select, nativeEditOperationOptions.setLabel, nativeEditOperationOptions.setStyle,
-  nativeEditOperationOptions.runScript, nativeEditOperationOptions.autoLayout,
+  nativeEditOperationOptions.autoLayout,
   nativeEditOperationOptions.move, nativeEditOperationOptions.resize, nativeEditOperationOptions.delete,
   nativeEditOperationOptions.addNodeAfter, nativeEditOperationOptions.addNodeBelow
 ]);
@@ -390,9 +367,7 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
     return { ok: false, error: `operations must contain at most ${MAX_NATIVE_EDIT_OPERATIONS} operations` };
   }
   const isOperation = (raw: unknown): raw is Record<string, unknown> => Boolean(raw) && typeof raw === "object" && !Array.isArray(raw);
-  const containsScript = input.some((raw) => isOperation(raw) && raw.op === "run_drawio_script");
   const containsLayout = input.some((raw) => isOperation(raw) && raw.op === "auto_layout");
-  if (containsScript && input.length !== 1) return { ok: false, error: "run_drawio_script must be the only operation in its batch" };
   if (containsLayout && input.length !== 1) return { ok: false, error: "auto_layout must be the only operation in its batch because it recalculates the active page as one transaction" };
 
   const normalizedInput = input.map((raw) => {
@@ -421,9 +396,6 @@ export function parseNativeEditOperations(input: unknown): NativeEditParseResult
   const operations: NativeEditOperation[] = [];
   for (const [index, operation] of parsed.data.entries()) {
     if (operation.op === "set_style") {
-      operations.push(operation);
-    } else if (operation.op === "run_drawio_script") {
-      if (!operation.script.trim()) return { ok: false, error: `Operation ${index + 1}: script must be a non-empty JavaScript program` };
       operations.push(operation);
     } else if (operation.op === "move") {
       if (operation.dx === 0 && operation.dy === 0) return { ok: false, error: `Operation ${index + 1}: move requires a non-zero dx or dy` };
@@ -460,7 +432,6 @@ export function describeNativeEditOperation(operation: NativeEditOperation & { t
     case "select": return `Select “${target}”`;
     case "set_label": return `Rename “${target}” to “${operation.label}”`;
     case "set_style": return `Set ${operation.key} of “${target}” to ${operation.color}`;
-    case "run_drawio_script": return operation.mode === "read" ? "Inspect native Draw.io diagram: " + operation.summary : operation.summary;
     case "auto_layout": {
       const engineLabels: Record<NativeAutoLayoutEngine, string> = {
         elk: "ELK", dagre: "Dagre", graphviz: "Graphviz", msagl: "MSAGL.js", cytoscape: "Cytoscape.js", d3: "D3"
@@ -499,7 +470,7 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
     return { ok: false, error: "The Draw.io XML could not be indexed: " + (error instanceof Error ? error.message : String(error)) };
   }
   for (const operation of operations) {
-    const activePageOperation = (operation.op === "run_drawio_script" || operation.op === "auto_layout") &&
+    const activePageOperation = operation.op === "auto_layout" &&
       operation.target === "active_page" && operation.cellId === "__active_page__";
     if (activePageOperation) continue;
     if (typeof operation.cellId !== "string" || !activeTargetIds.has(operation.cellId)) {
@@ -528,13 +499,6 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "set_style":
         edits.push({ cellId, path: "style:" + operation.key, value: operation.color });
-        break;
-      case "run_drawio_script":
-        edits.push({
-          cellId,
-          path: "cell:execute-script",
-          value: JSON.stringify({ mode: operation.mode ?? "mutate", script: operation.script })
-        });
         break;
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The layout plan was not calculated from the current native XML revision." };
