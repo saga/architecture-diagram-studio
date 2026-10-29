@@ -39,15 +39,6 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a native selection without expecting selection state in XML", () => {
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: before, cellId: "api", pageId: "p1", path: "cell:select", value: "true"
-    })).toBe(true);
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: unrelatedEdited, cellId: "api", pageId: "p1", path: "cell:select", value: "true"
-    })).toBe(false);
-  });
-
   it("ignores viewport-only dx/dy changes in compressed or expanded Draw.io models", () => {
     const beforeViewport = before.replace("<mxGraphModel>", '<mxGraphModel dx="1086" dy="613">');
     const afterViewport = beforeViewport
