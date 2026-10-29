@@ -205,7 +205,7 @@
         missing[group] = required[group].filter(function (name) { return present.indexOf(name) < 0; });
       });
       return {
-        scriptSupported: Object.keys(missing).every(function (group) { return missing[group].length === 0; }),
+        scriptSupported: false,
         required: required,
         missing: missing,
         jsShapeClasses: inspectShapeCapabilities(jsShapeClassNames)
