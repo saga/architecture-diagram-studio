@@ -266,68 +266,6 @@ function shapeSearchingCopilot(query: string, limit?: number) {
   return copilot;
 }
 
-function renamingCopilot() {
-  let activeSession: Record<string, unknown> = {};
-  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
-  return {
-    providerInfo: { mode: "byok", host: null },
-    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
-    lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
-      prepared = await request.prepare();
-      activeSession = {
-        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
-        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
-        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
-      };
-      return activeSession;
-    },
-    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
-      get session() { return activeSession; },
-      send: async () => {
-        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "propose_native_edits");
-        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
-        await tool.handler({ operations: [{ op: "set_label", target: "Database", label: "Data Store" }] });
-        return { message: { data: { content: "Rename Database to Data Store." } }, modelCallUsages: [] };
-      }
-    })
-  };
-}
-
-function belowNodesCopilot() {
-  let activeSession: Record<string, unknown> = {};
-  let prepared: { configRevisionId: string; systemMessage: string; tools: unknown[] } = { configRevisionId: "test-config", systemMessage: "", tools: [] };
-  return {
-    providerInfo: { mode: "byok", host: null },
-    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
-    lastObservedModel: vi.fn(() => "test-model"),
-    getPreparedSystemMessage: () => prepared.systemMessage,
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
-      prepared = await request.prepare();
-      activeSession = {
-        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
-        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
-        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
-      };
-      return activeSession;
-    },
-    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
-      get session() { return activeSession; },
-      send: async () => {
-        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "propose_native_edits");
-        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
-        await tool.handler({ operations: [
-          { op: "add_node_below", target: "Database", newLabel: "ddd" },
-          { op: "add_node_below", target: "API Service", newLabel: "eee" }
-        ] });
-        return { message: { data: { content: "Added ddd below Database and eee below API Service." } }, modelCallUsages: [] };
-      }
-    })
-  };
-}
-
 function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "delete", target: "Database" }, { op: "delete", target: "API Service" }]) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -456,37 +394,6 @@ function terminalConflictCopilot(
   return copilot;
 }
 
-function conflictingCopilot() {
-  let activeSession: Record<string, unknown> = {};
-  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
-  return {
-    providerInfo: { mode: "byok", host: null },
-    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
-    lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
-      prepared = await request.prepare();
-      activeSession = {
-        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
-        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
-        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
-      };
-      return activeSession;
-    },
-    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
-      get session() { return activeSession; },
-      send: async () => {
-        const tools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
-        const editTool = tools.find((candidate) => candidate.name === "propose_native_edits");
-        const outcomeTool = tools.find((candidate) => candidate.name === "report_intent_outcome");
-        if (!editTool?.handler || !outcomeTool?.handler) throw new Error("Required terminal tools were not registered");
-        await editTool.handler({ operations: [{ op: "set_label", target: "Database", label: "Data Store" }] });
-        await outcomeTool.handler({ outcome: "answered", reply: "No edit is required." });
-        return { message: { data: { content: "Conflicting terminal actions." } }, modelCallUsages: [] };
-      }
-    })
-  };
-}
-
 function seedAck(store: NativeExecutionAcknowledgements, overrides: Record<string, unknown> = {}) {
   const entry = {
     requestId: "11111111-1111-4111-8111-111111111111",
@@ -507,26 +414,6 @@ function seedAck(store: NativeExecutionAcknowledgements, overrides: Record<strin
     operationCount: number; summary: string; operations: ResolvedNativeEditOperation[]; createdAt: number;
   });
   return entry;
-}
-
-function appliedAck(entry: ReturnType<typeof seedAck>, overrides: Record<string, unknown> = {}) {
-  const savedRevision = workspaceRevision(XML);
-  return {
-    requestId: entry.requestId,
-    sessionId: entry.sessionId,
-    standalone: entry.standalone,
-    documentRevision: entry.documentRevision,
-    outcome: "applied",
-    editorAcknowledged: true,
-    serializedXmlRevision: savedRevision,
-    persistenceStatus: "saved",
-    persistedRevision: savedRevision,
-    versionId: "version-1",
-    applicationState: "applied-and-verified",
-    failureStage: null,
-    error: null,
-    ...overrides
-  };
 }
 
 describe("Copilot intent route result and revision contract", () => {
