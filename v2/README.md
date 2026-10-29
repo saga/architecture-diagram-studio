@@ -37,19 +37,13 @@ The embedded Draw.io shape library panel is enabled by default, and its initial 
 
 ## Extension points for future native capabilities
 
-V2 intentionally does not ship the legacy semantic graph, DiagramDocument-based layout pipeline, or semantic quality pipeline. It preserves a small extension contract in `src/model/native-diagram-capabilities.ts` for additional native editing and analysis features without porting the old renderer or introducing a parallel model:
-
-- `NativeDiagramOperationProvider` receives the authoritative XML, base revision, active page, selection and a lightweight native-cell index, and returns a plan using the shared `NativeEditOperation` vocabulary.
-- `NativeDiagramAnalysisProvider` returns read-only findings (for example geometry, routing, contrast or accessibility diagnostics) keyed by native page/cell IDs.
-- `NativeDiagramCapabilityRegistry` is an interface for explicit capability discovery only. No generic registry or quality provider is currently installed; core native-cell layout is implemented through the shared planner in `src/layout/native-layout.ts` and engine adapters in `src/layout/additional-layout-engines.ts`, not via a generic provider registry.
-
-Every mutation plan must be revalidated against the same page and current XML revision, executed by the native Draw.io bridge, and reported as successful only after editor acknowledgement and the normal save/version path. Analysis findings do not silently block ordinary native editing. See [ADR-0012](../docs/adr/0012-native-diagram-extension-contracts.md) for the contract and rules for reusing prior research.
+V2 retains native XML page/cell indexing for target resolution and a small set of extension interfaces for future read-only analysis. Copilot diagram mutations do not use the former typed `NativeEditOperation` contract. All Copilot mutations use the server-side `edit_drawio_xml` tool; Studio-owned automatic layout remains a separate typed geometry planner. See [ADR-0012](../docs/adr/0012-native-diagram-extension-contracts.md).
 
 ## Copilot XML editing
 
 Copilot edits the authoritative native Draw.io XML directly on the server. The server binds the edit to the current document revision, validates the resulting XML, checks the before/after diff, persists a new version and emits a document-change notification. The frontend loads that exact persisted revision and updates its revision baseline; stale editor state must never overwrite a newer server revision. The standalone-file workflow continues to write through the browser's selected file handle. See [ADR-0026](../docs/adr/0026-server-side-xml-first-copilot-editing.md).
 
-The `run_drawio_script` tool, its model-generated JavaScript execution path, script retries, and script-only watchdog/confirmation logic are removed. Copilot edits do not execute model-authored JavaScript inside the Draw.io iframe. `edit_drawio_xml` is the primary mutation path; `propose_native_edits` remains a typed shortcut for common deterministic edits, and neither path accepts script text.
+The `run_drawio_script` tool, `propose_native_edits`, the typed Copilot edit contract, browser-side Copilot mutation dispatch, and their proposal/confirmation/acknowledgement paths are removed. Copilot diagram mutations use only `edit_drawio_xml`; selection and read-only inspection remain separate tools. Copilot edits do not execute model-authored JavaScript inside the Draw.io iframe.
 
 Native Draw.io `mxfile` XML remains the sole diagram model; there is no reduced shadow graph or XML reconstruction. The current design and implementation contract is [ADR-0026](../docs/adr/0026-server-side-xml-first-copilot-editing.md). ADR-0018 is retired history.
 
