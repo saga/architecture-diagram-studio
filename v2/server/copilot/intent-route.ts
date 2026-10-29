@@ -17,7 +17,7 @@ import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./
 import { requiresNativeEditReview } from "./edit-confirmation-policy";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
-import { searchDrawioShapeCatalogDetailed, C4_DIRECTORY_SCRIPT_TEMPLATE, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
+import { searchDrawioShapeCatalogDetailed, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
 
 interface AgentPromptConfig {
   revisionId: string;
@@ -615,8 +615,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               ". Do not treat this subset as the complete candidate set. Retry with a more specific name/category or use the live Draw.io UI/runtime discovery path; the catalogue is intentionally non-exhaustive."
           } : {}),
           ...(c4Directory ? {
-            scriptTemplate: C4_DIRECTORY_SCRIPT_TEMPLATE,
-            guidance: "These recipes answer the whole C4 creation turn: build the script now. Replace the *_STYLE placeholders with the exact style strings above and keep their width/height; assert only the cells you create (one xmlAssertion each, at most 3 postconditions). Do not call get_drawio_reference or repeat this search in this turn."
+            guidance: "These recipes answer the whole C4 creation turn. Use the exact native style strings and dimensions returned above to create mxCell XML fragments through edit_drawio_xml. Create native edge fragments for relationships and preserve existing cells; do not generate or execute JavaScript."
           } : {}),
           ...(!searchPage.matchCount ? {
             ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
