@@ -765,7 +765,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       const pendingSerialization = pendingSaveConfirmationsRef.current.size > 0;
       const exportSerialization = data.event === "export" && data.format === "xml" &&
         (pendingSerialization || pendingAutoLayoutRef.current?.awaitingExport === true || pendingNativePaletteRef.current?.awaitingExport === true);
-      if ((data.event === "save" || data.event === "autosave") && typeof data.xml === "string") {
       if ((data.event === "save" || data.event === "autosave" || exportSerialization) && typeof data.xml === "string") {
         const duplicateXml = data.xml === lastSent.current;
         try {
