@@ -4,15 +4,13 @@ import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, CopilotSessionBusyError, describeCopilotFailure } from "./runtime";
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import {
-  describeNativeEditOperation,
   nativePageAccepts,
-  MAX_NATIVE_EDIT_OPERATIONS, parseNativeEditOperations, type ResolvedNativeEditOperation
+  type ResolvedNativeEditOperation
 } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
 import { applyDrawioXmlPatch } from "./xml-first-edit";
 import { resolveNativeEditTargets } from "./native-edit-tool";
-import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
 import { requiresNativeEditReview } from "./edit-confirmation-policy";
