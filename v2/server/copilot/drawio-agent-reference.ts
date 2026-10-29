@@ -65,7 +65,7 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
     .trim();
   const safeOverview = [
     XML_FIRST_CONTRACT,
-    getSection(markdown, "API ownership"),
+    "Server responsibilities: resolve targets against the active revision, apply cell-scoped patches to native XML, validate the result, and persist through the existing versioned document-save transaction.",
     shapeDiscovery
   ].filter(Boolean).join("\\n\\n");
   let selected: string;
