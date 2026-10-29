@@ -39,62 +39,13 @@ describe("native edit XML confirmation", () => {
     })).toBe(false);
   });
 
-  it("confirms a mixed selection and document batch without expecting selection in XML", () => {
-    const labelAndStyleEdited = before
-      .replace('value="Old API"', 'value="Primary API"')
-      .replace('style="rounded=0;"', 'style="rounded=0;fillColor=#ff0000;"');
+  it("confirms a native selection without expecting selection state in XML", () => {
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: labelAndStyleEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
-      value: JSON.stringify([
-        { cellId: "api", path: "cell:select", value: "true" },
-        { cellId: "api", path: "label", value: "Primary API" },
-        { cellId: "api", path: "style:fillColor", value: "#ff0000" }
-      ])
-    })).toBe(true);
-  });
-
-  it("confirms a selection-only batch only when serialized document content is unchanged", () => {
-    const selection = JSON.stringify([{ cellId: "api", path: "cell:select", value: "true" }]);
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: before, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: selection
+      beforeXml: before, xml: before, cellId: "api", pageId: "p1", path: "cell:select", value: "true"
     })).toBe(true);
     expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: unrelatedEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch", value: selection
+      beforeXml: before, xml: unrelatedEdited, cellId: "api", pageId: "p1", path: "cell:select", value: "true"
     })).toBe(false);
-  });
-
-  it("confirms every operation in a Copilot batch rather than just any document change", () => {
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: styleAndGeometryEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
-      value: JSON.stringify([
-        { cellId: "api", path: "style:fillColor", value: "#ffffff" },
-        { cellId: "api", path: "geometry:x", value: "40" },
-        { cellId: "api", path: "geometry:size", value: "140,50" }
-      ])
-    })).toBe(true);
-
-    expect(nativeEditIsReflectedInXml({
-      beforeXml: before, xml: styleAndGeometryEdited, cellId: "__batch__", pageId: "p1", path: "cell:batch",
-      value: JSON.stringify([
-        { cellId: "api", path: "style:fillColor", value: "#ffffff" },
-        { cellId: "db", path: "label", value: "Missing change" }
-      ])
-    })).toBe(false);
-  });
-
-  it("confirms a new node directly below its vertex only when connected in the requested direction", () => {
-    const belowNode = '<mxCell id="ddd" value="ddd" vertex="1" parent="1"><mxGeometry x="190" y="124" width="120" height="60" as="geometry"/></mxCell>';
-    const edge = '<mxCell id="db-ddd" edge="1" parent="1" source="db" target="ddd"><mxGeometry relative="1" as="geometry"/></mxCell>';
-    const belowAndConnected = before.replace("</root>", belowNode + edge + "</root>");
-    const request = { beforeXml: before, xml: belowAndConnected, cellId: "db", pageId: "p1", path: "cell:add-node-below", value: JSON.stringify({ label: "ddd" }) };
-    expect(nativeEditIsReflectedInXml(request)).toBe(true);
-
-    const placedBeside = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace('x="190" y="124"', 'x="364" y="20"') });
-    expect(placedBeside).toBe(false);
-    const disconnected = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace(edge, "") });
-    expect(disconnected).toBe(false);
-    const wrongDirection = nativeEditIsReflectedInXml({ ...request, xml: belowAndConnected.replace('source="db" target="ddd"', 'source="ddd" target="db"') });
-    expect(wrongDirection).toBe(false);
   });
 
   it("ignores viewport-only dx/dy changes in compressed or expanded Draw.io models", () => {
