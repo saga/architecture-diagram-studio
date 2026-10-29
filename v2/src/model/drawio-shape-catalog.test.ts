@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog, searchDrawioShapeCatalogDetailed
+  DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery, searchDrawioShapeCatalog, searchDrawioShapeCatalogDetailed
 } from "./drawio-shape-catalog";
 
 describe("curated Draw.io shape catalogue", () => {
