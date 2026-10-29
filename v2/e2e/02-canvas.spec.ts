@@ -648,7 +648,7 @@ test.describe("原生画布", () => {
       return response;
     });
     expect(result.success).toBe(false);
-    expect(String(result.error)).toContain("script execution has been removed");
+    expect(String(result.error).toLowerCase()).toContain("script execution has been removed");
     expect(await readWorkspaceXml(workspace)).toBe(before);
   });
 
