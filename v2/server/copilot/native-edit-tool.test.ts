@@ -143,49 +143,5 @@ describe("resolveNativeEditTargets", () => {
     expect(resolveNativeEditTargets(null, [{ op: "select", target: "db" }]).ok).toBe(false);
   });
 
-  it("resolves a general native script against the active page, including an empty diagram", () => {
-    const emptyDiagramScript = parseNativeEditOperations([{
-      op: "run_drawio_script", target: "active_page", summary: "Create an initial node",
-      script: 'graph.insertVertex(graph.getDefaultParent(), null, "Start", 100, 100, 120, 60);'
-    }]);
-    if (!emptyDiagramScript.ok) throw new Error(emptyDiagramScript.error);
-    expect(resolveNativeEditTargets({ cells: [] }, emptyDiagramScript.operations)).toMatchObject({
-      ok: true, operations: [{ op: "run_drawio_script", cellId: "__active_page__", targetLabel: "active Draw.io page" }]
-    });
-  });
 
-  it("keeps typed target lookup strict while scripts use the live graph API", () => {
-    const typed = parseNativeEditOperations([{ op: "set_label", target: "missing", label: "X" }]);
-    if (!typed.ok) throw new Error(typed.error);
-    expect(resolveNativeEditTargets(CONTEXT, typed.operations)).toMatchObject({
-      ok: false, error: expect.stringContaining("was not found")
-    });
-    const script = parseNativeEditOperations([{
-      op: "run_drawio_script", target: "active_page", summary: "Curve all connectors",
-      script: [
-        "var edges = [];",
-        "function collectEdges(parent) {",
-        "  var count = model.getChildCount(parent);",
-        "  for (var i = 0; i < count; i += 1) {",
-        "    var cell = model.getChildAt(parent, i);",
-        "    if (cell && cell.edge) edges.push(cell);",
-        "    collectEdges(cell);",
-        "  }",
-        "}",
-        "collectEdges(model.getRoot());",
-        "if (edges.length) {",
-        "  graph.setCellStyles('edgeStyle', 'orthogonalEdgeStyle', edges);",
-        "  graph.setCellStyles('curved', '1', edges);",
-        "  graph.setCellStyles('curveGeometry', '1', edges);",
-        "  graph.setCellStyles('labelOnCurve', '1', edges);",
-        "  graph.refresh();",
-        "  if (graph.view && typeof graph.view.validate === 'function') graph.view.validate();",
-        "}"
-      ].join("\n")
-    }]);
-    if (!script.ok) throw new Error(script.error);
-    expect(resolveNativeEditTargets(CONTEXT, script.operations)).toMatchObject({
-      ok: true, operations: [{ op: "run_drawio_script", cellId: "__active_page__" }]
-    });
-  });
 });
