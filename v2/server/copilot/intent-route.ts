@@ -1373,6 +1373,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
+        pendingXmlPatches.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
