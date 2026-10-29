@@ -596,7 +596,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("geometry");
     expect(prompt).toContain("exact native cell IDs");
     expect(prompt).toContain("Catalogue misses do not prove a shape is absent");
-    expect(prompt).toContain("edit_drawio_xml");
+    expect(prompt).toContain("server-side document-editing capability");
     expect(prompt).not.toContain("run_drawio_script");
     expect(prompt).toContain("exactly one terminal action per turn");
     expect(prompt.length).toBeLessThan(2800);
