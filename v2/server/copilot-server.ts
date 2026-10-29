@@ -19,6 +19,7 @@ import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./
 import { canExternalizeWorkspaceXml, createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 import { defaultStudioHome, resolveStudioStorageLayout, type StudioStorageLayout } from "./storage-layout";
 import { createRuntimeScopeLeaseManager } from "./runtime-scope-lease";
+import { isValidConfigHistoryRecord, parseConfigHistory, type StudioConfig } from "./studio-config-history";
 
 /**
  * The Copilot runtime reads its model provider configuration from the environment
@@ -68,54 +69,11 @@ let APP_LOG_FILE = activeStorageLayout.applicationLogFile;
 let LOG_DIR = activeStorageLayout.logDir;
 let LOG_FILE = activeStorageLayout.copilotLogFile;
 let COPILOT_STATE_DIR = activeStorageLayout.copilotDir;
-type StudioConfig = {
-  schemaVersion: 1;
-  revisionId: string;
-  model: string;
-  reasoningEffort: "low" | "medium" | "high" | "max";
-  updatedAt: string;
-  updatedBy: string;
-};
 const DEFAULT_STUDIO_CONFIG: StudioConfig = {
   schemaVersion: 1, revisionId: "default", model: DEFAULT_MODEL, reasoningEffort: "medium",
   updatedAt: new Date(0).toISOString(), updatedBy: "default"
 };
 let studioConfig: StudioConfig | null = null;
-
-function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
-  const records: Array<Record<string, unknown>> = [];
-  let start = -1, depth = 0, inString = false, escaped = false;
-  for (let i = 0; i < contents.length; i++) {
-    const ch = contents[i];
-    if (start < 0) {
-      if (ch === "{") { start = i; depth = 1; inString = false; escaped = false; }
-      continue;
-    }
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}" && --depth === 0) {
-      try {
-        const parsed: unknown = JSON.parse(contents.slice(start, i + 1));
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) records.push(parsed as Record<string, unknown>);
-      } catch { /* Ignore malformed historical records and keep any earlier valid snapshots. */ }
-      start = -1;
-    }
-  }
-  return records;
-}
-
-function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
-  if (record.schemaVersion !== undefined && record.schemaVersion !== 1) return false;
-  if (record.model !== undefined && (typeof record.model !== "string" || record.model.length > 100)) return false;
-  if (record.reasoningEffort !== undefined && !["low", "medium", "high", "max"].includes(String(record.reasoningEffort))) return false;
-  return true;
-}
 
 async function getStudioConfig(): Promise<StudioConfig> {
   if (studioConfig) return studioConfig;
