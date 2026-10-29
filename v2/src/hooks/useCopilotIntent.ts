@@ -9,7 +9,6 @@ import {
   type NativeEditExecution
 } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
-import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { calculateNativeAutoLayout } from "../layout/native-layout";
@@ -246,11 +245,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       });
 
       if (plan.outcome === "proposal_required") {
-        const safeReply = hideNativeScriptDetails(plan.reply);
-        const safeSummary = hideNativeScriptDetails(plan.proposal.summary);
-        // The executable script is deliberately kept out of the chat transcript: it is long, it is
-        // not what the user asked for, and the sanitizer is a safety net rather than a formatter.
-        // Never embed the script here; expose it through a dedicated review affordance instead.
+        const safeReply = plan.reply;
+        const safeSummary = plan.proposal.summary;
+        // Proposals contain typed native operations only; no executable script is carried in the chat transcript.
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: (safeReply || "A diagram change is ready for review.") +
