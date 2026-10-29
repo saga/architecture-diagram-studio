@@ -382,7 +382,7 @@ describe("native Draw.io script bridge", () => {
         drawioVersion: "v32.0.2",
         documentRevision: "a".repeat(64),
         counts: { cells: 6, vertices: 4, edges: 2 },
-        capabilityManifest: { scriptSupported: false }
+        capabilityManifest: {}
       }
     });
     const inspected = result?.inspection as { cells: Array<{ id: string }>; capabilities: { graph: string[]; model: string[] } };
