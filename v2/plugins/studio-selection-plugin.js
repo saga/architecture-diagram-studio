@@ -1320,36 +1320,8 @@
         if (!layoutPlan || layoutPlan.pageId !== (currentPageId() || null)) throw new Error("The active Draw.io page changed after layout calculation. Re-run auto layout.");
         return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
       }
-      if (request.cellId === "__active_page__" && selectionOperation === "cell:execute-script") {
-        var scriptPayload = parseNativeScriptPayload(request.value);
-        var script = scriptPayload.script;
-        var scriptMode = scriptPayload.mode;
-        if (!script.trim()) throw new Error("The native Draw.io script is empty");
-        if (script.length > 50000) throw new Error("The native Draw.io script exceeds 50000 characters");
-        var executeNativeScript; var expressionSource = script.replace(/;\s*$/, "");
-        try { executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\nreturn (\n' + expressionSource + '\n);'); }
-        catch (compileError) { if (!compileError || compileError.name !== "SyntaxError") throw compileError; executeNativeScript = new Function("ui", "editor", "graph", "model", "inspectRuntime", '"use strict";\n' + script); }
-        var readOnlyStateBeforeScript = scriptMode === "read" ? captureNativeReadOnlyState(activeGraph, activeModel) : null;
-        var readOnlyGuardTargets = scriptMode === "read" ? [
-          { target: activeModel, matcher: /^(?:set|add|remove|clear|merge|execute|create|update|cellsAdded|cellsRemoved|maintain)/i },
-          { target: activeGraph, matcher: /^(?:set|add|remove|insert|delete|move|resize|connect|group|ungroup|fold|align|distribute|flip|rotate|order|split|collapse|expand|toggle|refresh|startEditing|stopEditing|fireEvent|import|duplicate|clone|clear)/i },
-          { target: ui.editor, matcher: /^(?:set|add|remove|insert|delete|open|save|close|rename|create|execute|undo|redo|select|fire|reset|new|setModified)/i }
-        ] : null;
-        var scriptResult = executeNativeScriptSynchronously(script, activeModel, function () {
-          return executeNativeScript(ui, ui.editor, activeGraph, activeModel, function (options) {
-            return inspectDrawioRuntime(ui, activeGraph, activeModel, options);
-          });
-        }, readOnlyGuardTargets);
-        if (scriptResult && typeof scriptResult.then === "function") throw new Error("Native Draw.io scripts must be synchronous; promise-returning scripts are not supported");
-        if (scriptMode === "read" && nativeReadOnlyStateChanged(readOnlyStateBeforeScript, activeGraph, activeModel)) {
-          throw new Error("Read-only inspection script mutated the Draw.io document or editor state.");
-        }
-        return {
-          executed: true,
-          scriptMode: scriptMode,
-          resultType: scriptResult === null ? "null" : typeof scriptResult,
-          scriptResult: serializeScriptResult(scriptResult)
-        };
+      if (selectionOperation === "cell:execute-script") {
+        throw new Error("Native Draw.io script execution has been removed. Use server-side XML editing instead.");
       }
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
