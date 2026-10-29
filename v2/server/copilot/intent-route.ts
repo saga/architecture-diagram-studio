@@ -1277,96 +1277,6 @@ function createDrawioElementSearchTool(sessionId: string) {
     if (selectedCell && !visibleCells.some((cell) => cell.id === selectedCell!.cellId)) {
       visibleCells = [...visibleCells.slice(0, 199), allNativeCells.find((cell) => cell.id === selectedCell!.cellId)!];
     }
-    const suppliedRepair = (requestedContext as { scriptRepair?: unknown }).scriptRepair;
-    let scriptRepair: {
-      originalRequest: string; failedScript: string; error: string; stack?: string;
-      toolResult: {
-        toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string;
-        rollbackConfirmed: boolean; failedPath: string;
-        assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string }>;
-        scopeViolations?: Array<{
-          kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[];
-          suggestedAssertion?: Record<string, unknown>;
-        }>;
-      };
-    } | undefined;
-    if (suppliedRepair !== undefined) {
-      if (!suppliedRepair || typeof suppliedRepair !== "object" || Array.isArray(suppliedRepair)) {
-        res.status(400).json({ outcome: "failed", reply: "The native edit repair context could not be validated.", error: "scriptRepair must be an object", documentRevision, requestId, sessionId });
-        return;
-      }
-      const repair = suppliedRepair as Record<string, unknown>;
-      const toolResult = repair.toolResult && typeof repair.toolResult === "object" && !Array.isArray(repair.toolResult)
-        ? repair.toolResult as Record<string, unknown>
-        : null;
-      if (typeof repair.originalRequest !== "string" || !repair.originalRequest.trim() || repair.originalRequest.length > 1500 ||
-          typeof repair.failedScript !== "string" || !repair.failedScript.trim() || repair.failedScript.length > 12_000 ||
-          typeof repair.error !== "string" || !repair.error.trim() || repair.error.length > 1200 ||
-          (repair.stack !== undefined && (typeof repair.stack !== "string" || repair.stack.length > 8000)) ||
-          !toolResult ||
-          (toolResult.toolName !== "run_drawio_script" && toolResult.toolName !== "propose_native_edits") || toolResult.success !== false ||
-          typeof toolResult.error !== "string" || !toolResult.error.trim() || toolResult.error.length > 1200 ||
-          typeof toolResult.rollbackConfirmed !== "boolean" ||
-          typeof toolResult.failedPath !== "string" || toolResult.failedPath.length > 80 ||
-          (toolResult.stack !== undefined && (typeof toolResult.stack !== "string" || toolResult.stack.length > 8000)) ||
-          (toolResult.assertionFailures !== undefined && (!Array.isArray(toolResult.assertionFailures) || toolResult.assertionFailures.length > 25)) ||
-          (toolResult.scopeViolations !== undefined && (!Array.isArray(toolResult.scopeViolations) || toolResult.scopeViolations.length > 25))) {
-        res.status(400).json({ outcome: "failed", reply: "The native edit repair context exceeds its safe limits.", error: "scriptRepair requires a request <=1500 chars, failed action <=12000 chars, error <=1200 chars, and a bounded failed native tool result", documentRevision, requestId, sessionId });
-        return;
-      }
-      scriptRepair = {
-        originalRequest: repair.originalRequest,
-        failedScript: repair.failedScript,
-        error: repair.error,
-        ...(typeof repair.stack === "string" ? { stack: repair.stack } : {}),
-        toolResult: {
-          toolName: toolResult.toolName as "run_drawio_script" | "propose_native_edits",
-          success: false,
-          error: (toolResult as Record<string, unknown>).error as string,
-          ...(typeof toolResult.stack === "string" ? { stack: toolResult.stack.slice(0, 8000) } : {}),
-          rollbackConfirmed: toolResult.rollbackConfirmed as boolean,
-          failedPath: toolResult.failedPath as string,
-          ...(Array.isArray(toolResult.assertionFailures) ? {
-            assertionFailures: toolResult.assertionFailures.slice(0, 25).flatMap((raw) => {
-              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-              const item = raw as Record<string, unknown>;
-              if (typeof item.field !== "string" || typeof item.reason !== "string" ||
-                  !["invalid-result", "invalid-assertion", "invalid-document", "mismatch"].includes(String(item.kind))) return [];
-              return [{
-                kind: String(item.kind),
-                index: typeof item.index === "number" && Number.isInteger(item.index) ? item.index : null,
-                ...(typeof item.cellId === "string" ? { cellId: item.cellId.slice(0, 200) } : {}),
-                field: item.field.slice(0, 120), reason: item.reason.slice(0, 400)
-              }];
-            })
-          } : {}),
-          ...(Array.isArray(toolResult.scopeViolations) ? {
-            scopeViolations: toolResult.scopeViolations.slice(0, 25).flatMap((raw) => {
-              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-              const item = raw as Record<string, unknown>;
-              if (typeof item.kind !== "string" || typeof item.cellId !== "string" ||
-                  typeof item.label !== "string" || (item.pageId !== null && typeof item.pageId !== "string")) return [];
-              const changedFields = Array.isArray(item.changedFields)
-                ? item.changedFields.filter((field): field is string => typeof field === "string").slice(0, 20).map((field) => field.slice(0, 120))
-                : undefined;
-              const suggestedAssertion = boundedSuggestedAssertion(item.suggestedAssertion);
-              return [{
-                kind: item.kind.slice(0, 40), cellId: item.cellId.slice(0, 200),
-                pageId: item.pageId as string | null, label: item.label.slice(0, 200),
-                ...(changedFields?.length ? { changedFields } : {}),
-                ...(suggestedAssertion ? { suggestedAssertion } : {})
-              }];
-            })
-          } : {})
-        }
-      };
-      await deps.writeLog("request.script-repair.received", {
-        requestId, sessionId, failedActionLength: scriptRepair.failedScript.length, failedTool: scriptRepair.toolResult.toolName, errorLength: scriptRepair.error.length,
-        originalRequestLength: scriptRepair.originalRequest.length, errorStackLength: scriptRepair.stack?.length ?? 0,
-        toolResult: scriptRepair.toolResult,
-        revision: computedRevision, activePageId: identity.documentPageId
-      });
-    }
     const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
     const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
       documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION
@@ -1395,7 +1305,6 @@ function createDrawioElementSearchTool(sessionId: string) {
       selectedCell,
       cells: promptCells,
       ...(runtimeInspection ? { runtimeInspection } : {}),
-      ...(scriptRepair ? { scriptRepair } : {})
     };
     if (!standalone) {
       let authoritative: { drawioXml: string; revision: string } | null;
@@ -1579,7 +1488,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again; create the requested cells and edges in one run_drawio_script call. In scripts, use graph.insertVertex/insertEdge and model-layer postcondition checks only; never call graph.refresh(), graph.view.validate(), or graph.view.getState() after a mutation or model.endUpdate(). Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use run_drawio_script to patch only the intended text. Re-scan postconditions independently via graph.convertValueToString; do not reuse the mutation's changed-count list as proof. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use run_drawio_script only when typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Prefer compact typed native operations over generated scripts when they express the requested change. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), so batch a few operations instead of writing a large script. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container, the relationship edge recipe and a script skeleton. That single query is the whole discovery step — do not call get_drawio_reference and do not search again;  Keep the returned evidence minimal: one xmlAssertion per cell you created or changed, at most 3 postconditions, and never assert untouched cells; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use edit_drawio_xml to patch only the intended text while preserving the native XML. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml when the typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1588,7 +1497,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use run_drawio_script for non-trivial native edits or when direct Draw.io APIs are simpler; do not limit it to a typed-operation allowlist. Never use run_drawio_script(mode:read) for discovery: it is deferred and returns no data. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
+            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use edit_drawio_xml for non-trivial native edits beyond the typed-operation allowlist. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
