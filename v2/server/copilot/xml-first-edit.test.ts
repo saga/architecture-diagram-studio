@@ -34,6 +34,22 @@ describe("applyDrawioXmlPatch", () => {
     expect(result.drawioXml).toContain('id="edge-a"');
   });
 
+  it("targets UserObject wrappers by their native ID and preserves rich-label wrapper structure", () => {
+    const wrapped = `<mxfile><diagram id="p" name="Page-1"><mxGraphModel><root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+<object id="user-node" label="Before" placeholders="1"><mxCell style="rounded=1;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="100" height="40" as="geometry"/></mxCell></object>
+</root></mxGraphModel></diagram></mxfile>`;
+    const result = applyDrawioXmlPatch(wrapped, [{
+      op: "set-cell-attributes", cellId: "user-node", attributes: { value: "After" }
+    }]);
+    expect(result.changedCellIds).toEqual(["user-node"]);
+    expect(result.drawioXml).toContain('<object id="user-node" label="After" placeholders="1">');
+    expect(result.drawioXml).toContain('style="rounded=1;"');
+    const deleted = applyDrawioXmlPatch(wrapped, [{ op: "delete-cell", cellId: "user-node" }]);
+    expect(deleted.drawioXml).not.toContain('id="user-node"');
+    expect(deleted.drawioXml).toContain('id="1"');
+  });
+
   it("rejects inserted cells whose IDs already exist", () => {
     expect(() => applyDrawioXmlPatch(source, [{
       op: "insert-cell-xml", parentId: "1",
