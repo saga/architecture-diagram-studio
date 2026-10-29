@@ -1,6 +1,6 @@
 # ADR-0026: Server-Side XML-First Copilot Editing and Frontend Version Synchronization
 
-- **Status:** Accepted; implementation validated on the feature branch; integration into `main` pending.
+- **Status:** Accepted; implementation merged into `main` and validated by CI.
 - **Date:** 2026-10-29
 - **Scope:** Copilot diagram edits, native XML validation/versioning, and frontend synchronization.
 - **Supersedes:** The script-first Copilot execution decision in ADR-0018 and any conflicting requirement in ADR-0010, ADR-0011, ADR-0012, AGENTS.md, or ARCHITECTURE-V2.md that prevents the model from directly editing native XML on the server.
