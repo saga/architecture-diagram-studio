@@ -30,7 +30,7 @@ Bind each edit to the exact current document revision and active page ID. Resolv
 
 Supported patch operations:
 - \`set-cell-attributes\`: update explicit native mxCell attributes; for UserObject/object wrappers, label/value attributes are applied to the wrapper while geometry/style remain on its child mxCell.
-- \`set-geometry\`: update explicit x/y/width/height values.
+- \`set-geometry\`: update explicit x/y/width/height values. 'set-geometry-xml' replaces the full native mxGeometry fragment, including connector waypoints and control points.
 - \`delete-cell\`: remove only the requested cell or its UserObject/object wrapper.
 - \`insert-cell-xml\`: insert a native mxCell or UserObject/object XML fragment with a unique ID under the existing page root.
 
