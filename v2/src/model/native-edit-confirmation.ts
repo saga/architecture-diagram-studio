@@ -348,12 +348,6 @@ function operationIsReflected(
   return false;
 }
 
-function isNativeRootOrLayerCell(record: CellRecord): boolean {
-  return record.cell.getAttribute("vertex") !== "1" &&
-    record.cell.getAttribute("edge") !== "1" &&
-    record.geometry === null;
-}
-
 /** Typed native operations are confirmed against their requested XML postconditions. */
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
