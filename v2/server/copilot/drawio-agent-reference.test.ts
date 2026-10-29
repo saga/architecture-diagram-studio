@@ -17,6 +17,19 @@ describe("on-demand Draw.io reference", () => {
     expect(recipes).not.toContain("run_drawio_script");
     expect(recipes).not.toContain("new Function");
   });
+  it("serves only XML-first guidance for every reference topic", () => {
+    const markdown = [
+      "## API ownership", "legacy run_drawio_script guidance",
+      "## Shape discovery", "Catalogue misses are not exhaustive.",
+      "### C4 shape recipes", "new Function legacy recipe",
+      "## Validation and postconditions", "script execution legacy"
+    ].join("\\n");
+    for (const topic of ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"] as const) {
+      const content = selectDrawioReferenceSections(markdown, topic);
+      expect(content, topic).not.toContain("run_drawio_script");
+      expect(content, topic).not.toContain("new Function");
+    }
+  });
   it("bounds full-reference responses", () => {
     const huge = "# Reference\n" + "x".repeat(20_000);
     expect(selectDrawioReferenceSections(huge, "all").length).toBeLessThanOrEqual(18_100);
