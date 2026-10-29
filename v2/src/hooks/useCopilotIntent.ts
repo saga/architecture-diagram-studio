@@ -14,6 +14,8 @@ import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { calculateNativeAutoLayout } from "../layout/native-layout";
+import { createNativeExecutionReceipt, transitionNativeExecution } from "../model/native-execution-protocol";
+import { interpretNativeXmlChange } from "../model/drawio-xml-diff";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string; script?: string } };
 type Workspace = { id: string } | null;
@@ -329,6 +331,69 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           return "step " + (stepIndex + 1);
         };
         const failedStep = execution.steps.find((step) => !step.success);
+        // One correlated receipt binds the model request, native XML export, persistence outcome,
+        // and trace. A bridge promise resolving is not treated as success unless its result says so.
+        let executionReceipt = createNativeExecutionReceipt({
+          requestId: plan.nativeEdits.requestId,
+          documentRevision,
+          pageId: plan.nativeEdits.pageId,
+          beforeXmlHash: documentRevision,
+          summary: operations.map(describeNativeEditOperation).join("; ")
+        });
+        executionReceipt = transitionNativeExecution(executionReceipt, "executing");
+        let afterXml: string | null = null;
+        let impactReport: Awaited<ReturnType<typeof interpretNativeXmlChange>> | null = null;
+        try {
+          afterXml = getStateForResolvedPage().drawioXml;
+          impactReport = await interpretNativeXmlChange(sourceXml, afterXml);
+        } catch (impactError) {
+          recordDiagnostic("copilot.native-xml-impact.failed", "Could not calculate the native XML change impact report; execution outcome remains based on the editor/persistence acknowledgement", {
+            requestId: plan.nativeEdits.requestId,
+            error: impactError instanceof Error ? impactError.message : String(impactError)
+          }, "warn");
+        }
+        const scriptOperation = operations.find((operation) => operation.op === "run_drawio_script");
+        const layoutOperationForTrace = operations.find((operation) => operation.op === "auto_layout");
+        const finalStatus = execution.ok
+          ? "committed" as const
+          : execution.applicationState === "changed-unverified" || execution.applicationState === "unknown"
+            ? "partial" as const
+            : "failed" as const;
+        executionReceipt = transitionNativeExecution(executionReceipt, finalStatus, {
+          ...(afterXml !== null ? { afterXmlHash: await calculateDrawioXmlRevision(afterXml) } : {}),
+          ...(execution.failureStage ? { failureStage: execution.failureStage } : {}),
+          ...(execution.error ? { error: execution.error } : {}),
+          reconciliationRequired: finalStatus === "partial"
+        });
+        let scriptHash: string | null = null;
+        if (scriptOperation?.op === "run_drawio_script") {
+          scriptHash = await calculateDrawioXmlRevision(scriptOperation.script);
+        }
+        recordDiagnostic("copilot.execution.receipt", "Recorded the correlated native execution outcome and XML impact", {
+          receipt: executionReceipt,
+          sessionId: plan.sessionId || copilotSessionId,
+          standalone: standaloneMode,
+          operationCount: operations.length,
+          operationKinds: operations.map((operation) => operation.op),
+          scriptHash,
+          layout: layoutOperationForTrace ?? null,
+          editor: {
+            ok: execution.ok,
+            applicationState: execution.applicationState ?? null,
+            failureStage: execution.failureStage ?? null,
+            rolledBack: execution.rolledBack ?? null,
+            semanticChanged: execution.semanticChanged ?? null
+          },
+          impact: impactReport ? {
+            beforeHash: impactReport.beforeHash,
+            afterHash: impactReport.afterHash,
+            changed: impactReport.changed,
+            pageIdsBefore: impactReport.pageIdsBefore,
+            pageIdsAfter: impactReport.pageIdsAfter,
+            summary: impactReport.summary,
+            changes: impactReport.changes.slice(0, 150)
+          } : null
+        }, finalStatus === "partial" || finalStatus === "failed" ? "warn" : "info");
         if (execution.ok) {
           const readOnlyInspection = operations.find((operation) =>
             operation.op === "run_drawio_script" && operation.mode === "read"
