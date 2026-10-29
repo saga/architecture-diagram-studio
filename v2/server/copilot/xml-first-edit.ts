@@ -4,7 +4,8 @@ import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 export type DrawioXmlPatch =
   | { op: "set-cell-attributes"; cellId: string; attributes: Record<string, string | null> }
   | { op: "set-geometry"; cellId: string; geometry: { x?: number; y?: number; width?: number; height?: number } }
-  | { op: "delete-cell"; cellId: string };
+  | { op: "delete-cell"; cellId: string }
+  | { op: "insert-cell-xml"; parentId: string; cellXml: string };
 
 export interface DrawioXmlPatchResult {
   drawioXml: string;
@@ -27,14 +28,49 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[]):
   const document = parseDrawioXml(sourceXml);
   const cells = findDrawioElements(document, "mxCell");
   const byId = new Map<string, Element>();
+  const duplicateIds = new Set<string>();
   for (const cell of cells) {
     const id = cell.getAttribute("id");
-    if (id) byId.set(id, cell);
+    if (!id) continue;
+    if (byId.has(id)) duplicateIds.add(id);
+    else byId.set(id, cell);
+  }
+  if (duplicateIds.size) {
+    throw new Error("The document contains duplicate native cell IDs; XML patching requires unambiguous IDs: " + [...duplicateIds].slice(0, 5).join(", "));
   }
   const changed = new Set<string>();
 
   for (const operation of patch) {
-    if (!operation || typeof operation.cellId !== "string" || !operation.cellId.trim()) {
+    if (!operation || typeof operation !== "object") throw new Error("Every XML patch operation must be an object.");
+    if (operation.op === "insert-cell-xml") {
+      const parentId = operation.parentId;
+      if (typeof parentId !== "string" || !parentId.trim() || typeof operation.cellXml !== "string" || !operation.cellXml.trim()) {
+        throw new Error("insert-cell-xml requires an exact parentId and a native cell XML fragment.");
+      }
+      const parentCell = byId.get(parentId);
+      if (!parentCell) throw new Error(`Draw.io parent cell "${parentId}" was not found.`);
+      const fragmentDocument = parseDrawioXml(operation.cellXml);
+      const fragment = fragmentDocument.documentElement;
+      const insertedCell = fragment.tagName === "mxCell"
+        ? fragment
+        : Array.from(fragment.getElementsByTagName("mxCell")).find((node) => node.parentNode === fragment) as Element | undefined;
+      const insertedId = insertedCell?.getAttribute("id");
+      if (!insertedCell || !insertedId) throw new Error("The inserted XML must be an mxCell or wrapper containing a direct mxCell with an ID.");
+      if (byId.has(insertedId)) throw new Error(`Inserted cell ID "${insertedId}" already exists in the document.`);
+      let model: Node | null = parentCell;
+      while (model && (model as Element).tagName !== "mxGraphModel") model = model.parentNode;
+      const root = model && (model as Element).getElementsByTagName("root").item(0);
+      if (!root) throw new Error("The target parent is not inside a native mxGraphModel root.");
+      const imported = document.importNode(fragment, true);
+      root.appendChild(imported);
+      const importedCell = imported.nodeName === "mxCell"
+        ? imported as Element
+        : (imported as Element).getElementsByTagName("mxCell").item(0) as Element | null;
+      if (importedCell) byId.set(insertedId, importedCell);
+      changed.add(insertedId);
+      continue;
+    }
+    if (typeof operation.cellId !== "string" || !operation.cellId.trim()) {
       throw new Error("Every XML patch operation must identify a cell by its exact ID.");
     }
     const cell = byId.get(operation.cellId);
