@@ -563,16 +563,16 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         onHistoryStateChangeRef.current?.({ canUndo: false, canRedo: false });
         const advertisedVersion = typeof data.drawioVersion === "string" ? data.drawioVersion : null;
         const manifest = data.capabilityManifest && typeof data.capabilityManifest === "object"
-          ? data.capabilityManifest as { scriptSupported?: unknown; missing?: Record<string, unknown> }
+          ? data.capabilityManifest as { missing?: Record<string, unknown> }
           : null;
         const missing = manifest?.missing && typeof manifest.missing === "object" ? manifest.missing : {};
         const hasMissing = ["graph", "model", "view"].some((group) =>
           Array.isArray(missing[group]) && (missing[group] as unknown[]).length > 0
         );
-        const compatible = advertisedVersion === DRAWIO_VERSION && manifest?.scriptSupported === true && !hasMissing;
+        const compatible = advertisedVersion === DRAWIO_VERSION && !hasMissing;
         // In local AI-first mode the manifest is diagnostic evidence, never a permission gate.
         recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.diagnostic-mismatch",
-          compatible ? "The observed Draw.io runtime manifest matches the curated contract" : "The observed Draw.io runtime manifest differs from the curated contract; direct script execution remains enabled",
+          compatible ? "The observed Draw.io runtime manifest matches the curated contract" : "The observed Draw.io runtime manifest differs from the curated native-editor contract",
           { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "warn");
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
