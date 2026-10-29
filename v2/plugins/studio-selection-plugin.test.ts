@@ -370,7 +370,7 @@ describe("native Draw.io script bridge", () => {
       success: true,
       inspection: {
         schemaVersion: 1,
-        bridgeVersion: "studio-native-runtime/3",
+        bridgeVersion: "studio-native-runtime/4",
         drawioVersion: "v32.0.2",
         documentRevision: "a".repeat(64),
         counts: { cells: 6, vertices: 4, edges: 2 },
