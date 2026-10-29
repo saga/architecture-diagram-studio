@@ -60,6 +60,7 @@ async function createServer(options: {
   snapshot?: () => Promise<{ drawioXml: string; revision: string } | null>;
   copilot?: Record<string, unknown>;
   acknowledgements?: NativeExecutionAcknowledgements;
+  commitWorkspaceXmlPatch?: (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => Promise<{ ok: boolean; status: number; body: unknown }>;
 } = {}): Promise<ServerHarness> {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
@@ -82,6 +83,7 @@ async function createServer(options: {
     getWorkspaceVersionSnapshot: async (versionId) => versionId === "version-1"
       ? { drawioXml: XML, revision: workspaceRevision(XML), versionId }
       : null,
+    ...(options.commitWorkspaceXmlPatch ? { commitWorkspaceXmlPatch: options.commitWorkspaceXmlPatch } : {}),
     collectAgentWorkspaceContext: async () => ({}),
     persistSessionId,
     acknowledgements
@@ -117,6 +119,38 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
     sessionId: "route-test-session",
     standalone: false,
     ...overrides
+  };
+}
+
+function xmlEditingCopilot() {
+  let activeSession: Record<string, unknown> = {};
+  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
+  return {
+    providerInfo: { mode: "byok", host: null },
+    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
+    lastObservedModel: vi.fn(() => "test-model"),
+    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
+      prepared = await request.prepare();
+      activeSession = {
+        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
+        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
+        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
+      };
+      return activeSession;
+    },
+    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
+      get session() { return activeSession; },
+      send: async () => {
+        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
+          .find((candidate) => candidate.name === "edit_drawio_xml");
+        if (!tool?.handler) throw new Error("edit_drawio_xml tool was not registered");
+        await tool.handler({
+          summary: "Rename Database",
+          patch: [{ op: "set-cell-attributes", cellId: "db", attributes: { value: "Data Store" } }]
+        });
+        return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
+      }
+    })
   };
 }
 
@@ -532,6 +566,21 @@ describe("Copilot intent route result and revision contract", () => {
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
     expect(String(copilot.getPreparedSystemMessage())).toContain("server-side document-editing capability");
+  });
+
+  it("commits the XML-first tool through the versioned server persistence callback", async () => {
+    const commitWorkspaceXmlPatch = vi.fn(async (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => ({
+      ok: true, status: 200, body: { ok: true, workspaceRevision: "new-revision", version: { id: "v-2" }, accepted: input.patch.length === 1 }
+    }));
+    const harness = await createServer({ copilot: xmlEditingCopilot(), commitWorkspaceXmlPatch });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("xml_committed");
+    expect(commitWorkspaceXmlPatch).toHaveBeenCalledWith(expect.objectContaining({
+      baseRevision: workspaceRevision(XML), pageId: "p1", label: "Copilot: Rename Database",
+      patch: [{ op: "set-cell-attributes", cellId: "db", attributes: { value: "Data Store" } }]
+    }));
+    expect(harness.logs.some((entry) => entry.event === "turn.completed.xml-patch-committed")).toBe(true);
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
