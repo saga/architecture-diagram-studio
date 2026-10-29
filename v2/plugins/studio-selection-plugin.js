@@ -924,9 +924,6 @@
         if (!layoutPlan || layoutPlan.pageId !== (currentPageId() || null)) throw new Error("The active Draw.io page changed after layout calculation. Re-run auto layout.");
         return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
       }
-      if (selectionOperation === "cell:execute-script") {
-        throw new Error("Native Draw.io script execution has been removed. Use server-side XML editing instead.");
-      }
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
       var requestedPage = request.pageId; var activePage = currentPageId();
