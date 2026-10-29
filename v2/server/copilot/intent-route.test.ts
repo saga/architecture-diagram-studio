@@ -857,8 +857,26 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
-  it("does not classify model and SDK errors by English message wording", async () => {
-    const failures = [
+  it("accepts a bare mxGraphModel even when the editor still reports its own page ID", async () => {
+    const bare = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="db" value="Database" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell>' +
+      '</root></mxGraphModel>';
+    const copilot = reportingCopilot("answered", "No diagram changes are needed.");
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: bare, revision: workspaceRevision(bare) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      standalone: true,
+      diagramXml: bare,
+      documentRevision: workspaceRevision(bare),
+      context: { kind: "drawio", activePageId: "editor-page-1", selectedCell: null, cells: [] }
+    }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+  });
+
+  it("does not classify model and SDK errors by English message wording", async () => {    const failures = [
       "The requested model was not found among configured providers.",
       "The provider is not supported by this SDK version."
     ];

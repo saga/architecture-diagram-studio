@@ -5,6 +5,7 @@ import {
   extractNativeEditTargets,
   getNativeDiagramPageInfo,
   isBareNativeGraphModel,
+  nativeRequestPageId,
   toNativeCellEdits,
   type NativeCellEdit,
   type NativeEditExecution
@@ -195,12 +196,16 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
 
       let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
+      // A bare mxGraphModel has exactly one page and no page ID. The live editor still reports
+      // its own UUID, but the document identity for the request (and every server comparison)
+      // must be null, otherwise a valid request is rejected as a stale page.
+      const requestPageId = nativeRequestPageId(sourceXml, activePageId);
       try {
-        nativeTargets = extractNativeEditTargets(sourceXml, activePageId);
+        nativeTargets = extractNativeEditTargets(sourceXml, requestPageId);
       } catch (error) {
         recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
           errorMessage: error instanceof Error ? error.message : String(error), xmlLength: sourceXml.length,
-          requestedPageId: activePageId, runtimePageId: runtimeInspection?.pageId ?? null
+          requestedPageId: requestPageId, runtimePageId: runtimeInspection?.pageId ?? null
         }, "error");
         throw new Error("Could not read cells from the active Draw.io page: " +
           (error instanceof Error ? error.message : String(error)) + ". No Agent request was sent.");
@@ -219,9 +224,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         {
           kind: "drawio",
           title: nativePage.title || "Draw.io diagram",
-          activePageId,
+          activePageId: requestPageId,
           selectedCell: sourceSelectedCellId ? {
-            cellId: sourceSelectedCellId, pageId: activePageId,
+            cellId: sourceSelectedCellId, pageId: requestPageId,
             label: selectedTarget?.name || ""
           } : null,
           cells: nativeTargets,
@@ -285,7 +290,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
 
       if (plan.outcome === "command_ready") {
         if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable; no change was applied.");
-        if (plan.nativeEdits.documentRevision !== documentRevision || plan.nativeEdits.pageId !== activePageId) {
+        if (plan.nativeEdits.documentRevision !== documentRevision || plan.nativeEdits.pageId !== requestPageId) {
           throw new Error("The native edit plan is stale or targets another Draw.io page. No change was applied.");
         }
         const operations = plan.nativeEdits.operations;
@@ -458,9 +463,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               }, "The previous native Draw.io action returned a failed tool result. Treat context.scriptRepair.toolResult as the tool result, not as user prose. The editor reported the exact error and confirmed rollback, so use that result plus runtime inspection to correct the actual cause. The failed action payload is either the original JavaScript script or a JSON array of typed native operations. Preserve the original user request and active-page scope; do not repeat the failed action unchanged. Return one corrected action by calling run_drawio_script directly. Do not claim success until the editor result and serialized XML/persistence acknowledgement succeed.", {
                 kind: "drawio",
                 title: nativePage.title || "Draw.io diagram",
-                activePageId,
+                activePageId: requestPageId,
                 selectedCell: sourceSelectedCellId ? {
-                  cellId: sourceSelectedCellId, pageId: activePageId,
+                  cellId: sourceSelectedCellId, pageId: requestPageId,
                   label: selectedTarget?.name || ""
                 } : null,
                 cells: nativeTargets,
@@ -475,7 +480,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
               });
               if (repairPlan.outcome === "command_ready") {
                 const command = repairPlan.nativeEdits;
-                if (command.documentRevision !== documentRevision || command.pageId !== activePageId) {
+                if (command.documentRevision !== documentRevision || command.pageId !== requestPageId) {
                   throw new Error("The repaired script targets a stale revision or a different Draw.io page.");
                 }
                 const repairCellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId);
@@ -664,14 +669,16 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       // activePageId is the runtime-confirmed ID from the live editor; only an mxfile
       // must prove that the requested page still exists in the source XML.
       if (!isBareNativeGraphModel(sourceXml) && pageInfo.id !== activePageId) throw new Error("The proposal's target page was not found in the source XML.");
-      const nativeTargets = extractNativeEditTargets(sourceXml, activePageId);
+      // The request must carry the document's page identity, which is null for a bare model.
+      const requestPageId = nativeRequestPageId(sourceXml, activePageId);
+      const nativeTargets = extractNativeEditTargets(sourceXml, requestPageId);
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const requestContext = {
         kind: "drawio" as const,
         title: pageInfo.title || "Draw.io diagram",
-        activePageId,
+        activePageId: requestPageId,
         selectedCell: sourceSelectedCellId ? {
-          cellId: sourceSelectedCellId, pageId: pageInfo.id,
+          cellId: sourceSelectedCellId, pageId: requestPageId,
           label: selectedTarget?.name || ""
         } : null,
         cells: nativeTargets
@@ -700,7 +707,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable.");
       const command = plan.nativeEdits;
-      if (command.documentRevision !== documentRevision || command.pageId !== activePageId) {
+      if (command.documentRevision !== documentRevision || command.pageId !== requestPageId) {
         throw new Error("The confirmed command belongs to another revision or Draw.io page.");
       }
       const layoutOperation = command.operations.length === 1 && command.operations[0].op === "auto_layout"

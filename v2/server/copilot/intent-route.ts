@@ -5,6 +5,7 @@ import { CopilotRuntime, CopilotSessionBusyError, describeCopilotFailure } from 
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import {
   describeNativeEditOperation,
+  isBareNativeGraphModel,
   MAX_NATIVE_EDIT_OPERATIONS, parseNativeEditOperations, type ResolvedNativeEditOperation
 } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
@@ -1217,7 +1218,8 @@ function createDrawioElementSearchTool(sessionId: string) {
           res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
           return;
         }
-        if (requestedPageId && suppliedSnapshot.snapshot.pageInfo.id !== requestedPageId) {
+        if (requestedPageId && !isBareNativeGraphModel(diagramXml) &&
+            suppliedSnapshot.snapshot.pageInfo.id !== requestedPageId) {
           res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
           return;
         }
@@ -1262,7 +1264,9 @@ function createDrawioElementSearchTool(sessionId: string) {
       requestId, revision: computedRevision, activePageId: pageInfo.id,
       cacheHit: parsedSnapshot.cacheHit, targetCount: parsedSnapshot.snapshot.targets.length
     });
-    if (requestedPageId && pageInfo.id !== requestedPageId) {
+    // A bare mxGraphModel has exactly one page and no page ID; the editor still reports one,
+    // so page identity cannot be matched and must not be treated as a stale revision.
+    if (requestedPageId && !isBareNativeGraphModel(diagramXml) && pageInfo.id !== requestedPageId) {
       res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
       return;
     }

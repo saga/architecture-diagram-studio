@@ -95,6 +95,15 @@ export function isBareNativeGraphModel(xml: string): boolean {
   }
 }
 
+/**
+ * The page identity a Copilot request must carry. A bare mxGraphModel holds exactly one page and
+ * has no page ID, while the live editor still reports its own UUID; sending that UUID makes the
+ * server reject a valid request as a missing page.
+ */
+export function nativeRequestPageId(xml: string, pageId: string | null): string | null {
+  return isBareNativeGraphModel(xml) ? null : pageId;
+}
+
 /** Read the current page metadata from the native mxfile envelope without semantic inference. */
 export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): NativeDiagramPageInfo {
   const parsed = parseDrawioXml(xml);

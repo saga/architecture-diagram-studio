@@ -5,6 +5,7 @@ import {
   extractNativeEditTargets,
   getNativeDiagramPageInfo,
   isBareNativeGraphModel,
+  nativeRequestPageId,
   MAX_NATIVE_EDIT_OPERATIONS,
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
@@ -527,5 +528,22 @@ describe("describeNativeEditOperation", () => {
     expect(describeNativeEditOperation({
       op: "add_node_after", target: "MRDE1TfU6mpqhOhdJKLE-1", targetLabel: "xxx", newLabel: "bbb"
     })).toBe("Add “bbb” to the right of “xxx” and connect it");
+  });
+});
+
+describe("native request page identity", () => {
+  it("drops the editor page ID for a bare mxGraphModel", () => {
+    const bare = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
+    expect(isBareNativeGraphModel(bare)).toBe(true);
+    expect(nativeRequestPageId(bare, "editor-page-uuid")).toBeNull();
+    expect(nativeRequestPageId(bare, null)).toBeNull();
+  });
+
+  it("keeps the page ID for an mxfile envelope", () => {
+    const envelope = '<mxfile><diagram id="page-1" name="Page"><mxGraphModel><root>' +
+      '<mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
+    expect(nativeRequestPageId(envelope, "page-1")).toBe("page-1");
+    expect(nativeRequestPageId(envelope, null)).toBeNull();
+    expect(nativeRequestPageId("not xml", "page-1")).toBe("page-1");
   });
 });
