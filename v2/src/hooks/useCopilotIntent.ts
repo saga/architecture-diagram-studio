@@ -279,11 +279,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         if (!standaloneMode) throw new Error("A standalone XML patch was returned for a workspace document; no canvas state was changed.");
         if (!onStandaloneXmlPatchReady) throw new Error("The server prepared the XML patch, but browser-owned file persistence is unavailable.");
         if (plan.documentRevision !== documentRevision ||
-            await calculateDrawioXmlRevision(sourceXml) !== plan.documentRevision ||
             await calculateDrawioXmlRevision(plan.drawioXml) !== plan.patchedRevision) {
           throw new Error("The standalone XML patch failed revision verification. The local file was not changed.");
         }
-        const currentState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        const currentState = getStateForResolvedPage();
+        if (await calculateDrawioXmlRevision(currentState.drawioXml) !== plan.documentRevision) {
+          throw new Error("The current local XML no longer matches the patch source revision. The local file was not changed.");
+        }
         assertCopilotRequestContextFresh(
           "before-standalone-xml-apply",
           { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
@@ -489,7 +491,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         } : null,
         cells: nativeTargets
       };
-      const beforeConfirm = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+      const getStateForResolvedPage = () => {
+        const state = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        return state.selectedNativePageId || !activePageId
+          ? state
+          : { ...state, selectedNativePageId: activePageId };
+      };
+      const beforeConfirm = getStateForResolvedPage();
       assertCopilotRequestContextFresh(
         "before-proposal-confirmation",
         { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
@@ -500,7 +508,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
         diagramXml: sourceXml, documentRevision
       }, proposalId, requestContext);
-      const afterConfirm = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+      const afterConfirm = getStateForResolvedPage();
       assertCopilotRequestContextFresh(
         "during-proposal-confirmation",
         { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
@@ -525,7 +533,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         ? await calculateNativeAutoLayout(sourceXml, layoutPageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
         : undefined;
       if (layoutOperation) {
-        const stateAfterLayout = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
+        const stateAfterLayout = getStateForResolvedPage();
         assertCopilotRequestContextFresh(
           "during-confirmed-layout-calculation",
           { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
