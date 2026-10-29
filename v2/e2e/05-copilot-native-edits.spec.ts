@@ -231,7 +231,7 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 
 
 test("Copilot refreshes a server-committed XML-first edit and preserves other pages", async ({ page, request }) => {
-  const workspace = await createWorkspace(request);
+  await createWorkspace(request);
   const initial = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
   const secondPage = '<diagram id="copied-page" name="Duplicated page"><mxGraphModel><root>' +
     '<mxCell id="copy-prefix-0"/><mxCell id="copy-prefix-1" parent="copy-prefix-0"/>' +
