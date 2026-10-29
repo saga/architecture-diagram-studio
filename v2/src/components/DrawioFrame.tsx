@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION, type DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { isDrawioXmlDocument } from "../model/drawio-xml-source";
-import { nativeEditIsReflectedInXml, summarizeNativeDiagramXmlDiff } from "../model/native-edit-confirmation";
+import { nativeEditIsReflectedInXml } from "../model/native-edit-confirmation";
 import { recordDiagnostic } from "../diagnostics";
 import { calculateDrawioXmlRevision } from "../intent/aiProvider";
 import type { NativePalettePlan } from "../model/drawio-theme";
@@ -54,8 +54,6 @@ export interface DrawioFrameHandle {
   inspectRuntime(input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }): Promise<DrawioRuntimeInspection>;
   /** Applies a revision/page-bound Studio layout geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
-  /** Reloads the editor from the latest XML retained by Studio after a synchronous script hangs. */
-  recoverFromLastSavedXml(): void;
 }
 
 interface CellPropertyEdit { cellId: string; pageId: string | null; path: string; value: string; requestId: number; }
@@ -302,7 +300,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       });
     },
-    recoverFromLastSavedXml: () => retryEditor(true),
     inspectRuntime: ({ documentRevision, pageId, jsShapeClassNames }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
@@ -837,28 +834,28 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     return () => window.removeEventListener("message", receive);
   }, []);
 
-  function retryEditor(recovery = false) {
-    rejectPendingAutoLayout(new Error("Draw.io editor was re-initialised before auto layout completed."));
-    for (const pending of pendingSaveConfirmationsRef.current.values()) {
-      if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+  function retryEditor() {
+    for (const pending of pendingAutoLayoutRef.current ? [pendingAutoLayoutRef.current] : []) {
+      window.clearTimeout(pending.timeoutId);
+      pending.reject(new Error("Draw.io editor was reloaded before automatic layout completed."));
     }
-    pendingSaveConfirmationsRef.current.clear();
-    pendingNativeEditsRef.current.clear();
+    pendingAutoLayoutRef.current = null;
+    rejectPendingNativePalette(new Error("Draw.io editor was reloaded before diagram color application completed."));
     for (const pending of pendingRuntimeInspectionsRef.current.values()) {
       window.clearTimeout(pending.timeoutId);
       pending.reject(new Error("Draw.io editor was reloaded before runtime inspection completed."));
     }
     pendingRuntimeInspectionsRef.current.clear();
-    recordDiagnostic(recovery ? "drawio.script-watchdog.recovery" : "drawio.retry",
-      recovery ? "Reloading the Draw.io iframe from Studio's latest saved XML after a script execution timeout" : "The user asked to re-initialise the Draw.io editor",
-      { previousFrameKey: frameKey, recoverySource: recovery ? "latest-studio-xml" : "manual" }, recovery ? "error" : "warn");
+    recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", {
+      previousFrameKey: frameKey, recoverySource: "manual"
+    }, "warn");
     lastSent.current = "";
     setEditorReady(false);
     setIframeLoaded(false);
     iframeLoadedRef.current = false;
     nativeDocumentLoadedRef.current = false;
     setBridgeReady(false);
-    setStartupError(recovery ? "A Draw.io script timed out. The editor was reloaded from Studio's latest saved XML snapshot." : null);
+    setStartupError(null);
     setFrameKey((value) => value + 1);
   }
 
