@@ -971,7 +971,12 @@ function createDrawioElementSearchTool(sessionId: string) {
                 { type: "object", properties: {
                   op: { type: "string", enum: ["delete-cell"] },
                   cellId: { type: "string", minLength: 1 }
-                }, required: ["op", "cellId"], additionalProperties: false }
+                }, required: ["op", "cellId"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["insert-cell-xml"] },
+                  parentId: { type: "string", minLength: 1 },
+                  cellXml: { type: "string", minLength: 1, maxLength: 200000 }
+                }, required: ["op", "parentId", "cellXml"], additionalProperties: false }
               ]
             }
           }
