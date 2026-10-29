@@ -17,7 +17,7 @@ export interface DrawioXmlPatchResult {
  * Applies explicit, cell-scoped edits to native Draw.io XML without rebuilding the document.
  * Unknown XML elements/attributes remain in the parsed tree; no parallel diagram model is used.
  */
-export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[]): DrawioXmlPatchResult {
+export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], pageId?: string | null): DrawioXmlPatchResult {
   if (!Array.isArray(patch) || patch.length === 0 || patch.length > 100) {
     throw new Error("A Draw.io XML patch must contain between 1 and 100 operations.");
   }
@@ -26,7 +26,32 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[]):
   }
 
   const document = parseDrawioXml(sourceXml);
-  const cells = findDrawioElements(document, "mxCell");
+  const rootElement = document.documentElement;
+  let selectedDiagram: Element | null = null;
+  if (rootElement.tagName === "mxfile") {
+    const diagrams = Array.from(rootElement.childNodes).filter(
+      (node): node is Element => node.nodeType === 1 && (node as Element).tagName === "diagram"
+    );
+    if (pageId) {
+      selectedDiagram = diagrams.find((diagram) => diagram.getAttribute("id") === pageId) ?? null;
+      if (!selectedDiagram) throw new Error(`Draw.io page "${pageId}" was not found in the current XML.`);
+    } else if (diagrams.length === 1) {
+      selectedDiagram = diagrams[0] ?? null;
+    } else {
+      throw new Error("A pageId is required to patch a multi-page Draw.io document.");
+    }
+    if (!selectedDiagram?.getElementsByTagName("mxGraphModel").length) {
+      throw new Error("The selected Draw.io page is not expanded native XML. Re-export the active page as XML and retry.");
+    }
+  } else if (pageId) {
+    throw new Error("The selected XML is not an mxfile with addressable page IDs.");
+  }
+  const cells = findDrawioElements(document, "mxCell").filter((cell) => {
+    if (!selectedDiagram) return true;
+    let node: Node | null = cell;
+    while (node && node !== selectedDiagram) node = node.parentNode;
+    return node === selectedDiagram;
+  });
   type NativeCellRef = { cell: Element; owner: Element; id: string };
   const byId = new Map<string, NativeCellRef>();
   const duplicateIds = new Set<string>();
