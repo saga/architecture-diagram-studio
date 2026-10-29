@@ -946,7 +946,7 @@ function createDrawioElementSearchTool(sessionId: string) {
 
   function createEditDrawioXmlTool(sessionId: string) {
     return defineTool("edit_drawio_xml", {
-      description: "Edit the active workspace Draw.io document by proposing a cell-scoped XML patch. This is the terminal editing action: the server applies the patch to the native XML, validates it, and persists it with revision checks. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, or delete-cell to remove a cell.",
+      description: "Edit the active workspace Draw.io document by proposing a cell-scoped XML patch. This is the terminal editing action: the server applies the patch to the native XML, validates it, and persists it with revision checks. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge.",
       parameters: {
         type: "object",
         properties: {
@@ -1348,7 +1348,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioElementSearchTool(sessionId),
               createDrawioGraphInspectionTool(sessionId),
               createDrawioReferenceTool(sessionId),
-              createEditDrawioXmlTool(sessionId),
+              ...(!standalone ? [createEditDrawioXmlTool(sessionId)] : []),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
             ],
