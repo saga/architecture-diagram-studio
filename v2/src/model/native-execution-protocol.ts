@@ -47,11 +47,11 @@ export function transitionNativeExecution(
   patch: Partial<Omit<NativeExecutionReceipt, "requestId" | "documentRevision" | "pageId" | "startedAt" | "status">> = {},
   now = new Date().toISOString()
 ): NativeExecutionReceipt {
-  if (status !== receipt.status && !ALLOWED[receipt.status].has(status)) {
-    throw new Error("Invalid native execution transition: " + receipt.status + " -> " + status);
-  }
   if (TERMINAL.has(receipt.status) && status !== receipt.status) {
     throw new Error("A terminal native execution receipt cannot transition to another status.");
+  }
+  if (status !== receipt.status && !ALLOWED[receipt.status].has(status)) {
+    throw new Error("Invalid native execution transition: " + receipt.status + " -> " + status);
   }
   return { ...receipt, ...patch, status, updatedAt: now };
 }
