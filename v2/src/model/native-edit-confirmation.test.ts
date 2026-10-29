@@ -143,11 +143,4 @@ describe("native edit XML confirmation", () => {
       id: "api", labelBefore: "Old API", labelAfter: "Primary API", changedFields: expect.arrayContaining(["label"])
     }));
   });
-
-  describe("undeclared script changes", () => {
-    const added = '<mxCell id="ddd" value="ddd" vertex="1" parent="1"><mxGeometry x="10" y="120" width="100" height="40" as="geometry"/></mxCell>' +
-      '<mxCell id="api-ddd" edge="1" parent="1" source="api" target="ddd"><mxGeometry relative="1" as="geometry"/></mxCell>';
-    const insertionOnly = before.replace("</root>", added + "</root>");
-    const scriptResult = (assertions: unknown[]) => ({ available: true, value: { ok: true, postconditions: { inserted: true }, xmlAssertions: assertions } });
-
-  });
+});
