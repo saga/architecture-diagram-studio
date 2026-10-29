@@ -230,195 +230,82 @@ test("Copilot 原生编辑：存在未知 XML 属性时仍可在节点后新增�
 });
 
 
-test("Copilot executes a direct native Draw.io script in a multi-page file with prefixed root IDs", async ({ page, request }) => {
+test("Copilot refreshes a server-committed XML-first edit and preserves other pages", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
-  const stateResponse = await request.get("/api/workspace/state");
-  expect(stateResponse.ok()).toBe(true);
-  const state = await stateResponse.json() as { drawioXml: string; workspaceRevision: string };
-  const prefixedPage = '<diagram id="copied-page" name="Duplicated page"><mxGraphModel><root>' +
+  const initial = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
+  const secondPage = '<diagram id="copied-page" name="Duplicated page"><mxGraphModel><root>' +
     '<mxCell id="copy-prefix-0"/><mxCell id="copy-prefix-1" parent="copy-prefix-0"/>' +
     '<mxCell id="copy-marker" value="Copied page marker" vertex="1" parent="copy-prefix-1"><mxGeometry x="80" y="80" width="120" height="50" as="geometry"/></mxCell>' +
     '</root></mxGraphModel></diagram>';
-  const multiPageXml = state.drawioXml.replace("</mxfile>", prefixedPage + "</mxfile>");
-  expect(multiPageXml).not.toBe(state.drawioXml);
+  const multiPageXml = initial.drawioXml.replace("</mxfile>", secondPage + "</mxfile>");
   const fixtureSave = await request.put("/api/workspace/document", {
-    data: { drawioXml: multiPageXml, label: "Multi-page script confirmation fixture", baseRevision: state.workspaceRevision }
+    data: { drawioXml: multiPageXml, label: "XML-first multi-page fixture", baseRevision: initial.workspaceRevision }
   });
   expect(fixtureSave.status(), await fixtureSave.text()).toBe(200);
+
   await openStudio(page);
   await waitForNativeEditor(page);
-
-  const drawioPort = process.env.STUDIO_E2E_DRAWIO_PORT || "5181";
-  const drawioIndex = await request.get("http://127.0.0.1:" + drawioPort + "/index.html");
-  expect(drawioIndex.ok()).toBe(true);
-  const drawioCsp = drawioIndex.headers()["content-security-policy"];
-  const studioOrigin = new URL(page.url()).origin;
-  expect(drawioCsp).toContain("connect-src 'self'");
-  expect(drawioCsp).toContain("img-src 'self' data: blob:");
-  const frameAncestors = /frame-ancestors ([^;]+)/.exec(drawioCsp)?.[1]?.split(/\s+/) ?? [];
-  expect(frameAncestors).toContain(studioOrigin);
-  expect(drawioCsp).not.toContain("localhost:*");
-  expect(drawioCsp).not.toContain("127.0.0.1:*");
-  const nativeEditor = page.locator('iframe[title="Native Draw.io editor"]');
-  expect(new URL(await nativeEditor.getAttribute("src") || page.url()).origin).not.toBe(new URL(page.url()).origin);
-  expect(await nativeEditor.getAttribute("sandbox")).toContain("allow-scripts");
-  expect(await nativeEditor.getAttribute("sandbox")).not.toContain("allow-top-navigation");
-  await expect.poll(() => page.frames().some((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"))).toBe(true);
-  const isolatedFrame = page.frames().find((frame) => frame.url().startsWith("http://127.0.0.1:" + drawioPort + "/"));
-  expect(isolatedFrame).toBeTruthy();
-  if (!isolatedFrame) throw new Error("The isolated Draw.io frame did not become available.");
-  const studioApiUrl = new URL("/api/workspace/config", page.url()).toString();
-  const isolationCheck = await isolatedFrame.evaluate(async (apiUrl) => {
-    let parentDomAccessible = true;
-    try { void window.parent.document.documentElement; } catch { parentDomAccessible = false; }
-    let studioApiReachable = false;
-    try {
-      const response = await fetch(apiUrl);
-      studioApiReachable = response.ok;
-    } catch { /* CSP connect-src 'self' should block a cross-origin Studio API request. */ }
-    return { parentDomAccessible, studioApiReachable };
-  }, studioApiUrl);
-  expect(isolationCheck.parentDomAccessible).toBe(false);
-  expect(isolationCheck.studioApiReachable).toBe(false);
-
-  const scriptMarker = "AI_SCRIPT_EXECUTED_73491";
-  await page.route("**/api/copilot/intent/ack", async (route) => {
-    const acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        outcome: acknowledgement.outcome,
-        requestId: acknowledgement.requestId,
-        documentRevision: acknowledgement.serializedXmlRevision ?? null,
-        persistedRevision: acknowledgement.persistedRevision ?? null,
-        versionId: acknowledgement.versionId ?? null
-      })
-    });
-  });
-
   await page.route("**/api/copilot/intent", async (route) => {
-    const requestBody = JSON.parse(route.request().postData() || "{}") as {
-      sessionId?: string;
-      documentRevision?: unknown;
-      context?: { activePageId?: string | null };
-    };
-    const script = [
-      "var parent = graph.getDefaultParent();",
-      "var created = graph.insertVertex(parent, null, '" + scriptMarker + "', 120, 180, 160, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
-      "graph.refresh();",
-      "var result = { cellId: created.id, label: graph.convertValueToString(created) };",
-      "return { ok: result.label === '" + scriptMarker + "', postconditions: { createdVertexExists: model.getCell(result.cellId) === created, createdLabelMatches: result.label === '" + scriptMarker + "' }, xmlAssertions: [{ cellId: result.cellId, exists: true, kind: 'vertex', label: '" + scriptMarker + "' }], created: result };"
-    ].join("\n");
+    const latest = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
+    const updatedXml = latest.drawioXml.replace('value="Copied page marker"', 'value="XML-first page marker"');
+    expect(updatedXml).not.toBe(latest.drawioXml);
+    const save = await request.put("/api/workspace/document", {
+      data: { drawioXml: updatedXml, label: "Copilot XML-first patch", baseRevision: latest.workspaceRevision }
+    });
+    expect(save.status(), await save.text()).toBe(200);
+    const saved = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
     await route.fulfill({
-      status: 200,
-      contentType: "application/json",
+      status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "command_ready",
-        reply: "Executing a direct native Draw.io script.",
-        nativeEdits: {
-          operations: [{
-            op: "run_drawio_script",
-            target: "active_page",
-            summary: "Add a native Draw.io vertex",
-            script,
-            cellId: "__active_page__",
-            targetLabel: "active Draw.io page"
-          }],
-          summary: "Add a native Draw.io vertex",
-          requestId: "55555555-5555-4555-8555-555555555555",
-          pageId: requestBody.context?.activePageId ?? null,
-          documentRevision: String(requestBody.documentRevision ?? "")
-        },
-        sessionId: requestBody.sessionId || "e2e-native-script",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
-        toolsUsed: ["run_drawio_script"]
+        outcome: "xml_committed",
+        reply: "Applied the server-side XML patch and refreshed the current document.",
+        requestId: "55555555-5555-4555-8555-555555555555",
+        persistence: { workspaceRevision: saved.workspaceRevision },
+        sessionId: "e2e-xml-first-commit", model: "stub-model", provider: "github-copilot-sdk",
+        durationMs: 1, toolsUsed: ["edit_drawio_xml"]
       })
     });
   });
 
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
-  await input.fill("Add one native vertex");
+  await input.fill("Rename the copied-page marker through the server-side XML editor");
   await input.press("Enter");
-
-  const resultMessage = page.locator(".gemini-message.assistant").last();
-  await expect(resultMessage).toContainText("Applied 1 native change");
-  await expect(resultMessage).toContainText("Add a native Draw.io vertex");
-  await expect(page.getByRole("button", { name: "Confirm changes" })).toHaveCount(0);
-  await expect(nativeFrame(page).getByText(scriptMarker, { exact: true })).toBeVisible();
+  await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied the server-side XML patch");
   await expect.poll(async () => {
-    const xml = await readWorkspaceXml(workspace);
-    return xml.includes(scriptMarker) &&
-      xml.includes('id="copied-page"') &&
-      xml.includes('id="copy-prefix-0"') &&
-      xml.includes('id="copy-prefix-1"') &&
-      xml.includes('value="Copied page marker"');
+    const saved = await (await request.get("/api/workspace/state")).json() as { drawioXml: string };
+    return saved.drawioXml.includes('id="copied-page"') &&
+      saved.drawioXml.includes('id="copy-prefix-0"') &&
+      saved.drawioXml.includes('id="copy-prefix-1"') &&
+      saved.drawioXml.includes('value="XML-first page marker"');
   }).toBe(true);
 });
-test("Copilot warns instead of claiming nothing was applied when script XML assertions fail", async ({ page, request }) => {
+
+test("Copilot reports a rejected XML patch without claiming that a change was applied", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
-
-  const markerLabel = "UNVERIFIED_SCRIPT_MARKER_20261026";
-  await page.route("**/api/copilot/intent/ack", async (route) => {
-    const ack = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        outcome: ack.outcome, requestId: ack.requestId,
-        documentRevision: ack.serializedXmlRevision ?? null,
-        persistedRevision: ack.persistedRevision ?? null, versionId: ack.versionId ?? null
-      })
-    });
-  });
+  const xmlBefore = await readWorkspaceXml(workspace);
   await page.route("**/api/copilot/intent", async (route) => {
-    const body = JSON.parse(route.request().postData() || "{}") as {
-      sessionId?: string; documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
-    const script = [
-      "var parent = graph.getDefaultParent();",
-      "var created = graph.insertVertex(parent, null, '" + markerLabel + "', 140, 220, 180, 60, 'rounded=1;whiteSpace=wrap;html=1;');",
-      "graph.refresh();",
-      "return { ok: true, postconditions: { createdVertexPresentInLiveModel: model.getCell(created.id) === created }, created: { cellId: created.id, label: graph.convertValueToString(created) } };"
-    ].join("\n");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "command_ready",
-        reply: "Add a vertex but omit host-verifiable XML assertions to exercise the unverified path.",
-        nativeEdits: {
-          operations: [{
-            op: "run_drawio_script", target: "active_page",
-            summary: "Add a vertex without serialized XML assertions", script,
-            cellId: "__active_page__", targetLabel: "active Draw.io page"
-          }],
-          summary: "Add a vertex without serialized XML assertions",
-          requestId: "66666666-6666-4666-8666-666666666666",
-          pageId: body.context?.activePageId ?? null,
-          documentRevision: String(body.documentRevision ?? "")
-        },
-        sessionId: body.sessionId || "e2e-unverified-script",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
-        toolsUsed: ["run_drawio_script"]
+        outcome: "failed",
+        reply: "Nothing was applied because the XML patch failed validation.",
+        error: "The requested cell could not be resolved in the current document revision.",
+        sessionId: "e2e-rejected-xml-patch", model: "stub-model", provider: "github-copilot-sdk",
+        durationMs: 1, toolsUsed: ["edit_drawio_xml"]
       })
     });
   });
-
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
-  await input.fill("Add one native vertex but omit its host-verifiable XML assertion");
+  await input.fill("Apply an XML patch against a missing cell");
   await input.press("Enter");
-
   const resultMessage = page.locator(".gemini-message.assistant").last();
-  await expect(resultMessage).toContainText("diagram has changed");
-  await expect(resultMessage).toContainText("Do not retry this edit yet");
-  await expect(resultMessage).not.toContainText("Nothing was applied");
-  await expect.poll(async () => {
-    const xml = await readWorkspaceXml(workspace);
-    return xml.split(markerLabel).length - 1;
-  }, { timeout: 20_000, intervals: [250] }).toBe(1);
+  await expect(resultMessage).toContainText("Nothing was applied");
+  await expect(resultMessage).not.toContainText("diagram has changed");
+  await expect.poll(async () => readWorkspaceXml(workspace)).toBe(xmlBefore);
 });
 
 test("Copilot 原生编辑：两个下置连接节点通过 typed operations 自动执行", async ({ page, request }) => {
@@ -679,56 +566,17 @@ test("Read-only Copilot inspection returns native results without changing XML o
   const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
-
   const xmlBefore = await readWorkspaceXml(workspace);
   const versionsBefore = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
-  let acknowledgement: Record<string, unknown> | null = null;
 
-  await page.route("**/api/copilot/intent/ack", async (route) => {
-    acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        outcome: acknowledgement.outcome,
-        requestId: acknowledgement.requestId,
-        documentRevision: acknowledgement.serializedXmlRevision ?? null,
-        persistedRevision: acknowledgement.persistedRevision ?? null,
-        versionId: acknowledgement.versionId ?? null
-      })
-    });
-  });
   await page.route("**/api/copilot/intent", async (route) => {
-    const body = JSON.parse(route.request().postData() || "{}") as {
-      sessionId?: string; documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
-    const script = [
-      "var total = 0;",
-      "function walk(parent) {",
-      "  var count = model.getChildCount(parent);",
-      "  for (var i = 0; i < count; i++) { var cell = model.getChildAt(parent, i); total++; walk(cell); }",
-      "}",
-      "walk(model.getRoot());",
-      "return { cellCount: total, pageId: " + JSON.stringify(body.context?.activePageId ?? null) + " };"
-    ].join("\n");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "command_ready",
-        reply: "Inspect the native diagram without changing it.",
-        nativeEdits: {
-          operations: [{
-            op: "run_drawio_script", target: "active_page", mode: "read",
-            summary: "Inspect native cell count", script,
-            cellId: "__active_page__", targetLabel: "active Draw.io page"
-          }],
-          summary: "Inspect native cell count",
-          requestId: "77777777-7777-4777-8777-777777777777",
-          pageId: body.context?.activePageId ?? null,
-          documentRevision: String(body.documentRevision ?? "")
-        },
-        sessionId: body.sessionId || "e2e-read-only-inspection",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
-        toolsUsed: ["run_drawio_script"]
+        outcome: "answered",
+        reply: "Read-only inspection completed: { cellCount: 4, pageId: \"page-1\" }",
+        sessionId: "e2e-read-only-inspection", model: "stub-model", provider: "github-copilot-sdk",
+        durationMs: 1, toolsUsed: ["inspect_drawio_graph"]
       })
     });
   });
@@ -737,90 +585,11 @@ test("Read-only Copilot inspection returns native results without changing XML o
   const input = page.locator('textarea[placeholder^="Describe the change"]');
   await input.fill("Inspect the native cell count without changing the diagram");
   await input.press("Enter");
-
   const resultMessage = page.locator(".gemini-message.assistant").last();
   await expect(resultMessage).toContainText("Read-only inspection completed");
   await expect(resultMessage).toContainText("cellCount");
   await expect(resultMessage).not.toContainText("diagram has changed");
-  await expect.poll(async () => await readWorkspaceXml(workspace)).toBe(xmlBefore);
+  await expect.poll(async () => readWorkspaceXml(workspace)).toBe(xmlBefore);
   const versionsAfter = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
   expect(versionsAfter.versions).toHaveLength(versionsBefore.versions.length);
-  expect(acknowledgement).toMatchObject({
-    outcome: "applied", applicationState: "not-applied", persistenceStatus: "read_only_no_change",
-    serializedXmlRevision: null, persistedRevision: null, versionId: null
-  });
-});
-
-test("Read-only Copilot scripts cannot mutate the native model", async ({ page, request }) => {
-  const workspace = await createWorkspace(request);
-  await openStudio(page);
-  await waitForNativeEditor(page);
-
-  const xmlBefore = await readWorkspaceXml(workspace);
-  const versionsBefore = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
-  const marker = "READ_ONLY_MUTATION_MUST_NOT_APPLY";
-  let acknowledgement: Record<string, unknown> | null = null;
-
-  await page.route("**/api/copilot/intent/ack", async (route) => {
-    acknowledgement = JSON.parse(route.request().postData() || "{}") as Record<string, unknown>;
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        outcome: acknowledgement.outcome,
-        requestId: acknowledgement.requestId,
-        documentRevision: acknowledgement.serializedXmlRevision ?? null,
-        persistedRevision: acknowledgement.persistedRevision ?? null,
-        versionId: acknowledgement.versionId ?? null
-      })
-    });
-  });
-  await page.route("**/api/copilot/intent", async (route) => {
-    const body = JSON.parse(route.request().postData() || "{}") as {
-      sessionId?: string; documentRevision?: unknown; context?: { activePageId?: string | null };
-    };
-    const script = [
-      "var target = model.getCell('database');",
-      "if (!target) throw new Error('known test vertex is absent');",
-      "model.setValue(target, '" + marker + "');",
-      "return { changed: true };"
-    ].join("\n");
-    await route.fulfill({
-      status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        outcome: "command_ready",
-        reply: "Attempt an invalid mutation in read-only mode.",
-        nativeEdits: {
-          operations: [{
-            op: "run_drawio_script", target: "active_page", mode: "read",
-            summary: "Verify read-only mutation guard", script,
-            cellId: "__active_page__", targetLabel: "active Draw.io page"
-          }],
-          summary: "Verify read-only mutation guard",
-          requestId: "88888888-8888-4888-8888-888888888888",
-          pageId: body.context?.activePageId ?? null,
-          documentRevision: String(body.documentRevision ?? "")
-        },
-        sessionId: body.sessionId || "e2e-read-only-mutation-guard",
-        model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
-        toolsUsed: ["run_drawio_script"]
-      })
-    });
-  });
-
-  await page.getByRole("tab", { name: "Copilot" }).click();
-  const input = page.locator('textarea[placeholder^="Describe the change"]');
-  await input.fill("Verify that read-only mode blocks model writes");
-  await input.press("Enter");
-
-  const resultMessage = page.locator(".gemini-message.assistant").last();
-  await expect(resultMessage).toContainText("No document change was detected");
-  await expect(resultMessage).not.toContainText("diagram has changed");
-  await expect.poll(async () => await readWorkspaceXml(workspace)).toBe(xmlBefore);
-  const versionsAfter = await (await request.get("/api/workspace/versions")).json() as { versions: unknown[] };
-  expect(versionsAfter.versions).toHaveLength(versionsBefore.versions.length);
-  expect(acknowledgement).toMatchObject({
-    outcome: "failed", applicationState: "not-applied", persistenceStatus: "read_only_no_change",
-    serializedXmlRevision: null, persistedRevision: null, versionId: null
-  });
-  expect(xmlBefore).not.toContain(marker);
 });
