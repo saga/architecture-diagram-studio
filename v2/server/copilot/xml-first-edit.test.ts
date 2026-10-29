@@ -1,3 +1,4 @@
+import { deflateRawSync, inflateRawSync, strFromU8, strToU8 } from "fflate";
 import { describe, expect, it } from "vitest";
 import { applyDrawioXmlPatch } from "./xml-first-edit";
 
@@ -8,6 +9,20 @@ const source = `<mxfile><diagram id="page-1" name="Page-1"><mxGraphModel><root>
 </root></mxGraphModel></diagram></mxfile>`;
 
 describe("applyDrawioXmlPatch", () => {
+  it("patches a standard compressed .drawio page and preserves its compressed file representation", () => {
+    const model = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="node-a" value="Alpha" vertex="1" parent="1"><mxGeometry x="10" y="20" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel>';
+    const encoded = Buffer.from(deflateRawSync(strToU8(encodeURIComponent(model)))).toString("base64");
+    const compressedSource = '<mxfile><diagram id="page-1" name="Page-1">' + encoded + '</diagram></mxfile>';
+    const result = applyDrawioXmlPatch(compressedSource, [
+      { op: "set-cell-attributes", cellId: "node-a", attributes: { value: "Beta" } }
+    ], "page-1");
+    expect(result.drawioXml).toContain("<diagram");
+    const match = result.drawioXml.match(/<diagram[^>]*>([^<]+)<\/diagram>/);
+    expect(match?.[1]).toBeTruthy();
+    const decoded = decodeURIComponent(strFromU8(inflateRawSync(Buffer.from(match![1]!, "base64"))));
+    expect(decoded).toContain('value="Beta"');
+    expect(result.drawioXml).not.toContain("<mxGraphModel");
+  });
   it("changes native cell attributes and geometry while preserving unrelated cells", () => {
     const result = applyDrawioXmlPatch(source, [
       { op: "set-cell-attributes", cellId: "node-a", attributes: { value: "Beta", style: "rounded=1;fillColor=#fff;" } },
