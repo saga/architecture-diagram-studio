@@ -19,7 +19,7 @@ import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./
 import { canExternalizeWorkspaceXml, createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 import { defaultStudioHome, resolveStudioStorageLayout, type StudioStorageLayout } from "./storage-layout";
 import { createRuntimeScopeLeaseManager } from "./runtime-scope-lease";
-import { isValidConfigHistoryRecord, parseConfigHistory, type StudioConfig } from "./studio-config-history";
+import { createStudioConfigService, isValidConfigHistoryRecord, parseConfigHistory } from "./studio-config-history";
 
 /**
  * The Copilot runtime reads its model provider configuration from the environment
@@ -69,52 +69,14 @@ let APP_LOG_FILE = activeStorageLayout.applicationLogFile;
 let LOG_DIR = activeStorageLayout.logDir;
 let LOG_FILE = activeStorageLayout.copilotLogFile;
 let COPILOT_STATE_DIR = activeStorageLayout.copilotDir;
-const DEFAULT_STUDIO_CONFIG: StudioConfig = {
-  schemaVersion: 1, revisionId: "default", model: DEFAULT_MODEL, reasoningEffort: "medium",
-  updatedAt: new Date(0).toISOString(), updatedBy: "default"
-};
-let studioConfig: StudioConfig | null = null;
+const { getStudioConfig, appendStudioConfig } = createStudioConfigService({
+  globalDataDir: GLOBAL_DATA_DIR,
+  historyFile: CONFIG_HISTORY_FILE,
+  defaultModel: DEFAULT_MODEL,
+  legacyDefaultModel: LEGACY_DEFAULT_MODEL,
+  readProvider: readCopilotProvider
+});
 
-async function getStudioConfig(): Promise<StudioConfig> {
-  if (studioConfig) return studioConfig;
-  const contents = await readFile(CONFIG_HISTORY_FILE, "utf8").catch((error) =>
-    (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : Promise.reject(error));
-  const records = parseConfigHistory(contents);
-  for (let i = records.length - 1; i >= 0; i--) {
-    const parsed = records[i];
-    if (!isValidConfigHistoryRecord(parsed)) continue;
-    studioConfig = {
-      ...DEFAULT_STUDIO_CONFIG,
-      revisionId: typeof parsed.revisionId === "string" ? parsed.revisionId :
-        "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\D/g, "") : String(i)),
-      model: typeof parsed.model === "string" ? parsed.model : DEFAULT_STUDIO_CONFIG.model,
-      reasoningEffort: ["low", "medium", "high", "max"].includes(String(parsed.reasoningEffort)) ? parsed.reasoningEffort as StudioConfig["reasoningEffort"] : "medium",
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : DEFAULT_STUDIO_CONFIG.updatedAt,
-      updatedBy: typeof parsed.updatedBy === "string" ? parsed.updatedBy : "legacy"
-    };
-    return adoptConfiguredModel(studioConfig);
-  }
-  studioConfig = { ...DEFAULT_STUDIO_CONFIG };
-  return adoptConfiguredModel(studioConfig);
-}
-
-/** Replace the retired default only when a configured custom provider supplies a different model. */
-async function adoptConfiguredModel(config: StudioConfig): Promise<StudioConfig> {
-  const provider = readCopilotProvider();
-  if (config.model !== LEGACY_DEFAULT_MODEL || provider.mode !== "byok" || !provider.model) return config;
-  const migrated: StudioConfig = {
-    ...config, revisionId: randomUUID(), model: provider.model,
-    updatedAt: new Date().toISOString(), updatedBy: "migration"
-  };
-  await appendStudioConfig(migrated, "Adopt the model served by the configured custom provider");
-  return migrated;
-}
-
-async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> {
-  await mkdir(GLOBAL_DATA_DIR, { recursive: true, mode: 0o700 });
-  await appendFile(CONFIG_HISTORY_FILE, JSON.stringify({ ...config, changeSummary }) + "\n", { encoding: "utf8", mode: 0o600 });
-  studioConfig = config;
-}
 let projectWorkspace: ProjectWorkspace | null | undefined;
 
 async function getProjectWorkspace(): Promise<ProjectWorkspace | null> {
