@@ -5,6 +5,7 @@ import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 import { detectSpatialRegionsForLayout, type SpatialRegionLayoutCandidate } from "./spatial-region-analysis";
 import { isOrthogonalRouteClear, routeOrthogonalAvoidingObstacles } from "./orthogonal-router";
+import { diagnoseNativeLayoutOptions, type NativeLayoutAdapterDescriptor } from "./native-layout-adapter-contract";
 
 export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
 export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
@@ -71,6 +72,49 @@ export function defaultNativeLayoutAlgorithm(engine: NativeAutoLayoutEngine): Na
 
 export function nativeLayoutSupportsAlgorithm(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
   return NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE[engine].some((item) => item.value === algorithm);
+}
+
+const ALL_LAYOUT_DIRECTIONS: NativeAutoLayoutDirection[] = ["RIGHT", "LEFT", "DOWN", "UP"];
+const ALL_LAYOUT_ROUTING: NativeAutoLayoutEdgeRouting[] = ["ORTHOGONAL", "POLYLINE", "SPLINES"];
+
+/** One registry-derived contract is shared by UI diagnostics, traces and engine dispatch. */
+export function nativeLayoutAdapterDescriptor(engine: NativeAutoLayoutEngine): NativeLayoutAdapterDescriptor {
+  const unsupportedOptions: NativeLayoutAdapterDescriptor["unsupportedOptions"] =
+    engine === "dagre" ? ["iterations", "randomSeed"] :
+    engine === "graphviz" ? ["iterations"] :
+    engine === "msagl" ? ["randomSeed", "margin"] :
+    engine === "d3" ? ["margin"] : [];
+  const capabilities: NativeLayoutAdapterDescriptor["capabilities"] =
+    engine === "elk" ? ["hierarchy", "compound-nodes", "edge-routing", "deterministic-seed", "preserve-fixed-nodes"] :
+    engine === "dagre" ? ["hierarchy", "edge-routing"] :
+    engine === "graphviz" ? ["hierarchy", "edge-routing", "deterministic-seed"] :
+    engine === "msagl" ? ["hierarchy"] :
+    engine === "cytoscape" ? ["hierarchy", "compound-nodes", "deterministic-seed"] :
+    ["hierarchy", "deterministic-seed"];
+  return {
+    engine,
+    algorithms: NATIVE_LAYOUT_ALGORITHMS_BY_ENGINE[engine].map((item) => item.value),
+    capabilities,
+    supportedDirections: ALL_LAYOUT_DIRECTIONS,
+    supportedEdgeRouting: ALL_LAYOUT_ROUTING,
+    unsupportedOptions
+  };
+}
+
+/** Reports adapter limitations without silently changing the user's requested settings. */
+export function diagnoseNativeLayoutConfiguration(options: NativeAutoLayoutOptions) {
+  return diagnoseNativeLayoutOptions(nativeLayoutAdapterDescriptor(options.engine), {
+    algorithm: options.algorithm,
+    direction: options.direction,
+    edgeRouting: options.edgeRouting,
+    options: {
+      randomSeed: options.randomSeed,
+      iterations: options.iterations,
+      margin: options.margin,
+      nodeSpacing: options.nodeSpacing,
+      layerSpacing: options.layerSpacing
+    }
+  });
 }
 
 export function nativeLayoutSupportsDirection(engine: NativeAutoLayoutEngine, algorithm: NativeAutoLayoutAlgorithm): boolean {
