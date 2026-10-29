@@ -169,8 +169,6 @@ export default function App() {
     batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
     batchRolledBack?: boolean | null; 
     applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string;
-    assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string; expected?: unknown; actual?: unknown }>;
-    scopeViolations?: Array<{ kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[] }>;
   }) => void>());
   const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
   const lateNativeEditRequestsRef = useRef(new Set<number>());
@@ -1959,9 +1957,6 @@ export default function App() {
               const isLateNativeSelection = result.path === "cell:select" && requestId !== null &&
                 !resolver && lateNativeSelectionRequestsRef.current.has(requestId);
               const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
-              const readOnlyNoChange = result.path === "cell:batch" &&
-                result.scriptMode === "read" && result.applicationState === "not-applied" &&
-                (result.success === true || result.batchRolledBack === true);
               let finalResult = result;
               let serializedXmlRevision: string | null = null;
               let persistedRevision: string | null = null;
@@ -1969,19 +1964,14 @@ export default function App() {
               let persistenceStatus = "not_attempted";
               const lateResultHasSnapshot = typeof result.serializedXml === "string" ||
                 result.batchRolledBack === true || result.applicationState === "not-applied";
-              if (readOnlyNoChange) {
-                // An inspection receipt is terminal for the agent turn, but it is not a file edit.
-                // Do not hash/export its transient serialized XML, rewrite a standalone file, or create a workspace version.
-                persistenceStatus = "read_only_no_change";
-              } else if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
+              if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
                 if (typeof result.serializedXml !== "string") {
                   if (result.success) {
                     finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
                     persistenceStatus = "failed";
                   } else {
-                    // Failed scripts also request XML serialization so any partial native edits can be
-                    // saved as a version and shown to the agent. If serialization timed out, retain the
-                    // original script failure and leave the last good persisted revision untouched.
+                    // Failed native edits may have changed the editor. Preserve the last good revision
+                    // unless a valid serialized XML snapshot is available.
                     persistenceStatus = "not_attempted";
                   }
                 } else {
@@ -2102,7 +2092,7 @@ export default function App() {
                   await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
                 }
                 const expectedOutcome = finalResult.success ? "applied" : "failed";
-                const appliedReceiptMismatch = finalResult.success && !readOnlyNoChange && (
+                const appliedReceiptMismatch = finalResult.success && (
                   ackBody?.documentRevision !== serializedXmlRevision ||
                   ackBody?.persistedRevision !== persistedRevision ||
                   ackBody?.versionId !== persistedVersionId
@@ -2154,13 +2144,7 @@ export default function App() {
                   { requestId, applicationState: finalResult.applicationState ?? null, rollbackConfirmed: finalResult.batchRolledBack === true }, "error");
                 return;
               }
-              const status = readOnlyNoChange
-                ? (finalResult.success
-                    ? "Read-only inspection completed; the diagram, source file and History were left unchanged."
-                    : "Read-only inspection failed; the diagram, source file and History were left unchanged: " + (finalResult.error || "Unknown error"))
-                : (finalResult.success && finalResult.semanticChanged === false
-                ? "Native script assertions passed; the requested state was already present, so no semantic diagram change was needed."
-                : finalResult.success
+              const status = finalResult.success
                 ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
                   (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
                     ? "; workspace save confirmed."
@@ -2213,7 +2197,6 @@ export default function App() {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
                 batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
-                assertionFailures: finalResult.assertionFailures ?? [], scopeViolations: finalResult.scopeViolations ?? []
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
               if (isLateNativeSelection && requestId !== null && lateNativeSelectionRequestsRef.current.delete(requestId)) {
                 const reconciledText = finalResult.success
@@ -2262,8 +2245,6 @@ export default function App() {
                         batchRolledBack: result.batchRolledBack ?? null,
                         applicationState: result.applicationState === "not-applied" ? "not-applied" : "unknown",
                         auditWarning: "The final native XML/persistence result could not be reconciled. Do not retry.",
-                        assertionFailures: result.assertionFailures,
-                        scopeViolations: result.scopeViolations
                       });
                     }
                     return;
