@@ -1,3 +1,4 @@
+import { inflateRawSync, deflateRawSync, strFromU8, strToU8 } from "fflate";
 import { parseDrawioXml, serializeDrawioXml, findDrawioElements } from "../../src/model/drawio-xml-dom";
 import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 
@@ -29,6 +30,7 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
   const document = parseDrawioXml(sourceXml);
   const rootElement = document.documentElement;
   let selectedDiagram: Element | null = null;
+  let compressedSelectedDiagram = false;
   if (rootElement.tagName === "mxfile") {
     const diagrams = Array.from(rootElement.childNodes).filter(
       (node): node is Element => node.nodeType === 1 && (node as Element).tagName === "diagram"
@@ -41,8 +43,24 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
     } else {
       throw new Error("A pageId is required to patch a multi-page Draw.io document.");
     }
-    if (!selectedDiagram?.getElementsByTagName("mxGraphModel").length) {
-      throw new Error("The selected Draw.io page is not expanded native XML. Re-export the active page as XML and retry.");
+    if (!selectedDiagram) throw new Error("The selected Draw.io page could not be resolved.");
+    if (!selectedDiagram.getElementsByTagName("mxGraphModel").length) {
+      const encoded = (selectedDiagram.textContent ?? "").trim();
+      if (!encoded) throw new Error("The selected Draw.io page has no native mxGraphModel content.");
+      try {
+        const inflated = strFromU8(inflateRawSync(Buffer.from(encoded, "base64")));
+        const decoded = decodeURIComponent(inflated);
+        const modelDocument = parseDrawioXml(decoded);
+        if (modelDocument.documentElement.tagName !== "mxGraphModel") {
+          throw new Error("The compressed page did not decode to an mxGraphModel root.");
+        }
+        const importedModel = document.importNode(modelDocument.documentElement, true);
+        while (selectedDiagram.firstChild) selectedDiagram.removeChild(selectedDiagram.firstChild);
+        selectedDiagram.appendChild(importedModel);
+        compressedSelectedDiagram = true;
+      } catch (error) {
+        throw new Error("The selected Draw.io page is compressed and could not be safely decoded: " + (error instanceof Error ? error.message : String(error)));
+      }
     }
   } else if (pageId) {
     throw new Error("The selected XML is not an mxfile with addressable page IDs.");
@@ -196,6 +214,12 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
     throw new Error(`Unsupported XML patch operation: ${JSON.stringify(unreachable)}`);
   }
 
+  if (compressedSelectedDiagram && selectedDiagram) {
+    const model = selectedDiagram.getElementsByTagName("mxGraphModel").item(0);
+    if (!model) throw new Error("The patched compressed page lost its mxGraphModel root.");
+    const modelXml = serializeDrawioXml(model);
+    selectedDiagram.textContent = Buffer.from(deflateRawSync(strToU8(encodeURIComponent(modelXml)))).toString("base64");
+  }
   const drawioXml = serializeDrawioXml(document);
   if (!validateDrawioXmlDocument(drawioXml).success) {
     throw new Error("The patch result failed Draw.io XML validation; no result may be persisted.");
