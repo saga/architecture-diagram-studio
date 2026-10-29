@@ -19,7 +19,7 @@ import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./
 import { canExternalizeWorkspaceXml, createSerializedWriteQueue, runCompensatingTransaction, writeTextAtomic, writeJsonAtomic, matchesWorkspaceRevision, isWorkspaceSaveContextCompatible, workspaceRevision, retainRecentVersions as retainVersionsWithinLimit } from "./storage";
 import { defaultStudioHome, resolveStudioStorageLayout, type StudioStorageLayout } from "./storage-layout";
 import { createRuntimeScopeLeaseManager } from "./runtime-scope-lease";
-import { createStudioConfigService, isValidConfigHistoryRecord, parseConfigHistory } from "./studio-config-history";
+import { createStudioConfigService, isValidConfigHistoryRecord, parseConfigHistory, type StudioConfig } from "./studio-config-history";
 
 /**
  * The Copilot runtime reads its model provider configuration from the environment
