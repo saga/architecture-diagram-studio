@@ -1030,78 +1030,6 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createProposeNativeEditsTool(sessionId: string) {
-    return defineTool("propose_native_edits", {
-      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use the XML-first editing tool for markup-preserving edits. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use edit_drawio_xml; never fabricate cell IDs.",
-      parameters: {
-        type: "object",
-        properties: {
-          operations: {
-            type: "array",
-            minItems: 1,
-            maxItems: MAX_NATIVE_EDIT_OPERATIONS,
-            items: NATIVE_EDIT_OPERATION_ITEM_SCHEMA,
-          }
-        },
-        required: ["operations"],
-        additionalProperties: false
-      },
-      handler: async (args: { operations?: unknown }) => {
-        const parsed = parseNativeEditOperations(args?.operations);
-        if (!parsed.ok) {
-          await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, reason: "invalid_native_edit_batch", error: parsed.error });
-          return { accepted: false, reason: "invalid_native_edit_batch", error: parsed.error, instructions: "Correct the operations payload to match the tool schema. No edit was queued." };
-        }
-        const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
-        if (!resolved.ok) {
-          await deps.writeLog("tool.propose_native_edits.unresolved", { sessionId, operations: parsed.operations, reason: "unresolved_targets", error: resolved.error });
-          return { accepted: false, reason: "unresolved_targets", error: resolved.error, instructions: "Use current-page IDs or a unique exact label from the supplied context. No edit was queued." };
-        }
-        const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
-        const registration = registerTerminalIntent(sessionId, "native_edit");
-        if (!registration.accepted) {
-          await deps.writeLog("tool.terminal-intent.rejected", {
-            sessionId, requestedKind: "native_edit", registeredKind: registration.registeredKind,
-            reason: "terminal_action_already_registered", operationCount: resolved.operations.length
-          });
-          return {
-            accepted: false, reason: "terminal_action_already_registered",
-            registeredKind: registration.registeredKind,
-            instructions: "This terminal action was not queued. The previously registered action remains authoritative. Do not retry or call another terminal tool; if the registered action is a native edit, let it dispatch."
-          };
-        }
-        pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
-        if (registration.replaced) {
-          await deps.writeLog("tool.terminal-intent.promoted-to-edit", {
-            sessionId, replacedKind: registration.replaced, operationCount: resolved.operations.length
-          });
-        }
-        await deps.writeLog("tool.propose_native_edits.accepted", {
-          sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), 
-      ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
-        preserveLocalGrouping: operation.preserveLocalGrouping,
-        preserveCanvasOrigin: operation.preserveCanvasOrigin,
-        nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
-        iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) }))
-        });
-        return {
-          // This is tool feedback, not proof of editor execution/persistence.
-          accepted: true, queued: true, execution: "after_model_turn", terminal: true, result_available: false,
-          instructions: "The native edit intent is queued, but the diagram has not been changed or saved yet. Do not call another terminal tool or claim success. Studio will validate the current revision and dispatch the operation for native XML and persistence verification; in local single-user mode there is no second confirmation click.",
-          operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
-      ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
-        preserveLocalGrouping: operation.preserveLocalGrouping,
-        preserveCanvasOrigin: operation.preserveCanvasOrigin,
-        nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
-        iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) })),
-          summary
-        };
-      }
-    });
-  }
-
   app.post("/api/copilot/intent", async (req, res) => {
     let requestCancelled = false;
     let abortActiveTurn: (() => Promise<unknown>) | null = null;
@@ -1360,7 +1288,6 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioGraphInspectionTool(sessionId),
               createDrawioReferenceTool(sessionId),
               createEditDrawioXmlTool(sessionId),
-              createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
             ],
             workspaceId: sessionWorkspace?.id
@@ -1474,7 +1401,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Use propose_native_edits for common simple operations and Studio-owned auto_layout; use edit_drawio_xml for non-trivial native XML changes. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), and preserve existing XML whenever possible. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use edit_drawio_xml to patch only the intended text while preserving the native XML. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml when the typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), and preserve existing XML whenever possible. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use edit_drawio_xml to patch only the intended text while preserving the native XML. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml when the typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1485,7 +1412,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome && !pendingXmlPatches.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use edit_drawio_xml for non-trivial native edits beyond the typed-operation allowlist. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
+            request: "Finish with exactly one terminal tool call. Use edit_drawio_xml for every diagram mutation. Read-only tools may be used for discovery, then submit one focused XML patch. Do not use typed operations, editor scripts, or a second editing path. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
@@ -1520,7 +1447,7 @@ function createDrawioElementSearchTool(sessionId: string) {
       const selection = plan.capturedSelection || undefined;
       const toolsUsed = pendingXmlPatches.has(sessionId)
         ? ["edit_drawio_xml"]
-        : plan.capturedNativeEdits ? ["propose_native_edits"]
+
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
         ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
