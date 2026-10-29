@@ -1,4 +1,4 @@
-type StudioConfig = {
+export type StudioConfig = {
   schemaVersion: 1;
   revisionId: string;
   model: string;
@@ -7,7 +7,7 @@ type StudioConfig = {
   updatedBy: string;
 };
 
-function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
+export function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
   const records: Array<Record<string, unknown>> = [];
   let start = -1, depth = 0, inString = false, escaped = false;
   for (let i = 0; i < contents.length; i++) {
@@ -35,7 +35,7 @@ function parseConfigHistory(contents: string): Array<Record<string, unknown>> {
   return records;
 }
 
-function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
+export function isValidConfigHistoryRecord(record: Record<string, unknown>): boolean {
   if (record.schemaVersion !== undefined && record.schemaVersion !== 1) return false;
   if (record.model !== undefined && (typeof record.model !== "string" || record.model.length > 100)) return false;
   if (record.reasoningEffort !== undefined && !["low", "medium", "high", "max"].includes(String(record.reasoningEffort))) return false;
