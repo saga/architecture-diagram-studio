@@ -1,17 +1,12 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import { calculateDrawioXmlRevision, confirmAIIntentProposal, requestAIIntentPlan } from "../intent/aiProvider";
+import { calculateDrawioXmlRevision, requestAIIntentPlan } from "../intent/aiProvider";
 import {
-  describeNativeEditOperation,
   extractNativeEditTargets,
-  resolveNativePageIdentity,
-  toNativeCellEdits,
-  type NativeCellEdit,
-  type NativeEditExecution
+  resolveNativePageIdentity
 } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
-import { calculateNativeAutoLayout } from "../layout/native-layout";
 
 type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type Workspace = { id: string } | null;
@@ -81,17 +76,13 @@ interface CopilotIntentOptions {
   setChatBusy: (busy: boolean) => void;
   setCopilotSessionId: (id: string) => void;
   applyNativeCellEdit?: (cellId: string, path: string, value: string, pageId?: string | null) => void | Promise<void>;
-  /** Executes an atomic batch and correlates its final editor/persistence result back to the server. */
-  applyNativeCellEdits?: (edits: NativeCellEdit[], pageId: string | null, acknowledgement: {
-    requestId: string; sessionId: string; standalone: boolean; documentRevision: string;
-  }) => Promise<NativeEditExecution>;
 }
 
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted, onStandaloneXmlPatchReady,
-    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit
   } = options;
 
   const sendIntent = useCallback(async (promptOverride?: string) => {
@@ -239,24 +230,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         model: plan.model || aiModel.trim() || "server-default",
         durationMs: plan.durationMs,
         outcome: plan.outcome,
-        nativeEditCount: plan.outcome === "command_ready" ? plan.nativeEdits.operations.length : 0,
-        hasSelection: plan.outcome === "selected" || (plan.outcome === "command_ready" && Boolean(plan.selection)),
+        hasSelection: plan.outcome === "selected",
         replyLength: plan.reply.length
       });
 
-      if (plan.outcome === "proposal_required") {
-        const safeReply = plan.reply;
-        const safeSummary = plan.proposal.summary;
-        // Proposals contain typed native operations only; no executable script is carried in the chat transcript.
-        setMessages((items) => [...items, {
-          role: "assistant", id: Date.now() + 1,
-          text: (safeReply || "A diagram change is ready for review.") +
-            "\n\n**Proposed changes:** " + (safeSummary || "Apply the proposed diagram changes.") +
-            "\n\nNothing has been changed yet. Confirm to apply this proposal to the current diagram.",
-          proposal: { id: plan.proposal.id, summary: safeSummary || "Apply the proposed diagram changes." }
-        }]);
-        return;
-      }
       if (plan.outcome === "answered" || plan.outcome === "needs_clarification" ||
           plan.outcome === "unsupported" || plan.outcome === "stale_context" || plan.outcome === "failed") {
         const failure = "error" in plan ? plan.error : undefined;
@@ -305,101 +282,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         return;
       }
 
-      if (plan.outcome === "command_ready") {
-        if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable; no change was applied.");
-        if (plan.nativeEdits.documentRevision !== documentRevision || plan.nativeEdits.pageId !== requestPageId) {
-          throw new Error("The native edit plan is stale or targets another Draw.io page. No change was applied.");
-        }
-        const operations = plan.nativeEdits.operations;
-        const layoutOperation = operations.length === 1 && operations[0].op === "auto_layout" ? operations[0] : undefined;
-        // The layout plan is applied by the live editor and must carry the runtime page identity;
-        // a bare mxGraphModel has no declared page ID but still has an editor page.
-        const layoutPageId = pageIdentity.runtimePageId ?? plan.nativeEdits.pageId;
-        const layoutPlan = layoutOperation
-          ? await calculateNativeAutoLayout(sourceXml, layoutPageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
-          : undefined;
-        if (layoutOperation) {
-          const currentState = getStateForResolvedPage();
-          assertCopilotRequestContextFresh(
-            "during-layout-calculation",
-            { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
-            currentState,
-            "while Studio was calculating the layout. Nothing was applied; retry."
-          );
-        }
-        const cellPlan = toNativeCellEdits(operations, sourceXml, layoutPageId, layoutPlan);
-        if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
-        // Bind the dispatch to the page that was inspected for this turn. The editor bridge
-        // performs its own final page guard, but this catches page switches before queueing work.
-        if (getRuntimeInspection) {
-          const runtimeBeforeDispatch = await getRuntimeInspection({ documentRevision, pageId: activePageId });
-          if (runtimeBeforeDispatch.documentRevision !== documentRevision ||
-              runtimeBeforeDispatch.pageId !== activePageId) {
-            throw new Error("The active Draw.io page changed before the native edit could be dispatched. No change was applied; retry.");
-          }
-        }
-        const execution = await applyNativeCellEdits(cellPlan.edits, plan.nativeEdits.pageId, {
-          requestId: plan.nativeEdits.requestId,
-          sessionId: plan.sessionId || copilotSessionId,
-          standalone: standaloneMode,
-          documentRevision
-        });
-        const describeAt = (stepIndex: number) => {
-          let cursor = 0;
-          for (const operation of operations) {
-            const width = 1;
-            if (stepIndex < cursor + width) return describeNativeEditOperation(operation);
-            cursor += width;
-          }
-          return "step " + (stepIndex + 1);
-        };
-        const failedStep = execution.steps.find((step) => !step.success);
-        if (execution.ok) {
-          recordDiagnostic("copilot.native-edits.applied", "The native editor applied an atomic Copilot edit batch", {
-            operationCount: operations.length,
-            steps: execution.steps.length,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
-          });
-          setMessages((items) => [...items, {
-            role: "assistant",
-            id: Date.now() + 1,
-            // Native edit status is derived from the editor acknowledgement, never from model-generated prose.
-            text: "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
-              operations.map(describeNativeEditOperation).join("; ") + "." + (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
-          }]);
-        } else {
-          const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
-          recordDiagnostic("copilot.native-edits.failed", "The native edit did not reach a verified successful outcome", {
-            operationCount: operations.length, errorMessage: reason, failedStepIndex: failedStep?.index ?? null,
-            rolledBack: execution.rolledBack, applicationState: execution.applicationState ?? null,
-            operations: operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) }))
-          }, "error");
-          const failureMessage =
-            execution.applicationState === "changed-unverified"
-              ? "The diagram has changed, but the requested edit was not verified: " + reason +
-                (execution.failureStage === "persistence" ? " Saving the resulting XML also failed." : "") +
-                "\n\nDo not retry this edit yet; inspect the current diagram and History first to avoid duplicating a message or other element."
-              : execution.applicationState === "unknown"
-                ? "The native edit outcome is unknown: " + reason +
-                  (execution.failureStage === "persistence" ? " Saving the available XML also failed." : "") +
-                  "\n\nDo not retry this edit yet; inspect the current diagram and History first."
-                : execution.failureStage === "persistence"
-                  ? "The native editor applied and serialized the change, but the workspace save was not confirmed: " + reason + ". Reload the authoritative workspace before continuing."
-                  : execution.applicationState === "not-applied"
-                    ? "No document change was detected for this edit: " + reason +
-                      (execution.rolledBack ? " The batch was rolled back." : " Inspect the current diagram before retrying.")
-                    : execution.rolledBack
-                      ? "Nothing was applied: " + describeAt((failedStep?.index ?? 1) - 1) + " failed (" + reason + "). The batch was rolled back."
-                      : "The native edit failed (" + reason + "), and rollback was not confirmed. The current diagram may contain partial changes; inspect it and History before retrying.";
-          setMessages((items) => [...items, {
-            role: "assistant",
-            id: Date.now() + 1,
-            text: failureMessage
-          }]);
-        }
-        return;
-      }
-
       if (plan.outcome === "selected") {
         const selection = plan.selection;
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
@@ -437,166 +319,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, persistWorkspaceDocument,
-    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit
   ]);
 
-  const confirmProposal = useCallback(async (proposalId: string) => {
-    if (chatBusy || !proposalId) return;
-    setChatBusy(true);
-    setMessages((items) => items.map((message) => message.proposal?.id === proposalId
-      ? { ...message, proposal: undefined, text: message.text + "\n\nConfirmation submitted; validating the current diagram revision…" }
-      : message));
-    try {
-      if (!workspaceContentReady && !standaloneMode) throw new Error("The Draw.io diagram has not finished loading; proposal confirmation was not sent.");
-      const requestState = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-      const sourceXml = requestState.drawioXml;
-      const sourcePageId = requestState.selectedNativePageId;
-      const sourceSelectedCellId = requestState.selectedNativeCellId;
-      let documentRevision = await calculateDrawioXmlRevision(sourceXml);
-      if (!standaloneMode) {
-        if (!persistWorkspaceDocument) throw new Error("Workspace revision handling is unavailable.");
-        const saved = await persistWorkspaceDocument(sourceXml, "Before confirming Copilot proposal");
-        if (typeof saved.workspaceRevision !== "string" || saved.workspaceRevision !== documentRevision) {
-          throw new Error("The current XML was not confirmed as the workspace revision. Reload and request a fresh proposal.");
-        }
-        documentRevision = saved.workspaceRevision;
-      }
-      let pageIdentity = resolveNativePageIdentity(sourceXml, sourcePageId);
-      let activePageId = pageIdentity.runtimePageId;
-      if (getRuntimeInspection) {
-        const runtimeInspection = await getRuntimeInspection({ documentRevision, pageId: activePageId });
-        if (runtimeInspection.documentRevision !== documentRevision ||
-            (activePageId !== null && runtimeInspection.pageId !== activePageId)) {
-          throw new Error("The live Draw.io inspection did not match the proposal's source revision and page. Confirmation was not sent.");
-        }
-        activePageId = runtimeInspection.pageId;
-      }
-      if (!activePageId && !pageIdentity.pageExists) {
-        throw new Error("The active Draw.io page ID is not available. Select a page and retry confirming this proposal.");
-      }
-      pageIdentity = resolveNativePageIdentity(sourceXml, activePageId);
-      // An mxfile must still prove that the runtime page exists; a bare model has exactly one page
-      // and no declared ID, so the editor's UUID is authoritative by definition.
-      if (!pageIdentity.pageExists) throw new Error("The proposal's target page was not found in the source XML.");
-      const requestPageId = pageIdentity.documentPageId;
-      const nativeTargets = extractNativeEditTargets(sourceXml, requestPageId);
-      const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
-      const requestContext = {
-        kind: "drawio" as const,
-        title: pageIdentity.title || "Draw.io diagram",
-        activePageId: requestPageId,
-        selectedCell: sourceSelectedCellId ? {
-          cellId: sourceSelectedCellId, pageId: requestPageId,
-          label: selectedTarget?.name || ""
-        } : null,
-        cells: nativeTargets
-      };
-      const getStateForResolvedPage = () => {
-        const state = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
-        return state.selectedNativePageId || !activePageId
-          ? state
-          : { ...state, selectedNativePageId: activePageId };
-      };
-      const beforeConfirm = getStateForResolvedPage();
-      assertCopilotRequestContextFresh(
-        "before-proposal-confirmation",
-        { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
-        beforeConfirm,
-        "before proposal confirmation. Request a fresh proposal."
-      );
-      const plan = await confirmAIIntentProposal({
-        model: aiModel, reasoningEffort, sessionId: copilotSessionId, standalone: standaloneMode,
-        diagramXml: sourceXml, documentRevision
-      }, proposalId, requestContext);
-      const afterConfirm = getStateForResolvedPage();
-      assertCopilotRequestContextFresh(
-        "during-proposal-confirmation",
-        { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
-        afterConfirm,
-        "while confirming the proposal. No operation was sent to Draw.io."
-      );
-      if (plan.outcome !== "command_ready") {
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply || "The proposal could not be confirmed; the diagram was not changed." }]);
-        return;
-      }
-      if (!applyNativeCellEdits) throw new Error("The native Draw.io edit bridge is unavailable.");
-      const command = plan.nativeEdits;
-      if (command.documentRevision !== documentRevision || command.pageId !== requestPageId) {
-        throw new Error("The confirmed command belongs to another revision or Draw.io page.");
-      }
-      const layoutOperation = command.operations.length === 1 && command.operations[0].op === "auto_layout"
-        ? command.operations[0] : undefined;
-      // The editor applies the plan, so it must carry the runtime page identity rather than the
-      // document identity that is null for a bare mxGraphModel.
-      const layoutPageId = pageIdentity.runtimePageId ?? command.pageId;
-      const layoutPlan = layoutOperation
-        ? await calculateNativeAutoLayout(sourceXml, layoutPageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
-        : undefined;
-      if (layoutOperation) {
-        const stateAfterLayout = getStateForResolvedPage();
-        assertCopilotRequestContextFresh(
-          "during-confirmed-layout-calculation",
-          { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
-          stateAfterLayout,
-          "while Studio was calculating the confirmed layout. Nothing was applied; retry."
-        );
-      }
-      const cellPlan = toNativeCellEdits(command.operations, sourceXml, layoutPageId, layoutPlan);
-      if (!cellPlan.ok) throw new Error("The confirmed proposal is no longer valid: " + cellPlan.error);
-      if (getRuntimeInspection) {
-        const runtimeBeforeDispatch = await getRuntimeInspection({ documentRevision, pageId: activePageId });
-        if (runtimeBeforeDispatch.documentRevision !== documentRevision ||
-            runtimeBeforeDispatch.pageId !== activePageId) {
-          throw new Error("The active Draw.io page changed before the confirmed proposal could be dispatched. No change was applied.");
-        }
-      }
-      const execution = await applyNativeCellEdits(cellPlan.edits, command.pageId, {
-        requestId: command.requestId,
-        sessionId: plan.sessionId || copilotSessionId,
-        standalone: standaloneMode,
-        documentRevision
-      });
-      if (execution.ok) {
-        recordDiagnostic("copilot.proposal.confirmed.applied", "A confirmed native edit proposal was applied", {
-          proposalId, requestId: command.requestId, operationCount: command.operations.length
-        });
-        setMessages((items) => [...items, {
-          role: "assistant", id: Date.now() + 1,
-          text: "Applied " + command.operations.length + " native change" + (command.operations.length === 1 ? "" : "s") +
-            ": " + command.operations.map(describeNativeEditOperation).join("; ") + "." +
-            (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
-        }]);
-      } else {
-        const reason = execution.error || "the native editor rejected the batch";
-        const state = execution.applicationState;
-        setMessages((items) => [...items, {
-          role: "assistant", id: Date.now() + 1,
-          text: execution.failureStage === "persistence"
-            ? "The native editor applied and serialized the confirmed change, but the workspace save was not confirmed: " + reason
-            : state === "changed-unverified"
-              // The document did change and was saved; only Studio's evidence check failed. Saying
-              // "not applied" here contradicts the reason string and sends the user to undo work
-              // that is actually correct.
-              ? "The change was applied and saved, but Studio could not verify it: " + reason +
-                " Do not retry; inspect the current diagram and History first."
-              : state === "not-applied"
-                ? "The confirmed proposal was not applied: " + reason + (execution.rolledBack ? " The batch was rolled back." : "")
-                : "The confirmed proposal produced an uncertain document state: " + reason +
-                  (execution.rolledBack ? " The batch was rolled back." : " Reload the diagram before continuing.")
-        }]);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      recordDiagnostic("copilot.proposal.confirmation.failed", "A native edit proposal could not be confirmed", { proposalId, errorMessage: message }, "error");
-      setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: "Proposal not applied: " + message }]);
-    } finally {
-      setChatBusy(false);
-    }
-  }, [
-    chatBusy, workspaceContentReady, standaloneMode, drawioXml, selectedNativeCellId, selectedNativePageId,
-    getCurrentDiagramState, persistWorkspaceDocument, aiModel, reasoningEffort, copilotSessionId,
-    applyNativeCellEdits, setChatBusy, setMessages
-  ]);
 
-  return { sendIntent, confirmProposal };
+
+  return { sendIntent };
 }
