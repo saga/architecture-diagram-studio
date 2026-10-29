@@ -568,6 +568,17 @@ describe("Copilot intent route result and revision contract", () => {
     expect(String(copilot.getPreparedSystemMessage())).toContain("server-side document-editing capability");
   });
 
+  it("returns a revision-checked XML patch for standalone browser-owned persistence", async () => {
+    const harness = await createServer({ copilot: xmlEditingCopilot() });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ standalone: true }));
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("xml_patch_ready");
+    expect(body.documentRevision).toBe(workspaceRevision(XML));
+    expect(body.drawioXml).toContain('value="Data Store"');
+    expect(body.patchedRevision).toBe(workspaceRevision(String(body.drawioXml)));
+    expect(body.changedCellIds).toEqual(["db"]);
+  });
+
   it("commits the XML-first tool through the versioned server persistence callback", async () => {
     const commitWorkspaceXmlPatch = vi.fn(async (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => ({
       ok: true, status: 200, body: { ok: true, workspaceRevision: "new-revision", version: { id: "v-2" }, accepted: input.patch.length === 1 }
