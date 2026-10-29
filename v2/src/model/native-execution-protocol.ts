@@ -5,6 +5,7 @@ export type NativeExecutionStatus =
   | "exported"
   | "persistence-pending"
   | "committed"
+  | "completed-readonly"
   | "failed"
   | "timed-out-pending-reconciliation"
   | "partial";
@@ -29,14 +30,15 @@ export interface NativeExecutionReceipt {
   reconciliationRequired?: boolean;
 }
 
-const TERMINAL = new Set<NativeExecutionStatus>(["committed", "failed", "partial"]);
+const TERMINAL = new Set<NativeExecutionStatus>(["committed", "completed-readonly", "failed", "partial"]);
 const ALLOWED: Record<NativeExecutionStatus, ReadonlySet<NativeExecutionStatus>> = {
   requested: new Set(["executing", "failed"]),
-  executing: new Set(["exported", "persistence-pending", "committed", "failed", "partial", "timed-out-pending-reconciliation"]),
+  executing: new Set(["exported", "persistence-pending", "committed", "completed-readonly", "failed", "partial", "timed-out-pending-reconciliation"]),
   exported: new Set(["persistence-pending", "committed", "failed", "partial", "timed-out-pending-reconciliation"]),
   "persistence-pending": new Set(["committed", "failed", "partial", "timed-out-pending-reconciliation"]),
-  "timed-out-pending-reconciliation": new Set(["exported", "persistence-pending", "committed", "failed", "partial"]),
+  "timed-out-pending-reconciliation": new Set(["exported", "persistence-pending", "committed", "completed-readonly", "failed", "partial"]),
   committed: new Set(),
+  "completed-readonly": new Set(),
   failed: new Set(),
   partial: new Set()
 };
