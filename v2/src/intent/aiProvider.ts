@@ -78,7 +78,7 @@ function validateResponse(value: unknown): AIIntentResponse {
     case "needs_clarification":
       return { outcome: "needs_clarification", reply: reply || "I need more information before changing the diagram.", ...(typeof item.question === "string" ? { question: item.question.slice(0, 1000) } : {}), ...metadata };
     case "unsupported":
-      return { outcome: "unsupported", reply: reply || "This operation is not supported by the current native-edit allowlist.", ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 1000) } : {}), ...metadata };
+      return { outcome: "unsupported", reply: reply || "This operation is not supported by the current native XML editing capabilities.", ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 1000) } : {}), ...metadata };
     case "answered":
       return { outcome: "answered", reply: reply || "No diagram change was requested.", ...metadata };
     case "xml_committed": {
