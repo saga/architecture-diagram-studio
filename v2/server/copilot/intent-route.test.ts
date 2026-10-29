@@ -544,7 +544,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("answered");
     const prompt = String(copilot.getPreparedSystemMessage());
     expect(prompt).toContain("Preserve rename text verbatim");
-    expect(prompt).toContain("up/left negative, down/right positive");
+    expect(prompt).toContain("geometry");
     expect(prompt).toContain("selectedCell.cellId");
     expect(prompt).toContain("catalogue misses do not prove absence");
     expect(prompt).toContain("edit_drawio_xml");
