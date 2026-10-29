@@ -355,6 +355,14 @@ describe("native Draw.io script bridge", () => {
     expect(edge.style).not.toContain("edgeStyle=");
   });
 
+  it("rejects the removed JavaScript execution operation without running it", () => {
+    const harness = createHarness();
+    const result = harness.runOperation("__active_page__", "cell:execute-script", 'graph.insertVertex(graph.getDefaultParent(), null, "SHOULD NOT RUN", 1, 1, 10, 10);');
+    expect(result).toMatchObject({ event: "studioPropertyEditResult", success: false });
+    expect(String(result?.error)).toContain("script execution has been removed");
+    expect(harness.generatedCellCount).toBe(0);
+  });
+
   it("inspects native runtime capabilities and cells recursively, including edges inside groups", () => {
     const harness = createHarness();
     const result = harness.runRuntimeInspect();
