@@ -279,9 +279,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       if (plan.outcome === "selected") {
         const selection = plan.selection;
-        if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
+        if (!selectNativeCell) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
         if ((selection.pageId ?? null) !== (activePageId ?? null)) throw new Error("The selection result targets a different Draw.io page; no selection changed.");
-        await applyNativeCellEdit(selection.cellId, "cell:select", "", selection.pageId);
+        await selectNativeCell(selection.cellId, selection.pageId);
         setMessages((items) => [...items, {
           role: "assistant", id: Date.now() + 1,
           text: "Selected “" + selection.label + "”. The diagram itself was not changed."
@@ -314,7 +314,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
   }, [
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, persistWorkspaceDocument,
-    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit
+    setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, selectNativeCell
   ]);
 
 
