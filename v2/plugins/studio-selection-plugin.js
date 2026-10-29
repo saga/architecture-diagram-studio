@@ -361,7 +361,7 @@
       var liveShapeClassesTruncated = allLiveShapeClasses.length > 2000;
       var liveShapeClasses = allLiveShapeClasses.slice(0, 2000);
       return {
-        schemaVersion: 1, bridgeVersion: "studio-native-runtime/3",
+        schemaVersion: 1, bridgeVersion: "studio-native-runtime/4",
         drawioVersion: typeof options.drawioVersion === "string" ? options.drawioVersion : "unknown",
         documentRevision: typeof options.documentRevision === "string" ? options.documentRevision : "",
         pageId: currentPageId(), capabilities: capabilities, capabilityManifest: buildCapabilityManifest(capabilities, options.jsShapeClassNames),
