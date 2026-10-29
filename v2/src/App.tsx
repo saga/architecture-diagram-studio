@@ -20,7 +20,7 @@ import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAl
 import { spatialRegionAnalysisProvider } from "./layout/spatial-region-analysis";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
@@ -328,7 +328,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleHistoryShortcut, true);
   }, [nativeEditorReady, diagramThemeApplying, autoLayoutRunning, documentSaveState]);
 
-  // The native Draw.io editor is the only canvas; typed edits preserve unrelated XML cells.
+  // The native Draw.io editor is the only canvas; server-side XML patches preserve unrelated cells.
 
   useEffect(() => {
     let active = true;
@@ -619,7 +619,7 @@ export default function App() {
       const requestId = ++cellEditRequestSequenceRef.current;
       // Selection is UI state, not a document mutation: it must not consume a history slot.
       if (path !== "cell:select") await archiveStandaloneHistory("Before Copilot: " + path + " on " + cellId, requestId);
-      recordDiagnostic("copilot.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
+      recordDiagnostic("copilot.selection.dispatch", "Dispatching a Copilot selection to the active native Draw.io editor", {
         cellId, path, requestId, pageId: targetPageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
       });
       if (path !== "cell:select") {
