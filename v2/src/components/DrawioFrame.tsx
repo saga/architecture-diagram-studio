@@ -613,40 +613,26 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
             const confirmation: PendingSaveConfirmation = {
               ...pending,
-              ...(data.scriptResult !== undefined ? { scriptResult: data.scriptResult } : {}),
               ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
             };
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
-              const originalError = confirmation.deferredBatchAck?.error;
               const latestXml = lastSent.current;
               const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
-              const errorMessage = confirmation.captureOnFailure
-                ? "The failed script's resulting XML could not be serialized within 30 seconds; the last saved XML was preserved." +
-                  (originalError ? " Original script error: " + originalError : "")
-                : latestChanged
-                  ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
-                  : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
+              const errorMessage = latestChanged
+                ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
+                : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
-                confirmation.captureOnFailure
-                  ? "Timed out while capturing the native XML state after a failed script"
-                  : latestChanged
-                    ? "The document changed but the native edit confirmation timed out"
-                    : "Timed out waiting for a matching serialized XML snapshot",
-                { requestId, cellId: confirmation.cellId, property: confirmation.path, captureOnFailure: confirmation.captureOnFailure === true,
-                  latestChanged, timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS,
-                  durationMs: Date.now() - confirmation.startedAt }, "warn");
+                latestChanged ? "The document changed but the native edit confirmation timed out"
+                  : "Timed out waiting for a matching serialized XML snapshot",
+                { requestId, cellId: confirmation.cellId, property: confirmation.path, latestChanged,
+                  timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS, durationMs: Date.now() - confirmation.startedAt }, "warn");
               if (confirmation.deferredBatchAck) {
-                const applicationState = confirmation.captureOnFailure
-                  ? "unknown"
-                  : latestChanged
-                    ? "changed-unverified"
-                    : "unknown";
                 onNativeEditResultRef.current?.({
                   ...confirmation.deferredBatchAck,
                   success: false,
-                  applicationState,
+                  applicationState: latestChanged ? "changed-unverified" : "unknown",
                   ...(latestChanged ? { serializedXml: latestXml } : {}),
                   error: errorMessage,
                   failureStage: "editor",
