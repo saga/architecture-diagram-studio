@@ -1,6 +1,6 @@
 # Architecture Diagram Studio V2
 
-- **Status:** Current architecture as of 2026-10-27.
+- **Status:** Current architecture as of 2026-10-30.
 - **Decisions:** [ADR-0011 — Native Draw.io Is the Only Diagram Model](docs/adr/0011-native-drawio-only-model.md); [ADR-0012 — Native Diagram Extension Contracts](docs/adr/0012-native-diagram-extension-contracts.md); [ADR-0013 — Studio-Owned Layout Is a Core Feature](docs/adr/0013-studio-owned-layout-engines.md); [ADR-0020 — Native Script Assertion Contracts and Accurate Edit Outcomes](docs/adr/0020-native-script-assertion-contract-and-outcome-reporting.md); [ADR-0021 — Expanded Native Layout Engines](docs/adr/0021-expanded-native-layout-engines.md); [ADR-0022 — Atomic Spatial Region Layout](docs/adr/0022-atomic-spatial-region-layout.md); [ADR-0023 — Native Script Runtime Boundaries and Late Outcomes](docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md); [ADR-0024 — Preserve Local Grouping and Offer Layout Density Presets](docs/adr/0024-local-grouping-and-layout-density-options.md).
 - **Reference implementation:** v2/.
 - **Capability and contract review:** [Native Copilot / Draw.io Capability Audit](docs/NATIVE-COPILOT-CAPABILITY-AUDIT.md).
@@ -8,14 +8,14 @@
 
 ## Core design
 
-Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Copilot edits native XML directly on the server by default (ADR-0026); the frontend follows persisted document revisions through push notifications with polling fallback. Draw.io scripts are an optional advanced fallback, not the ordinary edit path. Workspace XML is persisted by the server; standalone source files remain browser-owned under ADR-0016. Automatic layout is a core exception only in the computational sense: Studio derives a temporary native-cell projection for the selected layout engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
+Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Copilot reads the current native XML and makes diagram mutations through the server-side `edit_drawio_xml` tool (ADR-0026). The server validates the revision-bound patch, validates and persists the resulting XML, then notifies the frontend to reload the authoritative revision. There is no model-facing typed-edit proposal, editor script, browser mutation or acknowledgement path. Workspace XML is persisted by the server; standalone source files remain browser-owned under ADR-0016. Automatic layout remains a separate Studio-owned path: it derives a temporary native-cell projection for the selected engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
 
 Responsibilities are deliberately small:
 
-1. The browser loads native XML in the iframe, reflects selected-cell properties, and sends typed Copilot requests with a source hash. It directly dispatches validated typed operations when the risk gate allows them, displays summary-only proposals for review-gated changes, and only dispatches those after explicit confirmation and revision checks. It then waits for serialized XML, persists workspace edits, and posts the final result to the server's acknowledgement endpoint.
-2. The Copilot service returns discriminated outcomes for commands, proposals, selection, ordinary answers, clarification, unsupported requests, stale context and failures. It validates the XML snapshot/revision, resolves targets against the full active-page cell index, validates operation arguments, and exposes only typed native-edit/selection/outcome tools. The model-facing cell summary is bounded for prompt size; server-side uniqueness checks use the full index.
-3. The workspace service validates XML, applies optimistic revision checks, saves exact XML, stores immutable full-XML versions, and verifies final applied receipts against the version ID and XML hash.
-4. Agent Traces shows browser events and server-side Copilot/model-call records. Token and cost values are shown only when reported by the SDK/provider; missing metrics are not estimated.
+1. The browser loads native XML in the iframe, reflects selection and sends the current XML snapshot/revision with Copilot requests. It does not apply model-generated typed edit operations or editor scripts. After a server-side XML commit it follows the authoritative persisted revision and reloads the editor; standalone files remain browser-owned and receive a revision-bound XML patch.
+2. The Copilot service exposes native XML editing, read-only inspection/shape search, selection and outcome reporting. The XML editing tool is the only diagram mutation path for Copilot. It validates the source revision, applies a focused cell-scoped patch while preserving unrelated XML and metadata, validates the resulting document, and persists workspace changes.
+3. The workspace service validates XML, applies optimistic revision checks, saves exact XML and stores immutable full-XML versions. The accepted workspace revision is the commit receipt; no browser-side mutation acknowledgement is required.
+4. Agent Traces shows server-side Copilot/model-call records. Token and cost values are shown only when reported by the SDK/provider; missing metrics are not estimated.
 
 ## Studio-owned automatic layout
 
@@ -34,7 +34,7 @@ V2 does not include the former `DiagramDocument` model, semantic fixtures/templa
 | Contract | Future use | Return type / rule |
 | --- | --- | --- |
 | `NativeDiagramCapabilityContext` | Exact XML revision, active page, selection and native cell index | Transient, read-only context; never persisted as a second model |
-| `NativeDiagramOperationProvider` | Layout, routing, style and structural edits | A revision-bound plan using `NativeEditOperation[]`; never raw replacement XML |
+| `NativeDiagramOperationProvider` | Layout, routing, style and structural edits | A revision-bound geometry plan for the Studio-owned layout bridge; Copilot XML editing does not use this contract |
 | `NativeDiagramAnalysisProvider` | Geometry, contrast, routing and accessibility checks | Findings linked to native page/cell IDs; no mutation side effects |
 | `NativeDiagramCapabilityRegistry` | Explicit discovery of installed optional providers | Interface only; core layout is implemented separately and no optional quality provider is installed |
 
@@ -55,13 +55,13 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 | src/components/DrawioFrame.tsx | Native editor lifecycle, autosave and plugin bridge |
 | src/components/NativeSelectionInspector.tsx | Read/edit selected native-cell properties |
 | src/model/drawio-xml-schema.ts | Draw.io XML and encoded-page validation |
-| src/model/native-edit-operations.ts | Typed native operations and active-page cell index |
+| src/model/native-edit-operations.ts | Native XML page identity and active-page cell index |
 | src/model/native-diagram-capabilities.ts | Extension contracts for future native operation planners and read-only analyzers |
 | src/model/drawio-theme.ts | Native Draw.io cell palette and clearing of active-page background; grid remains Draw.io-owned |
 | src/hooks/useWorkspaceBootstrap.ts | Loads XML without conversion |
 | src/hooks/useWorkspacePersistence.ts | Persists exact XML and chat state |
-| src/intent/aiProvider.ts | Native edit request/response contract |
-| server/copilot/intent-route.ts | Copilot SDK tool registration and native operations |
+| src/intent/aiProvider.ts | XML-first Copilot request/response contract |
+| server/copilot/intent-route.ts | Copilot SDK tool registration, XML patching and persistence |
 | server/copilot-server.ts | Workspace, XML revisions and version persistence |
 | plugins/studio-selection-plugin.js | Native Draw.io graph operations |
 
@@ -69,4 +69,4 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 
 ## Validation
 
-Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, operation allowlists, atomic batch rollback, revision conflicts, and version recovery. Do not add parity tests for a removed semantic graph.
+Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, cell-scoped patch validation, stale revision conflicts, workspace persistence, standalone patch receipts and version recovery. Do not add parity tests for a removed semantic graph.
