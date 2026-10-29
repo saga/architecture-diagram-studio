@@ -1,6 +1,5 @@
 import { recordDiagnostic } from "../diagnostics";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
-import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
 import { isCopilotIntentOutcome, type CopilotIntentResponse } from "./copilot-intent-outcome";
 
 export interface AIProviderConfig {
@@ -27,14 +26,14 @@ export interface AIIntentContext {
 
 export type AIIntentResponse = CopilotIntentResponse;
 
-/** Parses only the typed native Draw.io cell-operation contract. */
+/** Parses the server-owned Draw.io XML edit outcome. */
 export function parseAIIntentResponse(raw: string): AIIntentResponse {
   const cleaned = raw.trim().replace(/^\x60{3}(?:json)?\s*/i, "").replace(/\s*\x60{3}$/, "");
   let parsed: unknown;
   try {
     parsed = JSON.parse(cleaned);
   } catch {
-    throw new Error("The agent did not return a valid native-edit response; nothing was applied");
+    throw new Error("The agent did not return a valid Copilot intent response; nothing was applied");
   }
   return validateResponse(parsed);
 }
@@ -62,18 +61,9 @@ function validateResponse(value: unknown): AIIntentResponse {
   const selection = parseSelection(item.selection);
 
   switch (item.outcome) {
-    case "command_ready": {
-      const nativeEdits = parseNativeEditsPayload(item.nativeEdits);
-      if (!nativeEdits) throw new Error("The command_ready outcome requires a validated native edit command");
-      return { outcome: "command_ready", reply, nativeEdits, ...(selection ? { selection } : {}), ...metadata };
-    }
     case "selected":
       if (!selection) throw new Error("The selected outcome requires a resolved cell and page");
       return { outcome: "selected", reply: reply || "Selected “" + selection.label + "”.", selection, ...metadata };
-    case "proposal_required": {
-      const proposal = parseNativeProposal(item.proposal);
-      return { outcome: "proposal_required", reply, proposal, ...metadata };
-    }
     case "stale_context":
     case "failed": {
       const error = typeof item.error === "string" ? item.error.trim().slice(0, 1000) : reply;
@@ -122,39 +112,6 @@ function validateResponse(value: unknown): AIIntentResponse {
         patchedRevision: item.patchedRevision, changedCellIds: item.changedCellIds as string[], ...metadata
       };
     }
-    case "applied": {
-      if (typeof item.requestId !== "string" || !item.requestId.trim() ||
-          typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||
-          !(typeof item.versionId === "string" || item.versionId === null) ||
-          item.editorAcknowledged !== true ||
-          typeof item.persistenceStatus !== "string" || !item.persistenceStatus.trim() ||
-          !Array.isArray(item.resolvedTargets) ||
-          item.resolvedTargets.some((target) => !target || typeof target !== "object" ||
-            typeof (target as { cellId?: unknown }).cellId !== "string" ||
-            typeof (target as { label?: unknown }).label !== "string")) {
-        throw new Error("The applied outcome requires requestId, documentRevision, versionId, editor acknowledgement, persistence status, and resolved targets");
-      }
-      const versionId = item.versionId as string | null;
-      const persistenceStatus = item.persistenceStatus;
-      const persistedRevision = typeof item.persistedRevision === "string" || item.persistedRevision === null
-        ? item.persistedRevision as string | null : null;
-      if (persistenceStatus === "saved" &&
-          (typeof versionId !== "string" || !persistedRevision || persistedRevision !== item.documentRevision)) {
-        throw new Error("A saved workspace outcome must include the matching persisted revision and immutable version ID");
-      }
-      if (persistenceStatus === "not_managed_by_server" && versionId !== null) {
-        throw new Error("A standalone applied outcome must not claim a server-managed workspace version");
-      }
-      return {
-        outcome: "applied", reply: reply || "The diagram change was applied.",
-        requestId: item.requestId, documentRevision: item.documentRevision,
-        ...(typeof item.persistedRevision === "string" || item.persistedRevision === null ? { persistedRevision: item.persistedRevision as string | null } : {}),
-        versionId,
-        editorAcknowledged: true,
-        persistenceStatus,
-        resolvedTargets: item.resolvedTargets as Array<{ cellId: string; label: string }>,
-        ...metadata
-      };
     }
   }
 }
@@ -165,59 +122,6 @@ function parseSelection(value: unknown): { cellId: string; pageId: string | null
   if (typeof item.cellId !== "string" || !item.cellId.trim() || typeof item.label !== "string" || !item.label.trim()) return null;
   if (item.pageId !== null && item.pageId !== undefined && typeof item.pageId !== "string") return null;
   return { cellId: item.cellId.trim(), pageId: typeof item.pageId === "string" ? item.pageId : null, label: item.label.trim().slice(0, 500) };
-}
-
-function parseResolvedNativeOperations(value: unknown): ResolvedNativeEditOperation[] {
-  if (!Array.isArray(value)) throw new Error("The native edit proposal must contain an operation list");
-  // Resolve metadata is service-owned, not part of the strict model-authored operation schema.
-  const operationInputs = value.map((raw) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-    const operation = { ...(raw as Record<string, unknown>) };
-    delete operation.cellId;
-    delete operation.targetLabel;
-    return operation;
-  });
-  const parsed = parseNativeEditOperations(operationInputs);
-  if (!parsed.ok) throw new Error("The agent returned an invalid native edit batch: " + parsed.error);
-  return parsed.operations.map((operation, index) => {
-    const source = value[index] as Record<string, unknown>;
-    const cellId = typeof source.cellId === "string" ? source.cellId.trim() : "";
-    const hasTargetLabel = typeof source.targetLabel === "string";
-    const targetLabel = hasTargetLabel ? (source.targetLabel as string).trim() : "";
-    if (!cellId || !hasTargetLabel) throw new Error("The agent returned an operation without a resolved cell id and target-label field");
-    return { ...operation, cellId, targetLabel };
-  });
-}
-
-/** The server resolves target IDs; this boundary validates the batch again before it reaches Draw.io. */
-function parseNativeEditsPayload(value: unknown): Extract<AIIntentResponse, { outcome: "command_ready" }>["nativeEdits"] | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const raw = value as Record<string, unknown>;
-  if (raw.pageId !== null && typeof raw.pageId !== "string") throw new Error("The native edit response is missing its resolved page ID");
-  if (typeof raw.documentRevision !== "string" || !raw.documentRevision.trim()) throw new Error("The native edit response is missing its document revision");
-  if (typeof raw.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(raw.requestId)) throw new Error("The native edit response is missing its server request ID");
-  return {
-    operations: parseResolvedNativeOperations(raw.operations),
-    summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
-    pageId: typeof raw.pageId === "string" ? raw.pageId : null,
-    documentRevision: raw.documentRevision,
-    requestId: raw.requestId
-  };
-}
-
-function parseNativeProposal(value: unknown): Extract<AIIntentResponse, { outcome: "proposal_required" }>["proposal"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The proposal_required outcome requires a reviewable proposal");
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.id !== "string" || !/^[0-9a-f-]{36}$/i.test(raw.id)) throw new Error("The proposal is missing its ID");
-  if (raw.pageId !== null && typeof raw.pageId !== "string") throw new Error("The proposal is missing its page ID");
-  if (typeof raw.documentRevision !== "string" || !raw.documentRevision.trim()) throw new Error("The proposal is missing its base revision");
-  return {
-    id: raw.id,
-    summary: typeof raw.summary === "string" ? raw.summary.slice(0, 1000) : "",
-    operations: parseResolvedNativeOperations(raw.operations),
-    pageId: typeof raw.pageId === "string" ? raw.pageId : null,
-    documentRevision: raw.documentRevision
-  };
 }
 
 /** SHA-256 over the exact UTF-8 XML string; matches the server's workspace revision algorithm. */
@@ -285,57 +189,11 @@ export async function requestAIIntentPlan(
   }
 
   const plan = validateResponse(payload);
-  if (plan.outcome === "command_ready" &&
-      (plan.nativeEdits.documentRevision !== config.documentRevision ||
-       plan.nativeEdits.pageId !== (context.activePageId ?? null))) {
-    throw new Error("The native edit plan belongs to a different diagram revision or page; nothing was applied.");
-  }
-  if (plan.outcome === "proposal_required" &&
-      (plan.proposal.documentRevision !== config.documentRevision ||
-       plan.proposal.pageId !== (context.activePageId ?? null))) {
-    throw new Error("The review proposal belongs to a different diagram revision or page; nothing was applied.");
-  }
   recordDiagnostic("copilot.agent.response.validated", "The native Draw.io response passed client-side validation", {
     durationMs: Date.now() - startedAt,
     agentDurationMs: plan.durationMs,
     model: plan.model || model || "server-default",
-    nativeEditCount: plan.outcome === "command_ready" ? plan.nativeEdits.operations.length : 0,
-    hasSelection: plan.outcome === "selected" || (plan.outcome === "command_ready" && Boolean(plan.selection))
+    hasSelection: plan.outcome === "selected"
   });
   return plan;
 }
-
-/** Confirms a server-held review proposal against the current XML snapshot; the server revalidates it. */
-export async function confirmAIIntentProposal(
-  config: AIProviderConfig,
-  proposalId: string,
-  context: AIIntentContext
-): Promise<AIIntentResponse> {
-  let response: Response;
-  try {
-    response = await fetch("/api/copilot/intent/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        proposalId, sessionId: config.sessionId, standalone: config.standalone === true,
-        ...(config.standalone === true ? { diagramXml: config.diagramXml } : {}),
-        documentRevision: config.documentRevision, context
-      }),
-      signal: AbortSignal.timeout(30_000)
-    });
-  } catch (error) {
-    throw new Error("Could not send the proposal confirmation to the local Copilot service: " + (error instanceof Error ? error.message : String(error)));
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!payload || typeof payload !== "object" || !isCopilotIntentOutcome((payload as { outcome?: unknown }).outcome)) {
-    throw new Error("The Copilot service returned an invalid proposal-confirmation response.");
-  }
-  const result = validateResponse(payload);
-  if (!response.ok) return result;
-  if (result.outcome !== "command_ready") throw new Error("The server did not return a validated command after confirmation.");
-  if (result.nativeEdits.documentRevision !== config.documentRevision || result.nativeEdits.pageId !== (context.activePageId ?? null)) {
-    throw new Error("The confirmed command belongs to a different diagram revision or page.");
-  }
-  return result;
-}
-
