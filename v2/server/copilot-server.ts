@@ -6,6 +6,7 @@ import { appendRotatingJsonl, readRecentJsonl } from "./jsonl-log";
 import { parseEnv } from "node:util";
 
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
+import { applyDrawioXmlPatch, type DrawioXmlPatch } from "./copilot/xml-first-edit";
 import { createEmptyDrawioXml, normalizeNewDrawioFileName } from "./diagram-file";
 import { readCopilotProvider, describeModelRouting, isModelConfiguredWithoutProvider } from "./copilot/model-routing";
 import { randomUUID } from "node:crypto";
@@ -1103,8 +1104,29 @@ app.get("/api/workspace/state", async (_req, res) => {
 });
 
 app.put("/api/workspace/document", async (req, res) => {
-  const drawioXml = req.body?.drawioXml;
+  let drawioXml: unknown = req.body?.drawioXml;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
+  // Copilot may submit a cell-scoped XML patch. The server applies it to the native source
+  // and then sends the result through this same revision-checked, versioned save transaction.
+  if (Array.isArray(req.body?.patch)) {
+    try {
+      const baseState = await getWorkspaceState();
+      if (typeof baseState.drawioXml !== "string") {
+        res.status(409).json({ error: "No active Draw.io XML document is available to patch." });
+        return;
+      }
+      const patched = applyDrawioXmlPatch(baseState.drawioXml, req.body.patch as DrawioXmlPatch[]);
+      drawioXml = patched.drawioXml;
+      await writeLog("workspace.document.xml-patch.applied", {
+        operationCount: patched.operationCount,
+        changedCellIds: patched.changedCellIds,
+        baseRevision: typeof req.body?.baseRevision === "string" ? req.body.baseRevision : null
+      });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid Draw.io XML patch." });
+      return;
+    }
+  }
   const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : req.body?.baseRevision === null ? null : undefined;
   if (typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000) {
     res.status(400).json({ error: "Invalid Draw.io XML document or the XML exceeds 20 MB" });
