@@ -62,13 +62,13 @@ function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): Te
     return { accepted: true, replaced: registeredKind };
   }
   // Never throw across the SDK boundary: SDK errors are often collapsed to the
-  // unhelpful "Tool execution failed". Keep the first native edit and explain why
+  // unhelpful "Tool execution failed". Keep the first XML patch and explain why
   // the later terminal action was ignored.
   return { accepted: false, registeredKind };
 }
 
 /**
- * The select and native-edit tools must see the elements of the *current* request.
+ * The selection and XML patch tools must use elements from the *current* request.
  * The SDK session survives across turns and its tool closures are created once, so the
  * per-request context is read from here instead of being captured at session build time.
  */
@@ -494,7 +494,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), and preserve existing XML whenever possible. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use edit_drawio_xml to patch only the intended text while preserving the native XML. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml when the typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. For C4 diagrams, patch labels and style attributes directly in the native XML, changing only the requested value and preserving the rest of the cell style and metadata. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, patch only the intended text in the native XML while preserving markup, placeholders and wrapper metadata. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml for every diagram mutation. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -541,7 +541,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
-        ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
+        ? "The model stream failed after an XML patch was accepted; Studio is continuing with the accepted patch and will verify server-side validation and persistence. "
         : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
@@ -734,7 +734,7 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
         accepted: true, queued: true, execution: "after_model_turn", terminal: true,
         replaceableByXmlPatch: true, result_available: false, action: "select_diagram_element",
         ...selected, documentChanged: false,
-        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, submit exactly one native edit instead; Studio will promote that XML patch over this provisional selection. Never submit two terminal actions."
+        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, submit exactly one focused `edit_drawio_xml` patch instead. Never submit two terminal actions."
       };
     }
   });
