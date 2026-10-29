@@ -90,6 +90,7 @@ interface CopilotIntentOptions {
   /** Read-only iframe inspection, matched to the XML revision/page about to be sent to the Agent. */
   getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
+  onServerXmlCommitted?: () => Promise<void>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setChatInput: (value: string) => void;
@@ -105,7 +106,7 @@ interface CopilotIntentOptions {
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted,
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, applyNativeCellEdit, applyNativeCellEdits
   } = options;
 
@@ -281,6 +282,15 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           outcome: plan.outcome, sessionId: plan.sessionId || copilotSessionId, reply: plan.reply, error: failure ?? null
         }, plan.outcome === "failed" || plan.outcome === "stale_context" ? "warn" : "info");
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply || failure || "The diagram was not changed." }]);
+        return;
+      }
+      if (plan.outcome === "xml_committed") {
+        if (!onServerXmlCommitted) throw new Error("The server committed the XML edit, but Studio has no document-refresh handler.");
+        await onServerXmlCommitted();
+        recordDiagnostic("copilot.xml-edit.refreshed", "Reloaded the server-committed Draw.io XML revision", {
+          requestId: plan.requestId, workspaceRevision: plan.persistence.workspaceRevision
+        });
+        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply }]);
         return;
       }
       if (plan.outcome === "applied") {
