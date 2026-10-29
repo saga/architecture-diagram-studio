@@ -16,21 +16,6 @@ const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '<mxCell id="api" value="API Service" vertex="1" parent="1"><mxGeometry x="200" y="20" width="120" height="60" as="geometry"/></mxCell>' +
   '</root></mxGraphModel></diagram></mxfile>';
 
-const SAFE_CREATION_SCRIPT = [
-  "var parent = graph.getDefaultParent();",
-  "var source = model.getCell('db');",
-  "if (!source) { throw new Error('source cell not found'); }",
-  "var target = null;",
-  "var edge = null;",
-  "model.beginUpdate();",
-  "try {",
-  "  target = graph.insertVertex(parent, null, 'ddd', 100, 160, 120, 60, 'rounded=0;whiteSpace=wrap;html=1;');",
-  "  edge = graph.insertEdge(parent, null, '', source, target, 'endArrow=block;endFill=1;curved=1;');",
-  "} finally { model.endUpdate(); }",
-  "graph.refresh();",
-  "return { nodeId: target.id, edgeId: edge.id, sourceId: model.getTerminal(edge, true).id, targetId: model.getTerminal(edge, false).id };"
-].join("\n");
-
 function runtimeInspectionWithShapes(liveShapeClasses: string[], liveShapeClassesTruncated: boolean) {
   const requirements = {
     graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
