@@ -29,16 +29,9 @@ Copilot edits native XML directly on the server. The `run_drawio_script` tool an
 
 V2 does not include the former `DiagramDocument` model, semantic fixtures/templates, DiagramDocument-based layout/quality pipeline, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Its removal does not remove core layout: ADR-0013 and ADR-0021 define the active Studio-owned multi-engine path over temporary native-cell facts.
 
-`v2/src/model/native-diagram-capabilities.ts` defines the seam for such work:
+`v2/src/model/native-diagram-capabilities.ts` contains only the read-only analysis contract used by the installed spatial-region analyzer. There is no generic operation-provider registry. Copilot mutations use the server-side XML patch path; Studio-owned layout remains implemented by its concrete planner and bridge.
 
-| Contract | Future use | Return type / rule |
-| --- | --- | --- |
-| `NativeDiagramCapabilityContext` | Exact XML revision, active page, selection and native cell index | Transient, read-only context; never persisted as a second model |
-| `NativeDiagramOperationProvider` | Layout, routing, style and structural edits | A revision-bound geometry plan for the Studio-owned layout bridge; Copilot XML editing does not use this contract |
-| `NativeDiagramAnalysisProvider` | Geometry, contrast, routing and accessibility checks | Findings linked to native page/cell IDs; no mutation side effects |
-| `NativeDiagramCapabilityRegistry` | Explicit discovery of installed optional providers | Interface only; core layout is implemented separately and no optional quality provider is installed |
-
-Future XML-first edits use the shared XML parser/schema, revision checks, native diff, version persistence and frontend synchronization. The existing layout planner and geometry-application path remain unchanged. Adding a new native operation requires synchronized updates to the operation union/schema, server validation, bridge execution and tests. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
+Future XML-first edits use the shared XML parser/schema, revision checks, native diff, version persistence and frontend synchronization. The existing layout planner and geometry-application path remain unchanged. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
 
 ## Native Draw.io diagram color presets
 
@@ -56,7 +49,7 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 | src/components/NativeSelectionInspector.tsx | Read/edit selected native-cell properties |
 | src/model/drawio-xml-schema.ts | Draw.io XML and encoded-page validation |
 | src/model/native-edit-operations.ts | Native XML page identity and active-page cell index |
-| src/model/native-diagram-capabilities.ts | Extension contracts for future native operation planners and read-only analyzers |
+| src/model/native-diagram-capabilities.ts | Read-only analysis contract used by spatial-region analysis |
 | src/model/drawio-theme.ts | Native Draw.io cell palette and clearing of active-page background; grid remains Draw.io-owned |
 | src/hooks/useWorkspaceBootstrap.ts | Loads XML without conversion |
 | src/hooks/useWorkspacePersistence.ts | Persists exact XML and chat state |
