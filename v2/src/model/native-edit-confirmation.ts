@@ -356,12 +356,6 @@ export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): 
     const operation = { cellId: input.cellId, path: input.path, value: input.value };
     if (!operation.cellId || !operation.path || typeof operation.value !== "string") return false;
 
-    // Selection is native UI state, not a serialized document mutation. Confirm that the
-    // target still exists, but never require a <mxCell> change for cell:select itself.
-    if (operation.path === "cell:select") {
-      return Boolean(findCell(before, operation.cellId, input.pageId) && findCell(after, operation.cellId, input.pageId) &&
-        semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId));
-    }
     return operationIsReflected(before, after, operation, input.pageId);
   } catch {
     return false;
