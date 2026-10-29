@@ -34,20 +34,13 @@ export function resolveNativeEditTargets(context: unknown, operations: NativeEdi
       }))
       .filter((node) => node.id)
     : [];
-  if (cells.length === 0 && !operations.some((operation) => operation.op === "run_drawio_script" || operation.op === "auto_layout")) {
+  if (cells.length === 0 && !operations.some((operation) => operation.op === "auto_layout")) {
     return { ok: false, error: "The request did not include any native Draw.io cells to target" };
   }
 
   const resolved: ResolvedNativeEditOperation[] = [];
   for (const [index, operation] of operations.entries()) {
     const target = operation.target.trim();
-    if (operation.op === "run_drawio_script") {
-      if (target !== "active_page") {
-        return { ok: false, error: 'Operation ' + (index + 1) + ': ' + operation.op + ' target must be "active_page".' };
-      }
-      resolved.push({ ...operation, target: "active_page", cellId: "__active_page__", targetLabel: "active Draw.io page" });
-      continue;
-    }
     if (operation.op === "auto_layout") {
       if (target !== "active_page") {
         return { ok: false, error: 'Operation ' + (index + 1) + ': auto_layout target must be "active_page".' };
