@@ -1,7 +1,6 @@
 import { recordDiagnostic } from "../diagnostics";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { parseNativeEditOperations, type ResolvedNativeEditOperation } from "../model/native-edit-operations";
-import type { NativeScriptScopeViolation, NativeScriptXmlAssertionFailure } from "../model/native-edit-confirmation";
 import { isCopilotIntentOutcome, type CopilotIntentResponse } from "./copilot-intent-outcome";
 
 export interface AIProviderConfig {
@@ -24,18 +23,7 @@ export interface AIIntentContext {
   cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
   /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
   runtimeInspection?: DrawioRuntimeInspection;
-  /** One bounded repair context after a failed native script with a confirmed rollback. */
-  scriptRepair?: {
-    originalRequest: string;
-    failedScript: string;
-    error: string;
-    stack?: string;
-    toolResult: {
-      toolName: "run_drawio_script" | "propose_native_edits"; success: false; error: string; stack?: string;
-      rollbackConfirmed: boolean; failedPath: string;
-      assertionFailures?: NativeScriptXmlAssertionFailure[];
-      scopeViolations?: NativeScriptScopeViolation[];
-    };
+};
   };
 }
 
