@@ -77,6 +77,23 @@ describe("Copilot request stale-context classification", () => {
     });
   });
 
+  it("does not treat an unresolved null page ID as a page switch", () => {
+    const result = compareCopilotRequestContext(state(before, "api", null), state(before, "api", "p1"));
+
+    expect(result).toMatchObject({
+      stale: false,
+      staleField: null,
+      pageChanged: false,
+      semanticDocumentChanged: false
+    });
+  });
+
+  it("does not treat two unresolved page IDs as a page switch", () => {
+    const result = compareCopilotRequestContext(state(before, "api", null), state(before, "api", null));
+
+    expect(result).toMatchObject({ stale: false, staleField: null, pageChanged: false });
+  });
+
   it("fails closed when the XML semantic diff cannot be established", () => {
     const result = compareCopilotRequestContext(state(), state("<not-valid"));
 
