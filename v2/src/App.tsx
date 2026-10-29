@@ -163,12 +163,6 @@ export default function App() {
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
-  const nativeScriptWatchdogTimeoutMs = (() => {
-    const configured = Number(import.meta.env.VITE_NATIVE_SCRIPT_WATCHDOG_TIMEOUT_MS);
-    return Number.isFinite(configured) && configured >= 30_000 && configured <= 180_000
-      ? Math.floor(configured)
-      : 75_000;
-  })();
   /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
   const nativeEditResolversRef = useRef(new Map<number, (result: {
     success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string;
@@ -700,28 +694,8 @@ export default function App() {
         return Promise.resolve({ ok: false, error, rolledBack: false, applicationState: "not-applied", steps: [] });
       }
       const requestId = ++cellEditRequestSequenceRef.current;
-      const containsReadOnlyScript = edits.length === 1 && edits[0].path === "cell:execute-script" && (() => {
-        try {
-          const payload = JSON.parse(edits[0].value) as { mode?: unknown; script?: unknown };
-          return payload && payload.mode === "read" && typeof payload.script === "string";
-        } catch {
-          return false;
-        }
-      })();
-      // An inspection is not a diagram edit. Do not create the "Before Copilot" standalone
-      // history snapshot before knowing whether it is read-only; the snapshot itself would
-      // pollute History even when DrawioFrame correctly skips persistence.
-      if (containsReadOnlyScript) {
-        recordDiagnostic("copilot.native-inspection.history-skipped",
-          "Skipped the pre-edit standalone History snapshot for a read-only native inspection",
-          { requestId, pageId, operationCount: edits.length });
-      } else {
-        await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
-      }
-      const containsScript = edits.some((edit) => edit.path === "cell:execute-script");
-      // DrawioFrame starts its XML-export confirmation window after the editor ACK.
-      // Give that window plus a small scheduling buffer time to finish before the App watchdog.
-      const watchdogTimeoutMs = containsScript ? nativeScriptWatchdogTimeoutMs + 40_000 : 30_000;
+      await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
+      const watchdogTimeoutMs = 30_000;
       return new Promise((resolve) => {
         nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
