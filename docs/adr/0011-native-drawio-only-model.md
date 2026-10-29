@@ -5,7 +5,7 @@
 
 > **Layout decision update:** Layout-specific removal statements in this ADR are superseded by [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](./0013-studio-owned-layout-engines.md). The single native Draw.io model decision remains in force; only the implementation of layout capability is restored.
 >
- > **Copilot execution update:** The script-first decision in ADR-0018 is retired by [ADR-0026 — Server-Side XML-First Copilot Editing and Frontend Version Synchronization](./0026-server-side-xml-first-copilot-editing.md). Copilot edits native XML directly on the server by default; scripts are an optional advanced fallback. The native XML single-source-of-truth and no-shadow-model constraints remain in force. Any blanket prohibition on agent-produced XML is retired. Automatic layout remains unchanged under ADR-0013.
+ > **Copilot execution update:** The execution decision and migration checklist below are superseded by [ADR-0026 — Server-Side XML-First Copilot Editing](./0026-server-side-xml-first-copilot-editing.md). Copilot mutations use revision-bound native XML patches on the server; typed operations remain a shortcut for common edits. The legacy iframe script execution path is removed. The native XML source-of-truth and no-replacement-XML constraints remain in force. Any blanket prohibition on agent-produced XML is retired. Automatic layout remains unchanged under ADR-0013.
 - Supersedes: the `DiagramDocument`-centric editing, layout and proposal flows in ADR-0005, ADR-0006 and ADR-0010 where they require a complete semantic projection.
 
 ## Context
