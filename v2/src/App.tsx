@@ -614,21 +614,12 @@ export default function App() {
       setDocumentSaveState("saved");
     },
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
-    applyNativeCellEdit: async (cellId, path, value, requestedPageId) => {
+    selectNativeCell: async (cellId, requestedPageId) => {
       const targetPageId = requestedPageId !== undefined ? requestedPageId : selectedNativePageId;
       const requestId = ++cellEditRequestSequenceRef.current;
-      // Selection is UI state, not a document mutation: it must not consume a history slot.
-      if (path !== "cell:select") await archiveStandaloneHistory("Before Copilot: " + path + " on " + cellId, requestId);
       recordDiagnostic("copilot.selection.dispatch", "Dispatching a Copilot selection to the active native Draw.io editor", {
-        cellId, path, requestId, pageId: targetPageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+        cellId, requestId, pageId: targetPageId
       });
-      if (path !== "cell:select") {
-        setCellEditRequest({ cellId, pageId: targetPageId, path, value, requestId });
-        return;
-      }
-      // Pure focus actions still need a native bridge acknowledgement. Posting a request is not
-      // proof the iframe accepted it; otherwise the chat can claim "Selected" while the canvas
-      // never changed focus (or the target disappeared during dispatch).
       await new Promise<void>((resolve, reject) => {
         nativeEditResolversRef.current.set(requestId, (result) => {
           if (result.success) resolve();
@@ -650,9 +641,9 @@ export default function App() {
           reject(new Error(error));
         }, watchdogTimeoutMs);
         nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
-        setCellEditRequest({ cellId, pageId: targetPageId, path, value, requestId });
+        setCellEditRequest({ cellId, pageId: targetPageId, path: "cell:select", value: "", requestId });
       });
-    },
+    }
 
   });
 
