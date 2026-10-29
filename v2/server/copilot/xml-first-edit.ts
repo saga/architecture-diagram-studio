@@ -91,6 +91,9 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
       const insertedWrapper = fragment.tagName === "object" || fragment.tagName === "UserObject" ? fragment : null;
       const insertedId = insertedWrapper?.getAttribute("id") || insertedCell?.getAttribute("id");
       if (!insertedCell || !insertedId) throw new Error("The inserted XML must be an mxCell or wrapper containing a direct mxCell with an ID.");
+      if (insertedCell.getAttribute("parent") !== parentId) {
+        throw new Error(`Inserted cell "${insertedId}" must declare parent="${parentId}" to match the patch target.`);
+      }
       if (byId.has(insertedId)) throw new Error(`Inserted cell ID "${insertedId}" already exists in the document.`);
       let model: Node | null = parentCell.cell;
       while (model && (model as Element).tagName !== "mxGraphModel") model = model.parentNode;
