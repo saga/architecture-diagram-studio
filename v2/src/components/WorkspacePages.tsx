@@ -3,7 +3,6 @@ import type { ButtonHTMLAttributes } from "react";
 import { Bubble, Sender } from "@ant-design/x";
 import { Button, Select } from "antd";
 import { recordDiagnostic } from "../diagnostics";
-import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import type { DiagnosticEntry } from "../diagnostics";
 
 
@@ -277,7 +276,7 @@ export default function WorkspacePages(props: Props) {
               {messages.length > 0 && <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
-                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.role === "assistant" ? (hideNativeScriptDetails(message.text) || (message.proposal ? "A diagram change is ready for review." : " ")) : message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
+                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.role === "assistant" ? (message.text || (message.proposal ? "A diagram change is ready for review." : " ")) : message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
                     {message.proposal && <div className="proposal-actions"><UiButton type="button" className="button button-primary" disabled={chatBusy} onClick={() => confirmProposal(message.proposal!.id)}>Confirm changes</UiButton><span>Nothing is applied until you confirm. This proposal expires after 10 minutes.</span></div>}
                   </div>
                 </article>)}
