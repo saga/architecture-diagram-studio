@@ -77,7 +77,7 @@ function elementSignature(element: Element): unknown {
 /**
  * mxGraphModel.dx/dy describe the current viewport translation, not diagram content.
  * Draw.io may rewrite them during export after the user pans the canvas; ignoring these
- * two root attributes prevents a read-only script from appearing to mutate the document.
+ * two root attributes prevents a read-only canvas inspection from appearing to mutate the document.
  * Keep every nested cell, geometry, style and metadata attribute in the signature.
  */
 function modelSemanticSignature(model: Element): unknown {
