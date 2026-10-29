@@ -18,7 +18,7 @@ The missing piece is an explicit extension seam: future capabilities should be a
 
 ## Decision
 
-Keep the native Draw.io XML and editor as the only document model and canvas. Add shared TypeScript contracts for future capabilities in `v2/src/model/native-diagram-capabilities.ts`. These are extension interfaces only; they do not install a registry, enable new UI features, or claim that layout/quality providers already exist.
+Keep the native Draw.io XML and editor as the only document model and canvas. The only active contract in `v2/src/model/native-diagram-capabilities.ts` is the read-only analysis interface consumed by spatial-region analysis. Do not introduce unused generic operation providers or registries.
 
 ### Contract boundaries
 
@@ -27,7 +27,7 @@ Keep the native Draw.io XML and editor as the only document model and canvas. Ad
 3. **Automatic layout is separate.** Whole-page Dagre/ELK and the other installed Studio-owned layout engines use the typed geometry planner and native editor bridge defined by ADR-0013 and ADR-0021. This is not a Copilot XML-edit fallback and its algorithms are unchanged by ADR-0026.
 4. **Analysis capabilities return findings only.** Quality, contrast, geometry and routing analyzers return native page/cell IDs and diagnostics. A finding does not itself block ordinary native editing or saving. A separately approved operation may define its own validation policy.
 5. **No implicit semantic model.** Providers may use the shared XML DOM/schema utilities and derive temporary facts needed for one operation. They must not persist nodes/edges as a substitute for mxCells, assign a closed Studio-specific shape taxonomy to the document, or serialize a derived representation over the original XML.
-6. **Capability availability is explicit.** A descriptor or future registry entry is not proof of an implemented capability. Only registered providers with concrete handlers, validation and tests may be exposed to the UI or Copilot.
+6. **Capability availability is explicit.** A type or descriptor is not proof of an implemented capability. Expose a capability only when a concrete implementation, validation and tests exist.
 7. **Keep the native editor as the renderer.** Copilot changes native cell properties through revision-bound XML patches; Studio layout changes only planned geometry through its native editor bridge. UI theme changes remain presentation-only and must not rewrite cell styles implicitly.
 
 ## How to reuse prior research
@@ -41,5 +41,5 @@ Keep the native Draw.io XML and editor as the only document model and canvas. Ad
 ## Consequences
 
 - V2 remains small today while retaining a stable contract for future native operations and analysis.
-- The current runtime has no generic capability registry or quality-analysis engine. The core Dagre/ELK layout path is implemented separately and is not a generic provider registry.
+- There is no generic capability registry. The installed spatial-region analyzer is a concrete read-only analysis implementation; the core layout path is implemented separately.
 - Future capability work should not add an operation for every UI action. Use the single XML patch path for Copilot mutations, keep whole-page layout on the Studio-owned planner, and add focused tests for XML preservation, stale revisions, page scope and persistence.
