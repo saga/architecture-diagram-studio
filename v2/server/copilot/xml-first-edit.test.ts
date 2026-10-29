@@ -62,6 +62,13 @@ describe("applyDrawioXmlPatch", () => {
     expect(deleted.drawioXml).toContain('id="1"');
   });
 
+  it("rejects an inserted fragment whose native parent does not match the patch target", () => {
+    expect(() => applyDrawioXmlPatch(source, [{
+      op: "insert-cell-xml", parentId: "1",
+      cellXml: '<mxCell id="node-b" value="Beta" vertex="1" parent="0"/>'
+    }])).toThrow(/must declare parent/);
+  });
+
   it("rejects inserted cells whose IDs already exist", () => {
     expect(() => applyDrawioXmlPatch(source, [{
       op: "insert-cell-xml", parentId: "1",
