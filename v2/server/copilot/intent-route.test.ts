@@ -1220,8 +1220,9 @@ describe("Copilot intent route result and revision contract", () => {
     expect(ids).toContain("c4.person");
     expect(ids).toContain("c4.relationship");
     expect(result).toMatchObject({ matchCount: 4, returnedCount: 4, truncated: false });
-    expect(String(result.scriptTemplate)).toContain("xmlAssertions");
-    expect(String(result.guidance)).toContain("Do not call get_drawio_reference");
+    expect(result.scriptTemplate).toBeUndefined();
+    expect(String(result.guidance)).toContain("edit_drawio_xml");
+    expect(String(result.guidance)).toContain("native mxCell XML");
   });
 
   it("keeps the C4 bundle off single-shape queries", async () => {
