@@ -1647,6 +1647,22 @@ registerCopilotIntentRoute(app, {
     );
     return version ? { drawioXml: version.drawioXml, revision: cachedXmlRevision(diagramVersionRevisionCache, version, version.drawioXml), versionId: version.id } : null;
   },
+  commitWorkspaceXmlPatch: async ({ patch, baseRevision, label }) => {
+    // Re-enter the canonical document-save route rather than duplicating its transaction,
+    // external-file conflict handling, immutable version index, or rollback logic.
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/workspace/document`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        origin: `http://127.0.0.1:${PORT}`
+      },
+      body: JSON.stringify({ patch, baseRevision, label })
+    });
+    let body: unknown;
+    try { body = await response.json(); }
+    catch { body = { error: "Workspace save route returned a non-JSON response." }; }
+    return { ok: response.ok, status: response.status, body };
+  },
   persistSessionId: async (sessionId) => withDataWrite(async () => {
     const state = await getWorkspaceState();
     workspaceState = { ...state, workspaceId: (await getProjectWorkspace())?.id, copilotSessionId: sessionId, updatedAt: new Date().toISOString() };
