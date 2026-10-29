@@ -531,7 +531,7 @@ describe("Copilot intent route result and revision contract", () => {
       { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(String(copilot.getPreparedSystemMessage())).toContain("typed operations are shortcuts, not limits");
+    expect(String(copilot.getPreparedSystemMessage())).toContain("server-side document-editing capability");
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
@@ -545,7 +545,7 @@ describe("Copilot intent route result and revision contract", () => {
     const prompt = String(copilot.getPreparedSystemMessage());
     expect(prompt).toContain("Preserve rename text verbatim");
     expect(prompt).toContain("geometry");
-    expect(prompt).toContain("selectedCell.cellId");
+    expect(prompt).toContain("exact native cell IDs");
     expect(prompt).toContain("catalogue misses do not prove absence");
     expect(prompt).toContain("edit_drawio_xml");
     expect(prompt).not.toContain("run_drawio_script");
