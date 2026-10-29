@@ -402,7 +402,13 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             pageIdsBefore: impactReport.pageIdsBefore,
             pageIdsAfter: impactReport.pageIdsAfter,
             summary: impactReport.summary,
-            changes: impactReport.changes.slice(0, 150)
+            changes: impactReport.changes.slice(0, 150).map((change) => ({
+              pageId: change.pageId,
+              cellId: change.cellId,
+              label: change.label.slice(0, 120),
+              kind: change.kind,
+              fields: change.fields
+            }))
           } : null
         }, finalStatus === "partial" || finalStatus === "failed" ? "warn" : "info");
         if (execution.ok) {
