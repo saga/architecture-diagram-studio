@@ -1,0 +1,42 @@
+import { describe, expect, it } from "vitest";
+import { applyDrawioXmlPatch } from "./xml-first-edit";
+
+const source = `<mxfile><diagram id="page-1" name="Page-1"><mxGraphModel><root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+<mxCell id="node-a" value="Alpha" style="rounded=1;" vertex="1" parent="1"><mxGeometry x="10" y="20" width="100" height="40" as="geometry"/></mxCell>
+<mxCell id="edge-a" edge="1" source="node-a" target="node-a" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="3" y="4" as="sourcePoint"/></mxGeometry></mxCell>
+</root></mxGraphModel></diagram></mxfile>`;
+
+describe("applyDrawioXmlPatch", () => {
+  it("changes native cell attributes and geometry while preserving unrelated cells", () => {
+    const result = applyDrawioXmlPatch(source, [
+      { op: "set-cell-attributes", cellId: "node-a", attributes: { value: "Beta", style: "rounded=1;fillColor=#fff;" } },
+      { op: "set-geometry", cellId: "node-a", geometry: { x: 25, y: 30 } }
+    ]);
+    expect(result.changedCellIds).toEqual(["node-a"]);
+    expect(result.operationCount).toBe(2);
+    expect(result.drawioXml).toContain('id="node-a"');
+    expect(result.drawioXml).toContain('value="Beta"');
+    expect(result.drawioXml).toContain('x="25"');
+    expect(result.drawioXml).toContain('id="edge-a"');
+    expect(result.drawioXml).toContain('sourcePoint');
+  });
+
+  it("rejects missing cell IDs instead of guessing a target", () => {
+    expect(() => applyDrawioXmlPatch(source, [
+      { op: "set-cell-attributes", cellId: "missing", attributes: { value: "Beta" } }
+    ])).toThrow(/not found/);
+  });
+
+  it("does not permit changing a cell ID through an attribute patch", () => {
+    expect(() => applyDrawioXmlPatch(source, [
+      { op: "set-cell-attributes", cellId: "node-a", attributes: { id: "node-b" } }
+    ])).toThrow(/immutable/);
+  });
+
+  it("rejects invalid XML before patching", () => {
+    expect(() => applyDrawioXmlPatch("<mxfile><broken>", [
+      { op: "set-cell-attributes", cellId: "node-a", attributes: { value: "Beta" } }
+    ])).toThrow();
+  });
+});
