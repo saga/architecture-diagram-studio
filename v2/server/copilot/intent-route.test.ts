@@ -565,7 +565,7 @@ describe("Copilot intent route result and revision contract", () => {
       { op: "add_node_below", cellId: "api", targetLabel: "API Service", newLabel: "eee" }
     ]);
     expect(harness.acknowledgements.pending.size).toBe(1);
-    expect(String(copilot.getPreparedSystemMessage())).toContain("server-side document-editing capability");
+    expect(String(copilot.getPreparedSystemMessage())).toContain("edit_drawio_xml");
   });
 
   it("returns a revision-checked XML patch for standalone browser-owned persistence", async () => {
@@ -607,7 +607,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("geometry");
     expect(prompt).toContain("exact native cell IDs");
     expect(prompt).toContain("Catalogue misses do not prove a shape is absent");
-    expect(prompt).toContain("server-side document-editing capability");
+    expect(prompt).toContain("edit_drawio_xml");
     expect(prompt).not.toContain("run_drawio_script");
     expect(prompt).toContain("report_intent_outcome for information");
     expect(prompt.length).toBeLessThan(2800);
