@@ -1678,6 +1678,7 @@ function createDrawioElementSearchTool(sessionId: string) {
       abortActiveTurn = null;
       contextBySession.delete(sessionId);
       pendingNativeEdits.delete(sessionId);
+      pendingXmlPatches.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);
