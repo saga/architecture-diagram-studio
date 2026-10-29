@@ -101,6 +101,7 @@ interface IntentDependencies {
   getWorkspaceVersionSnapshot(versionId: string): Promise<{ drawioXml: string; revision: string; versionId: string } | null>;
   collectAgentWorkspaceContext(prompt?: string): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
+  commitWorkspaceXmlPatch?(input: { patch: Array<Record<string, unknown>>; baseRevision: string; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
   acknowledgements?: NativeExecutionAcknowledgements;
 }
 
@@ -115,6 +116,7 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 const pendingNativeProposals = new Map<string, PendingNativeProposal>();
 type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
+const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; summary: string }>();
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -1071,6 +1073,76 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
+  function createEditDrawioXmlTool(sessionId: string) {
+    return defineTool("edit_drawio_xml", {
+      description: "Edit the active workspace Draw.io document by proposing a cell-scoped XML patch. This is the terminal editing action: the server applies the patch to the native XML, validates it, and persists it with revision checks. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, or delete-cell to remove a cell.",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: { type: "string", minLength: 1, maxLength: 1000 },
+          patch: {
+            type: "array", minItems: 1, maxItems: 100,
+            items: {
+              oneOf: [
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-cell-attributes"] },
+                  cellId: { type: "string", minLength: 1 },
+                  attributes: { type: "object", additionalProperties: { oneOf: [{ type: "string" }, { type: "null" }] } }
+                }, required: ["op", "cellId", "attributes"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-geometry"] },
+                  cellId: { type: "string", minLength: 1 },
+                  geometry: { type: "object", properties: {
+                    x: { type: "number" }, y: { type: "number" },
+                    width: { type: "number" }, height: { type: "number" }
+                  }, minProperties: 1, additionalProperties: false }
+                }, required: ["op", "cellId", "geometry"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["delete-cell"] },
+                  cellId: { type: "string", minLength: 1 }
+                }, required: ["op", "cellId"], additionalProperties: false }
+              ]
+            }
+          }
+        },
+        required: ["summary", "patch"],
+        additionalProperties: false
+      },
+      handler: async (args: { summary?: unknown; patch?: unknown }) => {
+        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
+            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
+          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };
+        }
+        if (!deps.commitWorkspaceXmlPatch) {
+          return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };
+        }
+        const context = contextBySession.get(sessionId) as { documentRevision?: string } | undefined;
+        const snapshot = await deps.getWorkspaceDiagramSnapshot();
+        if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
+          return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
+        }
+        const registration = registerTerminalIntent(sessionId, "native_edit");
+        if (!registration.accepted) {
+          return { accepted: false, terminal: false, reason: "terminal_action_already_registered", registeredKind: registration.registeredKind };
+        }
+        pendingXmlPatches.set(sessionId, {
+          patch: args.patch as Array<Record<string, unknown>>,
+          baseRevision: snapshot.revision,
+          summary: args.summary.trim()
+        });
+        await deps.writeLog("tool.edit_drawio_xml.accepted", {
+          sessionId, summary: args.summary.trim(), operationCount: args.patch.length,
+          baseRevision: snapshot.revision
+        });
+        return {
+          accepted: true, terminal: true, execution: "after_model_turn",
+          summary: args.summary.trim(), operationCount: args.patch.length,
+          instructions: "The server will apply and persist this XML patch after the model turn. Do not call another editing tool and do not claim success until the final persistence receipt is returned."
+        };
+      }
+    });
+  }
+
   function createProposeNativeEditsTool(sessionId: string) {
     return defineTool("propose_native_edits", {
       description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use run_drawio_script for a markup-preserving substring edit. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use run_drawio_script; never fabricate cell IDs.",
@@ -1491,6 +1563,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioElementSearchTool(sessionId),
               createDrawioGraphInspectionTool(sessionId),
               createDrawioReferenceTool(sessionId),
+              createEditDrawioXmlTool(sessionId),
               createRunDrawioScriptTool(sessionId),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
@@ -1659,6 +1732,46 @@ function createDrawioElementSearchTool(sessionId: string) {
         ...(plan.modelCallUsages.length ? { modelCallUsages: plan.modelCallUsages } : {}),
         ...(plan.contextUsage ? { contextUsage: plan.contextUsage } : {})
       };
+      const pendingXmlPatch = pendingXmlPatches.get(sessionId);
+      if (pendingXmlPatch) {
+        pendingXmlPatches.delete(sessionId);
+        try {
+          const receipt = await deps.commitWorkspaceXmlPatch!({
+            patch: pendingXmlPatch.patch,
+            baseRevision: pendingXmlPatch.baseRevision,
+            label: "Copilot: " + pendingXmlPatch.summary
+          });
+          const body = receipt.body && typeof receipt.body === "object" ? receipt.body as Record<string, unknown> : {};
+          if (!receipt.ok) {
+            const message = typeof body.error === "string" ? body.error : "The server rejected the XML patch.";
+            await deps.writeLog("turn.completed.xml-patch-failed", {
+              requestId, sessionId, status: receipt.status, baseRevision: pendingXmlPatch.baseRevision, error: message
+            });
+            res.status(receipt.status >= 400 ? receipt.status : 409).json({
+              outcome: "edit_failed", reply: message, requestId, ...shared
+            });
+            return;
+          }
+          await deps.writeLog("turn.completed.xml-patch-committed", {
+            requestId, sessionId, summary: pendingXmlPatch.summary,
+            baseRevision: pendingXmlPatch.baseRevision, receipt: body
+          });
+          res.json({
+            outcome: "edit_committed",
+            reply: typeof body.workspaceRevision === "string"
+              ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
+              : pendingXmlPatch.summary + "。服务端已接受 XML 修改。",
+            requestId, persistence: body, ...shared
+          });
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await deps.writeLog("turn.completed.xml-patch-failed", { requestId, sessionId, error: message });
+          res.status(500).json({ outcome: "edit_failed", reply: "服务端 XML 修改失败：" + message, requestId, ...shared });
+          return;
+        }
+      }
+
       if (plan.capturedNativeEdits) {
         const nativeEdits = plan.capturedNativeEdits;
         // Local single-user Studio applies native edits directly by default, scripts included.
