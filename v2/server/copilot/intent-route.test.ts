@@ -30,7 +30,6 @@ function runtimeInspectionWithShapes(liveShapeClasses: string[], liveShapeClasse
     pageId: "p1",
     capabilities: requirements,
     capabilityManifest: {
-      scriptSupported: true,
       required: requirements,
       missing: { graph: [], model: [], view: [] },
       jsShapeClasses: { requested: [], registered: {} }
