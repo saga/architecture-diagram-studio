@@ -3,9 +3,8 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CopilotRuntime } from "./runtime";
-import { NativeExecutionAcknowledgements, registerCopilotIntentRoute } from "./intent-route";
+import { registerCopilotIntentRoute } from "./intent-route";
 import { workspaceRevision } from "../storage";
-import type { ResolvedNativeEditOperation } from "../../src/model/native-edit-operations";
 import {
   DRAWIO_RUNTIME_BRIDGE_VERSION, PINNED_DRAWIO_VERSION, PINNED_RUNTIME_CAPABILITY_REQUIREMENTS
 } from "../../src/model/drawio-runtime-contract";
@@ -47,7 +46,6 @@ type ServerHarness = {
   baseUrl: string;
   server: Server;
   logs: Array<{ event: string; fields?: Record<string, unknown> }>;
-  acknowledgements: NativeExecutionAcknowledgements;
   snapshot: ReturnType<typeof vi.fn>;
   copilot: Record<string, unknown>;
   persistSessionId: ReturnType<typeof vi.fn>;
@@ -58,13 +56,11 @@ const servers: Server[] = [];
 async function createServer(options: {
   snapshot?: () => Promise<{ drawioXml: string; revision: string } | null>;
   copilot?: Record<string, unknown>;
-  acknowledgements?: NativeExecutionAcknowledgements;
   commitWorkspaceXmlPatch?: (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => Promise<{ ok: boolean; status: number; body: unknown }>;
 } = {}): Promise<ServerHarness> {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
   const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
-  const acknowledgements = options.acknowledgements ?? new NativeExecutionAcknowledgements();
   const snapshot = vi.fn(options.snapshot ?? (async () => ({ drawioXml: XML, revision: workspaceRevision(XML) })));
   const copilot = options.copilot ?? {
     providerInfo: { mode: "byok", host: null },
@@ -85,13 +81,12 @@ async function createServer(options: {
     ...(options.commitWorkspaceXmlPatch ? { commitWorkspaceXmlPatch: options.commitWorkspaceXmlPatch } : {}),
     collectAgentWorkspaceContext: async () => ({}),
     persistSessionId,
-    acknowledgements
   });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const address = server.address() as AddressInfo;
-  return { baseUrl: `http://127.0.0.1:${address.port}`, server, logs, acknowledgements, snapshot, copilot, persistSessionId };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, server, logs, snapshot, copilot, persistSessionId };
 }
 
 afterEach(async () => {
@@ -462,7 +457,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(400);
     expect(body.outcome).toBe("failed");
     expect(String(body.reply)).toContain("invalid Draw.io XML");
-    expect(harness.acknowledgements.pending.size).toBe(0);
+
     expect(harness.snapshot).not.toHaveBeenCalled();
   });
 
@@ -548,7 +543,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe(outcome);
     expect(body.reply).toBe(reply);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+
   });
 
   it("rejects a workspace XML snapshot that is stale against the authoritative revision", async () => {
@@ -559,7 +554,7 @@ describe("Copilot intent route result and revision contract", () => {
     }));
     expect(response.status).toBe(409);
     expect(body.outcome).toBe("stale_context");
-    expect(harness.acknowledgements.pending.size).toBe(0);
+
   });
   it("does not consult or persist workspace state for standalone requests", async () => {
     const harness = await createServer({ copilot: reportingCopilot("answered", "This is a standalone diagram.") });
@@ -629,7 +624,7 @@ describe("Copilot intent route result and revision contract", () => {
       geometry: { x: 1, y: 1, width: 20, height: 20 }, parentId: "1"
     }]);
     expect(harness.logs.some((entry) => entry.event === "tool.search_drawio_elements.completed")).toBe(true);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+
   });
 
   it("returns exact-label and rich-label substring matches together, ranking exact labels first", async () => {
@@ -876,7 +871,7 @@ describe("Copilot intent route result and revision contract", () => {
       }]
     });
     expect(harness.logs.some((entry) => entry.event === "tool.inspect_drawio_graph.completed")).toBe(true);
-    expect(harness.acknowledgements.pending.size).toBe(0);
+
   });
 
   it("never reports box geometry for an inspected edge", async () => {
