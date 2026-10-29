@@ -704,7 +704,7 @@ export default function App() {
       return new Promise((resolve) => {
         nativeEditAckContextsRef.current.set(requestId, acknowledgement);
         nativeEditResolversRef.current.set(requestId, (result) => {
-          resolve({
+          const executionResult = {
             ok: result.success,
             error: result.error,
             errorStack: result.errorStack,
@@ -715,10 +715,28 @@ export default function App() {
             // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
             rolledBack: result.success ? false : result.batchRolledBack === true,
             steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error, stack: step.stack }))
-          });
+          };
+          recordDiagnostic("copilot.native-edits.final-result", "Received the final native editor serialization/persistence acknowledgement", {
+            requestId: acknowledgement.requestId,
+            editorRequestId: requestId,
+            documentRevision: acknowledgement.documentRevision,
+            sessionId: acknowledgement.sessionId,
+            standalone: acknowledgement.standalone,
+            ok: executionResult.ok,
+            failureStage: executionResult.failureStage ?? null,
+            applicationState: executionResult.applicationState ?? null,
+            rolledBack: executionResult.rolledBack,
+            resultStepCount: executionResult.steps.length,
+            auditWarning: executionResult.auditWarning ?? null
+          }, executionResult.ok ? "info" : "warn");
+          resolve(executionResult);
         });
         recordDiagnostic("copilot.native-edits.dispatch", "Dispatching an atomic native Draw.io edit batch to the active editor", {
-          requestId, editCount: edits.length, edits, pageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+          requestId: acknowledgement.requestId,
+          editorRequestId: requestId,
+          documentRevision: acknowledgement.documentRevision,
+          sessionId: acknowledgement.sessionId,
+          editCount: edits.length, edits, pageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
         });
         setCellEditRequest({ cellId: "__batch__", pageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
         const watchdogTimerId = window.setTimeout(() => {
@@ -732,8 +750,13 @@ export default function App() {
           setCellEditRequest((current) => current?.requestId === requestId ? null : current);
           const timeoutError = "The native Draw.io editor has not returned a final serialized result within " +
             Math.round(watchdogTimeoutMs / 1000) + " seconds. The edit outcome is still unknown.";
+          const acknowledgement = nativeEditAckContextsRef.current.get(requestId);
           recordDiagnostic("copilot.native-edits.timeout", "Stopped waiting for a native edit without declaring its final outcome", {
-            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs,
+            requestId: acknowledgement?.requestId ?? null,
+            editorRequestId: requestId,
+            documentRevision: acknowledgement?.documentRevision ?? null,
+            sessionId: acknowledgement?.sessionId ?? null,
+            editCount: edits.length, containsScript, watchdogTimeoutMs,
             reconciliationPending: true
           }, "warn");
           resolve({
