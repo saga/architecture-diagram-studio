@@ -58,22 +58,6 @@ function assertCopilotRequestContextFresh(
   throw new Error(reason + " " + guidance);
 }
 
-function describeNativeExecutionState(execution: NativeEditExecution): string {
-  if (execution.applicationState === "changed-unverified") {
-    return "（文档已发生变化但未通过验证；先检查当前图，不要重试或直接恢复旧版本）";
-  }
-  if (execution.applicationState === "not-applied") {
-    return "（未检测到文档变化）";
-  }
-  if (execution.applicationState === "applied-and-verified") {
-    return "（图形修改已通过验证；请确认保存状态）";
-  }
-  if (execution.rolledBack) {
-    return "（编辑器已确认回滚）";
-  }
-  return "（回滚状态未确认；先检查当前图和 History，不要盲目重试）";
-}
-
 interface CopilotIntentOptions {
   projectWorkspace: Workspace;
   standaloneMode: boolean;
@@ -357,11 +341,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             role: "assistant",
             id: Date.now() + 1,
             // Native edit status is derived from the editor acknowledgement, never from model-generated prose.
-            text: scriptVerifiedNoChange
-              ? "Verified the requested native state against the serialized XML; the diagram was already in that state, so no semantic change was made: " +
-                operations.map(describeNativeEditOperation).join("; ") + "."
-              : "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
-                operations.map(describeNativeEditOperation).join("; ") + "." + (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
+            text: "Applied " + operations.length + " native change" + (operations.length === 1 ? "" : "s") + ": " +
+              operations.map(describeNativeEditOperation).join("; ") + "." + (execution.auditWarning ? " Warning: " + execution.auditWarning : "")
           }]);
         } else {
           const reason = failedStep?.error || execution.error || "the native editor rejected the batch";
