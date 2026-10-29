@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CopilotRuntime } from "./runtime";
-import { NativeExecutionAcknowledgements, registerCopilotIntentRoute, requiresExplicitConfirmation } from "./intent-route";
+import { NativeExecutionAcknowledgements, registerCopilotIntentRoute } from "./intent-route";
 import { workspaceRevision } from "../storage";
 import type { ResolvedNativeEditOperation } from "../../src/model/native-edit-operations";
 import {
