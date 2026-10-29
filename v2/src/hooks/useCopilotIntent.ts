@@ -8,7 +8,7 @@ import { recordDiagnostic } from "../diagnostics";
 import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type Workspace = { id: string } | null;
 
 function assertCopilotRequestContextFresh(
@@ -277,11 +277,6 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply.replace("正在交由浏览器写回所选本地文件。", "浏览器已将变更写回所选本地文件。") }]);
         return;
       }
-      if (plan.outcome === "applied") {
-        setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply }]);
-        return;
-      }
-
       if (plan.outcome === "selected") {
         const selection = plan.selection;
         if (!applyNativeCellEdit) throw new Error("The native Draw.io selection bridge is unavailable; the element was not selected.");
