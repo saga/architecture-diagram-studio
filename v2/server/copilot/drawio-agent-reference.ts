@@ -22,33 +22,65 @@ function bounded(value: string): string {
     ? value
     : value.slice(0, MAX_REFERENCE_CHARS) + "\n\n[Reference truncated at the configured response limit.]";
 }
+const XML_FIRST_CONTRACT = `# Draw.io XML-First Editing Contract
+
+Native Draw.io XML is the only source of truth. Copilot mutations for workspace documents use the server-side `edit_drawio_xml` tool. Never execute or generate JavaScript for the Draw.io iframe.
+
+Bind each edit to the exact current document revision and active page ID. Resolve targets from revision-bound native cell IDs; reject missing or ambiguous IDs. Preserve unrelated pages, cells, UserObject wrappers, custom shapes, unknown attributes, styles, geometry, and edge relationships.
+
+Supported patch operations:
+- `set-cell-attributes`: update explicit native mxCell attributes; for UserObject/object wrappers, label/value attributes are applied to the wrapper while geometry/style remain on its child mxCell.
+- `set-geometry`: update explicit x/y/width/height values.
+- `delete-cell`: remove only the requested cell or its UserObject/object wrapper.
+- `insert-cell-xml`: insert a native mxCell or UserObject/object XML fragment with a unique ID under the existing page root.
+
+Do not rebuild an existing diagram from a reduced model. Validate the result and report success only after the server returns a successful versioned persistence receipt. If the document revision changed, reload and retry against the new revision. After commit, the frontend must reload the authoritative workspace XML; stale autosave must not overwrite it. Standalone files keep their browser File System Access writeback workflow.
+
+Use Studio's existing automatic-layout capability for layout requests. Do not reimplement or alter layout engines as part of XML editing.
+`;
+
+const XML_PATCH_RECIPES = `## Native XML patch recipes
+
+Rename a normal cell:
+```json
+{ "op": "set-cell-attributes", "cellId": "cell-id-from-current-context", "attributes": { "value": "New label" } }
+```
+
+Change geometry without touching style or terminals:
+```json
+{ "op": "set-geometry", "cellId": "cell-id-from-current-context", "geometry": { "x": 240, "y": 120 } }
+```
+
+Add a native vertex under an existing page root:
+```json
+{ "op": "insert-cell-xml", "parentId": "1", "cellXml": "<mxCell id=\\"new-unique-id\\" value=\\"New node\\" vertex=\\"1\\" parent=\\"1\\"><mxGeometry x=\\"240\\" y=\\"120\\" width=\\"120\\" height=\\"60\\" as=\\"geometry\\"/></mxCell>" }
+```
+
+For edges, preserve valid source/target cell IDs and native geometry. For UserObject/object cells, keep the wrapper and inner mxCell together. Never invent IDs from stale context or assume IDs are unique across different pages; every patch must specify the active page ID.
+`;
+
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
+  const shapeDiscovery = getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0]?.trim() ?? "";
+  const safeOverview = [
+    XML_FIRST_CONTRACT,
+    getSection(markdown, "API ownership"),
+    shapeDiscovery
+  ].filter(Boolean).join("\\n\\n");
   let selected: string;
-  if (topic === "all") {
-    selected = markdown.trim();
-  } else if (topic === "api_ownership") {
-    selected = getSection(markdown, "API ownership");
+  if (topic === "all" || topic === "overview" || topic === "api_ownership") {
+    selected = safeOverview;
   } else if (topic === "shape_discovery") {
-    selected = getSection(markdown, "Shape discovery");
+    selected = shapeDiscovery;
   } else if (topic === "postconditions") {
-    selected = getSection(markdown, "Validation and postconditions");
+    selected = XML_FIRST_CONTRACT + "\\n\\nXML validation is required before persistence. A successful tool call is not a persistence receipt; only the server's successful versioned-save response confirms the commit.";
   } else if (topic === "recipes") {
-    const shapeDiscovery = getSection(markdown, "Shape discovery");
-    const c4Start = shapeDiscovery.indexOf("### C4 shape recipes");
-    const c4Recipes = c4Start >= 0 ? shapeDiscovery.slice(c4Start) : "";
-    selected = [getSection(markdown, "Recipes"), c4Recipes].filter(Boolean).join("\n\n");
+    selected = XML_PATCH_RECIPES;
   } else {
-    selected = [
-      "# Draw.io Agent Reference (overview)",
-      getSection(markdown, "Contract and trust boundaries"),
-      getSection(markdown, "Shape discovery"),
-      getSection(markdown, "Validation and postconditions")
-    ].filter(Boolean).join("\n\n");
+    selected = XML_FIRST_CONTRACT;
   }
-  // Bound every topic: an individually large section or the composed overview must not
-  // bypass the same response-size guard that protects the "all" path.
   return bounded(selected.trim());
 }
+
 export async function readDrawioAgentReference(topic: DrawioReferenceTopic): Promise<string> {
   let lastError: unknown;
   for (const url of REFERENCE_URLS) {
