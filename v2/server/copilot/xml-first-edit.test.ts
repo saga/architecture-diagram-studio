@@ -41,6 +41,14 @@ describe("applyDrawioXmlPatch", () => {
     }])).toThrow(/already exists/);
   });
 
+  it("deletes only the requested cell and preserves the page root and unrelated cells", () => {
+    const result = applyDrawioXmlPatch(source, [{ op: "delete-cell", cellId: "node-a" }]);
+    expect(result.drawioXml).not.toContain('id="node-a"');
+    expect(result.drawioXml).toContain('id="edge-a"');
+    expect(result.drawioXml).toContain('<root>');
+    expect(result.drawioXml).toContain('id="1"');
+  });
+
   it("rejects missing cell IDs instead of guessing a target", () => {
     expect(() => applyDrawioXmlPatch(source, [
       { op: "set-cell-attributes", cellId: "missing", attributes: { value: "Beta" } }
