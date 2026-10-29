@@ -73,8 +73,8 @@ describe("applyDrawioXmlPatch", () => {
     const result = applyDrawioXmlPatch(multiPage, [
       { op: "set-cell-attributes", cellId: "node-a", attributes: { value: "Updated" } }
     ], "page-2");
-    const firstPage = result.drawioXml.match(/<diagram\\b[^>]*id="page-1"[^>]*>([\\s\\S]*?)<\\/diagram>/)?.[1] ?? "";
-    const secondPage = result.drawioXml.match(/<diagram\\b[^>]*id="page-2"[^>]*>([\\s\\S]*?)<\\/diagram>/)?.[1] ?? "";
+    const firstPage = result.drawioXml.match(/<diagram\b[^>]*id="page-1"[^>]*>([\s\\S]*?)<\/diagram>/)?.[1] ?? "";
+    const secondPage = result.drawioXml.match(/<diagram\b[^>]*id="page-2"[^>]*>([\s\\S]*?)<\/diagram>/)?.[1] ?? "";
     expect(firstPage).toContain('value="First"');
     expect(firstPage).not.toContain('value="Updated"');
     expect(secondPage).toContain('value="Updated"');
