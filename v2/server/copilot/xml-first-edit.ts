@@ -1,4 +1,4 @@
-import { inflateRawSync, deflateRawSync, strFromU8, strToU8 } from "fflate";
+import { inflateSync, deflateSync, strFromU8, strToU8 } from "fflate";
 import { parseDrawioXml, serializeDrawioXml, findDrawioElements } from "../../src/model/drawio-xml-dom";
 import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 
@@ -48,7 +48,7 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
       const encoded = (selectedDiagram.textContent ?? "").trim();
       if (!encoded) throw new Error("The selected Draw.io page has no native mxGraphModel content.");
       try {
-        const inflated = strFromU8(inflateRawSync(Buffer.from(encoded, "base64")));
+        const inflated = strFromU8(inflateSync(Buffer.from(encoded, "base64")));
         const decoded = decodeURIComponent(inflated);
         const modelDocument = parseDrawioXml(decoded);
         if (modelDocument.documentElement.tagName !== "mxGraphModel") {
@@ -218,7 +218,7 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
     const model = selectedDiagram.getElementsByTagName("mxGraphModel").item(0);
     if (!model) throw new Error("The patched compressed page lost its mxGraphModel root.");
     const modelXml = serializeDrawioXml(model);
-    selectedDiagram.textContent = Buffer.from(deflateRawSync(strToU8(encodeURIComponent(modelXml)))).toString("base64");
+    selectedDiagram.textContent = Buffer.from(deflateSync(strToU8(encodeURIComponent(modelXml)))).toString("base64");
   }
   const drawioXml = serializeDrawioXml(document);
   if (!validateDrawioXmlDocument(drawioXml).success) {
