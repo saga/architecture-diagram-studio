@@ -22,6 +22,25 @@ describe("applyDrawioXmlPatch", () => {
     expect(result.drawioXml).toContain('sourcePoint');
   });
 
+  it("inserts a native Draw.io cell fragment without rebuilding the surrounding document", () => {
+    const result = applyDrawioXmlPatch(source, [{
+      op: "insert-cell-xml",
+      parentId: "1",
+      cellXml: '<mxCell id="node-b" value="Beta" vertex="1" parent="1"><mxGeometry x="220" y="20" width="100" height="40" as="geometry"/></mxCell>'
+    }]);
+    expect(result.changedCellIds).toEqual(["node-b"]);
+    expect(result.drawioXml).toContain('id="node-b"');
+    expect(result.drawioXml).toContain('value="Beta"');
+    expect(result.drawioXml).toContain('id="edge-a"');
+  });
+
+  it("rejects inserted cells whose IDs already exist", () => {
+    expect(() => applyDrawioXmlPatch(source, [{
+      op: "insert-cell-xml", parentId: "1",
+      cellXml: '<mxCell id="node-a" value="Duplicate" vertex="1" parent="1"/>'
+    }])).toThrow(/already exists/);
+  });
+
   it("rejects missing cell IDs instead of guessing a target", () => {
     expect(() => applyDrawioXmlPatch(source, [
       { op: "set-cell-attributes", cellId: "missing", attributes: { value: "Beta" } }
