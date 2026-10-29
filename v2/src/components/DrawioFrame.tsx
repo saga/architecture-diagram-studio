@@ -581,6 +581,13 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          if (requestId !== null && pending?.path === "cell:select") {
+            onNativeEditResultRef.current?.(nativeResult);
+            recordDiagnostic("drawio.selection.acknowledged", "Draw.io acknowledged the requested native selection", {
+              cellId: data.cellId, requestId, durationMs: Date.now() - pending.startedAt
+            });
+            return;
+          }
           if (requestId !== null && pending) {
             const previous = pendingSaveConfirmationsRef.current.get(requestId);
             if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
