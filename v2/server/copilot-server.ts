@@ -1105,6 +1105,7 @@ app.get("/api/workspace/state", async (_req, res) => {
 
 app.put("/api/workspace/document", async (req, res) => {
   let drawioXml: unknown = req.body?.drawioXml;
+  let xmlPatchReceipt: { pageId: string | null; operationCount: number; changedCellIds: string[] } | null = null;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
   // Copilot may submit a cell-scoped XML patch. The server applies it to the native source
   // and then sends the result through this same revision-checked, versioned save transaction.
@@ -1118,6 +1119,7 @@ app.put("/api/workspace/document", async (req, res) => {
       const pageId = typeof req.body?.pageId === "string" ? req.body.pageId : null;
       const patched = applyDrawioXmlPatch(baseState.drawioXml, req.body.patch as DrawioXmlPatch[], pageId);
       drawioXml = patched.drawioXml;
+      xmlPatchReceipt = { pageId, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds };
       await writeLog("workspace.document.xml-patch.applied", {
         operationCount: patched.operationCount,
         changedCellIds: patched.changedCellIds,
@@ -1307,7 +1309,7 @@ app.put("/api/workspace/document", async (req, res) => {
       return { status: 200 as const, saved: false, version: workspaceVersions[workspaceVersions.length - 1] ?? null, workspaceRevision: currentRevision };
     });
     if (result.status === 409) { res.status(409).json(result); return; }
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, ...result, ...(xmlPatchReceipt ? { xmlPatch: xmlPatchReceipt } : {}) });
   } catch (error) {
     const cause = error instanceof Error ? error : new Error(String(error));
     const errorCode = (error as NodeJS.ErrnoException | undefined)?.code;
