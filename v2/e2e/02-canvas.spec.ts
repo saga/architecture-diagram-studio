@@ -201,40 +201,6 @@ async function dragNativeNode(page: import("@playwright/test").Page, labelText: 
     .not.toEqual(before);
 }
 
-/** Returns all native edge styles from inline or compressed Draw.io pages. */
-function edgeStyles(xml: string): string[] {
-  try {
-    const source = parseDrawioXml(xml);
-    const documentRoot = source.documentElement;
-    const models: Element[] = [];
-    if (documentRoot.nodeName === "mxGraphModel") {
-      models.push(documentRoot as unknown as Element);
-    } else if (documentRoot.nodeName === "mxfile") {
-      for (const page of Array.from(documentRoot.getElementsByTagName("diagram"))) {
-        const inlineModel = page.getElementsByTagName("mxGraphModel").item(0);
-        if (inlineModel) {
-          models.push(inlineModel);
-          continue;
-        }
-        const payload = (page.textContent || "").trim();
-        if (!payload) continue;
-        try {
-          const decoded = parseDrawioXml(decodeDrawioPageXml(payload));
-          if (decoded.documentElement.nodeName === "mxGraphModel") {
-            models.push(decoded.documentElement as unknown as Element);
-          }
-        } catch { /* Continue with the other pages. */ }
-      }
-    }
-    return models.flatMap((model) =>
-      Array.from(model.getElementsByTagName("mxCell"))
-        .filter((cell) => cell.getAttribute("edge") === "1")
-        .map((cell) => cell.getAttribute("style") || "")
-    );
-  } catch {
-    return [];
-  }
-}
 
 test.describe("原生画布", () => {
   test("加载工作区的 Draw.io 文件并渲染全部节点", async ({ page }) => {
