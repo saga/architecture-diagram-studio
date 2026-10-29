@@ -49,9 +49,9 @@ Every mutation plan must be revalidated against the same page and current XML re
 
 Copilot edits the authoritative native Draw.io XML directly on the server. The server binds the edit to the current document revision, validates the resulting XML, checks the before/after diff, persists a new version and emits a document-change notification. The frontend loads that exact persisted revision and updates its revision baseline; stale editor state must never overwrite a newer server revision. The standalone-file workflow continues to write through the browser's selected file handle. See [ADR-0026](../docs/adr/0026-server-side-xml-first-copilot-editing.md).
 
-The `run_drawio_script` tool, its model-generated JavaScript execution path, script retries, and script-only watchdog/confirmation logic are removed. Copilot edits do not execute model-authored JavaScript inside the Draw.io iframe. Typed edit operations may remain only where they serve non-Copilot deterministic workflows such as the existing automatic-layout pipeline; they are not a required intermediate representation for Copilot XML edits.
+The `run_drawio_script` tool, its model-generated JavaScript execution path, script retries, and script-only watchdog/confirmation logic are removed. Copilot edits do not execute model-authored JavaScript inside the Draw.io iframe. `edit_drawio_xml` is the primary mutation path; `propose_native_edits` remains a typed shortcut for common deterministic edits, and neither path accepts script text.
 
-Native Draw.io `mxfile` XML remains the sole diagram model; there is no reduced shadow graph or XML reconstruction. Use [ADR-0018](../docs/adr/0018-ai-first-native-drawio-execution.md) for the design and implementation details.
+Native Draw.io `mxfile` XML remains the sole diagram model; there is no reduced shadow graph or XML reconstruction. The current design and implementation contract is [ADR-0026](../docs/adr/0026-server-side-xml-first-copilot-editing.md). ADR-0018 is retired history.
 
 
 ## Copilot session permission and authentication callbacks
