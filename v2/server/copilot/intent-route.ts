@@ -1748,7 +1748,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               requestId, sessionId, status: receipt.status, baseRevision: pendingXmlPatch.baseRevision, error: message
             });
             res.status(receipt.status >= 400 ? receipt.status : 409).json({
-              outcome: "edit_failed", reply: message, requestId, ...shared
+              outcome: "failed", reply: message, error: message, requestId, ...shared
             });
             return;
           }
@@ -1757,7 +1757,7 @@ function createDrawioElementSearchTool(sessionId: string) {
             baseRevision: pendingXmlPatch.baseRevision, receipt: body
           });
           res.json({
-            outcome: "edit_committed",
+            outcome: "xml_committed",
             reply: typeof body.workspaceRevision === "string"
               ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
               : pendingXmlPatch.summary + "。服务端已接受 XML 修改。",
@@ -1767,7 +1767,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await deps.writeLog("turn.completed.xml-patch-failed", { requestId, sessionId, error: message });
-          res.status(500).json({ outcome: "edit_failed", reply: "服务端 XML 修改失败：" + message, requestId, ...shared });
+          res.status(500).json({ outcome: "failed", reply: "服务端 XML 修改失败：" + message, error: message, requestId, ...shared });
           return;
         }
       }
