@@ -647,6 +647,22 @@ export default function App() {
       setServerXmlAvailable(true);
       setDocumentSaveState("saved");
     },
+    onStandaloneXmlPatchReady: async (xml) => {
+      const binding = standaloneFileBindingRef.current;
+      if (!binding || !standaloneFileHandleRef.current || !standaloneFileName) {
+        throw new Error("The standalone file handle is no longer available; the XML patch was not written.");
+      }
+      const expectedToken = binding.fileToken;
+      await enqueueStandaloneSave(xml, expectedToken);
+      const savedBinding = standaloneFileBindingRef.current;
+      const savedRevision = await calculateDrawioXmlRevision(xml);
+      if (!savedBinding || savedBinding.fileToken !== expectedToken || savedBinding.revision !== savedRevision) {
+        throw new Error("The browser did not confirm the standalone file revision; the canvas was not replaced.");
+      }
+      setNativeXmlOverride(xml);
+      setRevision((value) => value + 1);
+      setDocumentSaveState("saved");
+    },
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
     applyNativeCellEdit: async (cellId, path, value, requestedPageId) => {
       const targetPageId = requestedPageId !== undefined ? requestedPageId : selectedNativePageId;
