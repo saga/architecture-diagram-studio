@@ -22,6 +22,18 @@ describe("applyDrawioXmlPatch", () => {
     expect(result.drawioXml).toContain('sourcePoint');
   });
 
+  it("replaces full native geometry XML including connector waypoints", () => {
+    const result = applyDrawioXmlPatch(source, [{
+      op: "set-geometry-xml",
+      cellId: "edge-a",
+      geometryXml: '<mxGeometry relative="1" as="geometry"><mxPoint x="40" y="50" as="sourcePoint"/><Array as="points"><mxPoint x="80" y="90"/></Array></mxGeometry>'
+    }]);
+    expect(result.drawioXml).toContain('id="edge-a"');
+    expect(result.drawioXml).toContain('x="80" y="90"');
+    expect(result.drawioXml).toContain('sourcePoint');
+    expect(result.drawioXml).not.toContain('x="3" y="4"');
+  });
+
   it("inserts a native Draw.io cell fragment without rebuilding the surrounding document", () => {
     const result = applyDrawioXmlPatch(source, [{
       op: "insert-cell-xml",
