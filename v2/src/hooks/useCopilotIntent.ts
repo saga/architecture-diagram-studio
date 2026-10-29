@@ -13,7 +13,7 @@ import { compareCopilotRequestContext, type CopilotRequestDiagramState } from ".
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
 import { calculateNativeAutoLayout } from "../layout/native-layout";
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string; script?: string } };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
 type Workspace = { id: string } | null;
 
 function assertCopilotRequestContextFresh(
