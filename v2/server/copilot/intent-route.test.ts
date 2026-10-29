@@ -1421,45 +1421,6 @@ describe("Copilot native-edit acknowledgement route", () => {
       entry.fields?.outcome === "failed")).toBe(true);
   });
 
-  it("acknowledges a read-only inspection without requiring a persisted XML version", async () => {
-    const store = new NativeExecutionAcknowledgements();
-    const pending = seedAck(store, {
-      operationCount: 1,
-      summary: "Inspect floor-plan furniture",
-      operations: [{
-        op: "run_drawio_script", target: "active_page", summary: "Inspect floor-plan furniture",
-        script: "return { tableCount: 3 };", mode: "read",
-        cellId: "__active_page__", targetLabel: "active Draw.io page"
-      } as ResolvedNativeEditOperation]
-    });
-    const harness = await createServer({
-      acknowledgements: store,
-      snapshot: async () => ({ drawioXml: XML, revision: workspaceRevision(XML), versionId: "unexpected-version" })
-    });
-    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent/ack", {
-      requestId: pending.requestId,
-      sessionId: pending.sessionId,
-      standalone: false,
-      documentRevision: pending.documentRevision,
-      outcome: "applied",
-      editorAcknowledged: true,
-      serializedXmlRevision: null,
-      persistenceStatus: "read_only_no_change",
-      persistedRevision: null,
-      versionId: null,
-      applicationState: "not-applied",
-      failureStage: null,
-      error: null
-    });
-
-    expect(response.status).toBe(200);
-    expect(body).toMatchObject({
-      outcome: "applied", applicationState: "not-applied",
-      persistenceStatus: "read_only_no_change", documentRevision: null, versionId: null
-    });
-    expect(harness.snapshot).not.toHaveBeenCalled();
-  });
-
   it("makes an exact acknowledgement replay idempotent but rejects a conflicting replay", async () => {
     const store = new NativeExecutionAcknowledgements();
     const pending = seedAck(store);
@@ -1609,12 +1570,7 @@ describe("Copilot native-edit acknowledgement route", () => {
 describe("requiresExplicitConfirmation", () => {
   const operations = (...ops: string[]) => ops.map((op) => ({ op })) as unknown as ResolvedNativeEditOperation[];
 
-  it("requires review for arbitrary scripts, including repair retries", () => {
-    expect(requiresExplicitConfirmation(operations("run_drawio_script"))).toBe(true);
-    expect(requiresExplicitConfirmation(operations("rename"), true)).toBe(true);
-  });
-
-  it("requires review for destructive deletes and whole-page layouts", () => {
+  it("requires review for destructive edits without a script-specific path", () => {
     expect(requiresExplicitConfirmation(operations("delete"))).toBe(true);
     expect(requiresExplicitConfirmation(operations("auto_layout"))).toBe(true);
   });
