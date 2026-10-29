@@ -27,7 +27,7 @@ The following names describe the pinned Draw.io runtime inventory used by the re
 | `model` | `getRoot`, `getChildCount`, `getChildAt`, `getCell`, `getStyle`, `setStyle`, `setValue`, `setGeometry`, `setTerminal`, `beginUpdate`, `endUpdate` |
 | `view` | `getState`, `validate` |
 
-Do not call `model.getDefaultParent()`; parent resolution for XML patches must use the exact parent IDs in the current native XML, never assumptions about Draw.io root or layer IDs. The runtime inventory is diagnostic and does not define which XML operations are supported.
+Never call `model.getDefaultParent()`; parent resolution for XML patches must use the exact parent IDs in the current native XML, never assumptions about Draw.io root or layer IDs. The runtime inventory is diagnostic and does not define which XML operations are supported.
 
 ## Shape discovery
 
