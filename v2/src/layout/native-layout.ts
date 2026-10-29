@@ -82,8 +82,12 @@ export function nativeLayoutAdapterDescriptor(engine: NativeAutoLayoutEngine): N
   const unsupportedOptions: NativeLayoutAdapterDescriptor["unsupportedOptions"] =
     engine === "dagre" ? ["iterations", "randomSeed"] :
     engine === "graphviz" ? ["iterations"] :
-    engine === "msagl" ? ["randomSeed", "margin"] :
-    engine === "d3" ? ["margin"] : [];
+    engine === "msagl" ? ["randomSeed"] :
+    engine === "cytoscape" ? ["randomSeed"] : [];
+  const unsupportedOptionsByAlgorithm: NativeLayoutAdapterDescriptor["unsupportedOptionsByAlgorithm"] =
+    engine === "msagl" ? { layered: ["iterations"] } :
+    engine === "d3" ? { tree: ["randomSeed", "iterations"], cluster: ["randomSeed", "iterations"] } :
+    undefined;
   const capabilities: NativeLayoutAdapterDescriptor["capabilities"] =
     engine === "elk" ? ["hierarchy", "compound-nodes", "edge-routing", "deterministic-seed", "preserve-fixed-nodes"] :
     engine === "dagre" ? ["hierarchy", "edge-routing"] :
@@ -97,7 +101,8 @@ export function nativeLayoutAdapterDescriptor(engine: NativeAutoLayoutEngine): N
     capabilities,
     supportedDirections: ALL_LAYOUT_DIRECTIONS,
     supportedEdgeRouting: ALL_LAYOUT_ROUTING,
-    unsupportedOptions
+    unsupportedOptions,
+    ...(unsupportedOptionsByAlgorithm ? { unsupportedOptionsByAlgorithm } : {})
   };
 }
 
