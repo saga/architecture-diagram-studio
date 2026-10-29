@@ -120,7 +120,7 @@ function stable(value: unknown): string {
     return "{" + Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))
       .map(([key, item]) => JSON.stringify(key) + ":" + stable(item)).join(",") + "}";
   }
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? String(value);
 }
 
 function changedFields(before: NativeXmlCellSnapshot, after: NativeXmlCellSnapshot): string[] {
