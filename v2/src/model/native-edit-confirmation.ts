@@ -354,21 +354,6 @@ function isNativeRootOrLayerCell(record: CellRecord): boolean {
     record.geometry === null;
 }
 
-/**
- * Draw.io cell IDs are not semantic roles: duplicated/imported pages may prefix both the root
- * and layer IDs. Validate the relationship graph instead of assuming literal IDs "0" and "1".
- */
-function hasValidNativeModelStructure(model: ModelRecords): boolean {
-  const roots = model.cells.filter((record) =>
-    !record.cell.hasAttribute("parent") && isNativeRootOrLayerCell(record)
-  );
-  if (roots.length !== 1) return false;
-  const rootId = roots[0].id;
-  return model.cells.some((record) =>
-    record.cell.getAttribute("parent") === rootId && isNativeRootOrLayerCell(record)
-  );
-}
-
 /** Typed native operations are confirmed against their requested XML postconditions. */
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
