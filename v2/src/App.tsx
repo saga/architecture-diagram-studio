@@ -304,6 +304,10 @@ export default function App() {
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
   const handleAuthoritativeRevision = useCallback((xml: string, _serverRevision: string) => {
     setNativeXmlOverride(xml);
+    setRevision((value) => value + 1);
+    setWorkspaceContentReady(true);
+    setServerXmlAvailable(true);
+    setDocumentSaveState("saved");
     setLastAction("Loaded the latest server-saved Draw.io revision.");
   }, []);
   const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({
