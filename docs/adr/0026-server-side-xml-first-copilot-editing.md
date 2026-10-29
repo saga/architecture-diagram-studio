@@ -56,9 +56,11 @@ The server-persisted XML version is authoritative. A successful server write mus
 - In standalone mode, the browser continues to own the user's selected source file through its File System Access handle, as defined by ADR-0016. The server may produce and version the next XML document revision, but the browser must write it to the selected source file through the existing handle and external-change check. Do not send a local absolute path to the server or imply that a server-side version automatically changed the original standalone file.
 - Keep these modes explicit in the receipt: server document revision, standalone source-file write outcome, and frontend-loaded revision are distinct facts.
 
-### 5. Draw.io scripts are an optional advanced fallback
+### 5. Remove the Draw.io script tool and execution path
 
-`run_drawio_script` may remain available for a capability that demonstrably requires the live Draw.io runtime and cannot reasonably be represented as an XML edit. It is not the default Copilot editing path, and ordinary edits must not incur a script dispatch/export round trip. Script-specific assertions, iframe watchdog and late-script reconciliation apply only to that fallback. The same revision, persistence, synchronization and truthful-outcome requirements still apply.
+Remove `run_drawio_script` as a Copilot tool entirely. Do not retain it as a fallback, hidden capability, feature flag, deprecated tool schema, retry path or prompt-only prohibition. Remove its tool registration/schema, script-specific instruction text, execution/dispatch bridge, watchdog and confirmation-policy branches, script-only telemetry/configuration, and tests that exist solely to support it. Remove or simplify `NativeEditOperation` script variants and validation branches that only exist to route this tool.
+
+Do not replace the script with another way to execute model-generated JavaScript inside Draw.io. Copilot edits native XML directly through the server-side document service. If a future requirement genuinely cannot be expressed as XML, it needs a separate architecture decision; this ADR does not authorize retaining the current script tool under another name.
 
 Do not create new typed operations merely to preserve the former script-first design. Small shared XML helpers are acceptable where they reduce repeated reasoning or make preservation/validation reliable; they must not grow into a second diagram model.
 
@@ -70,11 +72,11 @@ Copilot-triggered automatic layout continues through its existing layout workflo
 
 ## Consequences
 
-- The default Copilot path removes the mandatory live Draw.io script execution round trip for ordinary XML edits.
+- The Copilot path removes the live Draw.io script execution round trip entirely.
 - XML validation, revision checks, native diff, persistence and version history become the core write contract.
 - Frontend synchronization is an explicit part of the document lifecycle, not an incidental side effect of editor script acknowledgement.
 - The implementation must prevent races between server commits, frontend refresh, Draw.io autosave and standalone source-file writes.
-- Script runtime hardening remains relevant only to the optional fallback; it no longer defines the primary Copilot architecture.
+- Script-runtime infrastructure that exists only for `run_drawio_script` should be removed with the tool.
 - Automatic layout behavior and its current implementation are out of scope.
 
 ## Migration and acceptance criteria
@@ -84,7 +86,7 @@ Copilot-triggered automatic layout continues through its existing layout workflo
 3. Implement frontend revision notifications with push-first delivery and polling fallback; load only the matching, persisted document revision and suppress refresh-triggered autosave.
 4. Cover races: concurrent server edits, user edits while Copilot is working, duplicate/out-of-order notifications, stale autosave, failed persistence, frontend disconnection, and standalone file changes outside the app.
 5. Regression-test preservation of multiple pages, compressed/plain page payloads, UserObject wrappers, custom shapes/stencils, unknown attributes/style keys, layers, groups, edge terminals and unrelated cells.
-6. Demonstrate that ordinary Copilot edits do not invoke `run_drawio_script`; retain a tested explicit fallback for runtime-only capabilities.
+6. Verify that `run_drawio_script` is absent from tool registration, schemas, prompts, execution bridge, confirmation logic, runtime configuration and active documentation. No script fallback remains.
 7. Verify automatic-layout source files, adapters, configuration and behavior are unchanged by this migration.
 8. Run typecheck, unit tests, production build and relevant Playwright E2E tests. The decision is accepted now; implementation is not complete until these checks pass and the change is integrated into `main`.
 
@@ -94,4 +96,4 @@ Copilot-triggered automatic layout continues through its existing layout workflo
 - Rewriting automatic layout algorithms or their adapters.
 - Moving standalone source-file I/O to Node.js or exposing local file paths to the server.
 - Treating XML parse success as proof of correct rendering or successful user intent.
-- Removing all script execution regardless of whether a future capability genuinely needs the live Draw.io runtime.
+- Retaining a model-generated Draw.io JavaScript execution path under this or another name.
