@@ -617,7 +617,7 @@ test.describe("原生画布", () => {
     const result = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
       if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
-      const requestId = 938271;
+      const requestId = 938274;
       const response = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           window.removeEventListener("message", receive);
