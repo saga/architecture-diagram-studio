@@ -1,7 +1,7 @@
 import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CopilotRuntime } from "./runtime";
 import { registerCopilotIntentRoute } from "./intent-route";
 import { workspaceRevision } from "../storage";
@@ -261,37 +261,8 @@ function shapeSearchingCopilot(query: string, limit?: number) {
   return copilot;
 }
 
-function proposingCopilot(operations: Array<Record<string, unknown>> = [{ op: "delete", target: "Database" }, { op: "delete", target: "API Service" }]) {
-  let activeSession: Record<string, unknown> = {};
-  let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
-  return {
-    providerInfo: { mode: "byok", host: null },
-    resolveModel: vi.fn(async (requested: string) => ({ model: requested, reason: "test", substituted: false, available: [] })),
-    lastObservedModel: vi.fn(() => "test-model"),
-    acquireSession: async (request: { conversationId: string; model: string; requestedEffort: "low" | "medium" | "high" | "max"; prepare: () => Promise<{ configRevisionId: string; systemMessage: string; tools: unknown[]; workspaceId?: string }> }) => {
-      prepared = await request.prepare();
-      activeSession = {
-        sdkSessionId: "sdk-test-session", conversationId: request.conversationId, model: request.model,
-        observedModel: request.model, configRevisionId: prepared.configRevisionId, requestedEffort: request.requestedEffort,
-        reasoningEffort: request.requestedEffort, lastUsedAt: Date.now(), prepared
-      };
-      return activeSession;
-    },
-    withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
-      get session() { return activeSession; },
-      send: async () => {
-        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "propose_native_edits");
-        if (!tool?.handler) throw new Error("propose_native_edits tool was not registered");
-        await tool.handler({ operations });
-        return { message: { data: { content: "Delete both nodes." } }, modelCallUsages: [] };
-      }
-    })
-  };
-}
-
 function terminalConflictCopilot(
-  scenario: "report-edit" | "duplicate-edit" | "throw-after-edit" | "select-only" | "invalid-select"
+  scenario: "select-only" | "invalid-select"
 ) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
@@ -322,28 +293,13 @@ function terminalConflictCopilot(
           toolResults[suffix === 0 ? name : name + "#" + suffix] =
             await tool.handler(args) as Record<string, unknown>;
         };
-        const propose = async (label: string) => invoke("propose_native_edits", {
-          operations: [{ op: "set_label", target: "Database", label }]
-        });
-        const report = async () => invoke("report_intent_outcome", {
-          outcome: "answered", reply: "No diagram changes are needed."
-        });
-        if (scenario === "report-edit") {
-          await report();
-          await propose("数据库");
-        } else if (scenario === "throw-after-edit") {
-          await propose("数据库");
-          throw new Error("Synthetic SDK stream failure after native edit was accepted");
-        } else if (scenario === "select-only") {
+        if (scenario === "select-only") {
           await invoke("select_diagram_element", { target: "Database" });
-        } else if (scenario === "invalid-select") {
+        } else {
           await invoke("select_diagram_element", { target: "" });
           await invoke("report_intent_outcome", {
             outcome: "needs_clarification", reply: "Select a specific element from the current diagram.", question: "Which element should be selected?"
           });
-        } else {
-          await propose("第一版");
-          await propose("第二版");
         }
         return { message: { data: { content: "The native edit request was processed." } }, modelCallUsages: [] };
       }
@@ -354,11 +310,6 @@ function terminalConflictCopilot(
 }
 
 describe("Copilot intent route result and revision contract", () => {
-  // Local single-user Studio applies native edits directly by default. These tests cover the
-  // opt-in review gate, so they turn it back on; the default path has its own test below.
-  beforeAll(() => { vi.stubEnv("STUDIO_REQUIRE_EDIT_CONFIRMATION", "1"); });
-  afterAll(() => { vi.unstubAllEnvs(); });
-
   it("returns a revision-checked XML patch for standalone browser-owned persistence", async () => {
     const harness = await createServer({ copilot: xmlEditingCopilot() });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ standalone: true }));
@@ -547,7 +498,7 @@ describe("Copilot intent route result and revision contract", () => {
   });
 
   it("rejects a workspace XML snapshot that is stale against the authoritative revision", async () => {
-    const harness = await createServer({ copilot: proposingCopilot() });
+    const harness = await createServer({ copilot: reportingCopilot("answered", "The request was not executed because its XML snapshot was stale.") });
     const editedXml = XML.replace('value="Database"', 'value="Warehouse"');
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
       diagramXml: editedXml, documentRevision: workspaceRevision(editedXml)
