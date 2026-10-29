@@ -167,7 +167,7 @@ export default function App() {
   const nativeEditResolversRef = useRef(new Map<number, (result: {
     success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string;
     batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
-    batchRolledBack?: boolean | null; scriptResult?: unknown; semanticChanged?: boolean;
+    batchRolledBack?: boolean | null; 
     applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string;
     assertionFailures?: Array<{ kind: string; index: number | null; cellId?: string; field: string; reason: string; expected?: unknown; actual?: unknown }>;
     scopeViolations?: Array<{ kind: string; cellId: string; pageId: string | null; label: string; changedFields?: string[] }>;
@@ -705,7 +705,6 @@ export default function App() {
             errorStack: result.errorStack,
             failureStage: result.failureStage,
             auditWarning: result.auditWarning,
-            scriptResult: result.scriptResult,
             applicationState: result.applicationState,
             // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
             rolledBack: result.success ? false : result.batchRolledBack === true,
@@ -728,7 +727,7 @@ export default function App() {
           const timeoutError = "The native Draw.io editor has not returned a final serialized result within " +
             Math.round(watchdogTimeoutMs / 1000) + " seconds. The edit outcome is still unknown.";
           recordDiagnostic("copilot.native-edits.timeout", "Stopped waiting for a native edit without declaring its final outcome", {
-            requestId, editCount: edits.length, containsScript, watchdogTimeoutMs,
+            requestId, editCount: edits.length, watchdogTimeoutMs,
             reconciliationPending: true
           }, "warn");
           resolve({
@@ -2180,7 +2179,7 @@ export default function App() {
               recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
                 requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
                 failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, scriptResult: finalResult.scriptResult ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
+                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
                 assertionFailures: finalResult.assertionFailures ?? [], scopeViolations: finalResult.scopeViolations ?? []
               }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
               if (isLateNativeSelection && requestId !== null && lateNativeSelectionRequestsRef.current.delete(requestId)) {
