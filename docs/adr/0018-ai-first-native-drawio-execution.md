@@ -7,7 +7,7 @@
 
 ## Historical decision (retired)
 
-This ADR records the former script-first design and implementation history. Do not use its decision or migration checklist as current implementation guidance. ADR-0026 makes direct server-side native XML editing the default Copilot path, followed by validation, versioned persistence and frontend synchronization. `run_drawio_script` is an optional advanced fallback, not the normal edit path. Automatic layout remains governed by ADR-0013 and is unchanged.
+This ADR records the former script-first design and implementation history. Do not use its decision or migration checklist as current implementation guidance. ADR-0026 makes direct server-side native XML editing the default Copilot path, followed by validation, versioned persistence and frontend synchronization. The `run_drawio_script` tool and its execution path are removed entirely; do not reintroduce them as a fallback. Automatic layout remains governed by ADR-0013 and is unchanged.
 
 ## User and operating assumptions
 
