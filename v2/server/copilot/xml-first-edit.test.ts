@@ -65,6 +65,28 @@ describe("applyDrawioXmlPatch", () => {
     expect(result.drawioXml).toContain('id="1"');
   });
 
+  it("scopes repeated cell IDs to the explicitly selected page", () => {
+    const multiPage = `<mxfile>
+<diagram id="page-1" name="One"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="node-a" value="First" vertex="1" parent="1"/></root></mxGraphModel></diagram>
+<diagram id="page-2" name="Two"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="node-a" value="Second" vertex="1" parent="1"/></root></mxGraphModel></diagram>
+</mxfile>`;
+    const result = applyDrawioXmlPatch(multiPage, [
+      { op: "set-cell-attributes", cellId: "node-a", attributes: { value: "Updated" } }
+    ], "page-2");
+    expect(result.drawioXml).toContain('name="One"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="node-a" value="First"');
+    expect(result.drawioXml).toContain('name="Two"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="node-a" value="Updated"');
+  });
+
+  it("requires an explicit page ID for multi-page XML", () => {
+    const multiPage = `<mxfile>
+<diagram id="page-1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>
+<diagram id="page-2"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>
+</mxfile>`;
+    expect(() => applyDrawioXmlPatch(multiPage, [
+      { op: "set-cell-attributes", cellId: "1", attributes: { value: "Layer" } }
+    ])).toThrow(/pageId is required/);
+  });
+
   it("rejects missing cell IDs instead of guessing a target", () => {
     expect(() => applyDrawioXmlPatch(source, [
       { op: "set-cell-attributes", cellId: "missing", attributes: { value: "Beta" } }
