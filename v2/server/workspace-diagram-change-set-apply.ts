@@ -124,12 +124,10 @@ export async function applyWorkspaceDiagramChangeSet(
         if (!validation.success) {
           return { ok: false, error: "Proposed XML is invalid: " + validation.issues.slice(0, 3).join("; "), failedPath: target.filePath };
         }
-        if (beforePages === null || afterPages === null) return { ok: false, error: "Unsupported Draw.io XML root.", failedPath: target.filePath };
         const ids = target.changedPageIds;
         if (new Set(ids).size !== ids.length) return { ok: false, error: "Duplicate changed page IDs are not allowed.", failedPath: target.filePath };
         for (const id of ids) {
-          const normalizedId = beforePages.has("__bare_graph_model__") && id === "__bare_graph_model__" ? id : id;
-          if (!beforePages.has(normalizedId) || !afterPages.has(normalizedId)) {
+          if (!beforePages.has(id) || !afterPages.has(id)) {
             return { ok: false, error: "Every changed page must exist in both the original and proposed XML.", failedPath: target.filePath };
           }
         }

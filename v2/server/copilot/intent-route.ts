@@ -1214,8 +1214,12 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
         const suppliedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, suppliedRevision, requestedPageId);
         if (!suppliedSnapshot.ok) {
-          await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
-          res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+          await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: suppliedSnapshot.reason, xmlLength: diagramXml.length });
+          if (suppliedSnapshot.reason === "page-not-found") {
+            res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
+          } else {
+            res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+          }
           return;
         }
         if (!nativePageAccepts(suppliedSnapshot.snapshot.identity, requestedPageId)) {
@@ -1254,8 +1258,12 @@ function createDrawioElementSearchTool(sessionId: string) {
     }
     const parsedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, computedRevision, requestedPageId);
     if (!parsedSnapshot.ok) {
-      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "invalid_xml_snapshot", xmlLength: diagramXml.length });
-      res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+      await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: parsedSnapshot.reason, xmlLength: diagramXml.length });
+      if (parsedSnapshot.reason === "page-not-found") {
+        res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
+      } else {
+        res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
+      }
       return;
     }
     const identity = parsedSnapshot.snapshot.identity;

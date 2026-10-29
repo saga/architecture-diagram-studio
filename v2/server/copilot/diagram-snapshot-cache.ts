@@ -19,7 +19,7 @@ interface RevisionEntry {
 
 export type CachedSnapshotResult =
   | { ok: true; cacheHit: boolean; snapshot: ParsedNativeDiagramSnapshot }
-  | { ok: false; cacheHit: false };
+  | { ok: false; cacheHit: false; reason: "invalid-xml" | "page-not-found" };
 
 const MAX_REVISIONS = 4;
 const MAX_PAGES_PER_REVISION = 4;
@@ -53,13 +53,16 @@ export function getCachedNativeDiagramSnapshot(
       return { ok: true, cacheHit: true, snapshot: existing };
     }
   } else {
-    if (!validateDrawioXmlDocument(xml).success) return { ok: false, cacheHit: false };
+    if (!validateDrawioXmlDocument(xml).success) return { ok: false, cacheHit: false, reason: "invalid-xml" };
     entry = { pages: new Map() };
     touch(revision, entry);
   }
 
   try {
     const identity = resolveNativePageIdentity(xml, requestedPageId);
+    if (!identity.pageExists) {
+      return { ok: false, cacheHit: false, reason: "page-not-found" };
+    }
     const snapshot: ParsedNativeDiagramSnapshot = {
       revision,
       requestedPageId,
@@ -77,7 +80,7 @@ export function getCachedNativeDiagramSnapshot(
   } catch {
     // Parser errors must fail closed and must not be memoized as success.
     if (entry.pages.size === 0) cache.delete(revision);
-    return { ok: false, cacheHit: false };
+    return { ok: false, cacheHit: false, reason: "invalid-xml" };
   }
 }
 

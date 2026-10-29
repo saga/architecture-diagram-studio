@@ -32,10 +32,19 @@ describe("native Draw.io parsed snapshot cache", () => {
     expect(second.ok && second.cacheHit).toBe(false);
   });
 
+  it("distinguishes a missing page in a valid multi-page document from invalid XML", () => {
+    const multiPage = '<mxfile>' +
+      '<diagram id="p1" name="Page 1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>' +
+      '<diagram id="p2" name="Page 2"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram>' +
+      '</mxfile>';
+    const result = getCachedNativeDiagramSnapshot(multiPage, workspaceRevision(multiPage), "deleted-page");
+    expect(result).toEqual({ ok: false, cacheHit: false, reason: "page-not-found" });
+  });
+
   it("does not cache failed XML validation", () => {
     const invalid = "<not-drawio>";
     const revision = workspaceRevision(invalid);
-    expect(getCachedNativeDiagramSnapshot(invalid, revision, null).ok).toBe(false);
-    expect(getCachedNativeDiagramSnapshot(invalid, revision, null).ok).toBe(false);
+    expect(getCachedNativeDiagramSnapshot(invalid, revision, null)).toEqual({ ok: false, cacheHit: false, reason: "invalid-xml" });
+    expect(getCachedNativeDiagramSnapshot(invalid, revision, null)).toEqual({ ok: false, cacheHit: false, reason: "invalid-xml" });
   });
 });
