@@ -1480,7 +1480,9 @@ function createDrawioElementSearchTool(sessionId: string) {
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
         let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
         let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
-        if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
+        // edit_drawio_xml stores its accepted terminal result in pendingXmlPatches rather than
+        // the typed-operation maps. Treat it as a completed tool call; do not spend another model turn.
+        if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome && !pendingXmlPatches.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
             request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use edit_drawio_xml for non-trivial native edits beyond the typed-operation allowlist. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
