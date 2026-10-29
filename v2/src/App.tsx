@@ -2109,6 +2109,27 @@ export default function App() {
                       (ackBody?.error || ackTransportError || (ackResponse ? (ackResponse.ok ? "receipt fields did not match" : "HTTP " + ackResponse.status) : "no HTTP response after retry"))
                   };
                 }
+                recordDiagnostic("copilot.execution.persistence-receipt", "Recorded the exact serialized XML revision, persistence result and immutable version acknowledgement", {
+                  requestId: acknowledgement.requestId,
+                  editorRequestId: requestId,
+                  sessionId: acknowledgement.sessionId,
+                  documentRevision: acknowledgement.documentRevision,
+                  serializedXmlRevision,
+                  persistedRevision,
+                  versionId: persistedVersionId,
+                  persistenceStatus,
+                  finalOutcome: finalResult.success ? "applied" : "failed",
+                  failureStage: finalResult.failureStage ?? null,
+                  acknowledgement: {
+                    httpStatus: ackResponse?.status ?? null,
+                    confirmed: Boolean(ackResponse?.ok && ackBody?.outcome === expectedOutcome && !appliedReceiptMismatch),
+                    outcome: ackBody?.outcome ?? null,
+                    documentRevision: ackBody?.documentRevision ?? null,
+                    persistedRevision: ackBody?.persistedRevision ?? null,
+                    versionId: ackBody?.versionId ?? null,
+                    error: ackBody?.error ?? ackTransportError
+                  }
+                }, finalResult.success && persistenceStatus !== "failed" && ackResponse?.ok ? "info" : "warn");
                 nativeEditAckContextsRef.current.delete(requestId);
               } else if (isLateNativeBatch && !lateResultHasSnapshot) {
                 // Without a resulting XML snapshot (or explicit rollback), a late timeout response
