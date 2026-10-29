@@ -620,6 +620,27 @@ export default function App() {
       return frame.inspectRuntime({ documentRevision, pageId, jsShapeClassNames });
     },
     persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
+    onServerXmlCommitted: async () => {
+      const response = await fetch("/api/workspace/state");
+      if (!response.ok) throw new Error("The server committed the XML edit, but Studio could not reload the saved workspace state.");
+      const state = await response.json() as { drawioXml?: unknown; workspaceRevision?: unknown; workspaceMismatch?: unknown };
+      if (state.workspaceMismatch || typeof state.drawioXml !== "string" || typeof state.workspaceRevision !== "string") {
+        throw new Error("The server committed the XML edit, but the active workspace returned no current XML revision.");
+      }
+      const actualRevision = await calculateDrawioXmlRevision(state.drawioXml);
+      if (actualRevision !== state.workspaceRevision) {
+        throw new Error("The refreshed Draw.io XML does not match the server-issued revision; refusing to replace the current canvas.");
+      }
+      // Mark this exact XML as already persisted before updating React state, so autosave
+      // cannot race the server commit with the stale pre-edit document.
+      clearSaveConflict("copilot-server-xml-commit", state.drawioXml, true);
+      serverRevisionRef.current = state.workspaceRevision;
+      setNativeXmlOverride(state.drawioXml);
+      setRevision((value) => value + 1);
+      setWorkspaceContentReady(true);
+      setServerXmlAvailable(true);
+      setDocumentSaveState("saved");
+    },
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
     applyNativeCellEdit: async (cellId, path, value, requestedPageId) => {
       const targetPageId = requestedPageId !== undefined ? requestedPageId : selectedNativePageId;
