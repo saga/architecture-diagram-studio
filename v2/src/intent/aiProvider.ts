@@ -23,8 +23,6 @@ export interface AIIntentContext {
   cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
   /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
   runtimeInspection?: DrawioRuntimeInspection;
-};
-  };
 }
 
 export type AIIntentResponse = CopilotIntentResponse;
