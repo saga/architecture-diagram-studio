@@ -110,18 +110,13 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[]):
     }
 
     if (operation.op === "delete-cell") {
-      // Delete the wrapper/user object containing the mxCell, not just its inner mxCell.
+      // Remove a UserObject/object wrapper when the mxCell is nested inside one;
+      // otherwise remove only the mxCell from its native root layer.
       let owner: Node = cell;
-      while (owner.parentNode && owner.parentNode !== document) {
-        if (owner.parentNode.nodeType === 1) {
-          const parent = owner.parentNode as Element;
-          if (parent.tagName === "object" || parent.tagName === "UserObject") {
-            owner = parent;
-            break;
-          }
-        }
-        owner = owner.parentNode;
-        if ((owner as Element).tagName === "root") break;
+      const wrapper = cell.parentNode;
+      if (wrapper?.nodeType === 1 &&
+          ((wrapper as Element).tagName === "object" || (wrapper as Element).tagName === "UserObject")) {
+        owner = wrapper;
       }
       const parent = owner.parentNode;
       if (!parent) throw new Error(`Cannot remove detached cell "${operation.cellId}".`);
