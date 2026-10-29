@@ -10,6 +10,7 @@ import {
 } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
+import { applyDrawioXmlPatch } from "./xml-first-edit";
 import { resolveNativeEditTargets } from "./native-edit-tool";
 import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
@@ -116,7 +117,7 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 const pendingNativeProposals = new Map<string, PendingNativeProposal>();
 type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
-const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; summary: string }>();
+const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; summary: string; standalone: boolean; sourceXml?: string }>();
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -993,11 +994,15 @@ function createDrawioElementSearchTool(sessionId: string) {
             !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
           return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };
         }
-        if (!deps.commitWorkspaceXmlPatch) {
+        const context = contextBySession.get(sessionId) as {
+          documentRevision?: string; activePageId?: string | null; standalone?: boolean; sourceXml?: string;
+        } | undefined;
+        if (!context?.standalone && !deps.commitWorkspaceXmlPatch) {
           return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };
         }
-        const context = contextBySession.get(sessionId) as { documentRevision?: string; activePageId?: string | null } | undefined;
-        const snapshot = await deps.getWorkspaceDiagramSnapshot();
+        const snapshot = context?.standalone && typeof context.sourceXml === "string"
+          ? { drawioXml: context.sourceXml, revision: workspaceRevision(context.sourceXml) }
+          : await deps.getWorkspaceDiagramSnapshot();
         if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
           return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
         }
@@ -1009,7 +1014,9 @@ function createDrawioElementSearchTool(sessionId: string) {
           patch: args.patch as Array<Record<string, unknown>>,
           baseRevision: snapshot.revision,
           pageId: typeof context.activePageId === "string" ? context.activePageId : null,
-          summary: args.summary.trim()
+          summary: args.summary.trim(),
+          standalone: context.standalone === true,
+          ...(context.standalone === true ? { sourceXml: context.sourceXml } : {})
         });
         await deps.writeLog("tool.edit_drawio_xml.accepted", {
           sessionId, summary: args.summary.trim(), operationCount: args.patch.length,
@@ -1353,7 +1360,7 @@ function createDrawioElementSearchTool(sessionId: string) {
               createDrawioElementSearchTool(sessionId),
               createDrawioGraphInspectionTool(sessionId),
               createDrawioReferenceTool(sessionId),
-              ...(!standalone ? [createEditDrawioXmlTool(sessionId)] : []),
+              createEditDrawioXmlTool(sessionId),
               createProposeNativeEditsTool(sessionId),
               createReportIntentOutcomeTool(sessionId)
             ],
@@ -1372,7 +1379,11 @@ function createDrawioElementSearchTool(sessionId: string) {
         // Keep the complete server-derived target index private to tools. The model-facing context is
         // intentionally capped for prompt size, but target uniqueness must be checked against every cell
         // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
-        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: identity.documentPageId, cells: allNativeCells, runtimeInspection: context.runtimeInspection });
+        contextBySession.set(sessionId, {
+          ...context, documentRevision, activePageId: identity.documentPageId,
+          cells: allNativeCells, runtimeInspection: context.runtimeInspection,
+          standalone, ...(standalone ? { sourceXml: diagramXml } : {})
+        });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);
