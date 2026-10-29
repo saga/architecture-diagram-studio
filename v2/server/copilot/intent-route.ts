@@ -913,7 +913,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         properties: {
           topic: {
             type: "string",
-            enum: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"],
+            enum: ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"],
             description: "Choose the smallest relevant reference section."
           }
         },
@@ -924,7 +924,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         const topic = args?.topic;
         if (!isDrawioReferenceTopic(topic)) {
           await deps.writeLog("tool.get_drawio_reference.rejected", { sessionId, reason: "invalid_reference_topic" });
-          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "script_execution", "postconditions", "recipes", "all"] };
+          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"] };
         }
         try {
           return { accepted: true, topic, reference: await readDrawioAgentReference(topic) };
