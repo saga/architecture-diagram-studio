@@ -94,7 +94,7 @@ export function createStudioConfigService(options: StudioConfigServiceOptions) {
       current = {
         ...defaultConfig,
         revisionId: typeof parsed.revisionId === "string" ? parsed.revisionId :
-          "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\\D/g, "") : String(i)),
+          "legacy-" + (typeof parsed.updatedAt === "string" ? parsed.updatedAt.replace(/\D/g, "") : String(i)),
         model: typeof parsed.model === "string" ? parsed.model : defaultConfig.model,
         reasoningEffort: ["low", "medium", "high", "max"].includes(String(parsed.reasoningEffort)) ? parsed.reasoningEffort as StudioConfig["reasoningEffort"] : "medium",
         updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : defaultConfig.updatedAt,
