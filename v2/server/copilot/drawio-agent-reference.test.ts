@@ -8,15 +8,14 @@ describe("on-demand Draw.io reference", () => {
     expect(content).toContain("not exhaustive");
     expect(content).not.toContain("### Enumerate all cells");
   });
-  it("includes C4 one-query style recipes in shape discovery and recipes references", async () => {
+  it("does not expose retired script recipes through on-demand references", async () => {
     const shapeDiscovery = await readDrawioAgentReference("shape_discovery");
     const recipes = await readDrawioAgentReference("recipes");
-    expect(shapeDiscovery).toContain("C4 shape recipes");
-    expect(shapeDiscovery).toContain("shape=mxgraph.c4.person2");
-    expect(shapeDiscovery).toContain("C4 Software System");
-    expect(shapeDiscovery).toContain("C4 Container");
-    expect(recipes).toContain("C4 shape recipes");
-    expect(recipes).toContain("fontColor=#ffffff");
+    expect(shapeDiscovery).toContain("not exhaustive");
+    expect(recipes).toContain("Native XML patch recipes");
+    expect(recipes).toContain("insert-cell-xml");
+    expect(recipes).not.toContain("run_drawio_script");
+    expect(recipes).not.toContain("new Function");
   });
   it("bounds full-reference responses", () => {
     const huge = "# Reference\n" + "x".repeat(20_000);
