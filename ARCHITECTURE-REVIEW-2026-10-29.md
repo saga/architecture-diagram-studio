@@ -243,7 +243,7 @@ Studio-owned layout adapters
 | 执行、导出、持久化与最终结果状态分散 | 新增 native-execution-protocol.ts 的统一回执/状态转换；Copilot trace、App 派发/超时/最终编辑器回执共享 operation request ID，并区分内部 editor request ID。超时记录为待协调，不等同于失败；只读脚本有独立完成状态。 | 当前 DrawioFrame → App 的桥接 API 仍以最终结果回执为主，尚未向 UI 暴露每个中间阶段的独立时间戳；不能据此声称已实现分布式事务。 |
 | 布局引擎适配维护成本高 | 新增共享 adapter capability contract，并从当前引擎注册信息生成算法/方向/路由/参数诊断；每次 AI 布局请求记录已应用和不支持的参数。 | 没有继续增加引擎；六种引擎的维护成本仍然存在，后续应以固定 fixture 基准决定各引擎的支持范围，而不是只追求数量。 |
 | 服务入口过大 | 将 Studio 配置历史解析、校验、配置加载、迁移与写入移至 v2/server/studio-config-history.ts；copilot-server.ts 负责装配该服务。 | 这是按稳定职责拆分的第一刀，不是声称服务入口已完全模块化；路由和工作区/版本服务仍需逐组迁移并保持测试边界。 |
-| Agent 轨迹难以复现 | 增加 request/revision/page、脚本 hash、布局选项、编辑器最终状态、XML 前后 hash 的关联执行记录；新增原生 XML 变更影响解释器，按页面/cell 比较新增、删除、标签、属性、样式、几何与边端点变化。Trace 只记录有限的变更摘要，不复制整份 XML 或完整 cell 属性。 | versionId/持久化版本回执尚未全部从桥接层传到前端统一 receipt；后续应将服务端版本回执纳入同一 envelope，并把历史故障 fixture 转为回归测试。 |
+| Agent 轨迹难以复现 | 增加 request/revision/page、脚本 hash、布局选项、编辑器最终状态、XML 前后 hash 的关联执行记录；新增原生 XML 变更影响解释器，按页面/cell 比较新增、删除、标签、属性、样式、几何与边端点变化。Trace 只记录有限的变更摘要，不复制整份 XML 或完整 cell 属性。 | App 现在会用同一 operation request ID 另记持久化回执事件，包含 serializedXmlRevision、persistedRevision、versionId 与服务端 acknowledgement；它还没有被合并成单个跨层 receipt 对象。后续应将两者收敛为同一 envelope，并把历史故障 fixture 转为回归测试。 |
 
 ## 8. 审查范围与限制
 
