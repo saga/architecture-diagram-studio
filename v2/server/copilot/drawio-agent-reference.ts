@@ -60,9 +60,7 @@ For edges, preserve valid source/target cell IDs and native geometry. For UserOb
 `;
 
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
-  const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "")
-    .replace(/run_drawio_script/g, "the server-side XML patch capability")
-    .trim();
+  const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
   const safeOverview = [
     XML_FIRST_CONTRACT,
     "Server responsibilities: resolve targets against the active revision, apply cell-scoped patches to native XML, validate the result, and persist through the existing versioned document-save transaction.",
