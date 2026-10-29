@@ -1,4 +1,4 @@
-import { findDrawioElements, parseDrawioXml } from "./drawio-xml-dom";
+import { findDrawioElements, parseDrawioXml, type DrawioDomDocument } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 import type { NativeScriptScopeViolation, NativeScriptXmlAssertionFailure } from "./native-edit-confirmation";
 import { z } from "zod";
@@ -96,20 +96,37 @@ export function isBareNativeGraphModel(xml: string): boolean {
 }
 
 /**
- * The page identity a Copilot request must carry. A bare mxGraphModel holds exactly one page and
- * has no page ID, while the live editor still reports its own UUID; sending that UUID makes the
- * server reject a valid request as a missing page.
+ * Page identity of the document a caller is addressing.
+ *
+ * Studio and Draw.io disagree about bare `<mxGraphModel>` documents: the XML holds exactly one
+ * page and declares no page ID, while the live editor reports a UUID it generated. Comparing one
+ * layer's ID against the other rejects valid work, so callers read the identity for their own
+ * layer instead of re-deriving the bare-model exception at each comparison:
+ *
+ * - `documentPageId` — what the XML declares. Use it for requests, proposals, plans and any
+ *   comparison against a document revision. It is null for bare models.
+ * - `runtimePageId` — what addresses the page inside the live editor, which is the editor UUID
+ *   for bare models and the declared page ID otherwise.
  */
-export function nativeRequestPageId(xml: string, pageId: string | null): string | null {
-  return isBareNativeGraphModel(xml) ? null : pageId;
+export interface NativePageIdentity {
+  /** True when the XML root is a bare `<mxGraphModel>` with one implicit page. */
+  bare: boolean;
+  /** Page ID declared by the mxfile envelope; null for bare models. */
+  declaredPageId: string | null;
+  /** Page title declared by the envelope, when the page is known. */
+  title: string | null;
+  /** Identity to persist or compare against XML: null for bare models. */
+  documentPageId: string | null;
+  /** Identity the live editor uses: the editor UUID for bare models, the declared ID otherwise. */
+  runtimePageId: string | null;
+  /** False when an mxfile has no page matching the runtime ID, or several pages and no ID. */
+  pageExists: boolean;
 }
 
-/** Read the current page metadata from the native mxfile envelope without semantic inference. */
-export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): NativeDiagramPageInfo {
-  const parsed = parseDrawioXml(xml);
+function readPageInfo(parsed: DrawioDomDocument, pageId: string | null): NativeDiagramPageInfo {
   if (parsed.documentElement.nodeName !== "mxfile") return { id: null, title: null };
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
-  const page = pageId != null
+  const page = pageId !== null
     ? diagrams.find((item) => item.getAttribute("id") === pageId)
     : diagrams.length === 1 ? diagrams[0] : undefined;
   if (!page) return { id: null, title: null };
@@ -117,6 +134,48 @@ export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): N
     id: page.getAttribute("id") || null,
     title: page.getAttribute("name") || null
   };
+}
+
+/** Read the current page metadata from the native mxfile envelope without semantic inference. */
+export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): NativeDiagramPageInfo {
+  return readPageInfo(parseDrawioXml(xml), pageId ?? null);
+}
+
+/**
+ * Resolve both page identities for a document plus the ID the live editor reported. This is the
+ * single place that knows a bare mxGraphModel has one page, no declared ID and an editor-generated
+ * runtime ID; every page comparison elsewhere goes through the returned identity.
+ */
+export function resolveNativePageIdentity(xml: string, runtimePageId: string | null = null): NativePageIdentity {
+  const parsed = parseDrawioXml(xml);
+  if (parsed.documentElement.nodeName === "mxGraphModel") {
+    return {
+      bare: true,
+      declaredPageId: null,
+      title: null,
+      documentPageId: null,
+      runtimePageId,
+      pageExists: true
+    };
+  }
+  const info = readPageInfo(parsed, runtimePageId);
+  return {
+    bare: false,
+    declaredPageId: info.id,
+    title: info.title,
+    documentPageId: info.id,
+    runtimePageId: info.id ?? runtimePageId,
+    pageExists: info.id !== null
+  };
+}
+
+/**
+ * Whether a caller-supplied page ID addresses this document's page. A bare model holds exactly one
+ * page, so every runtime ID refers to it; an mxfile must name a page the envelope declares.
+ */
+export function nativePageAccepts(identity: NativePageIdentity, requestedPageId: string | null): boolean {
+  if (!requestedPageId) return true;
+  return identity.bare || identity.declaredPageId === requestedPageId;
 }
 
 function plainNativeLabel(value: string): string {
@@ -479,9 +538,9 @@ export function toNativeCellEdits(operations: ResolvedNativeEditOperation[], xml
         break;
       case "auto_layout": {
         if (!layoutPlan) return { ok: false, error: "The layout plan was not calculated from the current native XML revision." };
-        // A bare mxGraphModel has no envelope page ID, so the plan carries the runtime-confirmed
-        // page ID from the live editor rather than an XML-derived one.
-        const expectedPage = isBareNativeGraphModel(xml) ? (pageId ?? null) : getNativeDiagramPageInfo(xml, pageId).id;
+        // The plan carries the runtime identity: a bare model's editor-generated page ID, or the
+        // declared page ID for an mxfile.
+        const expectedPage = resolveNativePageIdentity(xml, pageId).runtimePageId;
         const revisionMatches = /^[a-f0-9]{64}$/i.test(layoutPlan.documentRevision);
         const optionsMatch = layoutPlan.engine === operation.engine &&
           layoutPlan.algorithm === operation.algorithm &&

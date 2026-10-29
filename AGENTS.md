@@ -34,6 +34,7 @@
 
 - Preserve unknown XML attributes, style keys, shape/stencil names, UserObject wrappers, nested children and future extension elements. Do not turn Draw.io's open format into a closed shape whitelist.
 - Validate mxfile, plain and compressed page payloads, bare mxGraphModel, root/mxCell/mxGeometry, defs, and the separate mxlibrary root through the appropriate schema entry point.
+- Page identity has one resolver: `resolveNativePageIdentity` in `v2/src/model/native-edit-operations.ts`. A bare `<mxGraphModel>` declares no page ID while the live editor reports its own, so requests, proposals, plans and XML comparisons use `documentPageId`, the live editor is addressed with `runtimePageId`, and an editor-generated ID must never be matched against the XML.
 - Do not run automatic layout during open/import. The native editor retains the geometry stored in the file.
 - Workspace saves/restores keep native XML paired with the server-issued SHA-256 revision and reject stale saves with HTTP 409. Standalone browser-owned files track a browser-calculated hash of the last observed source XML, compare it to `handle.getFile()` before writes, and use a separate Node.js revision for the snapshot stream; do not imply the Node.js history revision protects the original file.
 

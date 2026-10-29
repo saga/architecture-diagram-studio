@@ -1,15 +1,15 @@
 import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 import {
   extractNativeEditTargets,
-  getNativeDiagramPageInfo,
-  type NativeDiagramPageInfo,
-  type NativeEditTarget
+  resolveNativePageIdentity,
+  type NativeEditTarget,
+  type NativePageIdentity
 } from "../../src/model/native-edit-operations";
 
 export interface ParsedNativeDiagramSnapshot {
   revision: string;
   requestedPageId: string | null;
-  pageInfo: NativeDiagramPageInfo;
+  identity: NativePageIdentity;
   targets: NativeEditTarget[];
 }
 
@@ -59,12 +59,12 @@ export function getCachedNativeDiagramSnapshot(
   }
 
   try {
-    const pageInfo = getNativeDiagramPageInfo(xml, requestedPageId);
+    const identity = resolveNativePageIdentity(xml, requestedPageId);
     const snapshot: ParsedNativeDiagramSnapshot = {
       revision,
       requestedPageId,
-      pageInfo,
-      targets: extractNativeEditTargets(xml, pageInfo.id, { includeGeometry: true })
+      identity,
+      targets: extractNativeEditTargets(xml, identity.documentPageId, { includeGeometry: true })
     };
     entry.pages.set(requestedPageId ?? "", snapshot);
     while (entry.pages.size > MAX_PAGES_PER_REVISION) {

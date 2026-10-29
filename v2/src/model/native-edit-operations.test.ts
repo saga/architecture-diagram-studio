@@ -5,7 +5,8 @@ import {
   extractNativeEditTargets,
   getNativeDiagramPageInfo,
   isBareNativeGraphModel,
-  nativeRequestPageId,
+  nativePageAccepts,
+  resolveNativePageIdentity,
   MAX_NATIVE_EDIT_OPERATIONS,
   MAX_NATIVE_DRAWIO_SCRIPT_LENGTH,
   NativeEditOperationSchema,
@@ -249,9 +250,11 @@ describe("parseNativeEditOperations", () => {
     const resolved = parsed.operations.map((operation) => ({
       ...operation, cellId: "__active_page__", targetLabel: "active Draw.io page"
     })) as ResolvedNativeEditOperation[];
-    const plan = await calculateNativeAutoLayout(XML, "p1", "a".repeat(64), {
-      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", direction: "DOWN"
-    });
+    // Calculate with the operation's own options, the way the Copilot dispatch path does; a plan
+    // built from different defaults fails the option check.
+    const layoutOperation = parsed.operations[0];
+    if (layoutOperation.op !== "auto_layout") throw new Error("expected an auto_layout operation");
+    const plan = await calculateNativeAutoLayout(XML, "p1", "a".repeat(64), layoutOperation);
     expect(toNativeCellEdits(resolved, XML, "p1", plan)).toMatchObject({
       ok: true,
       edits: [{ cellId: "__active_page__", path: "cell:auto-layout" }]
@@ -531,19 +534,64 @@ describe("describeNativeEditOperation", () => {
   });
 });
 
-describe("native request page identity", () => {
-  it("drops the editor page ID for a bare mxGraphModel", () => {
-    const bare = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
-    expect(isBareNativeGraphModel(bare)).toBe(true);
-    expect(nativeRequestPageId(bare, "editor-page-uuid")).toBeNull();
-    expect(nativeRequestPageId(bare, null)).toBeNull();
+describe("native page identity", () => {
+  const bare = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
+  const envelope = '<mxfile><diagram id="page-1" name="Page"><mxGraphModel><root>' +
+    '<mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
+
+  it("separates the editor identity from the document identity for a bare mxGraphModel", () => {
+    const identity = resolveNativePageIdentity(bare, "editor-page-uuid");
+    expect(identity).toMatchObject({
+      bare: true, declaredPageId: null, documentPageId: null,
+      runtimePageId: "editor-page-uuid", pageExists: true
+    });
+    expect(nativePageAccepts(identity, "editor-page-uuid")).toBe(true);
+    expect(nativePageAccepts(identity, "any-other-uuid")).toBe(true);
+    expect(nativePageAccepts(identity, null)).toBe(true);
   });
 
-  it("keeps the page ID for an mxfile envelope", () => {
-    const envelope = '<mxfile><diagram id="page-1" name="Page"><mxGraphModel><root>' +
-      '<mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
-    expect(nativeRequestPageId(envelope, "page-1")).toBe("page-1");
-    expect(nativeRequestPageId(envelope, null)).toBeNull();
-    expect(nativeRequestPageId("not xml", "page-1")).toBe("page-1");
+  it("uses the declared page ID for both layers in an mxfile", () => {
+    const identity = resolveNativePageIdentity(envelope, "page-1");
+    expect(identity).toMatchObject({
+      bare: false, declaredPageId: "page-1", documentPageId: "page-1",
+      runtimePageId: "page-1", title: "Page", pageExists: true
+    });
+    expect(nativePageAccepts(identity, "page-1")).toBe(true);
+    expect(nativePageAccepts(identity, "page-2")).toBe(false);
+    expect(nativePageAccepts(identity, null)).toBe(true);
+  });
+
+  it("fails closed for an mxfile page the envelope does not declare", () => {
+    const identity = resolveNativePageIdentity(envelope, "missing-page");
+    expect(identity.pageExists).toBe(false);
+    expect(identity.documentPageId).toBeNull();
+    expect(nativePageAccepts(identity, "missing-page")).toBe(false);
+  });
+
+  it("resolves the only page of a single-page mxfile when no runtime ID is known", () => {
+    expect(resolveNativePageIdentity(envelope, null)).toMatchObject({
+      declaredPageId: "page-1", runtimePageId: "page-1", pageExists: true
+    });
+  });
+
+  it("validates a bare-model layout plan against the runtime page, not the declared one", async () => {
+    const bareXml = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+      '<mxCell id="a" value="A" vertex="1" parent="1"><mxGeometry x="0" y="0" width="80" height="40" as="geometry"/></mxCell>' +
+      '<mxCell id="b" value="B" vertex="1" parent="1"><mxGeometry x="200" y="0" width="80" height="40" as="geometry"/></mxCell>' +
+      '<mxCell id="e" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel>';
+    const parsed = parseNativeEditOperations([{ op: "auto_layout", target: "active_page", engine: "dagre", direction: "DOWN" }]);
+    if (!parsed.ok) throw new Error("expected a parsed auto_layout operation");
+    const layoutOperation = parsed.operations[0];
+    if (layoutOperation.op !== "auto_layout") throw new Error("expected an auto_layout operation");
+    const resolved = parsed.operations.map((operation) => ({
+      ...operation, cellId: "__active_page__", targetLabel: "active Draw.io page"
+    })) as ResolvedNativeEditOperation[];
+    const runtimePageId = "editor-page-uuid";
+    const plan = await calculateNativeAutoLayout(bareXml, runtimePageId, "b".repeat(64), layoutOperation);
+
+    expect(plan.pageId).toBe(runtimePageId);
+    expect(toNativeCellEdits(resolved, bareXml, runtimePageId, plan)).toMatchObject({ ok: true });
+    // The declared identity is null here, so a plan carrying it would be rejected as stale.
+    expect(toNativeCellEdits(resolved, bareXml, null, plan)).toMatchObject({ ok: false });
   });
 });

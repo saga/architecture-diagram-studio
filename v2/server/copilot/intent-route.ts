@@ -5,7 +5,7 @@ import { CopilotRuntime, CopilotSessionBusyError, describeCopilotFailure } from 
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import {
   describeNativeEditOperation,
-  isBareNativeGraphModel,
+  nativePageAccepts,
   MAX_NATIVE_EDIT_OPERATIONS, parseNativeEditOperations, type ResolvedNativeEditOperation
 } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
@@ -362,8 +362,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       res.status(409).json({ outcome: "stale_context", reply: "The proposal XML is no longer a valid Draw.io document.", error: "The proposal XML could not be validated.", documentRevision });
       return;
     }
-    const pageInfo = parsedSnapshot.snapshot.pageInfo;
-    if (pageInfo.id !== proposal.pageId) {
+    const identity = parsedSnapshot.snapshot.identity;
+    if (identity.documentPageId !== proposal.pageId) {
       pendingNativeProposals.delete(proposalId);
       res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page changed after this proposal was prepared.", error: "The proposal targets a different page.", documentRevision });
       return;
@@ -402,7 +402,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       outcome: "command_ready",
       reply: "The reviewed proposal was confirmed. Applying the validated native edit batch.",
       sessionId,
-      nativeEdits: { operations: revalidated.operations, summary: proposal.summary, pageId: pageInfo.id, documentRevision, requestId }
+      nativeEdits: { operations: revalidated.operations, summary: proposal.summary, pageId: identity.documentPageId, documentRevision, requestId }
     });
   });
 
@@ -1218,8 +1218,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
           return;
         }
-        if (requestedPageId && !isBareNativeGraphModel(diagramXml) &&
-            suppliedSnapshot.snapshot.pageInfo.id !== requestedPageId) {
+        if (!nativePageAccepts(suppliedSnapshot.snapshot.identity, requestedPageId)) {
           res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
           return;
         }
@@ -1259,14 +1258,14 @@ function createDrawioElementSearchTool(sessionId: string) {
       res.status(400).json({ outcome: "failed", reply: "The Copilot request contains invalid Draw.io XML.", error: "The Copilot request contains invalid Draw.io XML", requestId, sessionId });
       return;
     }
-    const pageInfo = parsedSnapshot.snapshot.pageInfo;
+    const identity = parsedSnapshot.snapshot.identity;
     await deps.writeLog("diagram.snapshot.cache", {
-      requestId, revision: computedRevision, activePageId: pageInfo.id,
+      requestId, revision: computedRevision, activePageId: identity.documentPageId,
       cacheHit: parsedSnapshot.cacheHit, targetCount: parsedSnapshot.snapshot.targets.length
     });
-    // A bare mxGraphModel has exactly one page and no page ID; the editor still reports one,
-    // so page identity cannot be matched and must not be treated as a stale revision.
-    if (requestedPageId && !isBareNativeGraphModel(diagramXml) && pageInfo.id !== requestedPageId) {
+    // Page identity comes from the document, not from the caller: a bare mxGraphModel declares no
+    // page ID, so any editor-reported ID there refers to its single page.
+    if (!nativePageAccepts(identity, requestedPageId)) {
       res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
       return;
     }
@@ -1276,7 +1275,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     if (requestedSelection && typeof requestedSelection === "object" && !Array.isArray(requestedSelection)) {
       const selection = requestedSelection as { cellId?: unknown; pageId?: unknown };
       if (typeof selection.cellId === "string" && selection.cellId.trim()) {
-        if (typeof selection.pageId === "string" && pageInfo.id && selection.pageId !== pageInfo.id) {
+        if (typeof selection.pageId === "string" && identity.documentPageId && selection.pageId !== identity.documentPageId) {
           res.status(409).json({ outcome: "stale_context", reply: "The selected element belongs to another page. Select it again and retry.", error: "The selected cell belongs to a different Draw.io page.", documentRevision, requestId, sessionId });
           return;
         }
@@ -1285,7 +1284,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           res.status(409).json({ outcome: "stale_context", reply: "The selected element changed or was removed. Select it again and retry.", error: "The selected cell is not present on the active Draw.io page in this revision.", documentRevision, requestId, sessionId });
           return;
         }
-        selectedCell = { cellId: target.id, pageId: pageInfo.id, label: target.name };
+        selectedCell = { cellId: target.id, pageId: identity.documentPageId, label: target.name };
       }
     }
     let visibleCells = allNativeCells.slice(0, 200);
@@ -1379,17 +1378,17 @@ function createDrawioElementSearchTool(sessionId: string) {
         requestId, sessionId, failedActionLength: scriptRepair.failedScript.length, failedTool: scriptRepair.toolResult.toolName, errorLength: scriptRepair.error.length,
         originalRequestLength: scriptRepair.originalRequest.length, errorStackLength: scriptRepair.stack?.length ?? 0,
         toolResult: scriptRepair.toolResult,
-        revision: computedRevision, activePageId: pageInfo.id
+        revision: computedRevision, activePageId: identity.documentPageId
       });
     }
     const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
     const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
-      documentRevision: computedRevision, pageId: pageInfo.id, drawioVersion: PINNED_DRAWIO_VERSION
+      documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION
     });
     if (suppliedRuntimeInspection !== undefined && !runtimeInspection) {
       await deps.writeLog("request.runtime-inspection.rejected", {
         requestId, sessionId, reason: "snapshot_did_not_match_revision_page_or_pinned_runtime",
-        expectedRevision: computedRevision, expectedPageId: pageInfo.id, expectedDrawioVersion: PINNED_DRAWIO_VERSION
+        expectedRevision: computedRevision, expectedPageId: identity.documentPageId, expectedDrawioVersion: PINNED_DRAWIO_VERSION
       });
     }
     // The model-facing list is {id,label}: a label survives revisions, and an ID is trustworthy only
@@ -1405,8 +1404,8 @@ function createDrawioElementSearchTool(sessionId: string) {
       kind: "drawio",
       title: typeof (requestedContext as { title?: unknown }).title === "string"
         ? ((requestedContext as { title: string }).title.slice(0, 200))
-        : pageInfo.title || "Draw.io diagram",
-      activePageId: pageInfo.id,
+        : identity.title || "Draw.io diagram",
+      activePageId: identity.documentPageId,
       selectedCell,
       cells: promptCells,
       ...(runtimeInspection ? { runtimeInspection } : {}),
@@ -1503,7 +1502,7 @@ function createDrawioElementSearchTool(sessionId: string) {
         // Keep the complete server-derived target index private to tools. The model-facing context is
         // intentionally capped for prompt size, but target uniqueness must be checked against every cell
         // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
-        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: pageInfo.id, cells: allNativeCells, runtimeInspection: context.runtimeInspection });
+        contextBySession.set(sessionId, { ...context, documentRevision, activePageId: identity.documentPageId, cells: allNativeCells, runtimeInspection: context.runtimeInspection });
         pendingAgentSelections.delete(sessionId);
         pendingNativeEdits.delete(sessionId);
         pendingReportedOutcomes.delete(sessionId);

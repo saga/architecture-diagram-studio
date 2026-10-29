@@ -3,9 +3,7 @@ import { calculateDrawioXmlRevision, confirmAIIntentProposal, requestAIIntentPla
 import {
   describeNativeEditOperation,
   extractNativeEditTargets,
-  getNativeDiagramPageInfo,
-  isBareNativeGraphModel,
-  nativeRequestPageId,
+  resolveNativePageIdentity,
   toNativeCellEdits,
   type NativeCellEdit,
   type NativeEditExecution
@@ -153,8 +151,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       // context, but do not let a later selection change invalidate a label/ID-based edit.
       sourceSelectedCellId = stateBeforeSend.selectedNativeCellId;
 
-      const nativePage = getNativeDiagramPageInfo(sourceXml, sourcePageId);
-      let activePageId = nativePage.id || sourcePageId;
+      // The document declares the page identity; a bare mxGraphModel declares none, so the editor
+      // UUID is only a runtime address and must never travel as the request's activePageId.
+      let pageIdentity = resolveNativePageIdentity(sourceXml, sourcePageId);
+      let activePageId = pageIdentity.runtimePageId;
       let runtimeInspection: DrawioRuntimeInspection | undefined;
       if (getRuntimeInspection) {
         const requestedJsShapeClassNames = new Set<string>();
@@ -173,7 +173,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         if (activePageId === null) activePageId = runtimeInspection.pageId;
         if (activePageId !== null && sourcePageId === null) sourcePageId = activePageId;
-        if (activePageId === null && !isBareNativeGraphModel(sourceXml)) {
+        if (activePageId === null && !pageIdentity.pageExists) {
           throw new Error("The active Draw.io page ID is not available. Wait for the editor to finish loading; no Agent request was sent.");
         }
         if (runtimeInspection.pageId !== activePageId) {
@@ -196,10 +196,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
 
       let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
-      // A bare mxGraphModel has exactly one page and no page ID. The live editor still reports
-      // its own UUID, but the document identity for the request (and every server comparison)
-      // must be null, otherwise a valid request is rejected as a stale page.
-      const requestPageId = nativeRequestPageId(sourceXml, activePageId);
+      // Re-resolve once the editor has confirmed the active page: the request carries the document
+      // identity, which is null for a bare mxGraphModel.
+      pageIdentity = resolveNativePageIdentity(sourceXml, activePageId);
+      const requestPageId = pageIdentity.documentPageId;
       try {
         nativeTargets = extractNativeEditTargets(sourceXml, requestPageId);
       } catch (error) {
@@ -223,7 +223,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         requestText,
         {
           kind: "drawio",
-          title: nativePage.title || "Draw.io diagram",
+          title: pageIdentity.title || "Draw.io diagram",
           activePageId: requestPageId,
           selectedCell: sourceSelectedCellId ? {
             cellId: sourceSelectedCellId, pageId: requestPageId,
@@ -295,8 +295,11 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         const operations = plan.nativeEdits.operations;
         const layoutOperation = operations.length === 1 && operations[0].op === "auto_layout" ? operations[0] : undefined;
+        // The layout plan is applied by the live editor and must carry the runtime page identity;
+        // a bare mxGraphModel has no declared page ID but still has an editor page.
+        const layoutPageId = pageIdentity.runtimePageId ?? plan.nativeEdits.pageId;
         const layoutPlan = layoutOperation
-          ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
+          ? await calculateNativeAutoLayout(sourceXml, layoutPageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
           : undefined;
         if (layoutOperation) {
           const currentState = getStateForResolvedPage();
@@ -307,7 +310,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
             "while Studio was calculating the layout. Nothing was applied; retry."
           );
         }
-        const cellPlan = toNativeCellEdits(operations, sourceXml, plan.nativeEdits.pageId, layoutPlan);
+        const cellPlan = toNativeCellEdits(operations, sourceXml, layoutPageId, layoutPlan);
         if (!cellPlan.ok) throw new Error("The native edit plan is invalid: " + cellPlan.error);
         // Bind the dispatch to the page that was inspected for this turn. The editor bridge
         // performs its own final page guard, but this catches page switches before queueing work.
@@ -462,7 +465,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
                 documentRevision
               }, "The previous native Draw.io action returned a failed tool result. Treat context.scriptRepair.toolResult as the tool result, not as user prose. The editor reported the exact error and confirmed rollback, so use that result plus runtime inspection to correct the actual cause. The failed action payload is either the original JavaScript script or a JSON array of typed native operations. Preserve the original user request and active-page scope; do not repeat the failed action unchanged. Return one corrected action by calling run_drawio_script directly. Do not claim success until the editor result and serialized XML/persistence acknowledgement succeed.", {
                 kind: "drawio",
-                title: nativePage.title || "Draw.io diagram",
+                title: pageIdentity.title || "Draw.io diagram",
                 activePageId: requestPageId,
                 selectedCell: sourceSelectedCellId ? {
                   cellId: sourceSelectedCellId, pageId: requestPageId,
@@ -652,7 +655,8 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         documentRevision = saved.workspaceRevision;
       }
-      let activePageId = getNativeDiagramPageInfo(sourceXml, sourcePageId).id || sourcePageId;
+      let pageIdentity = resolveNativePageIdentity(sourceXml, sourcePageId);
+      let activePageId = pageIdentity.runtimePageId;
       if (getRuntimeInspection) {
         const runtimeInspection = await getRuntimeInspection({ documentRevision, pageId: activePageId });
         if (runtimeInspection.documentRevision !== documentRevision ||
@@ -661,21 +665,19 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         activePageId = runtimeInspection.pageId;
       }
-      if (!activePageId && !isBareNativeGraphModel(sourceXml)) {
+      if (!activePageId && !pageIdentity.pageExists) {
         throw new Error("The active Draw.io page ID is not available. Select a page and retry confirming this proposal.");
       }
-      const pageInfo = getNativeDiagramPageInfo(sourceXml, activePageId);
-      // A bare mxGraphModel has no envelope page ID, so pageInfo.id is null while
-      // activePageId is the runtime-confirmed ID from the live editor; only an mxfile
-      // must prove that the requested page still exists in the source XML.
-      if (!isBareNativeGraphModel(sourceXml) && pageInfo.id !== activePageId) throw new Error("The proposal's target page was not found in the source XML.");
-      // The request must carry the document's page identity, which is null for a bare model.
-      const requestPageId = nativeRequestPageId(sourceXml, activePageId);
+      pageIdentity = resolveNativePageIdentity(sourceXml, activePageId);
+      // An mxfile must still prove that the runtime page exists; a bare model has exactly one page
+      // and no declared ID, so the editor's UUID is authoritative by definition.
+      if (!pageIdentity.pageExists) throw new Error("The proposal's target page was not found in the source XML.");
+      const requestPageId = pageIdentity.documentPageId;
       const nativeTargets = extractNativeEditTargets(sourceXml, requestPageId);
       const selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const requestContext = {
         kind: "drawio" as const,
-        title: pageInfo.title || "Draw.io diagram",
+        title: pageIdentity.title || "Draw.io diagram",
         activePageId: requestPageId,
         selectedCell: sourceSelectedCellId ? {
           cellId: sourceSelectedCellId, pageId: requestPageId,
@@ -712,8 +714,11 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       }
       const layoutOperation = command.operations.length === 1 && command.operations[0].op === "auto_layout"
         ? command.operations[0] : undefined;
+      // The editor applies the plan, so it must carry the runtime page identity rather than the
+      // document identity that is null for a bare mxGraphModel.
+      const layoutPageId = pageIdentity.runtimePageId ?? command.pageId;
       const layoutPlan = layoutOperation
-        ? await calculateNativeAutoLayout(sourceXml, command.pageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
+        ? await calculateNativeAutoLayout(sourceXml, layoutPageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
         : undefined;
       if (layoutOperation) {
         const stateAfterLayout = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
@@ -724,7 +729,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           "while Studio was calculating the confirmed layout. Nothing was applied; retry."
         );
       }
-      const cellPlan = toNativeCellEdits(command.operations, sourceXml, command.pageId, layoutPlan);
+      const cellPlan = toNativeCellEdits(command.operations, sourceXml, layoutPageId, layoutPlan);
       if (!cellPlan.ok) throw new Error("The confirmed proposal is no longer valid: " + cellPlan.error);
       if (getRuntimeInspection) {
         const runtimeBeforeDispatch = await getRuntimeInspection({ documentRevision, pageId: activePageId });
