@@ -4,6 +4,7 @@ import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 export type DrawioXmlPatch =
   | { op: "set-cell-attributes"; cellId: string; attributes: Record<string, string | null> }
   | { op: "set-geometry"; cellId: string; geometry: { x?: number; y?: number; width?: number; height?: number } }
+  | { op: "set-geometry-xml"; cellId: string; geometryXml: string }
   | { op: "delete-cell"; cellId: string }
   | { op: "insert-cell-xml"; parentId: string; cellXml: string };
 
@@ -151,6 +152,26 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
         }
         geometry.setAttribute(name, String(value));
       }
+      changed.add(operation.cellId);
+      continue;
+    }
+
+    if (operation.op === "set-geometry-xml") {
+      if (typeof operation.geometryXml !== "string" || !operation.geometryXml.trim() || operation.geometryXml.length > 100_000) {
+        throw new Error("set-geometry-xml requires a non-empty mxGeometry fragment up to 100 KB.");
+      }
+      const fragmentDocument = parseDrawioXml(operation.geometryXml);
+      const fragment = fragmentDocument.documentElement;
+      if (fragment.tagName !== "mxGeometry") {
+        throw new Error("set-geometry-xml must contain one mxGeometry root element.");
+      }
+      if (!fragment.hasAttribute("as")) fragment.setAttribute("as", "geometry");
+      const imported = document.importNode(fragment, true);
+      const previous = Array.from(cell.childNodes).find(
+        (node): node is Element => node.nodeType === 1 && (node as Element).tagName === "mxGeometry"
+      );
+      if (previous?.parentNode) previous.parentNode.replaceChild(imported, previous);
+      else cell.appendChild(imported);
       changed.add(operation.cellId);
       continue;
     }
