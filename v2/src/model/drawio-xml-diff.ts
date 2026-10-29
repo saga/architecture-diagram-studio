@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { parseDrawioXml } from "./drawio-xml-dom";
+import { parseDrawioXml, serializeDrawioXml } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 
 export interface NativeXmlCellSnapshot {
@@ -37,8 +36,10 @@ export interface NativeXmlImpactReport {
   summary: { added: number; removed: number; changed: number; changedFields: number };
 }
 
-function sha256(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function attributesOf(element: Element | null): Record<string, string> {
@@ -72,7 +73,7 @@ function pageModels(xml: string): Array<{ id: string; document: Document }> {
     const payload = Array.from(page.childNodes).find((node) => node.nodeType === 1);
     let modelDocument: Document;
     if (payload && (payload as Element).tagName === "mxGraphModel") {
-      modelDocument = parseDrawioXml(new XMLSerializer().serializeToString(payload));
+      modelDocument = parseDrawioXml(serializeDrawioXml(payload));
     } else {
       const text = page.textContent || "";
       modelDocument = parseDrawioXml(decodeDrawioPageXml(text));
@@ -134,7 +135,7 @@ function changedFields(before: NativeXmlCellSnapshot, after: NativeXmlCellSnapsh
  * Compare native XML directly. This is a diagnostic projection only: it never serializes
  * back into the user's document and deliberately leaves unknown XML as the authoritative source.
  */
-export function interpretNativeXmlChange(beforeXml: string, afterXml: string): NativeXmlImpactReport {
+export async function interpretNativeXmlChange(beforeXml: string, afterXml: string): Promise<NativeXmlImpactReport> {
   const beforePages = pageModels(beforeXml);
   const afterPages = pageModels(afterXml);
   const before = new Map<string, NativeXmlCellSnapshot>();
@@ -159,8 +160,8 @@ export function interpretNativeXmlChange(beforeXml: string, afterXml: string): N
   const changed = changes.filter((item) => item.kind === "changed").length;
   return {
     schemaVersion: 1,
-    beforeHash: sha256(beforeXml),
-    afterHash: sha256(afterXml),
+    beforeHash: await sha256(beforeXml),
+    afterHash: await sha256(afterXml),
     changed: beforeXml !== afterXml,
     pageIdsBefore: beforePages.map((page) => page.id),
     pageIdsAfter: afterPages.map((page) => page.id),
