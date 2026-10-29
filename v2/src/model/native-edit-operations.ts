@@ -47,14 +47,6 @@ export interface NativeEditExecution {
   failureStage?: "editor" | "persistence";
   /** The local edit may be saved even if its final audit receipt could not be accepted by the server. */
   auditWarning?: string;
-  /** Bounded return value from a native Draw.io script, when one was supplied. */
-  scriptResult?: unknown;
-  /** Semantic before/after XML result for a validated native script. */
-  semanticChanged?: boolean;
-  /** Bounded field-level XML assertion failures from native script verification. */
-  assertionFailures?: NativeScriptXmlAssertionFailure[];
-  /** Bounded undeclared/unproven native cell changes from the before/after XML diff. */
-  scopeViolations?: NativeScriptScopeViolation[];
   /** Distinguishes a verified edit from a changed document whose requested postconditions remain unknown. */
   applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
   rolledBack: boolean;
