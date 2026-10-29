@@ -266,41 +266,6 @@ function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): s
  * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
  * attempt receives the concrete serialized value it must assert, not just the missing field name.
  */
-function boundedSuggestedAssertion(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const source = value as Record<string, unknown>;
-  const bounded: Record<string, unknown> = {};
-  if (typeof source.label === "string") bounded.label = source.label.slice(0, 300);
-  if (source.style && typeof source.style === "object" && !Array.isArray(source.style)) {
-    const style: Record<string, string | null> = {};
-    for (const [key, expected] of Object.entries(source.style as Record<string, unknown>).slice(0, 10)) {
-      if (expected !== null && typeof expected !== "string") continue;
-      style[key.slice(0, 60)] = expected === null ? null : expected.slice(0, 120);
-    }
-    if (Object.keys(style).length) bounded.style = style;
-  }
-  if (source.geometry && typeof source.geometry === "object" && !Array.isArray(source.geometry)) {
-    const geometry: Record<string, unknown> = {};
-    for (const [key, expected] of Object.entries(source.geometry as Record<string, unknown>).slice(0, 10)) {
-      if (Array.isArray(expected)) {
-        geometry[key.slice(0, 40)] = expected.slice(0, 20).flatMap((point) => {
-          if (!point || typeof point !== "object" || Array.isArray(point)) return [];
-          const source = point as Record<string, unknown>;
-          const x = typeof source.x === "number" && Number.isFinite(source.x) ? source.x : null;
-          const y = typeof source.y === "number" && Number.isFinite(source.y) ? source.y : null;
-          // Keep null coordinates: dropping the point would shorten the array and turn a correct
-          // hint into an assertion that cannot match.
-          return [{ x, y }];
-        });
-      } else if (expected === null || typeof expected === "number" || typeof expected === "boolean") {
-        geometry[key.slice(0, 40)] = expected;
-      }
-    }
-    if (Object.keys(geometry).length) bounded.geometry = geometry;
-  }
-  return Object.keys(bounded).length ? bounded : undefined;
-}
-
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   const acknowledgements = deps.acknowledgements ?? acknowledgementsDefault;
   app.post("/api/copilot/intent/confirm", async (req, res) => {
