@@ -249,7 +249,9 @@ describe("parseNativeEditOperations", () => {
       ...operation, cellId: "__active_page__", targetLabel: "active Draw.io page"
     })) as ResolvedNativeEditOperation[];
     const plan = await calculateNativeAutoLayout(XML, "p1", "a".repeat(64), {
-      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", direction: "DOWN"
+      ...DEFAULT_NATIVE_AUTO_LAYOUT_OPTIONS, engine: "dagre", direction: "DOWN",
+      // The operation schema defaults this option to false; the toolbar default is intentionally independent.
+      preserveRelativeAnchors: false
     });
     expect(toNativeCellEdits(resolved, XML, "p1", plan)).toMatchObject({
       ok: true,
