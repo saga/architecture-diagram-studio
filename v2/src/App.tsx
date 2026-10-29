@@ -736,7 +736,7 @@ export default function App() {
           editorRequestId: requestId,
           documentRevision: acknowledgement.documentRevision,
           sessionId: acknowledgement.sessionId,
-          editCount: edits.length, edits, pageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+          editCount: edits.length, editPaths: edits.map((edit) => edit.path), editPayloadBytes: edits.reduce((total, edit) => total + edit.value.length, 0), pageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
         });
         setCellEditRequest({ cellId: "__batch__", pageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
         const watchdogTimerId = window.setTimeout(() => {
