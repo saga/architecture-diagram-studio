@@ -969,6 +969,11 @@ function createDrawioElementSearchTool(sessionId: string) {
                   }, minProperties: 1, additionalProperties: false }
                 }, required: ["op", "cellId", "geometry"], additionalProperties: false },
                 { type: "object", properties: {
+                  op: { type: "string", enum: ["set-geometry-xml"] },
+                  cellId: { type: "string", minLength: 1 },
+                  geometryXml: { type: "string", minLength: 1, maxLength: 100000 }
+                }, required: ["op", "cellId", "geometryXml"], additionalProperties: false },
+                { type: "object", properties: {
                   op: { type: "string", enum: ["delete-cell"] },
                   cellId: { type: "string", minLength: 1 }
                 }, required: ["op", "cellId"], additionalProperties: false },
