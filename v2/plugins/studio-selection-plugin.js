@@ -924,11 +924,13 @@
         if (!layoutPlan || layoutPlan.pageId !== (currentPageId() || null)) throw new Error("The active Draw.io page changed after layout calculation. Re-run auto layout.");
         return applyNativeLayoutPlan(layoutPlan, activeGraph, activeModel);
       }
+      var path = String(request.path || "");
+      if (path === "cell:execute-script") throw new Error("Script execution has been removed; use the server-side XML patch capability.");
       var cell = activeModel.getCell(request.cellId);
       if (!cell) throw new Error("Selected Draw.io cell no longer exists");
       var requestedPage = request.pageId; var activePage = currentPageId();
       if (requestedPage && activePage && requestedPage !== activePage) throw new Error("The active Draw.io page changed before the property edit");
-      var path = String(request.path || ""); var value = String(request.value == null ? "" : request.value);
+      var value = String(request.value == null ? "" : request.value);
       if (path === "cell:select") {
         if (isNativeStructuralRootOrLayer(cell, activeModel)) throw new Error("The Draw.io structural root and layer cells cannot be selected as diagram elements");
         if (typeof activeGraph.setSelectionCell !== "function") throw new Error("This Draw.io build does not expose cell selection");
