@@ -217,7 +217,7 @@ Studio-owned layout adapters
 ## 6. 建议实施顺序
 
 ### 第一阶段：降低高风险边界的不确定性
-1. 默认让 Vite dev/preview 监听 loopback；只有显式配置时才绑定所有网卡。
+1. 遵守已记录的用户决策：Vite dev/preview 绑定 0.0.0.0 不作为待办；本阶段聚焦其他具体风险。
 2. 复核 Copilot API、Draw.io 静态服务、文件接口与浏览器 Origin/Host 校验。
 3. 以 requestId 为中心梳理 outcome 状态机，确保 timeout、late result、export、persist、version receipt 不产生矛盾状态。
 4. 将 CI 改为 lockfile 驱动的可复现安装，移除 CI 自动回写 lockfile 的副作用。
@@ -234,14 +234,25 @@ Studio-owned layout adapters
 3. 通过基准语料决定各布局引擎的产品承诺、默认选择与维护标准。
 4. 只有出现明确的不可信代码执行需求时，才投资更强的进程级隔离。
 
-## 7. 审查范围与限制
+## 7. 本轮修复记录（2026-10-29）
+
+本轮已在代码中落地以下改动；CI 结果以对应 PR 的检查结果为准。
+
+| 原问题 | 本轮改动 | 边界与后续验证 |
+|---|---|---|
+| 执行、导出、持久化与最终结果状态分散 | 新增 native-execution-protocol.ts 的统一回执/状态转换；Copilot trace、App 派发/超时/最终编辑器回执共享 operation request ID，并区分内部 editor request ID。超时记录为待协调，不等同于失败；只读脚本有独立完成状态。 | 当前 DrawioFrame → App 的桥接 API 仍以最终结果回执为主，尚未向 UI 暴露每个中间阶段的独立时间戳；不能据此声称已实现分布式事务。 |
+| 布局引擎适配维护成本高 | 新增共享 adapter capability contract，并从当前引擎注册信息生成算法/方向/路由/参数诊断；每次 AI 布局请求记录已应用和不支持的参数。 | 没有继续增加引擎；六种引擎的维护成本仍然存在，后续应以固定 fixture 基准决定各引擎的支持范围，而不是只追求数量。 |
+| 服务入口过大 | 将 Studio 配置历史解析、校验、配置加载、迁移与写入移至 v2/server/studio-config-history.ts；copilot-server.ts 负责装配该服务。 | 这是按稳定职责拆分的第一刀，不是声称服务入口已完全模块化；路由和工作区/版本服务仍需逐组迁移并保持测试边界。 |
+| Agent 轨迹难以复现 | 增加 request/revision/page、脚本 hash、布局选项、编辑器最终状态、XML 前后 hash 的关联执行记录；新增原生 XML 变更影响解释器，按页面/cell 比较新增、删除、标签、属性、样式、几何与边端点变化。Trace 只记录有限的变更摘要，不复制整份 XML 或完整 cell 属性。 | versionId/持久化版本回执尚未全部从桥接层传到前端统一 receipt；后续应将服务端版本回执纳入同一 envelope，并把历史故障 fixture 转为回归测试。 |
+
+## 8. 审查范围与限制
 
 - 本报告基于 main 分支可读取的 README、AGENTS、架构说明、ADR、主要服务/模型接口、package scripts 和 CI 工作流。
 - 本次没有逐行审查所有业务函数，也没有本地运行 npm test、npm run build、Playwright E2E 或进行网络安全测试。
 - 模块化建议是可维护性判断，不等于已证明其中存在某个具体功能缺陷。
 - 报告区分可从配置/ADR 确认的事实和需要动态验证的风险，不把风险描述成已复现漏洞。
 
-## 8. 参考文件
+## 9. 参考文件
 
 - README.md
 - AGENTS.md
@@ -250,6 +261,10 @@ Studio-owned layout adapters
 - v2/package.json
 - .github/workflows/v2.yml
 - v2/server/copilot-server.ts
+- v2/server/studio-config-history.ts
+- v2/src/model/native-execution-protocol.ts
+- v2/src/model/drawio-xml-diff.ts
+- v2/src/layout/native-layout-adapter-contract.ts
 - v2/server/copilot/runtime.ts
 - v2/server/storage-layout.ts
 - v2/server/workspace-diagram-change-set-apply.ts
