@@ -2156,7 +2156,7 @@ export default function App() {
                       ? "No document change was detected for this edit: " + (finalResult.error || "No matching change")
                       : finalResult.applicationState === "unknown"
                         ? "The native edit outcome is unknown: " + (finalResult.error || "No reliable serialized result")
-                        : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error")) +
+                         : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error") +
                 (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
               setLastAction(status);
               if (wasLateNativeEdit) {
