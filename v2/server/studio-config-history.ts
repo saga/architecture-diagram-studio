@@ -65,7 +65,7 @@ export function createStudioConfigService(options: StudioConfigServiceOptions) {
 
   async function appendStudioConfig(config: StudioConfig, changeSummary: string): Promise<void> {
     await mkdir(options.globalDataDir, { recursive: true, mode: 0o700 });
-    await appendFile(options.historyFile, JSON.stringify({ ...config, changeSummary }) + "\\n", { encoding: "utf8", mode: 0o600 });
+    await appendFile(options.historyFile, JSON.stringify({ ...config, changeSummary }) + "\n", { encoding: "utf8", mode: 0o600 });
     current = config;
   }
 
