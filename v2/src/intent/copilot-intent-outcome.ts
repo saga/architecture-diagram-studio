@@ -4,6 +4,7 @@ export type CopilotIntentOutcomeCode =
   | "command_ready"
   | "applied"
   | "xml_committed"
+  | "xml_patch_ready"
   | "answered"
   | "selected"
   | "needs_clarification"
@@ -62,6 +63,14 @@ export type CopilotIntentResponse =
       persistence: { workspaceRevision?: string | null; version?: { id?: string } | null; saved?: boolean; [key: string]: unknown };
     })
   | (OutcomeBase & {
+      outcome: "xml_patch_ready";
+      requestId: string;
+      drawioXml: string;
+      documentRevision: string;
+      patchedRevision: string;
+      changedCellIds: string[];
+    })
+  | (OutcomeBase & {
       outcome: "applied";
       requestId: string;
       documentRevision: string;
@@ -102,7 +111,7 @@ export type CopilotIntentResponse =
     });
 
 export const COPILOT_INTENT_OUTCOMES: readonly CopilotIntentOutcomeCode[] = [
-  "command_ready", "applied", "xml_committed", "answered", "selected", "needs_clarification",
+  "command_ready", "applied", "xml_committed", "xml_patch_ready", "answered", "selected", "needs_clarification",
   "unsupported", "proposal_required", "stale_context", "failed"
 ] as const;
 
