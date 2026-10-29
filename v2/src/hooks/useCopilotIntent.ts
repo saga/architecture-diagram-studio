@@ -13,7 +13,7 @@ import { recordDiagnostic } from "../diagnostics";
 import { hideNativeScriptDetails } from "../intent/hide-native-script-details";
 import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
-import { calculateNativeAutoLayout } from "../layout/native-layout";
+import { calculateNativeAutoLayout, diagnoseNativeLayoutConfiguration, type NativeAutoLayoutOptions } from "../layout/native-layout";
 import { createNativeExecutionReceipt, transitionNativeExecution } from "../model/native-execution-protocol";
 import { interpretNativeXmlChange } from "../model/drawio-xml-diff";
 
@@ -292,6 +292,17 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         }
         const operations = plan.nativeEdits.operations;
         const layoutOperation = operations.length === 1 && operations[0].op === "auto_layout" ? operations[0] : undefined;
+        if (layoutOperation) {
+          const layoutDiagnostics = diagnoseNativeLayoutConfiguration(layoutOperation as unknown as NativeAutoLayoutOptions);
+          recordDiagnostic("layout.adapter.capabilities", "Resolved layout adapter capabilities for this request", {
+            requestId: plan.nativeEdits.requestId,
+            engine: layoutOperation.engine,
+            algorithm: layoutOperation.algorithm,
+            appliedOptions: layoutDiagnostics.applied,
+            unsupportedOptions: layoutDiagnostics.unsupported,
+            notes: layoutDiagnostics.notes
+          }, layoutDiagnostics.unsupported.length ? "warn" : "info");
+        }
         const layoutPlan = layoutOperation
           ? await calculateNativeAutoLayout(sourceXml, plan.nativeEdits.pageId, documentRevision, layoutOperation, layoutOperation.anchorCellIds)
           : undefined;
