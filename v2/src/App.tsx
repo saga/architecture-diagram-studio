@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useRef, useState } from "react";
+import { Children, isValidElement, useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, ConfigProvider, Input, Layout, Modal, Select, theme as antdTheme } from "antd";
 import { XProvider } from "@ant-design/x";
 import zhCN from "antd/locale/zh_CN";
@@ -302,7 +302,15 @@ export default function App() {
     serverRevisionRef, setLastAction, onDiagnostic: recordDiagnostic
   });
   const { serverHydrated, workspaceContentReady, setWorkspaceContentReady, setServerXmlAvailable, workspaceInitialLoadRef } = bootstrap;
-  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({ drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages, saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, setSaveState: setDocumentSaveState, onDiagnostic: recordDiagnostic });
+  const handleAuthoritativeRevision = useCallback((xml: string, _serverRevision: string) => {
+    setNativeXmlOverride(xml);
+    setLastAction("Loaded the latest server-saved Draw.io revision.");
+  }, []);
+  const { persistDocumentNow, clearSaveConflict } = useWorkspacePersistence({
+    drawioXml, serverHydrated, workspaceContentReady, projectWorkspace, copilotSessionId, messages,
+    saveLabelRef: nextSaveLabelRef, serverRevisionRef, setLastAction, setSaveState: setDocumentSaveState,
+    onDiagnostic: recordDiagnostic, onAuthoritativeRevision: handleAuthoritativeRevision
+  });
 
   useEffect(() => {
     function handleHistoryShortcut(event: KeyboardEvent) {
