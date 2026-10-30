@@ -599,6 +599,11 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               pendingSaveConfirmationsRef.current.delete(requestId);
               const latestXml = lastSent.current;
               const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
+              recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
+                latestChanged ? "The document changed but the native edit confirmation timed out"
+                  : "Timed out waiting for a matching serialized XML snapshot",
+                { requestId, cellId: confirmation.cellId, property: confirmation.path, latestChanged,
+                  timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS, durationMs: Date.now() - confirmation.startedAt }, "warn");
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
             pendingSaveConfirmationsRef.current.set(requestId, confirmation);
           }
