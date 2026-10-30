@@ -132,6 +132,56 @@ describe("applyWorkspaceDiagramChangeSet", () => {
     expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toBe(before);
   });
 
+  it("ignores XML attribute order and indentation changes on untouched pages", async () => {
+    const before = xml("page-a", "Before A").replace("</mxfile>",
+      xml("page-b", "Before B").replace(/^<mxfile>|<\/mxfile>$/g, "") + "</mxfile>");
+    const reorderedUntouchedPage = xml("page-b", "Before B")
+      .replace('<diagram id="page-b" name="Overview">', '<diagram name="Overview" id="page-b">')
+      .replace('id="node" value="Before B" vertex="1" parent="1"', 'parent="1" vertex="1" value="Before B" id="node"');
+    const after = xml("page-a", "After A").replace("</mxfile>",
+      reorderedUntouchedPage.replace(/^<mxfile>|<\/mxfile>$/g, "") + "</mxfile>");
+    const env = await setup({ "a.drawio": before });
+    const result = await applyWorkspaceDiagramChangeSet({
+      changeSetId: "cs-formatting", workspaceId: "workspace-1",
+      targets: [{ filePath: "a.drawio", expectedRevision: revision(before), resultXml: after, changedPageIds: ["page-a"] }]
+    }, env.resolver);
+    expect(result.ok).toBe(true);
+    expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toBe(after);
+  });
+
+  it("rejects two path aliases that resolve to the same physical file", async () => {
+    const before = xml("page-a", "Before");
+    const env = await setup({ "a.drawio": before });
+    const resolver = {
+      ...env.resolver,
+      resolveWorkspaceFile: async (_relativePath: string) => ({
+        workspace: { id: "workspace-1" },
+        absolutePath: env.absolute.get("a.drawio")!
+      })
+    };
+    const result = await applyWorkspaceDiagramChangeSet({
+      changeSetId: "cs-alias", workspaceId: "workspace-1",
+      targets: [
+        { filePath: "a.drawio", expectedRevision: revision(before), resultXml: xml("page-a", "After A"), changedPageIds: ["page-a"] },
+        { filePath: "A.DRAWIO", expectedRevision: revision(before), resultXml: xml("page-a", "After B"), changedPageIds: ["page-a"] }
+      ]
+    }, resolver);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("same workspace file");
+    expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toBe(before);
+  });
+
+  it("rejects an invalid existing target before preparing a replacement", async () => {
+    const original = '<mxfile><diagram id="page-a"><broken/></diagram></mxfile>';
+    const env = await setup({ "a.drawio": original });
+    const result = await applyWorkspaceDiagramChangeSet({
+      changeSetId: "cs-invalid-before", workspaceId: "workspace-1",
+      targets: [{ filePath: "a.drawio", expectedRevision: revision(original), resultXml: xml("page-a", "After"), changedPageIds: ["page-a"] }]
+    }, env.resolver);
+    expect(result.ok).toBe(false);
+    expect(await readFile(env.absolute.get("a.drawio")!, "utf8")).toBe(original);
+  });
+
   it("rejects changing the set of page IDs in a proposed file", async () => {
     const before = xml("page-a", "Before");
     const env = await setup({ "a.drawio": before });
