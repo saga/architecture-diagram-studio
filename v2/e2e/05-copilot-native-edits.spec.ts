@@ -1,16 +1,18 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "./support/test";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
 test("Copilot edits the authoritative Draw.io XML and refreshes the editor", async ({ page, request }) => {
-  await createWorkspace(request);
-  const initial = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
+  const workspace = await createWorkspace(request);
+  const initialXml = await readWorkspaceXml(workspace);
+  const initialRevision = createHash("sha256").update(initialXml, "utf8").digest("hex");
   const secondPage = '<diagram id="copied-page" name="Duplicated page"><mxGraphModel><root>' +
     '<mxCell id="copy-prefix-0"/><mxCell id="copy-prefix-1" parent="copy-prefix-0"/>' +
     '<mxCell id="copy-marker" value="Copied page marker" vertex="1" parent="copy-prefix-1"><mxGeometry x="80" y="80" width="120" height="50" as="geometry"/></mxCell>' +
     '</root></mxGraphModel></diagram>';
-  const fixtureXml = initial.drawioXml.replace("</mxfile>", secondPage + "</mxfile>");
+  const fixtureXml = initialXml.replace("</mxfile>", secondPage + "</mxfile>");
   const fixtureSave = await request.put("/api/workspace/document", {
-    data: { drawioXml: fixtureXml, label: "XML-first multi-page fixture", baseRevision: initial.workspaceRevision }
+    data: { drawioXml: fixtureXml, label: "XML-first multi-page fixture", baseRevision: initialRevision }
   });
   expect(fixtureSave.status(), await fixtureSave.text()).toBe(200);
 
@@ -25,7 +27,8 @@ test("Copilot edits the authoritative Draw.io XML and refreshes the editor", asy
     const body = JSON.parse(route.request().postData() || "{}") as {
       diagramXml?: string; documentRevision?: string; sessionId?: string;
     };
-    const sourceXml = String(body.diagramXml ?? "");
+    const sourceXml = await readWorkspaceXml(workspace);
+    expect(body.documentRevision).toBe(createHash("sha256").update(sourceXml, "utf8").digest("hex"));
     expect(sourceXml).toContain('id="copied-page"');
     const updatedXml = sourceXml.replace('value="Database"', 'value="Primary Database"');
     expect(updatedXml).not.toBe(sourceXml);
