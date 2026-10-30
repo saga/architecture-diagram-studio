@@ -57,7 +57,31 @@ function safeDocumentName(name: string): string {
 
 export function createLocalDiagramFileService(options: { historyDirectory?: string } = {}) {
   const openFiles = new Map<string, BrowserDocumentBinding>();
+  const documentWriteQueues = new Map<string, Promise<void>>();
   const historyDirectory = path.resolve(options.historyDirectory || path.join(homedir(), ".architecture-diagram-studio", "data", "standalone-history"));
+
+  /**
+   * Serialize every history-index operation for one browser document. The queue is keyed by
+   * the opaque document ID, not the per-tab token, so two tabs cannot race index replacement.
+   */
+  async function withDocumentQueue<T>(documentId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = documentWriteQueues.get(documentId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.catch(() => undefined).then(() => gate);
+    documentWriteQueues.set(documentId, queued);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (documentWriteQueues.get(documentId) === queued) {
+        void queued.then(() => {
+          if (documentWriteQueues.get(documentId) === queued) documentWriteQueues.delete(documentId);
+        });
+      }
+    }
+  }
 
   function pruneExpiredTokens(): void {
     const cutoff = Date.now() - OPEN_TOKEN_TTL_MS;
@@ -211,43 +235,60 @@ export function createLocalDiagramFileService(options: { historyDirectory?: stri
         documentId, name: safeName, revision: digest(drawioXml), lastUsedAt: Date.now()
       };
       const fileToken = randomUUID();
+      const snapshotCount = await withDocumentQueue(documentId, async () => {
+        await writeSnapshot(binding, drawioXml, "Opened file");
+        return (await readIndex(binding)).length;
+      });
       openFiles.set(fileToken, binding);
-      await writeSnapshot(binding, drawioXml, "Opened file");
       pruneExpiredTokens();
-      return { fileToken, documentId, name: safeName, revision: binding.revision, snapshotCount: (await readIndex(binding)).length };
+      return { fileToken, documentId, name: safeName, revision: binding.revision, snapshotCount };
     },
 
     async saveSnapshot(token: string, baseRevision: string, drawioXml: string, label: string) {
       const binding = getBinding(token);
-      if (baseRevision !== binding.revision) {
-        throw new LocalDiagramFileError("The history snapshot is based on an older revision. Reload or resynchronize before retrying.", 409);
-      }
-      validateXml(drawioXml);
-      await writeSnapshot(binding, drawioXml, label);
-      binding.revision = digest(drawioXml);
-      binding.lastUsedAt = Date.now();
-      return { revision: binding.revision, snapshotCount: (await readIndex(binding)).length };
+      return withDocumentQueue(binding.documentId, async () => {
+        if (baseRevision !== binding.revision) {
+          throw new LocalDiagramFileError("The history snapshot is based on an older revision. Reload or resynchronize before retrying.", 409);
+        }
+        validateXml(drawioXml);
+        const entries = await readIndex(binding);
+        if (entries.at(-1)?.revision !== binding.revision) {
+          throw new LocalDiagramFileError("Another browser tab has advanced this document's history. Reload the latest revision before saving.", 409);
+        }
+        await writeSnapshot(binding, drawioXml, label);
+        binding.revision = digest(drawioXml);
+        binding.lastUsedAt = Date.now();
+        return { revision: binding.revision, snapshotCount: (await readIndex(binding)).length };
+      });
     },
 
     async listHistory(token: string) {
       const binding = getBinding(token);
-      return (await readIndex(binding)).map(({ revision, xmlBytes, ...summary }) => summary);
+      return withDocumentQueue(binding.documentId, async () =>
+        (await readIndex(binding)).map(({ revision, xmlBytes, ...summary }) => summary)
+      );
     },
 
     async readHistoryEntry(token: string, versionId: string) {
       const binding = getBinding(token);
-      return loadHistoryEntry(binding, versionId);
+      return withDocumentQueue(binding.documentId, () => loadHistoryEntry(binding, versionId));
     },
 
     async prepareHistoryRestore(token: string, baseRevision: string, currentXml: string, versionId: string) {
       const binding = getBinding(token);
-      if (baseRevision !== binding.revision || digest(currentXml) !== binding.revision) {
-        throw new LocalDiagramFileError("The current file or history revision changed. Save or reopen the file before restoring history.", 409);
-      }
-      validateXml(currentXml);
-      await writeSnapshot(binding, currentXml, "Before restore");
-      const target = await loadHistoryEntry(binding, versionId);
-      return { id: target.id, label: target.label, drawioXml: target.xml, revision: target.revision };
+      return withDocumentQueue(binding.documentId, async () => {
+        if (baseRevision !== binding.revision || digest(currentXml) !== binding.revision) {
+          throw new LocalDiagramFileError("The current file or history revision changed. Save or reopen the file before restoring history.", 409);
+        }
+        const entries = await readIndex(binding);
+        if (entries.at(-1)?.revision !== binding.revision) {
+          throw new LocalDiagramFileError("Another browser tab has advanced this document's history. Reload the latest revision before restoring history.", 409);
+        }
+        validateXml(currentXml);
+        await writeSnapshot(binding, currentXml, "Before restore");
+        const target = await loadHistoryEntry(binding, versionId);
+        return { id: target.id, label: target.label, drawioXml: target.xml, revision: target.revision };
+      });
     }
   };
 }
