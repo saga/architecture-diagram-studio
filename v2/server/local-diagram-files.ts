@@ -55,7 +55,7 @@ function safeDocumentName(name: string): string {
   return normalized;
 }
 
-export function createLocalDiagramFileService(options: { historyDirectory?: string; statFile?: typeof stat } = {}) {
+export function createLocalDiagramFileService(options: { historyDirectory?: string; statFile?: (filePath: string) => Promise<{ isFile(): boolean; size: number }> } = {}) {
   const openFiles = new Map<string, BrowserDocumentBinding>();
   const statFile = options.statFile ?? stat;
   const documentWriteQueues = new Map<string, Promise<void>>();
