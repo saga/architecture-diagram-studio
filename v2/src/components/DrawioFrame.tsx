@@ -197,7 +197,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       if (!editorReady || !bridgeReady || !target) return;
       target.postMessage(JSON.stringify({ event: "studioHistoryCommand", action: "redo" }), DRAWIO_ORIGIN);
     },
-    applyPalette: async (plan) => {      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);      if (currentRevision !== plan.documentRevision) {
+    applyPalette: async (plan) => {
+      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
+      if (currentRevision !== plan.documentRevision) {
         throw new Error("The native Draw.io XML changed after the color preset was calculated. No colors were applied; select the preset again.");
       }
       return await new Promise<string>((resolve, reject) => {
@@ -395,8 +397,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
     try {
-      // Never feed a malformed/stale XML snapshot into Draw.io: its import dialog can      // repeatedly ask to save the broken new-file document. Keep the source untouched
-      // and show an actionable Studio error instead.      if (!isDrawioXmlDocument(xml)) {
+      // Never feed a malformed/stale XML snapshot into Draw.io: its import dialog can
+      // repeatedly ask to save the broken new-file document. Keep the source untouched
+      // and show an actionable Studio error instead.
+      if (!isDrawioXmlDocument(xml)) {
         setStartupError("The current Draw.io XML is malformed and was not loaded. Restore a valid revision from Agent traces → History, then reopen the diagram.");
         recordDiagnostic("drawio.document.load.rejected", "Refused to load malformed authoritative Draw.io XML", {
           xmlLength: xml.length
@@ -574,35 +578,49 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             requestId, success: true,
             cellId: typeof data.cellId === "string" ? data.cellId : null,
             path: typeof data.path === "string" ? data.path : null,
+            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
-          if (requestId !== null && pending?.path === "cell:select") {
-            onNativeEditResultRef.current?.(nativeResult);
-            recordDiagnostic("drawio.selection.acknowledged", "Draw.io acknowledged the requested native selection", {
-              cellId: data.cellId, requestId, durationMs: Date.now() - pending.startedAt
-            });
-            return;
-          }
           if (requestId !== null && pending) {
             const previous = pendingSaveConfirmationsRef.current.get(requestId);
             if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
             const confirmation: PendingSaveConfirmation = {
               ...pending,
+              ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
             };
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
-              const latestXml = lastSent.current;              const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
+              const latestXml = lastSent.current;
+              const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
+              const errorMessage = latestChanged
+                ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
+                : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
                 latestChanged ? "The document changed but the native edit confirmation timed out"
                   : "Timed out waiting for a matching serialized XML snapshot",
                 { requestId, cellId: confirmation.cellId, property: confirmation.path, latestChanged,
                   timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS, durationMs: Date.now() - confirmation.startedAt }, "warn");
+              if (confirmation.deferredBatchAck) {
+                onNativeEditResultRef.current?.({
+                  ...confirmation.deferredBatchAck,
+                  success: false,
+                  applicationState: latestChanged ? "changed-unverified" : "unknown",
+                  ...(latestChanged ? { serializedXml: latestXml } : {}),
+                  error: errorMessage,
+                  failureStage: "editor",
+                  auditWarning: latestChanged
+                    ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
+                    : "The edit state is unknown. Inspect the current diagram and History before retrying."
+                });
+              }
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
             pendingSaveConfirmationsRef.current.set(requestId, confirmation);
           }
-          onNativeEditResultRef.current?.(nativeResult);
+          // Copilot batch success is deferred until the native editor has serialized XML. A graph-model
+          // mutation acknowledgement alone is not proof that the resulting document was captured.
+          if (data.path !== "cell:batch" || !pending) onNativeEditResultRef.current?.(nativeResult);
           recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null, xmlLengthBefore: pending?.beforeXml.length ?? null
@@ -792,7 +810,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pendingRuntimeInspectionsRef.current.clear();
     recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", {
       previousFrameKey: frameKey, recoverySource: "manual"
-    }, "warn");    lastSent.current = "";
+    }, "warn");
+    lastSent.current = "";
     setEditorReady(false);
     setIframeLoaded(false);
     iframeLoadedRef.current = false;
