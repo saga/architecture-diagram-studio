@@ -28,3 +28,6 @@
 | [0024](./0024-local-grouping-and-layout-density-options.md) | Preserve Local Grouping and Offer Layout Density Presets | Accepted |
 | [0025](./0025-relative-anchors-and-stability-preserving-layout.md) | Relative Anchors and Mental-Map-Preserving Layout | Accepted |
 | [0026](./0026-server-side-xml-first-copilot-editing.md) | Server-Side XML-First Copilot Editing | Accepted; implementation cleanup in PR #31 |
+| [0027](./0027-workspace-multi-file-multi-page-copilot-changes.md) | Workspace-Scoped Multi-File, Multi-Page Copilot Changes | Accepted; API gated pending end-to-end integration |
+| [0028](./0028-native-script-assertion-contract-and-outcome-reporting.md) | Native Script Assertion Contracts and Accurate Edit Outcomes (historical) | Retired by 0026 |
+| [0029](./0029-native-script-runtime-boundaries-and-late-outcomes.md) | Native Script Runtime Boundaries and Late Outcomes (historical) | Retired by 0026 |

@@ -227,7 +227,7 @@ cd /Users/saga/code-repos/architecture-diagram-studio/v2
 
 ## 9. 后续实现记录（2026-10-27）
 
-本报告中的根因已落实为代码与契约调整；新增决策记录为 [ADR-0020: Native Script Assertion Contracts and Accurate Edit Outcomes](./docs/adr/0020-native-script-assertion-contract-and-outcome-reporting.md)。
+本报告中的根因已落实为代码与契约调整；新增决策记录为 [ADR-0028: Native Script Assertion Contracts and Accurate Edit Outcomes](./docs/adr/0028-native-script-assertion-contract-and-outcome-reporting.md)。
 
 ### 已实施的代码调整
 
@@ -247,7 +247,7 @@ cd /Users/saga/code-repos/architecture-diagram-studio/v2
 
 ## 10. V2 同类问题复查后的补充实施（2026-10-27）
 
-在前述断言契约修复之外，对整个 V2 的脚本执行和保存回执链路做了进一步加固。设计决策记录见 [ADR-0023：Native Script Runtime Boundaries and Late Outcomes](./docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md)，完整审查见 [V2-REPEATED-ERROR-AUDIT-2026-10-27.md](./V2-REPEATED-ERROR-AUDIT-2026-10-27.md)。
+在前述断言契约修复之外，对整个 V2 的脚本执行和保存回执链路做了进一步加固。设计决策记录见 [ADR-0029：Native Script Runtime Boundaries and Late Outcomes](./docs/adr/0029-native-script-runtime-boundaries-and-late-outcomes.md)，完整审查见 [V2-REPEATED-ERROR-AUDIT-2026-10-27.md](./V2-REPEATED-ERROR-AUDIT-2026-10-27.md)。
 
 1. **脚本不再只靠返回值判断同步性。** 原生脚本插件增加字符串、注释和模板插值感知的源码扫描，并在执行期阻止常见 timer、Promise callback、网络/事件 callback、动态求值和 parent/global 访问模式。插件测试新增真实桥接测试，覆盖定时器、动态取名的定时器与 Promise 方法、模板插值中的 async/await，以及普通字符串/注释不应误报。
 2. **保护桥接层拥有的事务。** 脚本不能关闭外层 beginUpdate/endUpdate 事务或替换这两个方法。允许成对的嵌套调用；遗漏 endUpdate() 时，会尝试有界回收脚本打开的嵌套层级，再让本次批次进入失败回滚。清理错误会保留在错误信息中。

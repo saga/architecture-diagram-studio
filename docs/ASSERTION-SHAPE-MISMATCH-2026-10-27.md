@@ -297,4 +297,4 @@ xmlAssertions: [{ cellId, label }]   // label = 改写后的完整值（model.ge
 - `labelContainsTitle` 也已移除：它只是要求模型重复报告一个可由宿主直接计算的布尔值，不提供独立证据。
 - 三个旧字段都只保留在事故报告/回归测试中，用于确认未知字段被警告且不能充当证据。
 
-当前实现与契约同步位置：`v2/src/model/native-edit-confirmation.ts`、`v2/server/copilot/intent-route.ts`、`v2/server/copilot/native-diagram-instructions.ts`、[ADR-0020](./adr/0020-native-script-assertion-contract-and-outcome-reporting.md) 和 [Draw.io Agent API Contract](./DRAWIO-AGENT-API-CONTRACT.md)。新增回归测试验证旧字段不能替代有效证据。
+当前实现与契约同步位置：`v2/src/model/native-edit-confirmation.ts`、`v2/server/copilot/intent-route.ts`、`v2/server/copilot/native-diagram-instructions.ts`、[ADR-0028](./adr/0028-native-script-assertion-contract-and-outcome-reporting.md) 和 [Draw.io Agent API Contract](./DRAWIO-AGENT-API-CONTRACT.md)。新增回归测试验证旧字段不能替代有效证据。
