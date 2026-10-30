@@ -55,8 +55,9 @@ function safeDocumentName(name: string): string {
   return normalized;
 }
 
-export function createLocalDiagramFileService(options: { historyDirectory?: string } = {}) {
+export function createLocalDiagramFileService(options: { historyDirectory?: string; statFile?: (filePath: string) => Promise<{ isFile(): boolean; size: number }> } = {}) {
   const openFiles = new Map<string, BrowserDocumentBinding>();
+  const statFile = options.statFile ?? stat;
   const documentWriteQueues = new Map<string, Promise<void>>();
   const historyDirectory = path.resolve(options.historyDirectory || path.join(homedir(), ".architecture-diagram-studio", "data", "standalone-history"));
 
@@ -183,8 +184,16 @@ export function createLocalDiagramFileService(options: { historyDirectory?: stri
           typeof item.createdAt !== "string" || typeof item.label !== "string" ||
           typeof item.xmlLength !== "number" || typeof item.xmlBytes !== "number" ||
           typeof item.revision !== "string") continue;
-      const info = await stat(xmlPath(binding, item.id)).catch(() => null);
-      if (!info?.isFile() || info.size !== item.xmlBytes) continue;
+      let info: Awaited<ReturnType<typeof statFile>>;
+      try {
+        info = await statFile(xmlPath(binding, item.id));
+      } catch (error) {
+        // Only a genuinely missing snapshot is stale history. Permission, I/O and other
+        // transient filesystem failures must not be mistaken for deletion and prune the index.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (!info.isFile() || info.size !== item.xmlBytes) continue;
       valid.push({
         id: item.id, createdAt: item.createdAt, label: item.label,
         xmlLength: item.xmlLength, xmlBytes: item.xmlBytes, revision: item.revision

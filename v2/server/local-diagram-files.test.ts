@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createEmptyDrawioXml } from "./diagram-file";
@@ -83,6 +83,32 @@ describe("standalone Draw.io history for browser-owned files", () => {
     expect(history).toHaveLength(2);
     const latest = await service.readHistoryEntry(firstTab.fileToken, history.at(-1)!.id);
     expect([changedA, changedB]).toContain(latest.xml);
+  });
+
+  it("preserves the history index when snapshot metadata reads fail transiently", async () => {
+    const original = createEmptyDrawioXml("main.drawio");
+    const historyDirectory = path.join(dataRoot, "history");
+    let failStat = false;
+    service = createLocalDiagramFileService({
+      historyDirectory,
+      statFile: async (filePath) => {
+        if (failStat) throw Object.assign(new Error("temporary permission failure"), { code: "EACCES" });
+        return stat(filePath);
+      }
+    });
+    const session = await service.openBrowserDocument("document-stat-error", "main.drawio", original);
+    const changed = original.replace('name="main"', 'name="Changed"');
+    failStat = true;
+
+    await expect(service.saveSnapshot(session.fileToken, session.revision, changed, "Should not save"))
+      .rejects.toMatchObject({ code: "EACCES" });
+
+    // A fresh service instance simulates a later restart after the transient filesystem failure.
+    service = createLocalDiagramFileService({ historyDirectory });
+    const recovered = await service.openBrowserDocument("document-stat-error", "main.drawio", original);
+    const history = await service.listHistory(recovered.fileToken);
+    expect(history).toHaveLength(1);
+    expect((await service.readHistoryEntry(recovered.fileToken, history[0]!.id)).xml).toBe(original);
   });
 
   it("prepares a history restore and snapshots the current XML without writing the selected file", async () => {
