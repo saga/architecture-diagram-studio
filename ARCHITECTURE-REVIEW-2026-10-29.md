@@ -29,11 +29,11 @@ AGENTS.md、ARCHITECTURE-V2.md 和 ADR-0011 一致规定：原生 Draw.io XML �
 
 架构不变量应继续明确为：新功能可以读取和分析 XML，但不能引入第二份可写的权威图模型。
 
-### 2.2 AI 能力与常见操作快捷路径分离
+### 2.2 Copilot 编辑以原生 XML 为唯一写入协议
 
-ADR-0018 将 run_drawio_script 作为广泛的原生编辑能力，typed operations 作为常见操作的快捷路径，而不是能力白名单。这避免每增加一个 Draw.io 功能，就要在模型提示、schema、服务端和客户端分别增加一套专用操作，符合单用户工作台的目标。
+ADR-0026 已取代 ADR-0018 中的脚本优先编辑路线。Copilot 通过服务端的 `edit_drawio_xml` 提交绑定 document revision 与 page identity 的 XML patch；服务端负责校验来源版本、应用 patch、检查 XML 结构不变量、计算差异并完成工作区版本持久化。模型不再生成或执行 Draw.io iframe JavaScript，也不再把图编辑翻译成第二套 Typed Operations。
 
-但“脚本能运行”不等于“用户意图已实现”。脚本返回、XML 改变、文件保存和版本回执是不同阶段，不能混为一谈。
+只读发现仍通过独立的 shape search、element search、graph inspection 和 reference tools 完成。Draw.io iframe 继续负责原生编辑器渲染与用户交互，但不再是 Copilot 任意脚本执行环境。Standalone 模式仍需由浏览器持有的 File System Access handle 写回原文件，不能把工作区服务端持久化规则直接套用到用户绝对路径。
 
 ### 2.3 版本与并发控制已经是正式设计的一部分
 
@@ -49,17 +49,17 @@ ADR-0013 选择由 Studio 调用多个布局引擎，生成一次性计划，再
 
 Vite 开发与预览服务绑定 `0.0.0.0` 是用户明确接受的选择，不作为待修复问题，也不再建议改成 loopback。该决策已写入 `AGENTS.md`，后续架构审查应遵守。此项仅针对 Vite dev/preview 监听地址，不代表 API 或其他服务的访问控制问题可以一概忽略。
 
-### P1：原生脚本执行的隔离不是强制安全沙箱
+### P1：XML-first 编辑仍需维持跨边界回执一致性
 
-**事实：** Draw.io 在独立 origin 的 sandboxed iframe 中运行；README 与 ADR-0023 明确指出这不是 OS 级沙箱。ADR-0023 也承认源码检查只能尽力防止常见异步/迟到修改，不能证明任意脚本同步，也不能在同一线程硬中断无限循环。
+**事实：** ADR-0026 已移除 Copilot 的 `run_drawio_script` 执行路径。当前写入链路是服务端接受 revision-bound XML patch，验证并持久化工作区版本，再由前端同步编辑器状态；Standalone 模式则由浏览器写回用户选定的文件。Draw.io 仍运行在独立 origin 的 sandboxed iframe 中，但 iframe 隔离不再承担任意模型脚本的执行隔离职责。
 
-**风险：** origin 隔离能限制父子页面直接访问，但不等于可以限制脚本消耗 CPU、导航浏览器或绕过静态检查。版本历史和 Undo 能帮助恢复文档，却不能撤销浏览器卡死或其他外部副作用。
+**风险：** XML patch 已被接受、工作区版本已提交、浏览器编辑器已同步、Standalone 原文件已写回，是不同的确认边界。若把其中一个阶段的成功误当作整个请求完成，仍可能出现服务端已提交而 UI 未同步，或 UI 已更新但原文件写回未确认的状态不一致。
 
 **建议：**
-1. 保持脚本只在 Draw.io iframe 中运行，Node.js 文件系统能力仍由服务端明确提供；不要把 shell 或任意文件读写加入脚本上下文。
-2. 为每次执行记录 request ID、文档 revision、页面 ID、脚本 hash、XML 前后 hash、结果分类、保存回执及迟到结果状态。
-3. 明确区分浏览器 origin 隔离、执行正确性检查和进程级隔离/硬取消。
-4. 只有未来确实需要不可信脚本或远程多用户时，再评估独立浏览器进程/容器；当前不必为了理论多租户而过度设计。
+1. 所有阶段继续关联同一个 request ID、document revision 和 page ID；服务端回执明确包含 patch 校验结果、持久化 revision、version ID 与失败阶段。
+2. 工作区模式以服务端持久化 XML 为权威，前端按 revision 去重并处理迟到/旧事件；Standalone 模式明确以浏览器文件写回回执为最终确认。
+3. 超时只表示当前等待窗口结束，不应推断编辑失败；对迟到回执执行 revision 校验和协调，避免覆盖更新的用户编辑。
+4. Trace 应记录 XML 前后 hash、变更摘要和各阶段结果，不复制整份 XML 或完整 cell 属性。不要重新引入旧 Typed Operations / Script Runtime 作为第二条写入路径。
 
 ### P1：执行、导出、持久化与最终结果需要统一状态协议
 
