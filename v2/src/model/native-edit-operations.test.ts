@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   extractNativeEditTargets,
-  getNativeDiagramPageInfo,
-  isBareNativeGraphModel,
   nativePageAccepts,
   resolveNativePageIdentity
 } from "./native-edit-operations";
@@ -17,11 +15,6 @@ const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
 describe("native Draw.io root and page identity", () => {
   const bare = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
   const envelope = '<mxfile><diagram id="page-1" name="Page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
-
-  it("distinguishes a bare graph model from an mxfile", () => {
-    expect(isBareNativeGraphModel(bare)).toBe(true);
-    expect(isBareNativeGraphModel(XML)).toBe(false);
-  });
 
   it("separates editor identity from document identity for a bare graph model", () => {
     const identity = resolveNativePageIdentity(bare, "editor-page-uuid");
@@ -58,10 +51,6 @@ describe("native Draw.io root and page identity", () => {
     });
   });
 
-  it("reads declared page metadata without semantic inference", () => {
-    expect(getNativeDiagramPageInfo(XML, "p1")).toEqual({ id: "p1", title: "Page-1" });
-    expect(getNativeDiagramPageInfo(XML, "missing")).toEqual({ id: null, title: null });
-  });
 });
 
 describe("extractNativeEditTargets", () => {

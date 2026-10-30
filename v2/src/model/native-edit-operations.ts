@@ -13,20 +13,6 @@ export interface NativeEditTarget {
   parentId?: string;
 }
 
-export interface NativeDiagramPageInfo {
-  id: string | null;
-  title: string | null;
-}
-
-/** True only when the XML root is a single graph model, not a multi-page mxfile. */
-export function isBareNativeGraphModel(xml: string): boolean {
-  try {
-    return parseDrawioXml(xml).documentElement.nodeName === "mxGraphModel";
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Page identity of the document a caller is addressing.
  *
@@ -55,7 +41,7 @@ export interface NativePageIdentity {
   pageExists: boolean;
 }
 
-function readPageInfo(parsed: DrawioDomDocument, pageId: string | null): NativeDiagramPageInfo {
+function readPageInfo(parsed: DrawioDomDocument, pageId: string | null): { id: string | null; title: string | null } {
   if (parsed.documentElement.nodeName !== "mxfile") return { id: null, title: null };
   const diagrams = Array.from(parsed.getElementsByTagName("diagram"));
   const page = pageId !== null
@@ -66,11 +52,6 @@ function readPageInfo(parsed: DrawioDomDocument, pageId: string | null): NativeD
     id: page.getAttribute("id") || null,
     title: page.getAttribute("name") || null
   };
-}
-
-/** Read the current page metadata from the native mxfile envelope without semantic inference. */
-export function getNativeDiagramPageInfo(xml: string, pageId?: string | null): NativeDiagramPageInfo {
-  return readPageInfo(parseDrawioXml(xml), pageId ?? null);
 }
 
 /**
