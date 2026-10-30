@@ -123,7 +123,7 @@ async function logQueryResult(
   return { warning };
 }
 
-async function buildSystemMessage(standalone = false): Promise<string> {
+async function buildSystemMessage(deps: IntentDependencies, standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
     const workspaceContext = standalone
       ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
@@ -131,7 +131,7 @@ async function buildSystemMessage(standalone = false): Promise<string> {
     return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
   }
 
-function createReportIntentOutcomeTool(sessionId: string) {
+function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("report_intent_outcome", {
       description: "Report a validated no-mutation result when no XML patch or selection should be dispatched. Use answered for information/questions, needs_clarification for ambiguous requests or missing details, and unsupported only when the desired outcome cannot be achieved through the native Draw.io runtime. This tool never changes the diagram.",
       parameters: {
@@ -187,7 +187,7 @@ function createReportIntentOutcomeTool(sessionId: string) {
     });
   }
 
-function createDrawioShapeSearchTool(sessionId: string) {
+function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_shapes", {
       description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a relationship edge recipe. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
@@ -234,7 +234,7 @@ function createDrawioShapeSearchTool(sessionId: string) {
     });
   }
 
-function createDrawioRuntimeShapeSearchTool(sessionId: string) {
+function createDrawioRuntimeShapeSearchTool(sessionId: string, deps: IntentDependencies) {
   return defineTool("search_drawio_runtime_shapes", {
     description: "Search the live shape-class registry reported by the active Draw.io iframe, not only the curated server catalogue. Read-only. Results are JavaScript renderer registrations, not proof of sidebar visibility or stencil compatibility; verify a representative native cell before relying on one.",
     parameters: {
@@ -299,7 +299,7 @@ function createDrawioRuntimeShapeSearchTool(sessionId: string) {
   });
 }
 
-function createDrawioElementSearchTool(sessionId: string) {
+function createDrawioElementSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_elements", {
       description: "Search every native cell on the active Draw.io page by ID, label, shape key or geometry metadata. Read-only and non-terminal. Single-character CJK queries are valid. Use inspect_drawio_graph for structured shape/coordinate filters or pagination.",
       parameters: {
@@ -391,7 +391,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-function createDrawioGraphInspectionTool(sessionId: string) {
+function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("inspect_drawio_graph", {
       description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
       parameters: {
@@ -509,7 +509,7 @@ function createDrawioGraphInspectionTool(sessionId: string) {
     });
   }
 
-function createDrawioReferenceTool(sessionId: string) {
+function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("get_drawio_reference", {
       description: "Read the local Draw.io Agent API reference on demand. Read-only; does not change the diagram.",
       parameters: {
@@ -548,7 +548,7 @@ function createDrawioReferenceTool(sessionId: string) {
     });
   }
 
-function createEditDrawioXmlTool(sessionId: string) {
+function createEditDrawioXmlTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("edit_drawio_xml", {
       description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge.",
       parameters: {
@@ -879,16 +879,16 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           const latestConfig = await deps.getStudioConfig();
           return {
             configRevisionId: latestConfig.revisionId,
-            systemMessage: await buildSystemMessage(standalone),
+            systemMessage: await buildSystemMessage(deps, standalone),
             tools: [
               createSelectDiagramElementTool(sessionId, deps.writeLog),
-              createDrawioShapeSearchTool(sessionId),
-              createDrawioRuntimeShapeSearchTool(sessionId),
-              createDrawioElementSearchTool(sessionId),
-              createDrawioGraphInspectionTool(sessionId),
-              createDrawioReferenceTool(sessionId),
-              createEditDrawioXmlTool(sessionId),
-              createReportIntentOutcomeTool(sessionId)
+              createDrawioShapeSearchTool(sessionId, deps),
+              createDrawioRuntimeShapeSearchTool(sessionId, deps),
+              createDrawioElementSearchTool(sessionId, deps),
+              createDrawioGraphInspectionTool(sessionId, deps),
+              createDrawioReferenceTool(sessionId, deps),
+              createEditDrawioXmlTool(sessionId, deps),
+              createReportIntentOutcomeTool(sessionId, deps)
             ],
             workspaceId: sessionWorkspace?.id
           };
