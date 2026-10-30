@@ -14,6 +14,7 @@ import { CopilotRuntime } from "./copilot/runtime";
 import { createWorkspaceFileService, type ProjectWorkspace } from "./workspace-files";
 import { prepareWorkspaceDiagramChangeSet } from "./workspace-diagram-change-set";
 import { applyWorkspaceDiagramChangeSet } from "./workspace-diagram-change-set-apply";
+import { isWorkspaceChangeSetApiEnabled } from "./workspace-change-set-feature";
 import { createLocalDiagramFileService, LocalDiagramFileError } from "./local-diagram-files";
 import { registerCopilotIntentRoute } from "./copilot/intent-route";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./copilot/turn-timeout";
@@ -983,6 +984,10 @@ app.post("/api/workspace/diagram/create", async (req, res) => {
 app.get("/api/workspace/files", async (_req, res) => { try { const workspace = await getProjectWorkspace(); if (!workspace) { res.status(409).json({ error: "Configure a project workspace first" }); return; } const files = await scanWorkspaceFiles(workspace); res.json({ workspaceId: workspace.id, files, counts: { files: files.length, diagrams: files.filter((f) => f.kind === "diagram").length, code: files.filter((f) => f.kind === "code").length, documents: files.filter((f) => f.kind === "document").length } }); } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); } });
 
 app.post("/api/workspace/diagram-change-set/prepare", async (req, res) => {
+  if (!isWorkspaceChangeSetApiEnabled()) {
+    res.status(404).json({ ok: false, error: "Workspace multi-file change sets are not enabled; Copilot and confirmation/recovery integration is not complete." });
+    return;
+  }
   try {
     const workspace = await getProjectWorkspace();
     if (!workspace) { res.status(409).json({ ok: false, error: "Configure a project workspace first" }); return; }
@@ -1009,6 +1014,10 @@ app.post("/api/workspace/diagram-change-set/prepare", async (req, res) => {
 
 
 app.post("/api/workspace/diagram-change-set/apply", async (req, res) => {
+  if (!isWorkspaceChangeSetApiEnabled()) {
+    res.status(404).json({ ok: false, error: "Workspace multi-file change sets are not enabled; Copilot and confirmation/recovery integration is not complete." });
+    return;
+  }
   try {
     const workspace = await getProjectWorkspace();
     if (!workspace) { res.status(409).json({ ok: false, error: "Configure a project workspace first" }); return; }
