@@ -197,8 +197,7 @@ export default function App() {
   });
 
   const [chatBusy, setChatBusy] = useState(false);
-  const [aiModel, setAiModel] = useState("");
-  const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high" | "max">("medium");
+  const [aiModel, setAiModel] = useState("");  const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high" | "max">("medium");
   // Transcripts persisted by older sessions may open with a greeting that no longer exists;
   // drop it so a restored conversation starts with real content.
   const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the change you want"];
@@ -397,8 +396,7 @@ export default function App() {
       }
 
       const targetDiagramPath = selectedDiagramPath || workspacePrimaryDiagram;
-      if (!targetDiagramPath) throw new Error("Select an existing Draw.io file to open.");
-      const response = await fetch("/api/workspace/config", {
+      if (!targetDiagramPath) throw new Error("Select an existing Draw.io file to open.");      const response = await fetch("/api/workspace/config", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: targetDiagramPath })
       });
@@ -597,8 +595,7 @@ export default function App() {
       setServerXmlAvailable(true);
       setDocumentSaveState("saved");
     },
-    onStandaloneXmlPatchReady: async (xml) => {
-      const binding = standaloneFileBindingRef.current;
+    onStandaloneXmlPatchReady: async (xml) => {      const binding = standaloneFileBindingRef.current;
       if (!binding || !standaloneFileHandleRef.current || !standaloneFileName) {
         throw new Error("The standalone file handle is no longer available; the XML patch was not written.");
       }
@@ -797,7 +794,6 @@ export default function App() {
       setDiagramThemeApplying(false);
     }
   }
-
   async function saveAISettings() {
     const next = { model: aiModel.trim(), reasoningEffort };
     try {
@@ -997,8 +993,7 @@ export default function App() {
       standaloneFileBindingRef.current = binding;
       setStandaloneFileBinding(binding);
       setStandaloneFileName(result.name);
-      lastExportedXmlRef.current = null;
-      setDocumentSaveState("saved");
+      lastExportedXmlRef.current = null;      setDocumentSaveState("saved");
       standaloneLastSavedXmlRef.current = xml;
       setNativeXmlOverride(xml);
       setServerXmlAvailable(false);
@@ -1197,8 +1192,7 @@ export default function App() {
     const binding = standaloneFileBindingRef.current;
     if (!binding) return;
     try {
-      const response = await fetch("/api/local/diagram/history/" + encodeURIComponent(versionId) + "?fileToken=" + encodeURIComponent(binding.fileToken));
-      const result = await response.json() as { error?: string; id?: string; createdAt?: string; label?: string; xml?: string };
+      const response = await fetch("/api/local/diagram/history/" + encodeURIComponent(versionId) + "?fileToken=" + encodeURIComponent(binding.fileToken));      const result = await response.json() as { error?: string; id?: string; createdAt?: string; label?: string; xml?: string };
       if (!response.ok || typeof result.xml !== "string") throw new Error(result.error || "Could not load the selected snapshot");
       setLocalHistoryEntries((current) => current.map((entry) => entry.id === versionId ? { ...entry, xml: result.xml! } : entry));
       setLocalHistorySelectedId(versionId);
@@ -1397,8 +1391,7 @@ export default function App() {
           (latestState.selectedNativePageId !== null && latestState.selectedNativePageId !== pageId)) {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
-      // React selection events are not guaranteed to fire on every native page switch.
-      // Recheck the live editor immediately before dispatch so a delayed UI state cannot
+      // React selection events are not guaranteed to fire on every native page switch.      // Recheck the live editor immediately before dispatch so a delayed UI state cannot
       // cause a plan for page A to be applied while page B is active.
       const runtimeBeforeApply = await frame.inspectRuntime({ documentRevision, pageId });
       if (runtimeBeforeApply.documentRevision !== documentRevision || runtimeBeforeApply.pageId !== pageId) {
@@ -1597,8 +1590,7 @@ export default function App() {
         </div>
       </Modal>
       
-      <Modal title={"Local Draw.io history · " + (standaloneFileName || "")} open={localHistoryOpen} onCancel={() => setLocalHistoryOpen(false)} footer={null} width={900}>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(0, 2fr)", gap: 16, maxHeight: "65vh" }}>
+      <Modal title={"Local Draw.io history · " + (standaloneFileName || "")} open={localHistoryOpen} onCancel={() => setLocalHistoryOpen(false)} footer={null} width={900}>        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(0, 2fr)", gap: 16, maxHeight: "65vh" }}>
           <div style={{ overflowY: "auto" }}>
             {localHistoryEntries.length === 0 ? <p>No local snapshots saved yet. Snapshots are stored by the Node.js service before a file save or Copilot edit.</p> : [...localHistoryEntries].reverse().map((entry) => (
               <button key={entry.id} type="button" onClick={() => void loadStandaloneHistoryEntry(entry.id)}
@@ -1797,8 +1789,7 @@ export default function App() {
           </div>
         </div>
         <Modal
-          title="Layout settings"
-          open={layoutSettingsOpen}
+          title="Layout settings"          open={layoutSettingsOpen}
           onCancel={() => setLayoutSettingsOpen(false)}
           width={640}
           className="native-layout-settings-modal"
@@ -1835,7 +1826,7 @@ export default function App() {
                   ? "The requested element was selected after the waiting period; the diagram was not changed."
                   : "The late Draw.io selection failed: " + (result.error || "Draw.io rejected the selection.");
                 setLastAction(text);
-                setMessages((items) => [...items, { role: "assistant", id: Date.now(), text }].slice(-300));
+                setMessages((items) => [...items, { role: "assistant" as const, id: Date.now(), text }].slice(-300));
                 recordDiagnostic("copilot.selection.late-result", text, { requestId, cellId: result.cellId, success: result.success }, result.success ? "warn" : "error");
               }
             }}
