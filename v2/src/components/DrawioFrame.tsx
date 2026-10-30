@@ -197,8 +197,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       if (!editorReady || !bridgeReady || !target) return;
       target.postMessage(JSON.stringify({ event: "studioHistoryCommand", action: "redo" }), DRAWIO_ORIGIN);
     },
-    applyPalette: async (plan) => {
-      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
+    applyPalette: async (plan) => {      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
       if (currentRevision !== plan.documentRevision) {
         throw new Error("The native Draw.io XML changed after the color preset was calculated. No colors were applied; select the preset again.");
       }
@@ -397,8 +396,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   useEffect(() => {
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
     try {
-      // Never feed a malformed/stale XML snapshot into Draw.io: its import dialog can
-      // repeatedly ask to save the broken new-file document. Keep the source untouched
+      // Never feed a malformed/stale XML snapshot into Draw.io: its import dialog can      // repeatedly ask to save the broken new-file document. Keep the source untouched
       // and show an actionable Studio error instead.
       if (!isDrawioXmlDocument(xml)) {
         setStartupError("The current Draw.io XML is malformed and was not loaded. Restore a valid revision from Agent traces → History, then reopen the diagram.");
@@ -597,8 +595,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
-              const latestXml = lastSent.current;
-              const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
+              const latestXml = lastSent.current;              const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
               const errorMessage = latestChanged
                 ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
                 : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
@@ -742,7 +739,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             return;
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
-              for (const [requestId, pending] of pendingSaves) {
+          for (const [requestId, pending] of pendingSaves) {
             const reflected = nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
               path: pending.path, value: pending.value
@@ -755,6 +752,32 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
               continue;
             }
+            recordDiagnostic("drawio.selection.property.save_confirmed",
+              "Native Draw.io XML serialization reflects the requested edit",
+              { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path,
+                durationMs: Date.now() - pending.startedAt, xmlLengthBefore: pending.beforeXml.length,
+                xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization });
+            if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
+            pendingSaveConfirmationsRef.current.delete(requestId);
+          }
+          if (duplicateXml) {
+            if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
+            if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) finishPendingNativePalette(data.xml);
+            return;
+          }
+          lastSent.current = data.xml;
+          recordDiagnostic("drawio.document.saved", "Native Draw.io XML autosave captured as the authoritative source", {
+            event: data.event, xmlLength: data.xml.length
+          });
+          onDocumentChangeRef.current(data.xml);
+          if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
+          if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) finishPendingNativePalette(data.xml);
+        } catch (error) {
+          recordDiagnostic("drawio.document.parse.failed", "Parsing the Draw.io autosave payload failed",
+            { errorName: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, "error");
+          setStartupError("Could not accept the Draw.io autosave payload. See Agent traces for details.");
+        }
+      }
     }
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
@@ -797,8 +820,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   );
 
   return (
-    <div className="drawio-frame-wrap">
-      {startupError && <div className="drawio-error-banner" role="alert">
+    <div className="drawio-frame-wrap">      {startupError && <div className="drawio-error-banner" role="alert">
         <span>{startupError}</span><button type="button" onClick={() => retryEditor()}>Re-initialise</button>
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"
