@@ -123,7 +123,7 @@ async function logQueryResult(
   return { warning };
 }
 
-function buildSystemMessage(standalone = false): Promise<string> {
+async function buildSystemMessage(standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
     const workspaceContext = standalone
       ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
@@ -171,8 +171,8 @@ function createReportIntentOutcomeTool(sessionId: string) {
           return {
             recorded: false, accepted: false, reason: "terminal_action_already_registered",
             registeredKind: registration.registeredKind,
-            instructions: registration.registeredKind === "native_edit"
-              ? "A XML patch is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+            instructions: registration.registeredKind === "xml_patch"
+              ? "An XML patch is already queued for dispatch. Do not call another terminal tool; let that edit execute."
               : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
           };
         }
@@ -181,7 +181,7 @@ function createReportIntentOutcomeTool(sessionId: string) {
         return {
           recorded: true, accepted: true, terminal: true, outcome: report.outcome,
           replaceableByXmlPatch: true,
-          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one XML patch instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit two XML patchs."
+          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one XML patch instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit multiple XML patches."
         };
       }
     });
@@ -197,8 +197,7 @@ function createDrawioShapeSearchTool(sessionId: string) {
           limit: { type: "integer", minimum: 1, maximum: 8, default: 5 }
         },
         required: ["query"],
-        additionalProperties: false
-      },
+        additionalProperties: false      },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Shape search requires a non-empty query no longer than 120 characters.";
@@ -397,8 +396,7 @@ function createDrawioGraphInspectionTool(sessionId: string) {
     return defineTool("inspect_drawio_graph", {
       description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
       parameters: {
-        type: "object",
-        properties: {
+        type: "object",        properties: {
           query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },
           shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
           cellType: { type: "string", enum: ["vertex", "edge"] },
@@ -597,8 +595,7 @@ function createEditDrawioXmlTool(sessionId: string) {
         required: ["summary", "patch"],
         additionalProperties: false
       },
-      handler: async (args: { summary?: unknown; patch?: unknown }) => {
-        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
+      handler: async (args: { summary?: unknown; patch?: unknown }) => {        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
             !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
           return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };
         }
@@ -613,7 +610,7 @@ function createEditDrawioXmlTool(sessionId: string) {
         if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
           return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
         }
-        const registration = registerTerminalIntent(sessionId, "native_edit");
+        const registration = registerTerminalIntent(sessionId, "xml_patch");
         if (!registration.accepted) {
           return { accepted: false, terminal: false, reason: "terminal_action_already_registered", registeredKind: registration.registeredKind };
         }
@@ -797,8 +794,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     let visibleCells = allNativeCells.slice(0, 200);
     if (selectedCell && !visibleCells.some((cell) => cell.id === selectedCell!.cellId)) {
       visibleCells = [...visibleCells.slice(0, 199), allNativeCells.find((cell) => cell.id === selectedCell!.cellId)!];
-    }
-    const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
+    }    const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
     const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
       documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION
     });
@@ -997,8 +993,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             await deps.writeLog("turn.model-call.failed-after-terminal-intent.failed", {
               requestId, sessionId, attempt, terminalKind,
               errorName: error instanceof Error ? error.name : typeof error,
-              errorMessage: errorMessage.slice(0, 1000),
-                            acceptedSelection: pendingAgentSelections.has(sessionId),
+              errorMessage: errorMessage.slice(0, 1000),                            acceptedSelection: pendingAgentSelections.has(sessionId),
               acceptedReportedOutcome: pendingReportedOutcomes.has(sessionId)
             });
           }
@@ -1197,8 +1192,7 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
       required: ["target"],
       additionalProperties: false
     },
-    handler: async (args: { target: string }) => {
-      if (typeof args?.target !== "string" || !args.target.trim() || args.target.length > 200) {
+    handler: async (args: { target: string }) => {      if (typeof args?.target !== "string" || !args.target.trim() || args.target.length > 200) {
         const error = "Element selection requires a non-empty target no longer than 200 characters.";
         await writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
         return {
