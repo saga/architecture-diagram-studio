@@ -2,7 +2,7 @@ import { expect, test } from "./support/test";
 import { createWorkspace, nativeFrame, openStudio, readWorkspaceXml, waitForNativeEditor } from "./support/fixtures";
 
 test("Copilot edits the authoritative Draw.io XML and refreshes the editor", async ({ page, request }) => {
-  const workspace = await createWorkspace(request);
+  await createWorkspace(request);
   const initial = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
   const secondPage = '<diagram id="copied-page" name="Duplicated page"><mxGraphModel><root>' +
     '<mxCell id="copy-prefix-0"/><mxCell id="copy-prefix-1" parent="copy-prefix-0"/>' +
