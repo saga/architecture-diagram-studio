@@ -11,6 +11,7 @@ import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../s
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
+import { interpretNativeXmlChange } from "../../src/model/drawio-xml-diff";
 import { searchDrawioShapeCatalogDetailed, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
 
 interface AgentPromptConfig {
@@ -1068,9 +1069,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               pendingXmlPatch.sourceXml, pendingXmlPatch.patch as Parameters<typeof applyDrawioXmlPatch>[1], pendingXmlPatch.pageId
             );
             const patchedRevision = workspaceRevision(patched.drawioXml);
+            const impact = await interpretNativeXmlChange(pendingXmlPatch.sourceXml, patched.drawioXml);
             await deps.writeLog("turn.completed.xml-patch-prepared-for-browser-save", {
               requestId, sessionId, summary: pendingXmlPatch.summary, baseRevision: pendingXmlPatch.baseRevision,
-              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds
+              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds,
+              xmlImpact: {
+                beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
+                changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
+              }
             });
             res.json({
               outcome: "xml_patch_ready",
@@ -1097,9 +1103,17 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             });
             return;
           }
+          const committedSnapshot = await deps.getWorkspaceDiagramSnapshot();
+          const impact = committedSnapshot
+            ? await interpretNativeXmlChange(diagramXml, committedSnapshot.drawioXml)
+            : null;
           await deps.writeLog("turn.completed.xml-patch-committed", {
             requestId, sessionId, summary: pendingXmlPatch.summary,
-            baseRevision: pendingXmlPatch.baseRevision, receipt: body
+            baseRevision: pendingXmlPatch.baseRevision, receipt: body,
+            ...(impact ? { xmlImpact: {
+              beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
+              changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
+            } } : {})
           });          res.json({
             outcome: "xml_committed",
             reply: typeof body.workspaceRevision === "string"
