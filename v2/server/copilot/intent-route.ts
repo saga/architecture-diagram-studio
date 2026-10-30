@@ -1126,7 +1126,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
               changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
             } } : {})
-          });          res.json({
+          });
+          res.json({
             outcome: "xml_committed",
             reply: typeof body.workspaceRevision === "string"
               ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
