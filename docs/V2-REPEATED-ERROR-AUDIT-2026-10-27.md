@@ -144,7 +144,7 @@ if (scriptResult && typeof scriptResult.then === "function") {
 
 ### 决策和文档同步
 
-- 新增 [ADR-0023 — Native Script Runtime Boundaries and Late Outcomes](./docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md)。
+- 新增 [ADR-0029 — Native Script Runtime Boundaries and Late Outcomes](./docs/adr/0029-native-script-runtime-boundaries-and-late-outcomes.md)。
 - 更新 [Draw.io Agent API Contract](./docs/DRAWIO-AGENT-API-CONTRACT.md) 说明同步执行护栏与其限制。
 - 更新 [ARCHITECTURE-V2.md](./ARCHITECTURE-V2.md) 的 ADR 索引。
 - 本次对原生脚本失败报告的此前实现记录仍有效；本报告记录更广泛 V2 复查项的完成情况。

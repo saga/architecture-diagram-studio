@@ -63,3 +63,8 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 ## Validation
 
 Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, cell-scoped patch validation, stale revision conflicts, workspace persistence, standalone patch receipts and version recovery. Do not add parity tests for a removed semantic graph.
+
+
+## Incomplete capability boundary
+
+Workspace-scoped multi-file/multi-page Copilot editing is specified in [ADR-0027](docs/adr/0027-workspace-multi-file-multi-page-copilot-changes.md), but it is not an available end-to-end workflow yet. Its prepare/apply HTTP endpoints are disabled by default; the proposal/confirmation UI, Copilot workspace tools, immutable per-target version records and durable recovery journal must be completed before enabling them.

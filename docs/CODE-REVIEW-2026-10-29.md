@@ -71,7 +71,7 @@ typed 操作是确定性的，被改范围天然受操作列表约束，风险�
 grep -rn "diagram-change-set" src → 只有 src/model/workspace-diagram-change-set.test.ts
 ```
 
-`docs/adr/0017-workspace-multi-file-multi-page-copilot-changes.md` 自己写明 "backend prepare/apply foundation implemented; Copilot and UI integration pending"，所以这是**分阶段能力的半成品，不是死代码**。但它在待接线的这段时间里，是一个"能被本机任意页面 POST、且能整份覆盖工作区文件"的写入面。建议要么在路由层加显式开关（如 `STUDIO_ENABLE_CHANGE_SET=1`），要么在文档写明"当前无 UI/Copilot 入口，仅供后续集成"。
+`docs/adr/0027-workspace-multi-file-multi-page-copilot-changes.md` 自己写明 "backend prepare/apply foundation implemented; Copilot and UI integration pending"，所以这是**分阶段能力的半成品，不是死代码**。但它在待接线的这段时间里，是一个"能被本机任意页面 POST、且能整份覆盖工作区文件"的写入面。建议要么在路由层加显式开关（如 `STUDIO_ENABLE_CHANGE_SET=1`），要么在文档写明"当前无 UI/Copilot 入口，仅供后续集成"。
 
 ### A5. 布局与 XML 库的加载策略（P2）
 
@@ -143,7 +143,7 @@ const actuallyChangedPages = [...beforePages].filter((id) => beforePageXml.get(i
 
 `beforePageXml` 来自磁盘文件解析后重新序列化，`afterPageXml` 来自客户端提交的 `resultXml`。Draw.io 在保存/导出时可能规范化未触碰页面的属性顺序、空白或自闭合写法。一旦发生，未改动的页会被算作"实际改动"，与客户端声明的 `changedPageIds` 不一致 → 整个变更集被拒。
 
-ADR-0017 的 UI 尚未实现，现在正是定义契约的时机：要么要求客户端**只拼接被改页面**、其余页保持原始字节（当前注释暗示了这一点），要么把比较降级为"页内含 cell/几何语义差异"，而不是字符串相等。
+ADR-0027 的 UI 尚未实现，现在正是定义契约的时机：要么要求客户端**只拼接被改页面**、其余页保持原始字节（当前注释暗示了这一点），要么把比较降级为"页内含 cell/几何语义差异"，而不是字符串相等。
 
 ### C5. 重构遗留的死代码（P3）
 
@@ -197,7 +197,7 @@ ADR-0017 的 UI 尚未实现，现在正是定义契约的时机：要么要求�
 | P1 | CI 改 `npm ci`、删掉 lockfile 回写、`cache-dependency-path` 指向 lockfile | workflow | 评审对象与测试对象一致 |
 | P2 | C2 解析一次复用；C3 脚本基线向 iframe 现取 | model 层重载 + `DrawioFrame` | 大文档响应时间、消除范围校验误报 |
 | P2 | A1 页枚举/解码收进一个模块 | `drawio-theme` / `native-edit-confirmation` | 消掉最后一类"同一概念多处推导" |
-| P2 | A4 给 change-set 路由加开关或写清"未接线" | 路由 / ADR-0017 | 缩小未使用写入面 |
+| P2 | A4 给 change-set 路由加开关或写清"未接线" | 路由 / ADR-0027 | 缩小未使用写入面 |
 | P2 | A5 布局模块按需加载 | `App.tsx` / `native-layout` | 首屏从 2.7 MB 降下来 |
 | P3 | C5 删死代码、C7 错误边界、C6 主题模块分段 | 局部 | 可维护性 |
 | P3 | ADR 重新编号（0017/0020/0023 各有一对），更新 `ARCHITECTURE-V2.md` 状态与代码地图 | docs | 引用不再跳错文档 |
@@ -209,3 +209,8 @@ ADR-0017 的 UI 尚未实现，现在正是定义契约的时机：要么要求�
 - 构建产物大小取自本地 `dist/`（同提交构建），未在 CI 环境复测。
 - C3（范围校验误报）为代码路径推断，未做动态复现；C4 依赖尚未实现的客户端契约，属设计风险而非现存缺陷。
 - 未做：Playwright E2E、依赖漏洞扫描、Node 侧并发压测。
+
+
+## 2026-10-30 follow-up
+
+The duplicated ADR numbers identified above have been reassigned to ADR-0027 through ADR-0029 and added to the index. The dormant multi-file change-set routes are now disabled by default; see ADR-0027. The layout-engine static imports and missing workspace/navigation E2E coverage were addressed in PR #34. Standalone history write serialization was addressed in PR #33; transient filesystem read failures are being handled in PR #35. The obsolete duplicate workspace change-set service and redundant page-identity exports are being removed in PR #37.

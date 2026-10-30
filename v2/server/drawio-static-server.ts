@@ -85,7 +85,7 @@ app.use((_request, response) => {
 
 const server = app.listen(PORT, HOST, () => {
   console.log("[studio:drawio-static] Listening on http://" + HOST + ":" + PORT +
-    " with CSP connect-src 'none'; bundle=" + DRAWIO_ROOT);
+    " with CSP connect-src 'self'; bundle=" + DRAWIO_ROOT);
 });
 server.on("error", (error: NodeJS.ErrnoException) => {
   console.error("[studio:drawio-static] Failed to start:", error.message);

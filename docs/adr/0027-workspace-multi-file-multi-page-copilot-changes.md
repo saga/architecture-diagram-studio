@@ -1,4 +1,4 @@
-# ADR-0017 — Workspace-Scoped Multi-File, Multi-Page Copilot Changes
+# ADR-0027 — Workspace-Scoped Multi-File, Multi-Page Copilot Changes
 
 - Status: Accepted (backend prepare/apply foundation implemented; Copilot and UI integration pending)
 - Date: 2026-10-28

@@ -1,4 +1,4 @@
-# ADR-0020: Native Script Assertion Contracts and Accurate Edit Outcomes
+# ADR-0028: Native Script Assertion Contracts and Accurate Edit Outcomes
 
 - **Status:** Retired by [ADR-0026](./0026-server-side-xml-first-copilot-editing.md); retained as historical incident documentation
 - **Date:** 2026-10-27
