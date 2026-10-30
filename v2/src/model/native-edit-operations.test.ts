@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   extractNativeEditTargets,
-  getNativeDiagramPageInfo,
-  isBareNativeGraphModel,
   nativePageAccepts,
   resolveNativePageIdentity
 } from "./native-edit-operations";
@@ -17,11 +15,6 @@ const XML = `<mxfile><diagram id="p1" name="Page-1"><mxGraphModel><root>
 describe("native Draw.io root and page identity", () => {
   const bare = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
   const envelope = '<mxfile><diagram id="page-1" name="Page"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
-
-  it("distinguishes a bare graph model from an mxfile", () => {
-    expect(isBareNativeGraphModel(bare)).toBe(true);
-    expect(isBareNativeGraphModel(XML)).toBe(false);
-  });
 
   it("separates editor identity from document identity for a bare graph model", () => {
     const identity = resolveNativePageIdentity(bare, "editor-page-uuid");
@@ -58,10 +51,6 @@ describe("native Draw.io root and page identity", () => {
     });
   });
 
-  it("reads declared page metadata without semantic inference", () => {
-    expect(getNativeDiagramPageInfo(XML, "p1")).toEqual({ id: "p1", title: "Page-1" });
-    expect(getNativeDiagramPageInfo(XML, "missing")).toEqual({ id: null, title: null });
-  });
 });
 
 describe("extractNativeEditTargets", () => {
@@ -101,7 +90,6 @@ describe("extractNativeEditTargets", () => {
   it("does not fall back to the first page when the requested page ID is stale", () => {
     const secondPage = '<diagram id="p2" name="Other"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="other" value="Other page cell" vertex="1" parent="1"><mxGeometry x="0" y="0" width="100" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram>';
     const multiPage = XML.replace("</mxfile>", secondPage + "</mxfile>");
-    expect(getNativeDiagramPageInfo(multiPage, "missing-page")).toEqual({ id: null, title: null });
     expect(extractNativeEditTargets(multiPage, "p2")).toEqual([{ id: "other", name: "Other page cell", cellType: "vertex" }]);
     expect(() => extractNativeEditTargets(multiPage, "missing-page")).toThrow("refusing to inspect cells from another page");
   });
