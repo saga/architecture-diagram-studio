@@ -197,8 +197,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       if (!editorReady || !bridgeReady || !target) return;
       target.postMessage(JSON.stringify({ event: "studioHistoryCommand", action: "redo" }), DRAWIO_ORIGIN);
     },
-    applyPalette: async (plan) => {      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);
-      if (currentRevision !== plan.documentRevision) {
+    applyPalette: async (plan) => {      const currentRevision = await calculateDrawioXmlRevision(xmlRef.current);      if (currentRevision !== plan.documentRevision) {
         throw new Error("The native Draw.io XML changed after the color preset was calculated. No colors were applied; select the preset again.");
       }
       return await new Promise<string>((resolve, reject) => {
@@ -397,8 +396,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     if (!editorReady || !iframeRef.current?.contentWindow || xml === lastSent.current) return;
     try {
       // Never feed a malformed/stale XML snapshot into Draw.io: its import dialog can      // repeatedly ask to save the broken new-file document. Keep the source untouched
-      // and show an actionable Studio error instead.
-      if (!isDrawioXmlDocument(xml)) {
+      // and show an actionable Studio error instead.      if (!isDrawioXmlDocument(xml)) {
         setStartupError("The current Draw.io XML is malformed and was not loaded. Restore a valid revision from Agent traces → History, then reopen the diagram.");
         recordDiagnostic("drawio.document.load.rejected", "Refused to load malformed authoritative Draw.io XML", {
           xmlLength: xml.length
@@ -596,9 +594,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
               const latestXml = lastSent.current;              const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
-              const errorMessage = latestChanged
-                ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
-                : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
                 latestChanged ? "The document changed but the native edit confirmation timed out"
                   : "Timed out waiting for a matching serialized XML snapshot",
@@ -797,8 +792,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     pendingRuntimeInspectionsRef.current.clear();
     recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", {
       previousFrameKey: frameKey, recoverySource: "manual"
-    }, "warn");
-    lastSent.current = "";
+    }, "warn");    lastSent.current = "";
     setEditorReady(false);
     setIframeLoaded(false);
     iframeLoadedRef.current = false;
