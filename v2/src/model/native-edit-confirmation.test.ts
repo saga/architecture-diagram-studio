@@ -9,9 +9,6 @@ const before = '<mxfile><diagram id="p1" name="Overview"><mxGraphModel><root>' +
 
 const labelEdited = before.replace('value="Old API"', 'value="New API"');
 const unrelatedEdited = before.replace('value="Database"', 'value="Warehouse"');
-const styleAndGeometryEdited = before
-  .replace('style="rounded=0;"', 'style="rounded=0;fillColor=#ffffff;"')
-  .replace('x="10" y="20" width="100" height="40"', 'x="40" y="20" width="140" height="50"');
 
 describe("native edit XML confirmation", () => {
   it("confirms the requested label value in the targeted cell", () => {
