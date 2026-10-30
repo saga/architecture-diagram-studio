@@ -22,7 +22,7 @@ test("Copilot uses the XML-first contract in workspace and standalone modes", as
     };
     intentCalls++;
     const standalone = body.standalone === true;
-    const sourceXml = String(body.diagramXml ?? "");
+    const sourceXml = standalone ? String(body.diagramXml ?? "") : await readWorkspaceXml(workspace);
     const newLabel = standalone ? "Local Data Store" : "Workspace Data Store";
     const updatedXml = sourceXml.replace('value="Database"', 'value="' + newLabel + '"');
     expect(updatedXml).not.toBe(sourceXml);
