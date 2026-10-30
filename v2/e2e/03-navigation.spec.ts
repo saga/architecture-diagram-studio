@@ -1,7 +1,6 @@
 import { expect, test } from "./support/test";
 import {
   createWorkspace,
-  nativeFrameHandle,
   openStudio,
   waitForNativeEditor
 } from "./support/fixtures";
@@ -36,9 +35,9 @@ test.describe("工作区导航与外观", () => {
 
   test("切换到 Agent traces 再返回，原生 Draw.io 不重新加载", async ({ page }) => {
     const nav = page.locator('nav[aria-label="Workspace pages"]');
-    const frame = nativeFrameHandle(page);
+    const frameBody = page.frameLocator('iframe[title="Native Draw.io editor"]').locator("body");
     const marker = "keep-alive-" + Date.now();
-    await frame.evaluate((value) => {
+    await frameBody.evaluate((_body, value) => {
       (window as unknown as { __studioKeepAlive?: string }).__studioKeepAlive = value;
     }, marker);
     let drawioDocumentLoads = 0;
@@ -48,7 +47,7 @@ test.describe("工作区导航与外观", () => {
     await nav.getByRole("button", { name: "Agent traces" }).click();
     await expect(page.locator(".traces-workspace")).toBeVisible();
     await nav.getByRole("button", { name: "Diagram" }).click();
-    const kept = await frame.evaluate(() => (window as unknown as { __studioKeepAlive?: string }).__studioKeepAlive);
+    const kept = await frameBody.evaluate(() => (window as unknown as { __studioKeepAlive?: string }).__studioKeepAlive);
     expect(kept).toBe(marker);
     expect(drawioDocumentLoads).toBe(0);
     await expect(page.locator(".status-native")).toContainText("Native editor ready");
