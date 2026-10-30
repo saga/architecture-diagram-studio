@@ -112,7 +112,6 @@ function validateResponse(value: unknown): AIIntentResponse {
         patchedRevision: item.patchedRevision, changedCellIds: item.changedCellIds as string[], ...metadata
       };
     }
-    }
   }
 }
 
