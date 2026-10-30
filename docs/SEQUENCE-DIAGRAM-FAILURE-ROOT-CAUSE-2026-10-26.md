@@ -11,7 +11,7 @@
 
 本报告记录的根节点 / 图层 ID 硬编码问题，后续实现已改为按 native model 的根与图层关系进行结构验证。本次结论是针对 2026-10-26 的历史事件，不应再直接用来解释所有后续的脚本确认失败。
 
-2026-10-27 的「启动」连线事件是另一个独立问题：编辑后的断言把完整 style 字符串传给了要求 key/value 对象的验证器，造成 `changed-unverified`。现场证据、复现和实现记录见 [SEQUENCE-QIDONG-SCRIPT-FAILURE-2026-10-27.md](./SEQUENCE-QIDONG-SCRIPT-FAILURE-2026-10-27.md)，相关契约决策见 [ADR-0020](./docs/adr/0020-native-script-assertion-contract-and-outcome-reporting.md)。
+2026-10-27 的「启动」连线事件是另一个独立问题：编辑后的断言把完整 style 字符串传给了要求 key/value 对象的验证器，造成 `changed-unverified`。现场证据、复现和实现记录见 [SEQUENCE-QIDONG-SCRIPT-FAILURE-2026-10-27.md](./SEQUENCE-QIDONG-SCRIPT-FAILURE-2026-10-27.md)，相关契约决策见 [ADR-0028](./docs/adr/0028-native-script-assertion-contract-and-outcome-reporting.md)。
 
 ---
 

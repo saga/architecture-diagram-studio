@@ -63,7 +63,7 @@ Vite 开发与预览服务绑定 `0.0.0.0` 是用户明确接受的选择，不�
 
 ### P1：执行、导出、持久化与最终结果需要统一状态协议
 
-**事实：** 操作横跨 Copilot 服务、Draw.io iframe、XML 导出、文件写入和服务端回执。ADR-0020/0023 已记录异步迟到修改、模型事务不平衡、watchdog 超时被误认为最终失败等问题。
+**事实：** 操作横跨 Copilot 服务、Draw.io iframe、XML 导出、文件写入和服务端回执。ADR-0028/0029 已记录异步迟到修改、模型事务不平衡、watchdog 超时被误认为最终失败等问题。
 
 **风险：** 可能出现“报告失败但实际已保存”或“报告成功但版本/文件未确认”。若 UI、iframe 和服务端分别维护状态机，后续修复容易再次引入竞态。
 
@@ -74,7 +74,7 @@ Vite 开发与预览服务绑定 `0.0.0.0` 是用户明确接受的选择，不�
 4. UI 文案从统一 outcome 类型派生，避免不同组件各自推断成功/失败。
 5. 分开报告编辑器导出失败、源文件写入失败、版本记录失败，避免压成一个笼统的“AI 失败”。
 
-这与现有 ADR-0020/0023 一致；建议收敛实现，不另起一套事务系统。
+这与现有 ADR-0028/0029 一致；建议收敛实现，不另起一套事务系统。
 
 ### P1：布局引擎数量较多，适配层可能成为维护热点
 
@@ -260,4 +260,4 @@ Studio-owned layout adapters
 - docs/adr/0012-native-diagram-extension-contracts.md
 - docs/adr/0013-studio-owned-layout-engines.md
 - docs/adr/0018-ai-first-native-drawio-execution.md
-- docs/adr/0023-native-script-runtime-boundaries-and-late-outcomes.md
+- docs/adr/0029-native-script-runtime-boundaries-and-late-outcomes.md
