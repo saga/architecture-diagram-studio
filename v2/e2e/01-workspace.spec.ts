@@ -43,7 +43,6 @@ test.describe("工作区引导", () => {
 
     await openStudio(page);
     const dialog = await openWorkspaceModal(page);
-    await dialog.getByRole("button", { name: "Open existing Draw.io" }).click();
     await dialog.getByLabel("Workspace name").fill("Orders Workspace");
     await dialog.getByLabel("Absolute path of the project directory").fill(target);
     await dialog.getByRole("button", { name: "Verify directory and scan" }).click();
