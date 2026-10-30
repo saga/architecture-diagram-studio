@@ -1,6 +1,6 @@
 # ADR-0012: Native Diagram Extension Contracts Without a Parallel Model
 
-- Status: Accepted
+- Status: Accepted; Copilot mutation guidance superseded by [ADR-0026](./0026-server-side-xml-first-copilot-editing.md)
 - Date: 2026-10-23
 - Related: [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0013 — Studio-Owned Dagre/ELK Layout Is a Core Feature](./0013-studio-owned-layout-engines.md), [ADR-0018 — AI-First Native Draw.io Execution](./0018-ai-first-native-drawio-execution.md), [ADR-0009 — Centralized Draw.io XML Processing](./0009-centralized-drawio-xml-processing.md), [ADR-0010 — Unified Server-Side Copilot Intent Processing](./0010-unified-server-side-copilot-intent-processing.md)
 
@@ -18,37 +18,21 @@ The missing piece is an explicit extension seam: future capabilities should be a
 
 ## Decision
 
-Keep the native Draw.io XML and editor as the only document model and canvas. Add shared TypeScript contracts for future capabilities in `v2/src/model/native-diagram-capabilities.ts`. These are extension interfaces only; they do not install a registry, enable new UI features, or claim that layout/quality providers already exist.
+Keep the native Draw.io XML and editor as the only document model and canvas. The only active contract in `v2/src/model/native-diagram-capabilities.ts` is the read-only analysis interface consumed by spatial-region analysis. Do not introduce unused generic operation providers or registries.
 
 ### Contract boundaries
 
 1. **Input context is native and revision-bound.** A capability receives the authoritative XML snapshot, its server-issued revision, active page ID, selected cell ID, and the lightweight native-cell target index. This context is transient and read-only, not a persisted graph model.
-2. **Mutation capabilities target the native editor.** Use the server-side XML-first path for ordinary Copilot edits under ADR-0026. Whole-page Dagre/ELK layout must use the typed, configurable `auto_layout` operation defined by ADR-0013; do not replace it with a Draw.io built-in layout action or hand-written layout script. The `run_drawio_script` tool is removed under ADR-0026. Do not use model-generated JavaScript as an alternate mutation path. Scripts must not return replacement XML, write host files, or create a parallel graph model.
-3. **Analysis capabilities return findings only.** Quality, contrast, geometry and routing analyzers return native page/cell IDs and diagnostics. A finding does not itself block ordinary native editing or saving. A separately approved operation may define its own validation policy.
-4. **Execution remains centralized.** Server revision checks, the native editor bridge, acknowledgement handling, XML save path and versioning remain the execution boundary. The generic script operation lets AI use new native editor capabilities without adding each one to the shared operation union/schema. Script mutations are wrapped in a model update and active-page cells are snapshotted for rollback on script errors.
+2. **Copilot mutations use native XML patches.** Every Copilot diagram mutation uses the server-side `edit_drawio_xml` path defined by ADR-0026. Do not reintroduce typed Copilot mutation operations, editor scripts, browser-side model dispatch, or proposal/acknowledgement variants.
+3. **Automatic layout is separate.** Whole-page Dagre/ELK and the other installed Studio-owned layout engines use the typed geometry planner and native editor bridge defined by ADR-0013 and ADR-0021. This is not a Copilot XML-edit fallback and its algorithms are unchanged by ADR-0026.
+4. **Analysis capabilities return findings only.** Quality, contrast, geometry and routing analyzers return native page/cell IDs and diagnostics. A finding does not itself block ordinary native editing or saving. A separately approved operation may define its own validation policy.
 5. **No implicit semantic model.** Providers may use the shared XML DOM/schema utilities and derive temporary facts needed for one operation. They must not persist nodes/edges as a substitute for mxCells, assign a closed Studio-specific shape taxonomy to the document, or serialize a derived representation over the original XML.
-6. **Capability availability is explicit.** A descriptor or future registry entry is not proof of an implemented capability. Only registered providers with concrete handlers, validation and tests may be exposed to the UI or Copilot.
-7. **Keep the native editor as the renderer.** Styling or layout operations change explicitly targeted native cell properties through the typed operation bridge. UI theme changes remain presentation-only and must not rewrite cell styles implicitly.
-
-## Intended extension flow
-
-```mermaid
-flowchart TD
-  XML[("Authoritative mxfile XML")] --> Context["Read-only native context<br/>revision + active page + cell IDs"]
-  Context --> Provider["Optional capability provider"]
-  Provider --> Kind{"Result kind"}
-  Kind -->|Analysis| Findings["Diagnostics / quality findings"]
-  Kind -->|Mutation plan| Plan["Typed NativeEditOperation plan"]
-  Plan --> Gate["Validate schema, target, page and base revision"]
-  Gate -->|Valid| Bridge["Execute through native Draw.io bridge"]
-  Gate -->|Invalid or stale| Reject["Reject without mutation"]
-  Bridge --> Ack["Editor acknowledgement and saved XML"]
-  Ack --> History["Workspace persistence and XML snapshot"]
-```
+6. **Capability availability is explicit.** A type or descriptor is not proof of an implemented capability. Expose a capability only when a concrete implementation, validation and tests exist.
+7. **Keep the native editor as the renderer.** Copilot changes native cell properties through revision-bound XML patches; Studio layout changes only planned geometry through its native editor bridge. UI theme changes remain presentation-only and must not rewrite cell styles implicitly.
 
 ## How to reuse prior research
 
-- **Whole-page automatic layout** uses the shared Dagre/ELK planner and typed `auto_layout` operation described by ADR-0013. It calculates positions against temporary native-cell facts and applies geometry/waypoints through the native bridge. For other specific grouping, routing, endpoint and shape tasks that the typed contract does not cover, `run_drawio_script` can operate on real `mxCell` objects; it must not rebuild a complete graph document.
+- **Whole-page automatic layout** uses the shared Dagre/ELK planner and typed `auto_layout` operation described by ADR-0013. It calculates positions against temporary native-cell facts and applies geometry/waypoints through the native bridge. Copilot performs grouping, routing, endpoint, shape and other diagram changes through focused revision-bound XML patches. Do not add a second mutation path for tasks that are not represented by a typed operation.
 - **Quality and accessibility rules** belong in a read-only analysis provider that returns rule IDs, severity, page/cell IDs and evidence. Warnings are diagnostics unless a specific user-requested operation has an explicit validation policy.
 - **Style tokens and style resolution** may help construct explicit `set_style` or future typed style operations. They must not be applied merely because the UI theme changes.
 - **Shape and XML compatibility research** remains relevant to the shared schema and property inspector. Unknown stencils, wrapper elements and custom attributes remain legal native content; no closed shape registry is required for opening or basic editing.
@@ -57,5 +41,5 @@ flowchart TD
 ## Consequences
 
 - V2 remains small today while retaining a stable contract for future native operations and analysis.
-- The current runtime has no generic capability registry or quality-analysis engine. The core Dagre/ELK layout path is implemented separately and is not a generic provider registry.
-- Future capability work should not add an operation for every UI action. Keep the typed path for common deterministic workflows, use `run_drawio_script` for broader native runtime access, and keep whole-page layout on `auto_layout`. Add tests for shared helpers or concrete editor/API failure cases. Keep coverage for stale revisions, script/layout failure recovery, page scope, and XML/persistence acknowledgement.
+- There is no generic capability registry. The installed spatial-region analyzer is a concrete read-only analysis implementation; the core layout path is implemented separately.
+- Future capability work should not add an operation for every UI action. Use the single XML patch path for Copilot mutations, keep whole-page layout on the Studio-owned planner, and add focused tests for XML preservation, stale revisions, page scope and persistence.

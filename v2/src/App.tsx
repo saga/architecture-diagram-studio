@@ -20,7 +20,7 @@ import { calculateNativeAutoLayout, defaultNativeLayoutAlgorithm, nativeLayoutAl
 import { spatialRegionAnalysisProvider } from "./layout/spatial-region-analysis";
 import { chooseDrawioFile, chooseDrawioSaveFile, ensureDrawioWritePermission, getLocalDocumentId, writeDrawioFile, type StudioLocalFileHandle } from "./persistence/local-file-handles";
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type VersionSummary = { id: string; createdAt: string; label: string };
 type ProjectWorkspace = { schemaVersion: 1; id: string; name: string; rootPath: string; primaryDiagram: string | null; includePatterns: string[]; excludePatterns: string[]; createdAt: string; updatedAt: string };
 type WorkspaceFile = { path: string; name: string; kind: "diagram" | "code" | "document" | "other"; size: number; modifiedAt: string };
@@ -163,15 +163,7 @@ export default function App() {
   const [cellEditRequest, setCellEditRequest] = useState<{ cellId: string; pageId: string | null; path: string; value: string; requestId: number } | null>(null);
   const drawioFrameRef = useRef<DrawioFrameHandle | null>(null);
   const cellEditRequestSequenceRef = useRef(0);
-  /** Resolves a Copilot batch only after Draw.io serializes it and workspace mode saves the XML. */
-  const nativeEditResolversRef = useRef(new Map<number, (result: {
-    success: boolean; error?: string; failureStage?: "editor" | "persistence"; auditWarning?: string;
-    batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
-    batchRolledBack?: boolean | null; 
-    applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown"; errorStack?: string;
-  }) => void>());
-  const nativeEditAckContextsRef = useRef(new Map<number, { requestId: string; sessionId: string; standalone: boolean; documentRevision: string }>());
-  const lateNativeEditRequestsRef = useRef(new Set<number>());
+  const nativeEditResolversRef = useRef(new Map<number, (result: { success: boolean; error?: string }) => void>());
   const lateNativeSelectionRequestsRef = useRef(new Set<number>());
   const nativeEditWatchdogsRef = useRef(new Map<number, number>());
   const [rightPanelTab, setRightPanelTab] = useState<"properties" | "design" | "copilot">("properties");
@@ -205,8 +197,7 @@ export default function App() {
   });
 
   const [chatBusy, setChatBusy] = useState(false);
-  const [aiModel, setAiModel] = useState("");
-  const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high" | "max">("medium");
+  const [aiModel, setAiModel] = useState("");  const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high" | "max">("medium");
   // Transcripts persisted by older sessions may open with a greeting that no longer exists;
   // drop it so a restored conversation starts with real content.
   const LEGACY_GREETING_PREFIXES = ["描述想要的布局变化即可", "Describe the change you want"];
@@ -336,7 +327,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleHistoryShortcut, true);
   }, [nativeEditorReady, diagramThemeApplying, autoLayoutRunning, documentSaveState]);
 
-  // The native Draw.io editor is the only canvas; typed edits preserve unrelated XML cells.
+  // The native Draw.io editor is the only canvas; server-side XML patches preserve unrelated cells.
 
   useEffect(() => {
     let active = true;
@@ -405,8 +396,7 @@ export default function App() {
       }
 
       const targetDiagramPath = selectedDiagramPath || workspacePrimaryDiagram;
-      if (!targetDiagramPath) throw new Error("Select an existing Draw.io file to open.");
-      const response = await fetch("/api/workspace/config", {
+      if (!targetDiagramPath) throw new Error("Select an existing Draw.io file to open.");      const response = await fetch("/api/workspace/config", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: workspaceName, rootPath: workspaceRootPath, primaryDiagram: targetDiagramPath })
       });
@@ -574,47 +564,7 @@ export default function App() {
     }
   }, [messages]);
 
-  const reportNativeEditNotDispatched = (
-    acknowledgement: { requestId: string; sessionId: string; standalone: boolean; documentRevision: string },
-    reason: string
-  ): void => {
-    const payload = {
-      requestId: acknowledgement.requestId,
-      sessionId: acknowledgement.sessionId,
-      standalone: acknowledgement.standalone,
-      documentRevision: acknowledgement.documentRevision,
-      outcome: "failed",
-      editorAcknowledged: false,
-      applicationState: "unknown",
-      persistenceStatus: "not_attempted",
-      persistedRevision: null,
-      versionId: null,
-      failureStage: null,
-      error: reason.slice(0, 1000)
-    };
-    // The server has already registered this requestId before returning command_ready.
-    // If Studio refuses to dispatch locally, close that pending receipt explicitly instead
-    // of leaving an orphan entry that looks like an editor operation is still in flight.
-    void fetch("/api/copilot/intent/ack", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    }).then(async (response) => {
-      const body = await response.json().catch(() => null) as { outcome?: string; error?: string } | null;
-      if (!response.ok || body?.outcome !== "failed") {
-        throw new Error(body?.error || "HTTP " + response.status + " while closing a not-dispatched edit receipt");
-      }
-      recordDiagnostic("copilot.native-edit.not-dispatched.receipt-closed",
-        "Closed the server's pending edit receipt because Studio rejected the command before dispatch",
-        { requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId, reason: reason.slice(0, 500) }, "warn");
-    }).catch((error) => {
-      recordDiagnostic("copilot.native-edit.not-dispatched.receipt-close-failed",
-        "Studio rejected the command before dispatch, but could not close its server acknowledgement receipt",
-        { requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
-          reason: reason.slice(0, 500), error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }, "error");
-    });
-  };
-
-  const { sendIntent, confirmProposal } = useCopilotIntent({
+  const { sendIntent } = useCopilotIntent({
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
     getCurrentDiagramState: () => latestDiagramStateRef.current,
@@ -645,8 +595,7 @@ export default function App() {
       setServerXmlAvailable(true);
       setDocumentSaveState("saved");
     },
-    onStandaloneXmlPatchReady: async (xml) => {
-      const binding = standaloneFileBindingRef.current;
+    onStandaloneXmlPatchReady: async (xml) => {      const binding = standaloneFileBindingRef.current;
       if (!binding || !standaloneFileHandleRef.current || !standaloneFileName) {
         throw new Error("The standalone file handle is no longer available; the XML patch was not written.");
       }
@@ -662,21 +611,12 @@ export default function App() {
       setDocumentSaveState("saved");
     },
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId,
-    applyNativeCellEdit: async (cellId, path, value, requestedPageId) => {
+    selectNativeCell: async (cellId, requestedPageId) => {
       const targetPageId = requestedPageId !== undefined ? requestedPageId : selectedNativePageId;
       const requestId = ++cellEditRequestSequenceRef.current;
-      // Selection is UI state, not a document mutation: it must not consume a history slot.
-      if (path !== "cell:select") await archiveStandaloneHistory("Before Copilot: " + path + " on " + cellId, requestId);
-      recordDiagnostic("copilot.native-edit.dispatch", "Dispatching a Copilot edit to the active native Draw.io editor", {
-        cellId, path, requestId, pageId: targetPageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
+      recordDiagnostic("copilot.selection.dispatch", "Dispatching a Copilot selection to the active native Draw.io editor", {
+        cellId, requestId, pageId: targetPageId
       });
-      if (path !== "cell:select") {
-        setCellEditRequest({ cellId, pageId: targetPageId, path, value, requestId });
-        return;
-      }
-      // Pure focus actions still need a native bridge acknowledgement. Posting a request is not
-      // proof the iframe accepted it; otherwise the chat can claim "Selected" while the canvas
-      // never changed focus (or the target disappeared during dispatch).
       await new Promise<void>((resolve, reject) => {
         nativeEditResolversRef.current.set(requestId, (result) => {
           if (result.success) resolve();
@@ -698,73 +638,10 @@ export default function App() {
           reject(new Error(error));
         }, watchdogTimeoutMs);
         nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
-        setCellEditRequest({ cellId, pageId: targetPageId, path, value, requestId });
-      });
-    },
-    applyNativeCellEdits: async (edits, pageId, acknowledgement) => {
-      if (lateNativeEditRequestsRef.current.size > 0) {
-        const error = "A previous native edit is still awaiting a final editor result. No new edit was dispatched.";
-        reportNativeEditNotDispatched(acknowledgement, error);
-        return Promise.resolve({
-          ok: false,
-          error,
-          rolledBack: false,
-          applicationState: "unknown",
-          auditWarning: "Inspect the current diagram and History. If no late result arrives, refresh/reload the Studio browser page and reopen the latest saved document; opening another file in the same page will not clear the in-memory pending state.",
-          steps: []
-        });
-      }
-      if (!edits.length) {
-        const error = "No native edits were supplied; the command was not dispatched.";
-        reportNativeEditNotDispatched(acknowledgement, error);
-        return Promise.resolve({ ok: false, error, rolledBack: false, applicationState: "not-applied", steps: [] });
-      }
-      const requestId = ++cellEditRequestSequenceRef.current;
-      await archiveStandaloneHistory("Before Copilot: " + edits.length + " native edit" + (edits.length === 1 ? "" : "s"), requestId);
-      const watchdogTimeoutMs = 30_000;
-      return new Promise((resolve) => {
-        nativeEditAckContextsRef.current.set(requestId, acknowledgement);
-        nativeEditResolversRef.current.set(requestId, (result) => {
-          resolve({
-            ok: result.success,
-            error: result.error,
-            errorStack: result.errorStack,
-            failureStage: result.failureStage,
-            auditWarning: result.auditWarning,
-            applicationState: result.applicationState,
-            // Only explicit editor acknowledgement counts as a confirmed rollback; null/unknown is not success.
-            rolledBack: result.success ? false : result.batchRolledBack === true,
-            steps: (result.batchResults ?? []).map((step) => ({ index: step.index, cellId: step.cellId, path: step.path, value: step.value, success: step.success, error: step.error, stack: step.stack }))
-          });
-        });
-        recordDiagnostic("copilot.native-edits.dispatch", "Dispatching an atomic native Draw.io edit batch to the active editor", {
-          requestId, editCount: edits.length, edits, pageId, standaloneMode: Boolean(standaloneFileName), fileName: standaloneFileName
-        });
-        setCellEditRequest({ cellId: "__batch__", pageId, path: "cell:batch", value: JSON.stringify(edits), requestId });
-        const watchdogTimerId = window.setTimeout(() => {
-          nativeEditWatchdogsRef.current.delete(requestId);
-          const pending = nativeEditResolversRef.current.get(requestId);
-          if (!pending) return;
-          nativeEditResolversRef.current.delete(requestId);
-          // Keep the acknowledgement context so a late serialized result can still be persisted
-          // and reconciled with the server. A wait timeout is not proof of failure or rollback.
-          lateNativeEditRequestsRef.current.add(requestId);
-          setCellEditRequest((current) => current?.requestId === requestId ? null : current);
-          const timeoutError = "The native Draw.io editor has not returned a final serialized result within " +
-            Math.round(watchdogTimeoutMs / 1000) + " seconds. The edit outcome is still unknown.";
-          recordDiagnostic("copilot.native-edits.timeout", "Stopped waiting for a native edit without declaring its final outcome", {
-            requestId, editCount: edits.length, watchdogTimeoutMs,
-            reconciliationPending: true
-          }, "warn");
-          resolve({
-            ok: false, error: timeoutError, rolledBack: false, applicationState: "unknown",
-            auditWarning: "This is a wait timeout, not a confirmed rollback. Do not retry; the request remains pending reconciliation.",
-            steps: []
-          });
-        }, watchdogTimeoutMs);
-        nativeEditWatchdogsRef.current.set(requestId, watchdogTimerId);
+        setCellEditRequest({ cellId, pageId: targetPageId, path: "cell:select", value: "", requestId });
       });
     }
+
   });
 
   async function applyDiagramTheme(theme: DrawioDiagramTheme) {
@@ -917,7 +794,6 @@ export default function App() {
       setDiagramThemeApplying(false);
     }
   }
-
   async function saveAISettings() {
     const next = { model: aiModel.trim(), reasoningEffort };
     try {
@@ -1117,8 +993,7 @@ export default function App() {
       standaloneFileBindingRef.current = binding;
       setStandaloneFileBinding(binding);
       setStandaloneFileName(result.name);
-      lastExportedXmlRef.current = null;
-      setDocumentSaveState("saved");
+      lastExportedXmlRef.current = null;      setDocumentSaveState("saved");
       standaloneLastSavedXmlRef.current = xml;
       setNativeXmlOverride(xml);
       setServerXmlAvailable(false);
@@ -1317,8 +1192,7 @@ export default function App() {
     const binding = standaloneFileBindingRef.current;
     if (!binding) return;
     try {
-      const response = await fetch("/api/local/diagram/history/" + encodeURIComponent(versionId) + "?fileToken=" + encodeURIComponent(binding.fileToken));
-      const result = await response.json() as { error?: string; id?: string; createdAt?: string; label?: string; xml?: string };
+      const response = await fetch("/api/local/diagram/history/" + encodeURIComponent(versionId) + "?fileToken=" + encodeURIComponent(binding.fileToken));      const result = await response.json() as { error?: string; id?: string; createdAt?: string; label?: string; xml?: string };
       if (!response.ok || typeof result.xml !== "string") throw new Error(result.error || "Could not load the selected snapshot");
       setLocalHistoryEntries((current) => current.map((entry) => entry.id === versionId ? { ...entry, xml: result.xml! } : entry));
       setLocalHistorySelectedId(versionId);
@@ -1517,8 +1391,7 @@ export default function App() {
           (latestState.selectedNativePageId !== null && latestState.selectedNativePageId !== pageId)) {
         throw new Error("The diagram or active page changed while Studio was calculating the layout. Nothing was applied; retry.");
       }
-      // React selection events are not guaranteed to fire on every native page switch.
-      // Recheck the live editor immediately before dispatch so a delayed UI state cannot
+      // React selection events are not guaranteed to fire on every native page switch.      // Recheck the live editor immediately before dispatch so a delayed UI state cannot
       // cause a plan for page A to be applied while page B is active.
       const runtimeBeforeApply = await frame.inspectRuntime({ documentRevision, pageId });
       if (runtimeBeforeApply.documentRevision !== documentRevision || runtimeBeforeApply.pageId !== pageId) {
@@ -1717,8 +1590,7 @@ export default function App() {
         </div>
       </Modal>
       
-      <Modal title={"Local Draw.io history · " + (standaloneFileName || "")} open={localHistoryOpen} onCancel={() => setLocalHistoryOpen(false)} footer={null} width={900}>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(0, 2fr)", gap: 16, maxHeight: "65vh" }}>
+      <Modal title={"Local Draw.io history · " + (standaloneFileName || "")} open={localHistoryOpen} onCancel={() => setLocalHistoryOpen(false)} footer={null} width={900}>        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(0, 2fr)", gap: 16, maxHeight: "65vh" }}>
           <div style={{ overflowY: "auto" }}>
             {localHistoryEntries.length === 0 ? <p>No local snapshots saved yet. Snapshots are stored by the Node.js service before a file save or Copilot edit.</p> : [...localHistoryEntries].reverse().map((entry) => (
               <button key={entry.id} type="button" onClick={() => void loadStandaloneHistoryEntry(entry.id)}
@@ -1917,8 +1789,7 @@ export default function App() {
           </div>
         </div>
         <Modal
-          title="Layout settings"
-          open={layoutSettingsOpen}
+          title="Layout settings"          open={layoutSettingsOpen}
           onCancel={() => setLayoutSettingsOpen(false)}
           width={640}
           className="native-layout-settings-modal"
@@ -1937,326 +1808,26 @@ export default function App() {
 
         <div className="canvas-stage">
                       <DrawioFrame ref={drawioFrameRef} xml={drawioXml}
-            onNativeEditResult={async (result) => {
-              let resultFinalizationReached = false;
-              try {
+            onNativeEditResult={(result) => {
               const requestId = result.requestId;
-              const watchdogTimerId = requestId === null ? undefined : nativeEditWatchdogsRef.current.get(requestId);
-              if (requestId !== null && watchdogTimerId !== undefined) {
+              if (requestId === null) return;
+              const watchdogTimerId = nativeEditWatchdogsRef.current.get(requestId);
+              if (watchdogTimerId !== undefined) {
                 window.clearTimeout(watchdogTimerId);
                 nativeEditWatchdogsRef.current.delete(requestId);
               }
-              const resolver = requestId === null ? undefined : nativeEditResolversRef.current.get(requestId);
-              const isLateNativeBatch = result.path === "cell:batch" && requestId !== null &&
-                !resolver && lateNativeEditRequestsRef.current.has(requestId);
-              const isLateNativeSelection = result.path === "cell:select" && requestId !== null &&
-                !resolver && lateNativeSelectionRequestsRef.current.has(requestId);
-              const acknowledgement = requestId === null ? undefined : nativeEditAckContextsRef.current.get(requestId);
-              let finalResult = result;
-              let serializedXmlRevision: string | null = null;
-              let persistedRevision: string | null = null;
-              let persistedVersionId: string | null = null;
-              let persistenceStatus = "not_attempted";
-              const lateResultHasSnapshot = typeof result.serializedXml === "string" ||
-                result.batchRolledBack === true || result.applicationState === "not-applied";
-              if (result.path === "cell:batch" && !(isLateNativeBatch && !lateResultHasSnapshot)) {
-                if (typeof result.serializedXml !== "string") {
-                  if (result.success) {
-                    finalResult = { ...result, success: false, error: "Draw.io acknowledged the edit but did not return serialized XML.", batchRolledBack: false, failureStage: "persistence" };
-                    persistenceStatus = "failed";
-                  } else {
-                    // Failed native edits may have changed the editor. Preserve the last good revision
-                    // unless a valid serialized XML snapshot is available.
-                    persistenceStatus = "not_attempted";
-                  }
-                } else {
-                  serializedXmlRevision = await calculateDrawioXmlRevision(result.serializedXml);
-                  if (projectWorkspace && !standaloneFileName) {
-                    try {
-                      // Persist both successful results and captured failed-script state through the same
-                      // revision-checked path; only the editor acknowledgement decides success/failure.
-                      const saved = await persistDocumentNow(result.serializedXml, result.success
-                        ? "Copilot native edit"
-                        : result.applicationState === "changed-unverified"
-                          ? "Captured unverified native XML after Copilot script edit"
-                          : "Captured native XML after Copilot script failure");
-                      persistedRevision = typeof saved.workspaceRevision === "string" ? saved.workspaceRevision : null;
-                      persistedVersionId = typeof saved.version?.id === "string" ? saved.version.id : null;
-                      if (persistedRevision !== serializedXmlRevision) throw new Error("The server did not confirm the exact serialized XML revision.");
-                      if (!persistedVersionId) throw new Error("The server did not confirm the immutable version ID for this XML revision.");
-                      persistenceStatus = "saved";
-                    } catch (error) {
-                      const persistenceError = error instanceof Error ? error.message : String(error);
-                      persistenceStatus = "failed";
-                      finalResult = result.success
-                        ? {
-                            ...result, success: false,
-                            error: "Draw.io applied and serialized the edit, but the workspace save failed: " + persistenceError,
-                            batchRolledBack: false, failureStage: "persistence"
-                          }
-                        : {
-                            ...result,
-                            error: (result.error || "The native Draw.io script failed.") +
-                              " The resulting editor XML could not be saved as a version: " + persistenceError,
-                            failureStage: "persistence"
-                          };
-                    }
-                  } else if (standaloneFileName && standaloneFileBindingRef.current) {
-                    // Standalone persistence is browser-owned, but the native edit receipt must still
-                    // wait for the actual FileSystemFileHandle write to close successfully.
-                    const activeBinding = standaloneFileBindingRef.current;
-                    try {
-                      await enqueueStandaloneSave(result.serializedXml, activeBinding.fileToken);
-                      const savedBinding = standaloneFileBindingRef.current;
-                      if (!savedBinding || savedBinding.fileToken !== activeBinding.fileToken ||
-                          savedBinding.revision !== serializedXmlRevision) {
-                        throw new Error("The browser did not confirm the exact serialized XML revision on the selected local file.");
-                      }
-                      persistedRevision = savedBinding.revision;
-                      // The server records the result but does not claim it wrote the source file.
-                      persistenceStatus = "not_managed_by_server";
-                      if (savedBinding.historyRevision !== savedBinding.revision) {
-                        finalResult = {
-                          ...result,
-                          auditWarning: "The selected file was saved, but the Node.js history snapshot is still pending."
-                        };
-                      }
-                    } catch (error) {
-                      const persistenceError = error instanceof Error ? error.message : String(error);
-                      persistenceStatus = "failed";
-                      finalResult = result.success
-                        ? {
-                            ...result, success: false,
-                            error: "Draw.io applied and serialized the edit, but saving the standalone file failed: " + persistenceError,
-                            batchRolledBack: false, failureStage: "persistence"
-                          }
-                        : {
-                            ...result,
-                            error: (result.error || "The native Draw.io script failed.") +
-                              " The resulting XML could not be saved to the standalone file: " + persistenceError,
-                            failureStage: "persistence"
-                          };
-                    }
-                  } else {
-                    persistenceStatus = "not_managed_by_server";
-                  }
-                }
-              }
-              if (acknowledgement && requestId !== null && !(isLateNativeBatch && !lateResultHasSnapshot)) {
-                const acknowledgementPayload = {
-                  requestId: acknowledgement.requestId, sessionId: acknowledgement.sessionId,
-                  standalone: acknowledgement.standalone, documentRevision: acknowledgement.documentRevision,
-                  outcome: finalResult.success ? "applied" : "failed",
-                  editorAcknowledged: result.success || typeof result.serializedXml === "string",
-                  applicationState: finalResult.applicationState ?? null,
-                  serializedXmlRevision, persistenceStatus, persistedRevision, versionId: persistedVersionId,
-                  failureStage: finalResult.failureStage ?? null, error: finalResult.error ?? null
-                };
-                const acknowledgementBody = JSON.stringify(acknowledgementPayload);
-                let ackResponse: Response | null = null;
-                let ackBody: {
-                  error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
-                } | null = null;
-                let ackTransportError: string | null = null;
-                const maxAcknowledgementAttempts = 2;
-                // Exact acknowledgement replay is idempotent on the server. Retry only
-                // transient network/5xx failures; never replay a deterministic 4xx conflict.
-                for (let attempt = 1; attempt <= maxAcknowledgementAttempts; attempt += 1) {
-                  try {
-                    const response = await fetch("/api/copilot/intent/ack", {
-                      method: "POST", headers: { "content-type": "application/json" },
-                      body: acknowledgementBody
-                    });
-                    const parsedAckBody: {
-                      error?: string; outcome?: string; documentRevision?: string | null; persistedRevision?: string | null; versionId?: string | null;
-                    } | null = await response.json().catch(() => null);
-                    ackResponse = response;
-                    ackBody = parsedAckBody;
-                    ackTransportError = null;
-                    if (response.ok || response.status < 500 || attempt === maxAcknowledgementAttempts) break;
-                    recordDiagnostic("copilot.native-edit.acknowledgement.retry",
-                      "The server returned a transient error while recording the native edit result; retrying the same idempotent acknowledgement",
-                      { requestId, attempt, status: response.status }, "warn");
-                  } catch (error) {
-                    ackTransportError = error instanceof Error ? error.message : String(error);
-                    recordDiagnostic("copilot.native-edit.acknowledgement.retry",
-                      "The acknowledgement request failed before a final HTTP response; retrying the same idempotent payload",
-                      { requestId, attempt, error: ackTransportError }, "warn");
-                    if (attempt === maxAcknowledgementAttempts) break;
-                  }
-                  await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
-                }
-                const expectedOutcome = finalResult.success ? "applied" : "failed";
-                const appliedReceiptMismatch = finalResult.success && (
-                  ackBody?.documentRevision !== serializedXmlRevision ||
-                  ackBody?.persistedRevision !== persistedRevision ||
-                  ackBody?.versionId !== persistedVersionId
-                );
-                if (!ackResponse?.ok || ackBody?.outcome !== expectedOutcome || appliedReceiptMismatch) {
-                  finalResult = {
-                    ...finalResult,
-                    auditWarning: "The browser received the edit result, but the server did not confirm the matching final outcome/revision/version: " +
-                      (ackBody?.error || ackTransportError || (ackResponse ? (ackResponse.ok ? "receipt fields did not match" : "HTTP " + ackResponse.status) : "no HTTP response after retry"))
-                  };
-                }
-                nativeEditAckContextsRef.current.delete(requestId);
-              } else if (isLateNativeBatch && !lateResultHasSnapshot) {
-                // Without a resulting XML snapshot (or explicit rollback), a late timeout response
-                // is not a terminal receipt. Keep the request locked until the user reloads/reconciles.
-                finalResult = {
-                  ...result,
-                  success: false,
-                  applicationState: "unknown",
-                  error: "The editor returned after the wait expired but did not provide a final serialized XML snapshot.",
-                  auditWarning: "The edit remains unresolved. Do not retry; inspect History and reload the document before another edit."
-                };
-              }
-              resultFinalizationReached = true;
-              if (resolver && requestId !== null) {
-                if (nativeEditResolversRef.current.get(requestId) !== resolver) {
-                  recordDiagnostic("copilot.native-edit.acknowledgement.late", "A native edit result arrived after its wait timed out; no late success was shown", { requestId, success: finalResult.success }, "warn");
-                  return;
-                }
+              const resolver = nativeEditResolversRef.current.get(requestId);
+              if (resolver) {
                 nativeEditResolversRef.current.delete(requestId);
-                resolver(finalResult);
+                resolver({ success: result.success, error: result.error });
               }
-              const lateResultIsTerminal = finalResult.success ||
-                typeof finalResult.serializedXml === "string" || finalResult.batchRolledBack === true ||
-                finalResult.applicationState === "not-applied";
-              const wasLateNativeEdit = isLateNativeBatch && lateResultIsTerminal &&
-                requestId !== null && lateNativeEditRequestsRef.current.delete(requestId);
-              if (result.path === "cell:batch" && !resolver && !isLateNativeBatch && !wasLateNativeEdit) {
-                recordDiagnostic("copilot.native-edit.acknowledgement.unobserved", "A native edit completed without an active waiter or a registered timeout to reconcile", { requestId, success: finalResult.success }, "warn");
-                return;
-              }
-              if (isLateNativeBatch && !wasLateNativeEdit) {
-                const unresolvedText = "A native edit timed out without a final serialized result. The diagram state is still unknown; do not retry. Inspect the current document and History, then reload the document before submitting another edit.";
-                setLastAction(unresolvedText);
-                const unresolvedMessage: ChatMessage = { role: "assistant", id: Date.now(), text: unresolvedText };
-                setMessages((items) => [...items, unresolvedMessage].slice(-300));
-                recordDiagnostic("copilot.native-edit.acknowledgement.late-unresolved",
-                  "A timed-out native edit returned without enough evidence to reconcile its outcome",
-                  { requestId, applicationState: finalResult.applicationState ?? null, rollbackConfirmed: finalResult.batchRolledBack === true }, "error");
-                return;
-              }
-              const status = finalResult.success
-                ? "Native Draw.io accepted and serialized " + (finalResult.path || "edit") + (finalResult.cellId === "__batch__" ? " batch" : "") +
-                  (projectWorkspace && !standaloneFileName && finalResult.path === "cell:batch"
-                    ? "; workspace save confirmed."
-                    : standaloneFileName && finalResult.path === "cell:batch" ? "; standalone file save confirmed." : ".")
-                : finalResult.applicationState === "changed-unverified" && finalResult.failureStage === "persistence"
-                  ? "The native document changed, but the requested edit was not verified and persistence failed: " + (finalResult.error || "Unknown error")
-                  : finalResult.applicationState === "unknown" && finalResult.failureStage === "persistence"
-                    ? "The native edit outcome is unknown and persistence failed: " + (finalResult.error || "Unknown error")
-                    : finalResult.failureStage === "persistence"
-                      ? "Native edit was serialized but persistence failed: " + (finalResult.error || "Unknown error")
-                      : finalResult.applicationState === "changed-unverified"
-                        ? "The native document changed, but the requested edit was not verified: " + (finalResult.error || "Unknown verification error")
-                        : finalResult.applicationState === "not-applied"
-                      ? "No document change was detected for this edit: " + (finalResult.error || "No matching change")
-                      : finalResult.applicationState === "unknown"
-                        ? "The native edit outcome is unknown: " + (finalResult.error || "No reliable serialized result")
-                         : "Native Draw.io edit failed: " + (finalResult.error || "Unknown error") +
-                (finalResult.auditWarning ? " " + finalResult.auditWarning : "");
-              setLastAction(status);
-              if (wasLateNativeEdit) {
-                const reconciledText = "A native edit returned after the waiting period. " + status +
-                  " Its final result has now been reconciled; do not repeat the operation.";
-                const reconciledMessage: ChatMessage = { role: "assistant", id: Date.now(), text: reconciledText };
-                setMessages((items) => [...items, reconciledMessage].slice(-300));
-                recordDiagnostic("copilot.native-edit.acknowledgement.late-reconciled",
-                  "Reconciled the user-visible outcome after a native edit returned past its wait timeout",
-                  { requestId, success: finalResult.success, applicationState: finalResult.applicationState ?? null,
-                    failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null }, "warn");
-              }
-              if (finalResult.batchResults?.length) {
-                for (const step of finalResult.batchResults) {
-                  const stepEvent = finalResult.success
-                    ? "applied"
-                    : finalResult.batchRolledBack === true
-                      ? "rolled-back"
-                      : finalResult.applicationState === "changed-unverified"
-                        ? "failed-after-partial-apply"
-                        : finalResult.applicationState === "unknown"
-                          ? "outcome-unknown"
-                          : "failed";
-                  recordDiagnostic("copilot.native-batch.step." + stepEvent,
-                    "Native batch step " + step.index + (stepEvent === "applied" ? " applied" : stepEvent === "rolled-back" ? " rolled back" : " did not reach verified completion"),
-                    { requestId: finalResult.requestId, index: step.index, cellId: step.cellId, path: step.path, value: step.value,
-                      stepSuccess: step.success, stepError: step.error ?? null, stepStack: step.stack ?? null,
-                      batchSuccess: finalResult.success, applicationState: finalResult.applicationState ?? null,
-                      rollbackConfirmed: finalResult.batchRolledBack ?? null });
-                }
-              }
-              recordDiagnostic(finalResult.success ? "copilot.native-edit.acknowledged" : "copilot.native-edit.rejected", status, {
-                requestId: finalResult.requestId, cellId: finalResult.cellId, path: finalResult.path, error: finalResult.error || null,
-                failedIndex: finalResult.failedIndex ?? null, errorStack: finalResult.errorStack ?? null, rollbackErrors: finalResult.rollbackErrors ?? [],
-                batchRolledBack: finalResult.batchRolledBack ?? null, batchResults: finalResult.batchResults ?? null, applicationState: finalResult.applicationState ?? null, failureStage: finalResult.failureStage ?? null, auditWarning: finalResult.auditWarning ?? null,
-              }, finalResult.success && !(finalResult.rollbackErrors?.length) ? "info" : "error");
-              if (isLateNativeSelection && requestId !== null && lateNativeSelectionRequestsRef.current.delete(requestId)) {
-                const reconciledText = finalResult.success
-                  ? "The native selection completed after the waiting period. The requested element is now selected; the diagram was not changed."
-                  : "The native selection returned after the waiting period but failed: " + (finalResult.error || "Draw.io rejected the selection.");
-                setLastAction(reconciledText);
-                const reconciledMessage: ChatMessage = { role: "assistant", id: Date.now(), text: reconciledText };
-                setMessages((items) => [...items, reconciledMessage].slice(-300));
-                recordDiagnostic("copilot.selection.acknowledgement.late-reconciled",
-                  "Reconciled a native selection result after the UI wait expired",
-                  { requestId, cellId: finalResult.cellId, success: finalResult.success, error: finalResult.error ?? null },
-                  finalResult.success ? "warn" : "error");
-              }
-              } catch (error) {
-                const errorMessage = (error instanceof Error ? error.message : String(error)).slice(0, 1200);
-                try {
-                  recordDiagnostic("copilot.native-edit.finalization.failed",
-                    "Studio received a native Draw.io result but could not finish processing the host-side acknowledgement path",
-                    { requestId: result.requestId, path: result.path, resultFinalizationReached,
-                      errorName: error instanceof Error ? error.name : typeof error, errorMessage }, "error");
-                } catch { /* Diagnostics must not strand the request resolver. */ }
-                if (resultFinalizationReached) return;
-                const requestId = result.requestId;
-                if (requestId !== null) {
-                  const timerId = nativeEditWatchdogsRef.current.get(requestId);
-                  if (timerId !== undefined) window.clearTimeout(timerId);
-                  nativeEditWatchdogsRef.current.delete(requestId);
-                  const resolver = nativeEditResolversRef.current.get(requestId);
-                  setCellEditRequest((current) => current?.requestId === requestId ? null : current);
-                  if (result.path === "cell:batch") {
-                    // Persistence/revision processing failed after the iframe returned. The
-                    // actual edit may already be in the live XML, so keep the no-retry lock.
-                    lateNativeEditRequestsRef.current.add(requestId);
-                    nativeEditAckContextsRef.current.delete(requestId);
-                    setCellEditRequest((current) => current?.requestId === requestId ? null : current);
-                    const unresolved = "Studio could not finish verifying/saving the native Draw.io result. The document may already have changed; do not retry. Inspect the current diagram and History, then reload the document before editing again.";
-                    setLastAction(unresolved);
-                    const unresolvedMessage: ChatMessage = { role: "assistant", id: Date.now(), text: unresolved };
-                    setMessages((items) => [...items, unresolvedMessage].slice(-300));
-                    if (resolver) {
-                      nativeEditResolversRef.current.delete(requestId);
-                      resolver({
-                        success: false,
-                        error: "Host-side finalization failed after the editor returned: " + errorMessage,
-                        failureStage: "persistence",
-                        batchRolledBack: result.batchRolledBack ?? null,
-                        applicationState: result.applicationState === "not-applied" ? "not-applied" : "unknown",
-                        auditWarning: "The final native XML/persistence result could not be reconciled. Do not retry.",
-                      });
-                    }
-                    return;
-                  }
-                  if (result.path === "cell:select") {
-                    if (resolver) {
-                      nativeEditResolversRef.current.delete(requestId);
-                      resolver({ success: false, error: "Studio could not confirm the Draw.io selection: " + errorMessage });
-                    }
-                    if (lateNativeSelectionRequestsRef.current.delete(requestId)) {
-                      const selectionFailure = "Studio could not reconcile the late Draw.io selection result: " + errorMessage;
-                      setLastAction(selectionFailure);
-                      const selectionFailureMessage: ChatMessage = { role: "assistant", id: Date.now(), text: selectionFailure };
-                      setMessages((items) => [...items, selectionFailureMessage].slice(-300));
-                    }
-                  }
-                }
+              if (result.path === "cell:select" && lateNativeSelectionRequestsRef.current.delete(requestId)) {
+                const text = result.success
+                  ? "The requested element was selected after the waiting period; the diagram was not changed."
+                  : "The late Draw.io selection failed: " + (result.error || "Draw.io rejected the selection.");
+                setLastAction(text);
+                setMessages((items) => [...items, { role: "assistant" as const, id: Date.now(), text }].slice(-300));
+                recordDiagnostic("copilot.selection.late-result", text, { requestId, cellId: result.cellId, success: result.success }, result.success ? "warn" : "error");
               }
             }}
             onSelectionChange={(cellId, pageId, vertexCellIds) => {
@@ -2281,7 +1852,7 @@ export default function App() {
           <span className="status-drawio" title="Local Draw.io bundle on a dedicated sandboxed origin; CSP blocks network connections">Sandboxed Draw.io {DRAWIO_VERSION}</span>
           <span className={nativeEditorReady ? "status-native" : "status-native status-warn"}
             title={nativeEditorReady
-              ? "Native Draw.io editor ready · AI scripts use the live editor API and save through Studio"
+              ? "Native Draw.io editor ready · Copilot edits use validated native XML and save through Studio"
               : "Waiting for the native Draw.io editor handshake"}>
             {nativeEditorReady ? "Native editor ready · AI execution enabled" : "Connecting to Draw.io…"}
           </span>
@@ -2302,7 +1873,6 @@ export default function App() {
             page="copilot"
             messages={messages} chatInput={chatInput} setChatInput={setChatInput} chatBusy={chatBusy}
             sendIntent={() => void sendIntent()}
-             confirmProposal={(proposalId) => void confirmProposal(proposalId)}
              aiModel={aiModel} setAiModel={setAiModel}
             reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
              saveAISettings={saveAISettings} clearAISettings={clearAISettings}
@@ -2328,8 +1898,7 @@ export default function App() {
           setChatInput={setChatInput}
           chatBusy={chatBusy}
           sendIntent={() => void sendIntent()}
-             confirmProposal={(proposalId) => void confirmProposal(proposalId)}
-             aiModel={aiModel} setAiModel={setAiModel}
+                aiModel={aiModel} setAiModel={setAiModel}
           reasoningEffort={reasoningEffort}
           setReasoningEffort={setReasoningEffort}
              saveAISettings={saveAISettings} clearAISettings={clearAISettings}

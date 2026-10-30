@@ -210,7 +210,7 @@ test.describe("原生画布", () => {
     }
     await expect(page.locator(".drawio-error-banner")).toHaveCount(0);
     // The autosave contract lives in the status tooltip so the bar stays one short line.
-    await expect(page.locator(".status-native")).toHaveAttribute("title", /AI scripts use the live editor API and save through Studio/);
+    await expect(page.locator(".status-native")).toHaveAttribute("title", /Copilot edits use validated native XML and save through Studio/);
   });
 
   test("图形主题清除主题底色、突出节点，并保留原生网格和应用主题", async ({ page, request }) => {
@@ -612,95 +612,6 @@ test.describe("原生画布", () => {
       throw new Error(String(error) + "\\nNative property diagnostics: " + JSON.stringify(diagnostics));
     }
   });
-  test("legacy native script requests are rejected without changing the diagram", async ({ page }) => {
-    const before = await readWorkspaceXml(workspace);
-    const result = await page.evaluate(async () => {
-      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
-      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
-      const requestId = 938274;
-      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          window.removeEventListener("message", receive);
-          reject(new Error("Timed out waiting for removed-script rejection"));
-        }, 8000);
-        const receive = (event: MessageEvent) => {
-          if (event.source !== frame.contentWindow) return;
-          let data: Record<string, unknown>;
-          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
-          catch { return; }
-          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
-          window.clearTimeout(timeout);
-          window.removeEventListener("message", receive);
-          resolve(data);
-        };
-        window.addEventListener("message", receive);
-      });
-      frame.contentWindow.postMessage(JSON.stringify({
-        event: "studioPropertyEditRequest",
-        requestId,
-        cellId: "__batch__",
-        path: "cell:batch",
-        value: JSON.stringify([{
-          cellId: "__active_page__", path: "cell:execute-script",
-          value: 'graph.insertVertex(graph.getDefaultParent(), null, "SHOULD NOT RUN", 1, 1, 10, 10);'
-        }])
-      }), new URL(frame.src).origin);
-      return response;
-    });
-    expect(result.success).toBe(false);
-    expect(String(result.error).toLowerCase()).toContain("script execution has been removed");
-    expect(await readWorkspaceXml(workspace)).toBe(before);
-  });
 
-  test("原生批量编辑逐步执行，失败时回滚并报告失败步骤", async ({ page }) => {
-    const before = await readWorkspaceXml(workspace);
-    const databaseCell = Array.from(before.matchAll(/<mxCell\b([^>]*)>/g))
-      .find((match) => /\bvalue="Database"/.test(match[1]));
-    expect(databaseCell, "fixture must contain the Database cell").toBeTruthy();
-    const databaseId = /\bid="([^"]+)"/.exec(databaseCell![1])?.[1];
-    expect(databaseId).toBeTruthy();
-
-    const result = await page.evaluate(async (cellId) => {
-      const frame = document.querySelector<HTMLIFrameElement>("iframe.drawio-iframe");
-      if (!frame?.contentWindow) throw new Error("Native Draw.io iframe is unavailable");
-      const requestId = 938271;
-      const response = new Promise<Record<string, unknown>>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          window.removeEventListener("message", receive);
-          reject(new Error("Timed out waiting for native batch acknowledgement"));
-        }, 8000);
-        const receive = (event: MessageEvent) => {
-          if (event.source !== frame.contentWindow) return;
-          let data: Record<string, unknown>;
-          try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; }
-          catch { return; }
-          if (data?.event !== "studioPropertyEditResult" || data.requestId !== requestId) return;
-          window.clearTimeout(timeout);
-          window.removeEventListener("message", receive);
-          resolve(data);
-        };
-        window.addEventListener("message", receive);
-      });
-      frame.contentWindow.postMessage(JSON.stringify({
-        event: "studioPropertyEditRequest", requestId, cellId: "__batch__", path: "cell:batch",
-        value: JSON.stringify([
-          { cellId, path: "label", value: "Database changed temporarily" },
-          { cellId, path: "geometry:size", value: "240,100" },
-          { cellId: "missing-cell-for-rollback-test", path: "label", value: "Must fail" }
-        ])
-      }), new URL(frame.src).origin);
-      return response;
-    }, databaseId!);
-
-    expect(result.success).toBe(false);
-    expect(result.batchRolledBack, "Native batch rollback details: " + JSON.stringify(result, null, 2)).toBe(true);
-    expect(result.failedIndex).toBe(2);
-    expect(Array.isArray(result.batchResults)).toBe(true);
-    expect((result.batchResults as Array<{ success: boolean }>).map((step) => step.success)).toEqual([true, true, false]);
-    expect(result.rollbackErrors).toEqual([]);
-    expect(await readWorkspaceXml(workspace)).toBe(before);
-    await expect(nativeFrame(page).getByText("Database", { exact: true })).toBeVisible();
-    await expect(nativeFrame(page).getByText("Database changed temporarily", { exact: true })).toHaveCount(0);
-  });
 
 });

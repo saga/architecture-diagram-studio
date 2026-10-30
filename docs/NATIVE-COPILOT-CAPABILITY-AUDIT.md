@@ -7,7 +7,9 @@
 - Reference: [Architecture V2](../ARCHITECTURE-V2.md), [ADR-0010](adr/0010-unified-server-side-copilot-intent-processing.md), [ADR-0011](adr/0011-native-drawio-only-model.md), [ADR-0012](adr/0012-native-diagram-extension-contracts.md).
 - Ground rule: the bundled Draw.io editor and its `mxCell` model are the only active diagram model. More internal editor methods do not automatically become Copilot permissions.
 
-> **Status (2026-10-24): Historical audit.** The execution-policy conclusion in this report predates and is superseded by [ADR-0018 — AI-First Native Draw.io Execution](./adr/0018-ai-first-native-drawio-execution.md). For current behavior, `run_drawio_script` is the primary full-capability path and typed operations are convenience shortcuts. The XML-only document model, revision checks, native bridge, save acknowledgement and the distinction between local execution and an OS sandbox remain relevant.
+> **Status (2026-10-30): Historical audit.** This document records the retired typed-operation and script-first Copilot implementation. ADR-0026 is authoritative: Copilot diagram mutations use only server-side `edit_drawio_xml`; typed Copilot edit operations, `propose_native_edits`, script execution, browser-side edit dispatch, and proposal/confirmation/acknowledgement flows are removed. Automatic layout remains a separate Studio-owned capability.
+
+
 
 ## Executive finding
 

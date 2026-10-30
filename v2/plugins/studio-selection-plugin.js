@@ -23,8 +23,7 @@
     var originalBackground;
     var hasOriginalBackground = false;
     // Cells created during an atomic batch are tracked for rollback.
-    var activeBatchCreatedCells = null;
-    var studioParentOrigin = "";
+        var studioParentOrigin = "";
     var activeHistoryModel = null;
     var activeHistoryListener = null;
     var activeHistoryManager = null;
@@ -757,130 +756,6 @@
       var requestedPage = request.pageId;
       var activePage = currentPageId();
       if (requestedPage && activePage && requestedPage !== activePage) throw new Error("The active Draw.io page changed before the edit");
-      if (request.cellId === "__batch__" && selectionOperation === "cell:batch") {
-        var operations;
-        try { operations = JSON.parse(String(request.value || "[]")); } catch (_) { throw new Error("Batch edit payload is not valid JSON"); }
-        if (!Array.isArray(operations) || operations.length < 1 || operations.length > 50) throw new Error("A batch must contain between 1 and 50 operations");
-        if (operations.some(function (operation) { return operation && operation.path === "cell:auto-layout"; }) && operations.length !== 1) throw new Error("A Studio auto-layout plan must be the only operation in its batch");
-        var allCells = [];
-        var originalRoot = activeModel.getRoot();
-        function collect(parent) { var count = activeModel.getChildCount(parent); for (var i = 0; i < count; i++) { var child = activeModel.getChildAt(parent, i); allCells.push(child); collect(child); } }
-        collect(originalRoot);
-        var originalTreeSnapshot = allCells.map(function (item) { return { cell: item, id: item && item.id, parent: item && item.parent, index: item && item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1 }; });
-        var originalCellsById = Object.create(null); allCells.forEach(function (item) { if (item && item.id) originalCellsById[item.id] = item; });
-        var affectedIds = Object.create(null); var deletedIds = Object.create(null); var restoreAllIds = Object.create(null); var pathsById = Object.create(null);
-        function markCellTree(cell) {
-          if (!cell || isNativeStructuralRoot(cell, activeModel) || deletedIds[cell.id]) return;
-          affectedIds[cell.id] = true; deletedIds[cell.id] = true; restoreAllIds[cell.id] = true;
-          var childCount = activeModel.getChildCount(cell);
-          for (var childIndex = 0; childIndex < childCount; childIndex++) markCellTree(activeModel.getChildAt(cell, childIndex));
-        }
-        operations.forEach(function (operation) {
-          if (!operation || typeof operation.cellId !== "string") return;
-          if (operation.path === "cell:auto-layout" && operation.cellId === "__active_page__") {
-            allCells.forEach(function (item) {
-              if (!item || isNativeStructuralRoot(item, activeModel)) return;
-              affectedIds[item.id] = true; restoreAllIds[item.id] = true;
-              if (!pathsById[item.id]) pathsById[item.id] = [];
-              pathsById[item.id].push("cell:auto-layout");
-            });
-            return;
-          }
-          if (operation.path === "cell:delete") markCellTree(activeModel.getCell(operation.cellId));
-          else {
-            affectedIds[operation.cellId] = true;
-            if (!pathsById[operation.cellId]) pathsById[operation.cellId] = [];
-            pathsById[operation.cellId].push(operation.path);
-          }
-        });
-        allCells.forEach(function (item) {
-          if (item && item.edge && ((item.source && deletedIds[item.source.id]) || (item.target && deletedIds[item.target.id]))) {
-            affectedIds[item.id] = true; restoreAllIds[item.id] = true;
-          }
-        });
-        var snapshots = allCells.filter(function (item) { return item && !isNativeStructuralRoot(item, activeModel) && affectedIds[item.id]; }).map(function (item) {
-          return { cell: item, value: item.value && typeof item.value.cloneNode === "function" ? item.value.cloneNode(true) : item.value,
-            style: item.style, geometry: item.geometry && item.geometry.clone(), source: item.source, target: item.target, parent: item.parent,
-            index: item.parent && typeof item.parent.getIndex === "function" ? item.parent.getIndex(item) : -1,
-            visible: item.visible, collapsed: item.collapsed, connectable: item.connectable,
-            ownsConnectable: Object.prototype.hasOwnProperty.call(item, "connectable"), paths: (pathsById[item.id] || []).slice(), restoreAll: Boolean(restoreAllIds[item.id]) };
-        });
-        var batchResults = [];
-        var failedIndex = -1; var batchCreatedCells = []; var previousBatchCreatedCells = activeBatchCreatedCells; activeBatchCreatedCells = batchCreatedCells; var undoCheckpoint = captureNativeUndoCheckpoint(activeModel);
-        activeModel.beginUpdate();
-        try {
-          operations.forEach(function (operation, index) {
-            failedIndex = index;
-            if (!operation || typeof operation.cellId !== "string" || typeof operation.path !== "string" || typeof operation.value !== "string" || operation.path === "cell:batch" || operation.cellId === "__batch__" || operation.cellId === "__selection__") throw new Error("Batch operation " + (index + 1) + " has an invalid or nested operation payload");
-            editCell({ cellId: operation.cellId, pageId: request.pageId, path: operation.path, value: operation.value });
-            batchResults.push({ index: index + 1, cellId: operation.cellId, path: operation.path, value: operation.value, success: true });
-          });
-        } catch (error) {
-          var rollbackErrors = [];
-          var failedOperation = operations[failedIndex];
-          batchResults.push({ index: failedIndex + 1, cellId: failedOperation && failedOperation.cellId || null, path: failedOperation && failedOperation.path || null, value: failedOperation && failedOperation.value || null, success: false,
-            error: (error && error.name ? String(error.name) + ": " : "") + (error && error.message ? String(error.message) : String(error)), stack: error && error.stack ? String(error.stack).slice(0, 8000) : null });
-          for (var createdIndex = batchCreatedCells.length - 1; createdIndex >= 0; createdIndex--) {
-            try { var createdCell = batchCreatedCells[createdIndex]; if (createdCell && activeModel.getCell(createdCell.id) === createdCell) activeModel.remove(createdCell); }
-            catch (createdRollbackError) { rollbackErrors.push({ cellId: batchCreatedCells[createdIndex] && batchCreatedCells[createdIndex].id || "created-cell", error: createdRollbackError && createdRollbackError.message ? String(createdRollbackError.message) : String(createdRollbackError) }); }
-          }
-          var currentCellsAfterFailure = [];
-          function collectCurrent(parent) { var count = activeModel.getChildCount(parent); for (var currentIndex = 0; currentIndex < count; currentIndex++) { var currentCell = activeModel.getChildAt(parent, currentIndex); currentCellsAfterFailure.push(currentCell); collectCurrent(currentCell); } }
-          collectCurrent(activeModel.getRoot());
-          for (var currentIndex = currentCellsAfterFailure.length - 1; currentIndex >= 0; currentIndex--) {
-            var currentCell = currentCellsAfterFailure[currentIndex];
-            if (!currentCell || isNativeStructuralRoot(currentCell, activeModel) || (originalCellsById[currentCell.id] && originalCellsById[currentCell.id] === currentCell)) continue;
-            try { if (activeModel.getCell(currentCell.id) === currentCell) activeModel.remove(currentCell); }
-            catch (rollbackError) { rollbackErrors.push({ cellId: currentCell.id || "created-cell", error: rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError) }); }
-          }
-          snapshots.forEach(function (snapshot) {
-            try {
-              var item = snapshot.cell;
-              if (activeModel.getCell(item.id) !== item && snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
-              var restoreAll = snapshot.restoreAll; var paths = snapshot.paths;
-              var restoreValue = restoreAll || paths.indexOf("label") >= 0 || paths.some(function (part) { return part.indexOf("valueAttr:") === 0; });
-              var restoreStyle = restoreAll || paths.indexOf("style") >= 0 || paths.some(function (part) { return part.indexOf("style:") === 0; });
-              var restoreGeometry = restoreAll || paths.some(function (part) { return part.indexOf("geometry:") === 0 || part.indexOf("point:") === 0; });
-              var restoreSource = restoreAll || paths.indexOf("cell:source") >= 0; var restoreTarget = restoreAll || paths.indexOf("cell:target") >= 0;
-              if (restoreValue) activeModel.setValue(item, snapshot.value);
-              if (restoreStyle) activeModel.setStyle(item, snapshot.style);
-              if (restoreGeometry && snapshot.geometry) activeModel.setGeometry(item, snapshot.geometry);
-              if (item.edge && restoreSource) activeModel.setTerminal(item, snapshot.source || null, true);
-              if (item.edge && restoreTarget) activeModel.setTerminal(item, snapshot.target || null, false);
-              if ((restoreAll || paths.indexOf("cell:parent") >= 0) && snapshot.parent && item.parent !== snapshot.parent) activeModel.add(snapshot.parent, item, snapshot.index >= 0 ? snapshot.index : activeModel.getChildCount(snapshot.parent));
-              if ((restoreAll || paths.indexOf("cell:visible") >= 0) && typeof snapshot.visible === "boolean") activeModel.setVisible(item, snapshot.visible);
-              if ((restoreAll || paths.indexOf("cell:collapsed") >= 0) && typeof snapshot.collapsed === "boolean") activeModel.setCollapsed(item, snapshot.collapsed);
-              if (restoreAll || paths.indexOf("cell:connectable") >= 0) {
-                if (typeof snapshot.connectable === "boolean") setCellConnectable(item, snapshot.connectable);
-                else if (snapshot.ownsConnectable) item.connectable = snapshot.connectable; else delete item.connectable;
-              }
-            } catch (rollbackError) { rollbackErrors.push({ cellId: snapshot.cell.id, error: rollbackError && rollbackError.message ? String(rollbackError.message) : String(rollbackError) }); }
-          });
-          var failure = new Error("Batch rolled back after operation " + (failedIndex + 1) + " failed: " + (error && error.message ? error.message : String(error)));
-          var verifiedCellsAfterRollback = [];
-          function collectVerified(parent) { var verifiedCount = activeModel.getChildCount(parent); for (var verifiedIndex = 0; verifiedIndex < verifiedCount; verifiedIndex++) { var verifiedCell = activeModel.getChildAt(parent, verifiedIndex); verifiedCellsAfterRollback.push(verifiedCell); collectVerified(verifiedCell); } }
-          try { collectVerified(activeModel.getRoot()); } catch (verificationError) { rollbackErrors.push({ cellId: "__active_page__", error: "Could not verify the native cell tree after rollback: " + (verificationError && verificationError.message ? String(verificationError.message) : String(verificationError)) }); }
-          var graphModelUnchanged = false;
-          try { graphModelUnchanged = currentGraph() === activeGraph && typeof activeGraph.getModel === "function" && activeGraph.getModel() === activeModel && activeModel.getRoot() === originalRoot; } catch (_) {}
-          if (!graphModelUnchanged) rollbackErrors.push({ cellId: "__active_page__", error: "The active Graph, Model, or root changed during the operation; snapshot rollback cannot confirm full restoration." });
-          var treeRestored = verifiedCellsAfterRollback.length === originalTreeSnapshot.length && originalTreeSnapshot.every(function (snapshot, index) {
-            var current = verifiedCellsAfterRollback[index];
-            if (current !== snapshot.cell || current.id !== snapshot.id || current.parent !== snapshot.parent) return false;
-            if (snapshot.index >= 0 && snapshot.parent && typeof snapshot.parent.getIndex === "function" && snapshot.parent.getIndex(current) !== snapshot.index) return false;
-            return true;
-          });
-          if (!treeRestored) rollbackErrors.push({ cellId: "__active_page__", error: "The native cell tree/order does not match its pre-operation snapshot after rollback." });
-          if (rollbackErrors.length === 0 && !discardFailedNativeTransactionFromHistory(activeModel, undoCheckpoint)) rollbackErrors.push({ cellId: "__undo_history__", error: "The failed batch rollback could not preserve the native Undo/Redo history stack." });
-          failure.batchResults = batchResults; failure.failedIndex = failedIndex; failure.rollbackErrors = rollbackErrors; failure.batchRolledBack = rollbackErrors.length === 0;
-          throw failure;
-        } finally {
-          activeBatchCreatedCells = previousBatchCreatedCells; activeModel.endUpdate();
-          try { if (typeof activeGraph.refresh === "function") activeGraph.refresh(); if (activeGraph.view && typeof activeGraph.view.validate === "function") activeGraph.view.validate(); } catch (_) {}
-        }
-        if (ui.editor && typeof ui.editor.setModified === "function") ui.editor.setModified(true);
-        if (typeof activeGraph.refresh === "function") activeGraph.refresh();
-        return { batchResults: batchResults };
-      }
       if (request.cellId === "__selection__" && /^(cell:align:|cell:distribute:|cell:group$|cell:ungroup$)/.test(selectionOperation)) {
         var selected = typeof activeGraph.getSelectionCells === "function" ? activeGraph.getSelectionCells().slice() : [];
         var vertices = selected.filter(function (item) { return item && item.vertex && item.geometry; });
@@ -966,8 +841,7 @@
           var insertedEdge = null;
           try { insertedEdge = activeGraph.insertEdge(nodeParent, null, "", cell, insertedNode); if (!insertedEdge) throw new Error("Draw.io did not create the connecting edge"); }
           catch (edgeError) { try { activeModel.remove(insertedNode); } catch (_) {} throw edgeError; }
-          if (activeBatchCreatedCells) { activeBatchCreatedCells.push(insertedNode); activeBatchCreatedCells.push(insertedEdge); }
-        } else if (path === "cell:delete") {
+                  } else if (path === "cell:delete") {
           if (isNativeStructuralRootOrLayer(cell, activeModel)) throw new Error("The Draw.io structural root and layer cells cannot be deleted");
           if (typeof activeGraph.removeCells === "function") activeGraph.removeCells([cell], true); else activeModel.remove(cell);
         } else if (path.indexOf("geometry:") === 0 && cell.geometry) {
@@ -1032,8 +906,8 @@
         try { var inspectGraph = currentGraph(); var inspectModel = typeof inspectGraph.getModel === "function" ? inspectGraph.getModel() : model; var inspection = inspectDrawioRuntime(ui, inspectGraph, inspectModel, { documentRevision: typeof request.documentRevision === "string" ? request.documentRevision : "", drawioVersion: typeof request.drawioVersion === "string" ? request.drawioVersion : "unknown", maxCells: request.maxCells, maxRenderedEdges: request.maxRenderedEdges, jsShapeClassNames: request.jsShapeClassNames }); publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: true, inspection: inspection }); }
         catch (inspectionError) { publish({ event: "studioRuntimeInspectResult", requestId: request.requestId, success: false, error: inspectionError && inspectionError.message ? String(inspectionError.message) : String(inspectionError) }); }
       } else if (request.event === "studioPropertyEditRequest") {
-        try { var editResult = editCell(request); publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path, batchResults: editResult && editResult.batchResults || null }); }
-        catch (error) { publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path, error: error && error.message ? String(error.message) : String(error), errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null, batchResults: error && error.batchResults || null, failedIndex: Number.isInteger(error && error.failedIndex) ? error.failedIndex : null, rollbackErrors: error && error.rollbackErrors || [], batchRolledBack: error && typeof error.batchRolledBack === "boolean" ? error.batchRolledBack : null }); }
+        try { editCell(request); publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: true, cellId: request.cellId, path: request.path }); }
+        catch (error) { publish({ event: "studioPropertyEditResult", requestId: request.requestId, success: false, cellId: request.cellId, path: request.path, error: error && error.message ? String(error.message) : String(error), errorStack: error && error.stack ? String(error.stack).slice(0, 8000) : null }); }
       } else if (request.event === "studioSetBackground") {
         var backgroundGraph = currentGraph();
         if (!hasOriginalBackground) { originalBackground = typeof request.restoreBackground === "string" ? request.restoreBackground : backgroundGraph.background; hasOriginalBackground = true; }

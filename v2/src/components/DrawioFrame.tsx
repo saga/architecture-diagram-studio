@@ -64,19 +64,9 @@ type NativeEditResult = {
   path: string | null;
   error?: string;
   errorStack?: string;
-  batchResults?: Array<{ index: number; cellId: string; path: string; value: string; success: boolean; error?: string; stack?: string }> | null;
-  failedIndex?: number | null;
-  rollbackErrors?: Array<{ cellId: string; error: string }>;
-  batchRolledBack?: boolean | null;
-  /** XML returned by the native Draw.io save protocol after a Copilot batch. */
-  serializedXml?: string;
-  /** Set by the host when the editor accepted the edit but required persistence failed. */
-  failureStage?: "editor" | "persistence";
-  auditWarning?: string;
-  applicationState?: "applied-and-verified" | "changed-unverified" | "not-applied" | "unknown";
 };
 type PendingNativeEdit = { cellId: string; pageId: string | null; path: string; value: string; startedAt: number; beforeXml: string };
-type PendingSaveConfirmation = PendingNativeEdit & { deferredBatchAck?: NativeEditResult; timeoutId?: number };
+type PendingSaveConfirmation = PendingNativeEdit & { timeoutId?: number };
 
 type PendingRuntimeInspection = {
   resolve: (inspection: DrawioRuntimeInspection) => void;
@@ -337,21 +327,9 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }), [editorReady, bridgeReady]);
 
   useEffect(() => () => {
-    // Close every in-flight operation explicitly before dropping its bookkeeping. A component
-    // unmount/reload must not leave a Copilot batch waiting forever or imply that an unverified
-    // editor mutation succeeded.
+    // Close in-flight native property edits before dropping their bookkeeping.
     for (const [requestId, pending] of pendingSaveConfirmationsRef.current.entries()) {
       if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
-      if (pending.deferredBatchAck) {
-        onNativeEditResultRef.current?.({
-          ...pending.deferredBatchAck,
-          success: false,
-          applicationState: "unknown",
-          error: "The Draw.io editor closed before the native XML serialization could be confirmed.",
-          failureStage: "editor",
-          auditWarning: "The edit may have been applied. Inspect the current diagram and History before retrying."
-        });
-      }
       recordDiagnostic("drawio.selection.property.save-confirmation.aborted",
         "Closed an in-flight native edit confirmation because the Draw.io editor unmounted",
         { requestId, cellId: pending.cellId, path: pending.path }, "warn");
@@ -468,7 +446,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         success: false,
         cellId: cellEdit.cellId,
         path: cellEdit.path,
-        applicationState: "not-applied",
         error: "Another canvas transaction is still in flight. Wait for its completion before submitting another property edit."
       });
       recordDiagnostic("drawio.selection.property.blocked-pending-serialization",
@@ -601,49 +578,36 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             requestId, success: true,
             cellId: typeof data.cellId === "string" ? data.cellId : null,
             path: typeof data.path === "string" ? data.path : null,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          if (requestId !== null && pending?.path === "cell:select") {
+            onNativeEditResultRef.current?.(nativeResult);
+            recordDiagnostic("drawio.selection.acknowledged", "Draw.io acknowledged the requested native selection", {
+              cellId: data.cellId, requestId, durationMs: Date.now() - pending.startedAt
+            });
+            return;
+          }
           if (requestId !== null && pending) {
             const previous = pendingSaveConfirmationsRef.current.get(requestId);
             if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
             const confirmation: PendingSaveConfirmation = {
               ...pending,
-              ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
             };
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
               const latestXml = lastSent.current;
               const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
-              const errorMessage = latestChanged
-                ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
-                : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
               recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
                 latestChanged ? "The document changed but the native edit confirmation timed out"
                   : "Timed out waiting for a matching serialized XML snapshot",
                 { requestId, cellId: confirmation.cellId, property: confirmation.path, latestChanged,
                   timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS, durationMs: Date.now() - confirmation.startedAt }, "warn");
-              if (confirmation.deferredBatchAck) {
-                onNativeEditResultRef.current?.({
-                  ...confirmation.deferredBatchAck,
-                  success: false,
-                  applicationState: latestChanged ? "changed-unverified" : "unknown",
-                  ...(latestChanged ? { serializedXml: latestXml } : {}),
-                  error: errorMessage,
-                  failureStage: "editor",
-                  auditWarning: latestChanged
-                    ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
-                    : "The edit state is unknown. Inspect the current diagram and History before retrying."
-                });
-              }
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
             pendingSaveConfirmationsRef.current.set(requestId, confirmation);
           }
-          // Copilot batch success is deferred until the native editor has serialized XML. A graph-model
-          // mutation acknowledgement alone is not proof that the resulting document was captured.
-          if (data.path !== "cell:batch" || !pending) onNativeEditResultRef.current?.(nativeResult);
+          onNativeEditResultRef.current?.(nativeResult);
           recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null, xmlLengthBefore: pending?.beforeXml.length ?? null
@@ -664,10 +628,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             path: typeof data.path === "string" ? data.path : null,
             error: errorMessage,
             errorStack,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
-            failedIndex: typeof data.failedIndex === "number" ? data.failedIndex : null,
-            rollbackErrors: Array.isArray(data.rollbackErrors) ? data.rollbackErrors as Array<{ cellId: string; error: string }> : [],
-            batchRolledBack: typeof data.batchRolledBack === "boolean" ? data.batchRolledBack : null,
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
@@ -675,8 +635,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           recordDiagnostic("drawio.selection.property.update.failed", "Draw.io rejected a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null,
-            errorMessage, errorStack: errorStack ?? null, failedIndex: data.failedIndex ?? null, batchResults: data.batchResults ?? null,
-            rollbackErrors: data.rollbackErrors ?? [], batchRolledBack: data.batchRolledBack ?? null
+            errorMessage, errorStack: errorStack ?? null
           }, "error");
         }
       }
@@ -780,7 +739,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             return;
           }
           const pendingSaves = exportSerialization ? Array.from(pendingSaveConfirmationsRef.current.entries()) : [];
-          const deferredBatchAcks: NativeEditResult[] = [];
           for (const [requestId, pending] of pendingSaves) {
             const reflected = nativeEditIsReflectedInXml({
               beforeXml: pending.beforeXml, xml: data.xml, cellId: pending.cellId, pageId: pending.pageId,
@@ -794,12 +752,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
                   xmlLengthAfter: data.xml.length, saveEvent: data.event, serializedByExport: exportSerialization }, "warn");
               continue;
             }
-            if (pending.deferredBatchAck) {
-              deferredBatchAcks.push({
-                ...pending.deferredBatchAck, serializedXml: data.xml,
-                applicationState: "applied-and-verified"
-              });
-            }
             recordDiagnostic("drawio.selection.property.save_confirmed",
               "Native Draw.io XML serialization reflects the requested edit",
               { requestId, cellId: pending.cellId, pageId: pending.pageId, property: pending.path,
@@ -809,7 +761,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             pendingSaveConfirmationsRef.current.delete(requestId);
           }
           if (duplicateXml) {
-            for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
             if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
             if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) finishPendingNativePalette(data.xml);
             return;
@@ -819,7 +770,6 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             event: data.event, xmlLength: data.xml.length
           });
           onDocumentChangeRef.current(data.xml);
-          for (const acknowledgement of deferredBatchAcks) onNativeEditResultRef.current?.(acknowledgement);
           if (exportSerialization && pendingAutoLayoutRef.current?.awaitingExport) finishPendingAutoLayout(data.xml);
           if (exportSerialization && pendingNativePaletteRef.current?.awaitingExport) finishPendingNativePalette(data.xml);
         } catch (error) {
@@ -870,8 +820,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   );
 
   return (
-    <div className="drawio-frame-wrap">
-      {startupError && <div className="drawio-error-banner" role="alert">
+    <div className="drawio-frame-wrap">      {startupError && <div className="drawio-error-banner" role="alert">
         <span>{startupError}</span><button type="button" onClick={() => retryEditor()}>Re-initialise</button>
       </div>}
       <iframe key={frameKey} ref={iframeRef} className="drawio-iframe" title="Native Draw.io editor"

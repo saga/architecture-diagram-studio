@@ -348,32 +348,15 @@ function operationIsReflected(
   return false;
 }
 
-/** Typed native operations are confirmed against their requested XML postconditions. */
+/** A single native cell property edit is confirmed against its XML postcondition. */
 export function nativeEditIsReflectedInXml(input: NativeEditConfirmationInput): boolean {
   try {
     const before = cellsForXml(input.beforeXml);
     const after = cellsForXml(input.xml);
-    const operations: NativeEditOperation[] = input.path === "cell:batch"
-      ? JSON.parse(input.value) as NativeEditOperation[]
-      : [{ cellId: input.cellId, path: input.path, value: input.value }];
-    if (!Array.isArray(operations) || operations.length === 0 ||
-        !operations.every((operation) => Boolean(operation && typeof operation.cellId === "string" &&
-          typeof operation.path === "string" && typeof operation.value === "string"))) return false;
+    const operation = { cellId: input.cellId, path: input.path, value: input.value };
+    if (!operation.cellId || !operation.path || typeof operation.value !== "string") return false;
 
-    // Selection is native UI state, not a serialized document mutation. Confirm that the
-    // target still exists, but never require a <mxCell> change for cell:select itself.
-    const selectionOperations = operations.filter((operation) => operation.path === "cell:select");
-    if (selectionOperations.some((operation) =>
-      !findCell(before, operation.cellId, input.pageId) || !findCell(after, operation.cellId, input.pageId)
-    )) return false;
-
-    const documentOperations = operations.filter((operation) => operation.path !== "cell:select");
-    if (documentOperations.length === 0) {
-      return semanticDiagramSignature(input.beforeXml, input.pageId) === semanticDiagramSignature(input.xml, input.pageId);
-    }
-    return documentOperations.every((operation) =>
-      operationIsReflected(before, after, operation, input.pageId)
-    );
+    return operationIsReflected(before, after, operation, input.pageId);
   } catch {
     return false;
   }

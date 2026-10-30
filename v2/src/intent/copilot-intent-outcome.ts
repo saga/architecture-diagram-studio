@@ -1,15 +1,10 @@
-import type { ResolvedNativeEditOperation } from "../model/native-edit-operations";
-
 export type CopilotIntentOutcomeCode =
-  | "command_ready"
-  | "applied"
   | "xml_committed"
   | "xml_patch_ready"
   | "answered"
   | "selected"
   | "needs_clarification"
   | "unsupported"
-  | "proposal_required"
   | "stale_context"
   | "failed";
 
@@ -25,26 +20,10 @@ export interface CopilotResponseMetadata {
   contextUsage?: unknown;
 }
 
-export interface CopilotNativeEditCommand {
-  operations: ResolvedNativeEditOperation[];
-  summary: string;
-  pageId: string | null;
-  documentRevision: string;
-  requestId: string;
-}
-
 export interface CopilotSelection {
   cellId: string;
   pageId: string | null;
   label: string;
-}
-
-export interface CopilotNativeEditProposal {
-  id: string;
-  summary: string;
-  operations: ResolvedNativeEditOperation[];
-  pageId: string | null;
-  documentRevision: string;
 }
 
 interface OutcomeBase extends CopilotResponseMetadata {
@@ -52,11 +31,6 @@ interface OutcomeBase extends CopilotResponseMetadata {
 }
 
 export type CopilotIntentResponse =
-  | (OutcomeBase & {
-      outcome: "command_ready";
-      nativeEdits: CopilotNativeEditCommand;
-      selection?: CopilotSelection;
-    })
   | (OutcomeBase & {
       outcome: "xml_committed";
       requestId: string;
@@ -69,18 +43,6 @@ export type CopilotIntentResponse =
       documentRevision: string;
       patchedRevision: string;
       changedCellIds: string[];
-    })
-  | (OutcomeBase & {
-      outcome: "applied";
-      requestId: string;
-      documentRevision: string;
-      persistedRevision?: string | null;
-      /** Native editor confirmation and resulting XML serialization are required for every applied outcome. */
-      editorAcknowledged: true;
-      persistenceStatus: string;
-      resolvedTargets: Array<{ cellId: string; label: string }>;
-      /** Null for standalone mode; required so workspace outcomes cannot omit the immutable version reference. */
-      versionId: string | null;
     })
   | (OutcomeBase & { outcome: "answered" })
   | (OutcomeBase & {
@@ -96,10 +58,6 @@ export type CopilotIntentResponse =
       reason?: string;
     })
   | (OutcomeBase & {
-      outcome: "proposal_required";
-      proposal: CopilotNativeEditProposal;
-    })
-  | (OutcomeBase & {
       outcome: "stale_context";
       error: string;
       documentRevision?: string | null;
@@ -111,8 +69,8 @@ export type CopilotIntentResponse =
     });
 
 export const COPILOT_INTENT_OUTCOMES: readonly CopilotIntentOutcomeCode[] = [
-  "command_ready", "applied", "xml_committed", "xml_patch_ready", "answered", "selected", "needs_clarification",
-  "unsupported", "proposal_required", "stale_context", "failed"
+  "xml_committed", "xml_patch_ready", "answered", "selected", "needs_clarification",
+  "unsupported", "stale_context", "failed"
 ] as const;
 
 export function isCopilotIntentOutcome(value: unknown): value is CopilotIntentOutcomeCode {

@@ -117,7 +117,7 @@ function formatUsageAmount(value: number): string {
   return Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 6 }) : "—";
 }
 
-type ChatMessage = { role: "assistant" | "user"; text: string; id: number; proposal?: { id: string; summary: string } };
+type ChatMessage = { role: "assistant" | "user"; text: string; id: number };
 type DrawioStatus = "unknown" | "checking" | "ready" | "missing" | "error";
 type ModelRouting = {
   mode?: "byok" | "github";
@@ -134,7 +134,6 @@ interface Props {
   setChatInput: (value: string) => void;
   chatBusy: boolean;
   sendIntent: () => void;
-  confirmProposal: (proposalId: string) => void;
   aiModel: string;
   setAiModel: (value: string) => void;
   reasoningEffort: "low" | "medium" | "high" | "max";
@@ -163,7 +162,7 @@ function formattedTime(timestamp: string): string {
 export default function WorkspacePages(props: Props) {
   const {
     page, messages, chatInput, setChatInput, chatBusy,
-    sendIntent, confirmProposal, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
+    sendIntent, aiModel, setAiModel, reasoningEffort, setReasoningEffort,
     saveAISettings, clearAISettings, traceEntries, refreshTraces,
     drawioStatus, drawioStatusMessage, checkDrawioStatus
   } = props;
@@ -276,8 +275,8 @@ export default function WorkspacePages(props: Props) {
               {messages.length > 0 && <div className="gemini-messages" aria-live="polite">
                 {messages.map((message) => <article key={message.id} className={"gemini-message " + message.role}>
                   {message.role === "assistant" && <div className="gemini-avatar">✳</div>}
-                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.role === "assistant" ? (message.text || (message.proposal ? "A diagram change is ready for review." : " ")) : message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
-                    {message.proposal && <div className="proposal-actions"><UiButton type="button" className="button button-primary" disabled={chatBusy} onClick={() => confirmProposal(message.proposal!.id)}>Confirm changes</UiButton><span>Nothing is applied until you confirm. This proposal expires after 10 minutes.</span></div>}
+                  <div className="gemini-message-body"><div className="gemini-message-role">{message.role === "assistant" ? "Copilot" : "You"}</div><Bubble content={message.role === "assistant" ? (message.text || " ") : message.text} placement={message.role === "user" ? "end" : "start"} className="copilot-bubble" />
+
                   </div>
                 </article>)}
                 <div ref={chatEndRef} />

@@ -3,19 +3,12 @@ import { randomUUID } from "node:crypto";
 import { defineTool } from "@github/copilot-sdk";
 import { CopilotRuntime, CopilotSessionBusyError, describeCopilotFailure } from "./runtime";
 import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
-import {
-  describeNativeEditOperation,
-  nativePageAccepts,
-  MAX_NATIVE_EDIT_OPERATIONS, parseNativeEditOperations, type ResolvedNativeEditOperation
-} from "../../src/model/native-edit-operations";
+import { nativePageAccepts } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
 import { applyDrawioXmlPatch } from "./xml-first-edit";
-import { resolveNativeEditTargets } from "./native-edit-tool";
-import { NATIVE_EDIT_OPERATION_ITEM_SCHEMA } from "./native-edit-tool-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
-import { requiresNativeEditReview } from "./edit-confirmation-policy";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
 import { readDrawioAgentReference, isDrawioReferenceTopic } from "./drawio-agent-reference";
 import { searchDrawioShapeCatalogDetailed, DRAWIO_SHAPE_CATALOG_VERSION, isC4DirectoryQuery } from "../../src/model/drawio-shape-catalog";
@@ -26,72 +19,6 @@ interface AgentPromptConfig {
   reasoningEffort: "low" | "medium" | "high" | "max";
 }
 interface ProjectWorkspace { id: string; name: string; rootPath: string; primaryDiagram: string | null; }
-export interface PendingNativeExecutionAck {
-  requestId: string;
-  sessionId: string;
-  standalone: boolean;
-  documentRevision: string;
-  operationCount: number;
-  summary: string;
-  operations: ResolvedNativeEditOperation[];
-  createdAt: number;
-}
-
-interface PendingNativeProposal {
-  id: string;
-  sessionId: string;
-  standalone: boolean;
-  documentRevision: string;
-  pageId: string | null;
-  operations: ResolvedNativeEditOperation[];
-  summary: string;
-  createdAt: number;
-}
-
-export interface NativeExecutionAckReceipt {
-  fingerprint: string;
-  status: number;
-  body: Record<string, unknown>;
-  completedAt: number;
-}
-
-/** Injectable store makes retries, expiry and acknowledgement handling testable without a model call. */
-export class NativeExecutionAcknowledgements {
-  readonly pending = new Map<string, PendingNativeExecutionAck>();
-  readonly completed = new Map<string, NativeExecutionAckReceipt>();
-
-  register(entry: PendingNativeExecutionAck): void {
-    this.pending.set(entry.requestId, entry);
-  }
-
-  getPending(requestId: string): PendingNativeExecutionAck | undefined {
-    return this.pending.get(requestId);
-  }
-
-  getReceipt(requestId: string): NativeExecutionAckReceipt | null {
-    return this.completed.get(requestId) ?? null;
-  }
-
-  complete(requestId: string, receipt: NativeExecutionAckReceipt): void {
-    this.pending.delete(requestId);
-    this.completed.set(requestId, receipt);
-  }
-
-  expire(now: number, ttlMs: number): string[] {
-    const expired: string[] = [];
-    for (const [id, entry] of this.pending) {
-      if (now - entry.createdAt >= ttlMs) {
-        this.pending.delete(id);
-        expired.push(id);
-      }
-    }
-    for (const [id, entry] of this.completed) {
-      if (now - entry.completedAt >= ttlMs) this.completed.delete(id);
-    }
-    return expired;
-  }
-}
-
 interface IntentDependencies {
   copilot: CopilotRuntime;
   defaultModel: string;
@@ -103,7 +30,6 @@ interface IntentDependencies {
   collectAgentWorkspaceContext(prompt?: string): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
   commitWorkspaceXmlPatch?(input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
-  acknowledgements?: NativeExecutionAcknowledgements;
 }
 
 type ReportedNoEditOutcome =
@@ -112,10 +38,8 @@ type ReportedNoEditOutcome =
   | { outcome: "unsupported"; reply: string; reason?: string };
 
 const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
-const pendingNativeEdits = new Map<string, { operations: ResolvedNativeEditOperation[]; summary: string }>();
 const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
-const pendingNativeProposals = new Map<string, PendingNativeProposal>();
-type TerminalIntentKind = "native_edit" | "selection" | "no_mutation";
+type TerminalIntentKind = "xml_patch" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
 const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; summary: string; standalone: boolean; sourceXml?: string }>();
 
@@ -131,65 +55,29 @@ function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): Te
   }
   // A concrete edit is more specific than a speculative focus/no-mutation conclusion.
   // Promote the edit rather than letting a premature terminal call poison the whole turn.
-  if (kind === "native_edit" && registeredKind !== "native_edit") {
-    pendingTerminalIntents.set(sessionId, "native_edit");
+  if (kind === "xml_patch" && registeredKind !== "xml_patch") {
+    pendingTerminalIntents.set(sessionId, "xml_patch");
     if (registeredKind === "selection") pendingAgentSelections.delete(sessionId);
     if (registeredKind === "no_mutation") pendingReportedOutcomes.delete(sessionId);
     return { accepted: true, replaced: registeredKind };
   }
   // Never throw across the SDK boundary: SDK errors are often collapsed to the
-  // unhelpful "Tool execution failed". Keep the first native edit and explain why
+  // unhelpful "Tool execution failed". Keep the first XML patch and explain why
   // the later terminal action was ignored.
   return { accepted: false, registeredKind };
 }
 
 /**
- * The select and native-edit tools must see the elements of the *current* request.
+ * The selection and XML patch tools must use elements from the *current* request.
  * The SDK session survives across turns and its tool closures are created once, so the
  * per-request context is read from here instead of being captured at session build time.
  */
 const contextBySession = new Map<string, unknown>();
 
-const ACK_TTL_MS = 10 * 60_000;
-const MAX_PENDING_NATIVE_PROPOSALS = 500;
 const EMPTY_QUERY_WARNING_THRESHOLD = 3;
 const EMPTY_QUERY_STREAK_TTL_MS = 30 * 60_000;
 const EMPTY_QUERY_STREAK_MAX_KEYS = 1_000;
 const emptyQueryStreaks = new Map<string, { count: number; query: string; tool: string; updatedAt: number }>();
-
-function prunePendingNativeProposals(
-  now: number, reservedSlots = 0
-): { expired: Array<{ id: string; proposal: PendingNativeProposal }>; evicted: Array<{ id: string; proposal: PendingNativeProposal }> } {
-  const expired: Array<{ id: string; proposal: PendingNativeProposal }> = [];
-  const evicted: Array<{ id: string; proposal: PendingNativeProposal }> = [];
-  for (const [id, proposal] of pendingNativeProposals) {
-    if (now - proposal.createdAt < ACK_TTL_MS) continue;
-    pendingNativeProposals.delete(id);
-    expired.push({ id, proposal });
-  }
-  while (pendingNativeProposals.size + Math.max(0, reservedSlots) > MAX_PENDING_NATIVE_PROPOSALS) {
-    const oldest = pendingNativeProposals.entries().next().value as [string, PendingNativeProposal] | undefined;
-    if (!oldest) break;
-    pendingNativeProposals.delete(oldest[0]);
-    evicted.push({ id: oldest[0], proposal: oldest[1] });
-  }
-  return { expired, evicted };
-}
-
-async function logPendingProposalSweep(
-  sweep: ReturnType<typeof prunePendingNativeProposals>,
-  writeLog: IntentDependencies["writeLog"]
-): Promise<void> {
-  for (const item of sweep.expired) {
-    await writeLog("turn.native-edit.proposal-expired", { proposalId: item.id, sessionId: item.proposal.sessionId });
-  }
-  for (const item of sweep.evicted) {
-    await writeLog("turn.native-edit.proposal-evicted", {
-      proposalId: item.id, sessionId: item.proposal.sessionId,
-      reason: "pending_proposal_capacity", maxPending: MAX_PENDING_NATIVE_PROPOSALS
-    });
-  }
-}
 
 function pruneEmptyQueryStreaks(now: number): void {
   // Map insertion order is refreshed below whenever a streak is updated, so stale entries
@@ -204,8 +92,6 @@ function pruneEmptyQueryStreaks(now: number): void {
     emptyQueryStreaks.delete(oldest);
   }
 }
-const acknowledgementsDefault = new NativeExecutionAcknowledgements();
-
 async function logQueryResult(
   sessionId: string,
   tool: string,
@@ -237,282 +123,7 @@ async function logQueryResult(
   return { warning };
 }
 
-function acknowledgementFingerprint(body: Record<string, unknown>): string {
-  return JSON.stringify({
-    requestId: body.requestId, sessionId: body.sessionId, standalone: body.standalone,
-    documentRevision: body.documentRevision, outcome: body.outcome, editorAcknowledged: body.editorAcknowledged,
-    serializedXmlRevision: body.serializedXmlRevision, persistenceStatus: body.persistenceStatus,
-    persistedRevision: body.persistedRevision, versionId: body.versionId, applicationState: body.applicationState,
-    failureStage: body.failureStage, error: body.error
-  });
-}
-
-export function requiresExplicitConfirmation(operations: ResolvedNativeEditOperation[]): boolean {
-  // Whole-page layout and destructive edits can affect many cells; require a deliberate review
-  // even in local single-user mode. Ordinary typed edits retain the fast path.
-  return operations.some((operation) => operation.op === "delete" || operation.op === "auto_layout");
-}
-
-function confirmationReviewMessage(operations: ResolvedNativeEditOperation[]): string {
-  if (operations.some((operation) => operation.op === "auto_layout")) {
-    return "Review this whole-page layout change before applying it. Studio will calculate positions with its configured layout engine, then update only native cell geometry and connector waypoints.";
-  }
-  if (operations.some((operation) => operation.op === "delete")) {
-    return "This change deletes existing diagram elements. Confirm before applying it.";
-  }
-  return "This batch is broad and requires review before it can be applied.";
-}
-
-/**
- * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
- * attempt receives the concrete serialized value it must assert, not just the missing field name.
- */
-export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
-  const acknowledgements = deps.acknowledgements ?? acknowledgementsDefault;
-  app.post("/api/copilot/intent/confirm", async (req, res) => {
-    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
-    const proposalId = typeof body.proposalId === "string" ? body.proposalId : "";
-    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
-    await logPendingProposalSweep(prunePendingNativeProposals(Date.now()), deps.writeLog);
-    const proposal = pendingNativeProposals.get(proposalId);
-    if (!proposal || Date.now() - proposal.createdAt >= ACK_TTL_MS) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(404).json({ outcome: "stale_context", reply: "This proposal is unknown or expired.", error: "The proposal is unknown or expired." });
-      return;
-    }
-    if (proposal.sessionId !== sessionId || body.standalone !== proposal.standalone) {
-      res.status(409).json({ outcome: "stale_context", reply: "This proposal does not belong to the current session.", error: "The proposal session or mode does not match." });
-      return;
-    }
-    let diagramXml = typeof body.diagramXml === "string" ? body.diagramXml : "";
-    const documentRevision = typeof body.documentRevision === "string" ? body.documentRevision : "";
-    if (!documentRevision || documentRevision !== proposal.documentRevision) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed after this proposal was prepared. Ask Copilot to create a fresh proposal.", error: "The proposal's base revision no longer matches the current revision.", documentRevision });
-      return;
-    }
-    if (!proposal.standalone) {
-      try {
-        const authoritative = await deps.getWorkspaceDiagramSnapshot();
-        if (!authoritative || authoritative.revision !== documentRevision) {
-          pendingNativeProposals.delete(proposalId);
-          res.status(409).json({ outcome: "stale_context", reply: "The workspace changed after this proposal was prepared.", error: "The proposal is stale; reload and create a new proposal.", documentRevision: authoritative?.revision ?? null });
-          return;
-        }
-        diagramXml = authoritative.drawioXml;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace before confirming this proposal.", error: message.slice(0, 1000) });
-        return;
-      }
-    } else if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000 ||
-        workspaceRevision(diagramXml) !== documentRevision) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The diagram changed after this proposal was prepared. Ask Copilot to create a fresh proposal.", error: "The proposal's base revision no longer matches the standalone XML.", documentRevision });
-      return;
-    }
-    if (!diagramXml || Buffer.byteLength(diagramXml, "utf8") > 20_000_000) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The proposal's XML snapshot is missing or oversized.", error: "The proposal XML is unavailable.", documentRevision });
-      return;
-    }
-    const activePageId = typeof (body.context as { activePageId?: unknown } | undefined)?.activePageId === "string"
-      ? (body.context as { activePageId: string }).activePageId || null : null;
-    const parsedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, documentRevision, activePageId);
-    if (!parsedSnapshot.ok) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The proposal XML is no longer a valid Draw.io document.", error: "The proposal XML could not be validated.", documentRevision });
-      return;
-    }
-    const identity = parsedSnapshot.snapshot.identity;
-    if (identity.documentPageId !== proposal.pageId) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page changed after this proposal was prepared.", error: "The proposal targets a different page.", documentRevision });
-      return;
-    }
-    if (!proposal.standalone) {
-      let authoritative: { drawioXml: string; revision: string } | null;
-      try {
-        authoritative = await deps.getWorkspaceDiagramSnapshot();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace before confirming this proposal.", error: message.slice(0, 1000) });
-        return;
-      }
-      if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
-        pendingNativeProposals.delete(proposalId);
-        res.status(409).json({ outcome: "stale_context", reply: "The workspace changed after this proposal was prepared.", error: "The proposal is stale; reload and create a new proposal.", documentRevision: authoritative?.revision ?? null });
-        return;
-      }
-    }
-    const allNativeCells = parsedSnapshot.snapshot.targets;
-    const revalidated = resolveNativeEditTargets({ cells: allNativeCells }, proposal.operations);
-    if (!revalidated.ok) {
-      pendingNativeProposals.delete(proposalId);
-      res.status(409).json({ outcome: "stale_context", reply: "The proposal's target could not be revalidated.", error: revalidated.error, documentRevision });
-      return;
-    }
-    pendingNativeProposals.delete(proposalId);
-    const requestId = randomUUID();
-    acknowledgements.register({
-      requestId, sessionId, standalone: proposal.standalone, documentRevision,
-      operationCount: revalidated.operations.length, summary: proposal.summary,
-      operations: revalidated.operations, createdAt: Date.now()
-    });
-    await deps.writeLog("turn.native-edit.proposal-confirmed", { proposalId, requestId, sessionId, standalone: proposal.standalone, documentRevision, operationCount: revalidated.operations.length, summary: proposal.summary });
-    res.json({
-      outcome: "command_ready",
-      reply: "The reviewed proposal was confirmed. Applying the validated native edit batch.",
-      sessionId,
-      nativeEdits: { operations: revalidated.operations, summary: proposal.summary, pageId: identity.documentPageId, documentRevision, requestId }
-    });
-  });
-
-  app.post("/api/copilot/intent/ack", async (req, res) => {
-    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
-      ? req.body as Record<string, unknown> : {};
-    const requestId = typeof body.requestId === "string" ? body.requestId : "";
-    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
-    const fingerprint = acknowledgementFingerprint(body);
-    const expired = acknowledgements.expire(Date.now(), ACK_TTL_MS);
-    for (const id of expired) await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
-    const priorReceipt = acknowledgements.getReceipt(requestId);
-    if (priorReceipt) {
-      if (priorReceipt.fingerprint !== fingerprint) {
-        res.status(409).json({ outcome: "stale_context", reply: "This request already has a different final acknowledgement.", error: "The execution acknowledgement was already completed with different data." });
-        return;
-      }
-      res.status(priorReceipt.status).json(priorReceipt.body);
-      return;
-    }
-    const pending = acknowledgements.getPending(requestId);
-    if (!pending) {
-      res.status(404).json({ outcome: "stale_context", reply: "This edit request is unknown or expired.", error: "The execution acknowledgement is unknown or expired." });
-      return;
-    }
-    if (pending.sessionId !== sessionId || body.standalone !== pending.standalone ||
-        body.documentRevision !== pending.documentRevision) {
-      await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "request_context_mismatch" });
-      res.status(409).json({ outcome: "stale_context", reply: "The edit request no longer matches the current session or document.", error: "The acknowledgement does not match the original Copilot request." });
-      return;
-    }
-    const outcome = body.outcome === "applied" ? "applied" : body.outcome === "failed" ? "failed" : null;
-    const editorAcknowledged = body.editorAcknowledged === true;
-    const serializedXmlRevision = typeof body.serializedXmlRevision === "string" ? body.serializedXmlRevision : null;
-    const persistenceStatus = typeof body.persistenceStatus === "string" ? body.persistenceStatus : "not_attempted";
-    const persistedRevision = typeof body.persistedRevision === "string" ? body.persistedRevision : null;
-    const versionId = typeof body.versionId === "string" ? body.versionId : null;
-    const failureStage = body.failureStage === "editor" || body.failureStage === "persistence" ? body.failureStage : null;
-    const applicationState = body.applicationState === "applied-and-verified" ||
-      body.applicationState === "changed-unverified" || body.applicationState === "not-applied" ||
-      body.applicationState === "unknown" ? body.applicationState : null;
-    const errorMessage = typeof body.error === "string" ? body.error.slice(0, 1000) : null;
-    if (!outcome) {
-      await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "invalid_outcome", receivedOutcome: body.outcome ?? null });
-      res.status(400).json({
-        outcome: "failed", reason: "invalid_outcome",
-        reply: "The final edit result has an invalid outcome.",
-        error: "outcome must be either applied or failed."
-      });
-      return;
-    }
-    if (outcome === "applied" && (!editorAcknowledged || !serializedXmlRevision)) {
-      await deps.writeLog("turn.native-edit.ack-rejected", {
-        requestId, sessionId, reason: "incomplete_applied_evidence",
-        editorAcknowledged, serializedXmlRevision, persistenceStatus
-      });
-      res.status(400).json({
-        outcome: "failed", reason: "incomplete_applied_evidence",
-        reply: "The editor result is incomplete and cannot be accepted as applied.",
-        error: "An applied outcome requires native-editor acknowledgement and a serialized XML revision."
-      });
-      return;
-    }
-    if (outcome === "applied" && applicationState !== "applied-and-verified") {
-      await deps.writeLog("turn.native-edit.ack-rejected", {
-        requestId, sessionId, reason: "editor_state_not_verified", applicationState,
-        failureStage, serializedXmlRevision
-      });
-      res.status(400).json({
-        outcome: "failed", reason: "editor_state_not_verified",
-        reply: "The native editor state is not verified; the server will not record this as a successful edit.",
-        error: "A mutating operation may be acknowledged as applied only when applicationState is applied-and-verified."
-      });
-      return;
-    }
-    if (outcome === "failed" && !errorMessage && !failureStage) {
-      await deps.writeLog("turn.native-edit.ack-rejected", { requestId, sessionId, reason: "missing_failure_evidence" });
-      res.status(400).json({
-        outcome: "failed", reason: "missing_failure_evidence",
-        reply: "The failed edit result is incomplete.",
-        error: "A failed outcome must include a failure stage or error message."
-      });
-      return;
-    }
-    if (outcome === "applied" && pending.standalone && persistenceStatus !== "not_managed_by_server") {
-      res.status(400).json({ outcome: "failed", reply: "Standalone file persistence is owned by the browser.", error: "Standalone acknowledgements must not claim a server-managed workspace save." });
-      return;
-    }
-    if (outcome === "applied" && !pending.standalone) {
-      let savedVersion: { drawioXml: string; revision: string; versionId: string } | null;
-      try {
-        savedVersion = versionId ? await deps.getWorkspaceVersionSnapshot(versionId) : null;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await deps.writeLog("turn.native-edit.ack-verification-failed", { requestId, sessionId, versionId, errorMessage: message });
-        res.status(502).json({ outcome: "failed", reply: "The edit result was received, but the server could not verify its immutable version. Retry the acknowledgement.", error: message.slice(0, 1000), requestId });
-        return;
-      }
-      if (persistenceStatus !== "saved" || !persistedRevision || !versionId ||
-          persistedRevision !== serializedXmlRevision || !savedVersion ||
-          savedVersion.versionId !== versionId || savedVersion.revision !== serializedXmlRevision) {
-        const responseBody = { outcome: "stale_context", reply: "The saved XML revision does not match its immutable version.", error: "The claimed immutable workspace version does not contain the acknowledged XML revision.", documentRevision: savedVersion?.revision ?? null, versionId: null };
-        await deps.writeLog("turn.native-edit.ack-rejected", {
-          requestId, sessionId, reason: "workspace_version_revision_mismatch",
-          serializedXmlRevision, persistedRevision, claimedVersionId: versionId,
-          savedVersionRevision: savedVersion?.revision ?? null, savedVersionId: savedVersion?.versionId ?? null
-        });
-        acknowledgements.complete(requestId, { fingerprint, status: 409, body: responseBody, completedAt: Date.now() });
-        res.status(409).json(responseBody);
-        return;
-      }
-    }
-    const resolvedTargets = pending.operations.map((operation) => ({
-      cellId: operation.cellId,
-      label: operation.targetLabel || "unnamed element"
-    }));
-    const recordedOperations = pending.operations.map((operation) => ({
-      op: operation.op,
-      cellId: operation.cellId,
-      targetLabel: operation.targetLabel,
-      ...(operation.op === "set_label" ? { newLabel: operation.label } : {}),
-      ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
-      ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
-        preserveLocalGrouping: operation.preserveLocalGrouping,
-        preserveCanvasOrigin: operation.preserveCanvasOrigin,
-        preserveRelativeAnchors: operation.preserveRelativeAnchors,
-        anchorCellIds: operation.anchorCellIds,
-        nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
-        iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {})
-    }));
-    const responseBody = {
-      outcome, reply: outcome === "applied" ? pending.summary : (errorMessage || "The native edit failed."),
-      requestId, documentRevision: serializedXmlRevision, persistedRevision, versionId,
-      resolvedTargets, editorAcknowledged, persistenceStatus, applicationState, failureStage,
-      ...(errorMessage ? { error: errorMessage } : {})
-    };
-    await deps.writeLog("turn.native-edit.final-outcome", {
-      requestId, sessionId, standalone: pending.standalone,
-      baseDocumentRevision: pending.documentRevision,
-      operationCount: pending.operationCount, summary: pending.summary,
-      operations: recordedOperations, resolvedTargets,
-      outcome, editorAcknowledged, serializedXmlRevision, persistenceStatus, persistedRevision, versionId,
-      applicationState, failureStage, error: errorMessage
-    });
-    acknowledgements.complete(requestId, { fingerprint, status: outcome === "applied" ? 200 : 200, body: responseBody, completedAt: Date.now() });
-    res.json(responseBody);
-  });
-  async function buildSystemMessage(standalone = false): Promise<string> {
+async function buildSystemMessage(deps: IntentDependencies, standalone = false): Promise<string> {
     const workspace = standalone ? null : await deps.getProjectWorkspace();
     const workspaceContext = standalone
       ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
@@ -520,9 +131,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
   }
 
-  function createReportIntentOutcomeTool(sessionId: string) {
+function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("report_intent_outcome", {
-      description: "Report a validated no-mutation result when no native edit or selection should be dispatched. Use answered for information/questions, needs_clarification for ambiguous requests or missing details, and unsupported only when the desired outcome cannot be achieved through the native Draw.io runtime. This tool never changes the diagram.",
+      description: "Report a validated no-mutation result when no XML patch or selection should be dispatched. Use answered for information/questions, needs_clarification for ambiguous requests or missing details, and unsupported only when the desired outcome cannot be achieved through the native Draw.io runtime. This tool never changes the diagram.",
       parameters: {
         type: "object",
         properties: {
@@ -560,8 +171,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           return {
             recorded: false, accepted: false, reason: "terminal_action_already_registered",
             registeredKind: registration.registeredKind,
-            instructions: registration.registeredKind === "native_edit"
-              ? "A native edit is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+            instructions: registration.registeredKind === "xml_patch"
+              ? "An XML patch is already queued for dispatch. Do not call another terminal tool; let that edit execute."
               : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
           };
         }
@@ -569,14 +180,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
         return {
           recorded: true, accepted: true, terminal: true, outcome: report.outcome,
-          replaceableByNativeEdit: true,
-          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one native edit instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit two native edits."
+          replaceableByXmlPatch: true,
+          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one XML patch instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit multiple XML patches."
         };
       }
     });
   }
 
-  function createDrawioShapeSearchTool(sessionId: string) {
+function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_shapes", {
       description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a relationship edge recipe. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
@@ -586,9 +197,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           limit: { type: "integer", minimum: 1, maximum: 8, default: 5 }
         },
         required: ["query"],
-        additionalProperties: false
-      },
-      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        additionalProperties: false      },      handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Shape search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
@@ -597,8 +206,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         const requestedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.floor(args.limit) : 5;
         const c4Directory = isC4DirectoryQuery(args.query);
         // The C4 alias is a bundle: never truncate the relationship recipe out of it.
-        const searchPage = searchDrawioShapeCatalogDetailed(args.query, c4Directory ? Math.max(requestedLimit, 4) : requestedLimit);
-        const results = searchPage.results;
+        const searchPage = searchDrawioShapeCatalogDetailed(args.query, c4Directory ? Math.max(requestedLimit, 4) : requestedLimit);        const results = searchPage.results;
         const queryStatus = await logQueryResult(sessionId, "search_drawio_shapes", args.query.trim(), searchPage.matchCount, deps.writeLog);
         return {
           found: searchPage.matchCount > 0,
@@ -619,14 +227,14 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           } : {}),
           ...(!searchPage.matchCount ? {
             ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
-            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified."
+            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use the XML patch tool only when a native definition can be verified; otherwise report the limitation."
           } : {})
         };
       }
     });
   }
 
-  function createDrawioRuntimeShapeSearchTool(sessionId: string) {
+function createDrawioRuntimeShapeSearchTool(sessionId: string, deps: IntentDependencies) {
   return defineTool("search_drawio_runtime_shapes", {
     description: "Search the live shape-class registry reported by the active Draw.io iframe, not only the curated server catalogue. Read-only. Results are JavaScript renderer registrations, not proof of sidebar visibility or stencil compatibility; verify a representative native cell before relying on one.",
     parameters: {
@@ -691,7 +299,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
   });
 }
 
-function createDrawioElementSearchTool(sessionId: string) {
+function createDrawioElementSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_elements", {
       description: "Search every native cell on the active Draw.io page by ID, label, shape key or geometry metadata. Read-only and non-terminal. Single-character CJK queries are valid. Use inspect_drawio_graph for structured shape/coordinate filters or pagination.",
       parameters: {
@@ -783,22 +391,19 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createDrawioGraphInspectionTool(sessionId: string) {
+function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("inspect_drawio_graph", {
       description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
       parameters: {
         type: "object",
-        properties: {
-          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },
-          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
+        properties: {          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
           cellType: { type: "string", enum: ["vertex", "edge"] },
           unlabeled: { type: "boolean", description: "When true, include only cells with an empty visible label." },
           point: {
             type: "object",
             properties: { x: { type: "number" }, y: { type: "number" } },
             required: ["x", "y"], additionalProperties: false
-          },
-          bounds: {
+          },          bounds: {
             type: "object",
             properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number", minimum: 0 }, height: { type: "number", minimum: 0 } },
             required: ["x", "y", "width", "height"], additionalProperties: false
@@ -904,7 +509,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createDrawioReferenceTool(sessionId: string) {
+function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("get_drawio_reference", {
       description: "Read the local Draw.io Agent API reference on demand. Read-only; does not change the diagram.",
       parameters: {
@@ -943,7 +548,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createEditDrawioXmlTool(sessionId: string) {
+function createEditDrawioXmlTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("edit_drawio_xml", {
       description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge.",
       parameters: {
@@ -990,22 +595,19 @@ function createDrawioElementSearchTool(sessionId: string) {
       },
       handler: async (args: { summary?: unknown; patch?: unknown }) => {
         if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
-            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
-          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };
-        }
+            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };        }
         const context = contextBySession.get(sessionId) as {
           documentRevision?: string; activePageId?: string | null; standalone?: boolean; sourceXml?: string;
         } | undefined;
         if (!context?.standalone && !deps.commitWorkspaceXmlPatch) {
-          return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };
-        }
+          return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };        }
         const snapshot = context?.standalone && typeof context.sourceXml === "string"
           ? { drawioXml: context.sourceXml, revision: workspaceRevision(context.sourceXml) }
           : await deps.getWorkspaceDiagramSnapshot();
         if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
           return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
         }
-        const registration = registerTerminalIntent(sessionId, "native_edit");
+        const registration = registerTerminalIntent(sessionId, "xml_patch");
         if (!registration.accepted) {
           return { accepted: false, terminal: false, reason: "terminal_action_already_registered", registeredKind: registration.registeredKind };
         }
@@ -1030,78 +632,11 @@ function createDrawioElementSearchTool(sessionId: string) {
     });
   }
 
-  function createProposeNativeEditsTool(sessionId: string) {
-    return defineTool("propose_native_edits", {
-      description: "Queue one batch of common, typed native Draw.io edits such as rename, styling, move, resize, delete, simple connected-node insertion and Studio-owned automatic layout. This is a convenience fast path, not a limit on Draw.io capability. Typed set_label fails closed on rich HTML labels when plain-text replacement would flatten nested formatting or placeholders; use the XML-first editing tool for markup-preserving edits. This is the terminal action for the turn: it is queued, not yet applied or saved. Do not call another terminal tool or claim completion after acceptance. In local single-user mode, valid batches do not require a second confirmation click; Studio still validates the revision and verifies native XML/persistence. For other graph operations use edit_drawio_xml; never fabricate cell IDs.",
-      parameters: {
-        type: "object",
-        properties: {
-          operations: {
-            type: "array",
-            minItems: 1,
-            maxItems: MAX_NATIVE_EDIT_OPERATIONS,
-            items: NATIVE_EDIT_OPERATION_ITEM_SCHEMA,
-          }
-        },
-        required: ["operations"],
-        additionalProperties: false
-      },
-      handler: async (args: { operations?: unknown }) => {
-        const parsed = parseNativeEditOperations(args?.operations);
-        if (!parsed.ok) {
-          await deps.writeLog("tool.propose_native_edits.rejected", { sessionId, reason: "invalid_native_edit_batch", error: parsed.error });
-          return { accepted: false, reason: "invalid_native_edit_batch", error: parsed.error, instructions: "Correct the operations payload to match the tool schema. No edit was queued." };
-        }
-        const resolved = resolveNativeEditTargets(contextBySession.get(sessionId) ?? null, parsed.operations);
-        if (!resolved.ok) {
-          await deps.writeLog("tool.propose_native_edits.unresolved", { sessionId, operations: parsed.operations, reason: "unresolved_targets", error: resolved.error });
-          return { accepted: false, reason: "unresolved_targets", error: resolved.error, instructions: "Use current-page IDs or a unique exact label from the supplied context. No edit was queued." };
-        }
-        const summary = resolved.operations.map(describeNativeEditOperation).join("; ");
-        const registration = registerTerminalIntent(sessionId, "native_edit");
-        if (!registration.accepted) {
-          await deps.writeLog("tool.terminal-intent.rejected", {
-            sessionId, requestedKind: "native_edit", registeredKind: registration.registeredKind,
-            reason: "terminal_action_already_registered", operationCount: resolved.operations.length
-          });
-          return {
-            accepted: false, reason: "terminal_action_already_registered",
-            registeredKind: registration.registeredKind,
-            instructions: "This terminal action was not queued. The previously registered action remains authoritative. Do not retry or call another terminal tool; if the registered action is a native edit, let it dispatch."
-          };
-        }
-        pendingNativeEdits.set(sessionId, { operations: resolved.operations, summary });
-        if (registration.replaced) {
-          await deps.writeLog("tool.terminal-intent.promoted-to-edit", {
-            sessionId, replacedKind: registration.replaced, operationCount: resolved.operations.length
-          });
-        }
-        await deps.writeLog("tool.propose_native_edits.accepted", {
-          sessionId, operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}), 
-      ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
-        preserveLocalGrouping: operation.preserveLocalGrouping,
-        preserveCanvasOrigin: operation.preserveCanvasOrigin,
-        nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
-        iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) }))
-        });
-        return {
-          // This is tool feedback, not proof of editor execution/persistence.
-          accepted: true, queued: true, execution: "after_model_turn", terminal: true, result_available: false,
-          instructions: "The native edit intent is queued, but the diagram has not been changed or saved yet. Do not call another terminal tool or claim success. Studio will validate the current revision and dispatch the operation for native XML and persistence verification; in local single-user mode there is no second confirmation click.",
-          operationCount: resolved.operations.length,
-          operations: resolved.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}),
-      ...(operation.op === "auto_layout" ? { engine: operation.engine, algorithm: operation.algorithm, direction: operation.direction,
-        preserveLocalGrouping: operation.preserveLocalGrouping,
-        preserveCanvasOrigin: operation.preserveCanvasOrigin,
-        nodeSpacing: operation.nodeSpacing, layerSpacing: operation.layerSpacing, edgeRouting: operation.edgeRouting,
-        iterations: operation.iterations, randomSeed: operation.randomSeed, margin: operation.margin } : {}) })),
-          summary
-        };
-      }
-    });
-  }
-
+/**
+ * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
+ * attempt receives the concrete serialized value it must assert, not just the missing field name.
+ */
+export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   app.post("/api/copilot/intent", async (req, res) => {
     let requestCancelled = false;
     let abortActiveTurn: (() => Promise<unknown>) | null = null;
@@ -1171,8 +706,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied document revision does not match its XML snapshot.", documentRevision: suppliedRevision, requestId, sessionId });
           return;
         }
-        const suppliedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, suppliedRevision, requestedPageId);
-        if (!suppliedSnapshot.ok) {
+        const suppliedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, suppliedRevision, requestedPageId);        if (!suppliedSnapshot.ok) {
           await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: suppliedSnapshot.reason, xmlLength: diagramXml.length });
           if (suppliedSnapshot.reason === "page-not-found") {
             res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
@@ -1260,9 +794,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     }
     const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
     const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
-      documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION
-    });
-    if (suppliedRuntimeInspection !== undefined && !runtimeInspection) {
+      documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION    });    if (suppliedRuntimeInspection !== undefined && !runtimeInspection) {
       await deps.writeLog("request.runtime-inspection.rejected", {
         requestId, sessionId, reason: "snapshot_did_not_match_revision_page_or_pinned_runtime",
         expectedRevision: computedRevision, expectedPageId: identity.documentPageId, expectedDrawioVersion: PINNED_DRAWIO_VERSION
@@ -1316,10 +848,6 @@ function createDrawioElementSearchTool(sessionId: string) {
 
     const startedAt = Date.now();
     const turnTimeoutMs = resolveCopilotTurnTimeoutMs();
-    for (const id of acknowledgements.expire(Date.now(), ACK_TTL_MS)) {
-      await deps.writeLog("turn.native-edit.ack-expired", { requestId: id });
-    }
-    await logPendingProposalSweep(prunePendingNativeProposals(Date.now()), deps.writeLog);
     const cells = context.cells.slice(0, 80).map((cell) => ({ id: cell.id, label: cell.label.slice(0, 120), cellType: cell.cellType }));
     await deps.writeLog("request.received", { requestId, sessionId, model, requestedModel: requestedModel === model ? undefined : requestedModel, modelSource: modelChoice.reason, reasoningEffort: requestedEffort, standalone, prompt, promptLength: prompt.length, contextKind: (context as { kind?: unknown }).kind ?? null, contextTitle: typeof (context as { title?: unknown }).title === "string" ? (context as { title: string }).title : null, cellCount: (context.cells as unknown[]).length, cells });
     try {
@@ -1351,17 +879,16 @@ function createDrawioElementSearchTool(sessionId: string) {
           const latestConfig = await deps.getStudioConfig();
           return {
             configRevisionId: latestConfig.revisionId,
-            systemMessage: await buildSystemMessage(standalone),
+            systemMessage: await buildSystemMessage(deps, standalone),
             tools: [
               createSelectDiagramElementTool(sessionId, deps.writeLog),
-              createDrawioShapeSearchTool(sessionId),
-              createDrawioRuntimeShapeSearchTool(sessionId),
-              createDrawioElementSearchTool(sessionId),
-              createDrawioGraphInspectionTool(sessionId),
-              createDrawioReferenceTool(sessionId),
-              createEditDrawioXmlTool(sessionId),
-              createProposeNativeEditsTool(sessionId),
-              createReportIntentOutcomeTool(sessionId)
+              createDrawioShapeSearchTool(sessionId, deps),
+              createDrawioRuntimeShapeSearchTool(sessionId, deps),
+              createDrawioElementSearchTool(sessionId, deps),
+              createDrawioGraphInspectionTool(sessionId, deps),
+              createDrawioReferenceTool(sessionId, deps),
+              createEditDrawioXmlTool(sessionId, deps),
+              createReportIntentOutcomeTool(sessionId, deps)
             ],
             workspaceId: sessionWorkspace?.id
           };
@@ -1376,15 +903,14 @@ function createDrawioElementSearchTool(sessionId: string) {
           throw new Error("Copilot request cancelled by client.");
         }
         // Keep the complete server-derived target index private to tools. The model-facing context is
-        // intentionally capped for prompt size, but target uniqueness must be checked against every cell
-        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
+        // intentionally capped for prompt size, but target uniqueness must be checked against every cell        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
         contextBySession.set(sessionId, {
           ...context, documentRevision, activePageId: identity.documentPageId,
           cells: allNativeCells, runtimeInspection: context.runtimeInspection,
           standalone, ...(standalone ? { sourceXml: diagramXml } : {})
         });
         pendingAgentSelections.delete(sessionId);
-        pendingNativeEdits.delete(sessionId);
+
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
         pendingXmlPatches.delete(sessionId);
@@ -1464,39 +990,36 @@ function createDrawioElementSearchTool(sessionId: string) {
               requestId, sessionId, attempt, terminalKind,
               errorName: error instanceof Error ? error.name : typeof error,
               errorMessage: errorMessage.slice(0, 1000),
-              acceptedNativeEdit: pendingNativeEdits.has(sessionId),
               acceptedSelection: pendingAgentSelections.has(sessionId),
               acceptedReportedOutcome: pendingReportedOutcomes.has(sessionId)
             });
-          }
-        };
-        const firstRequestPrompt = JSON.stringify({
+          }        };        const firstRequestPrompt = JSON.stringify({
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Use propose_native_edits for common simple operations and Studio-owned auto_layout; use edit_drawio_xml for non-trivial native XML changes. For C4 diagrams, apply explicit labels with set_label and colors with set_style; each style operation changes one key (fillColor, strokeColor, or fontColor), and preserve existing XML whenever possible. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, do not use typed set_label because Studio rejects plain-text replacements that would flatten markup; use edit_drawio_xml to patch only the intended text while preserving the native XML. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml when the typed operations cannot express the change. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. Never use plain-text replacements that would flatten markup; preserve rich HTML labels and nested markup through targeted XML edits. For C4 diagrams, patch labels and style attributes directly in the native XML, changing only the requested value and preserving the rest of the cell style and metadata. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, patch only the intended text in the native XML while preserving markup, placeholders and wrapper metadata. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml for every diagram mutation. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
-        let capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
-        let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
-        if (!capturedSelection && !capturedNativeEdits && !capturedReportedOutcome) {
+                let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
+        // edit_drawio_xml stores its accepted terminal result in pendingXmlPatches rather than
+        // the typed-operation maps. Treat it as a completed tool call; do not spend another model turn.
+        if (!capturedSelection && !capturedReportedOutcome && !pendingXmlPatches.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use propose_native_edits as a convenience fast path for simple common edits and Studio-owned auto_layout. Use edit_drawio_xml for non-trivial native edits beyond the typed-operation allowlist. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a terminal native edit is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until editor serialization and required persistence acknowledgement are complete.",
+            request: "Finish with exactly one terminal tool call. Use edit_drawio_xml for every diagram mutation. Read-only tools may be used for discovery, then submit one focused XML patch. Do not use typed operations, editor scripts, or a second editing path. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After an XML patch is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until the XML patch has been validated and persisted.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
           capturedSelection = pendingAgentSelections.get(sessionId) || null;
-          capturedNativeEdits = pendingNativeEdits.get(sessionId) || null;
           capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
         }
         pendingAgentSelections.delete(sessionId);
-        pendingNativeEdits.delete(sessionId);
+
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
         return {
-          capturedSelection, capturedNativeEdits, capturedReportedOutcome, modelText,
+          capturedSelection, capturedReportedOutcome, modelText,
           ...(terminalIntentModelFailure.value ? { terminalIntentModelFailure: terminalIntentModelFailure.value } : {}),
           session: turn.session,
           usage: mergeTurnUsage(usageSamples), modelCallUsages, contextUsage
@@ -1507,7 +1030,7 @@ function createDrawioElementSearchTool(sessionId: string) {
       if (!standalone) {
         const authoritative = await deps.getWorkspaceDiagramSnapshot();
         if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
-          pendingNativeEdits.delete(sessionId);
+
           pendingAgentSelections.delete(sessionId);
           await deps.writeLog("turn.native-edit.stale", { sessionId, requestId, requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
           res.status(409).json({ outcome: "stale_context", reply: "The workspace changed while Copilot was interpreting the request. No edit was applied; retry against the latest diagram.", error: "The workspace diagram changed while Copilot was interpreting the request.", documentRevision: authoritative?.revision ?? null, requestId, sessionId });
@@ -1518,10 +1041,10 @@ function createDrawioElementSearchTool(sessionId: string) {
       const selection = plan.capturedSelection || undefined;
       const toolsUsed = pendingXmlPatches.has(sessionId)
         ? ["edit_drawio_xml"]
-        : plan.capturedNativeEdits ? ["propose_native_edits"]
+
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
-        ? "The model stream failed after a terminal action was accepted; Studio is continuing with the accepted action and will verify the native editor result and persistence. "
+        ? "The model stream failed after an XML patch was accepted; Studio is continuing with the accepted patch and will verify server-side validation and persistence. "
         : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
@@ -1577,8 +1100,7 @@ function createDrawioElementSearchTool(sessionId: string) {
           await deps.writeLog("turn.completed.xml-patch-committed", {
             requestId, sessionId, summary: pendingXmlPatch.summary,
             baseRevision: pendingXmlPatch.baseRevision, receipt: body
-          });
-          res.json({
+          });          res.json({
             outcome: "xml_committed",
             reply: typeof body.workspaceRevision === "string"
               ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
@@ -1594,61 +1116,6 @@ function createDrawioElementSearchTool(sessionId: string) {
         }
       }
 
-      if (plan.capturedNativeEdits) {
-        const nativeEdits = plan.capturedNativeEdits;
-        // Local single-user Studio applies supported native edits directly by default.
-        // STUDIO_REQUIRE_EDIT_CONFIRMATION=1 restores the proposal/review gate.
-        const reviewRequired = requiresNativeEditReview() &&
-          requiresExplicitConfirmation(nativeEdits.operations);
-        if (reviewRequired) {
-          const proposalId = randomUUID();
-          await logPendingProposalSweep(prunePendingNativeProposals(Date.now(), 1), deps.writeLog);
-          pendingNativeProposals.set(proposalId, {
-            id: proposalId, sessionId, standalone, documentRevision, pageId: context.activePageId,
-            operations: nativeEdits.operations, summary: nativeEdits.summary, createdAt: Date.now()
-          });
-          const proposal = {
-            id: proposalId, summary: nativeEdits.summary, operations: nativeEdits.operations,
-            pageId: context.activePageId, documentRevision
-          };
-          const response = {
-            outcome: "proposal_required" as const,
-            reply: terminalIntentWarning + confirmationReviewMessage(nativeEdits.operations),
-            proposal,
-            ...shared
-          };
-          await deps.writeLog("turn.completed.proposal-required", {
-            requestId, proposalId, sessionId, operationCount: nativeEdits.operations.length,
-            deleteCount: nativeEdits.operations.filter((operation) => operation.op === "delete").length,
-            summary: nativeEdits.summary, documentRevision
-          });
-          res.json(response);
-          return;
-        }
-        acknowledgements.register({
-          requestId, sessionId, standalone, documentRevision,
-          operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
-          operations: nativeEdits.operations, createdAt: Date.now()
-        });
-        const response = {
-          // This is a command-ready response, not a final success outcome. The browser must post the native execution/persistence acknowledgement.
-          outcome: "command_ready" as const,
-          commands: [],
-          reply: terminalIntentWarning + nativeEdits.summary,
-          selection,
-          nativeEdits: { operations: nativeEdits.operations, summary: nativeEdits.summary, pageId: context.activePageId, documentRevision, requestId },
-          ...shared
-        };
-        await deps.writeLog("turn.completed.with-native-edits", {
-          requestId, sessionId, durationMs: Date.now() - startedAt,
-          operationCount: nativeEdits.operations.length, summary: nativeEdits.summary,
-          selection: selection ?? null, modelTurnWarning: plan.terminalIntentModelFailure ?? null,
-          editReview: "auto-approved",
-          operations: nativeEdits.operations.map((operation) => ({ op: operation.op, cellId: operation.cellId, targetLabel: operation.targetLabel, ...(operation.op === "set_label" ? { label: operation.label } : {}), ...(operation.op === "add_node_after" || operation.op === "add_node_below" ? { newLabel: operation.newLabel } : {}) })), usage: plan.usage
-        });
-        res.json(response);
-        return;
-      }
       if (selection) {
         const response = { outcome: "selected" as const, commands: [], reply: terminalIntentWarning + (modelReply || "Selected diagram element: " + selection.label), selection, ...shared };
         await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response, usage: plan.usage });
@@ -1676,7 +1143,7 @@ function createDrawioElementSearchTool(sessionId: string) {
     } catch (error) {
       abortActiveTurn = null;
       contextBySession.delete(sessionId);
-      pendingNativeEdits.delete(sessionId);
+
       pendingXmlPatches.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
@@ -1725,9 +1192,7 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
         const error = "Element selection requires a non-empty target no longer than 200 characters.";
         await writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
         return {
-          selected: false, accepted: false, reason: "invalid_target", error,
-          instructions: "Provide a non-empty exact cell ID or unique element label from the current diagram context. No selection was queued."
-        };
+          selected: false, accepted: false, reason: "invalid_target", error,          instructions: "Provide a non-empty exact cell ID or unique element label from the current diagram context. No selection was queued."        };
       }
       const current = contextBySession.get(sessionId);
       const source = current && typeof current === "object" ? current as { cells?: unknown; selectedCell?: { pageId?: unknown } | null; activePageId?: unknown } : {};
@@ -1759,17 +1224,17 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
         return {
           selected: false, accepted: false, reason: "terminal_action_already_registered",
           registeredKind: registration.registeredKind,
-          instructions: registration.registeredKind === "native_edit"
-            ? "A native edit is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+          instructions: registration.registeredKind === "xml_patch"
+            ? "An XML patch is already queued for dispatch. Do not call another terminal tool; let that patch execute."
             : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
         };
       }
       pendingAgentSelections.set(sessionId, selected);
       return {
         accepted: true, queued: true, execution: "after_model_turn", terminal: true,
-        replaceableByNativeEdit: true, result_available: false, action: "select_diagram_element",
+        replaceableByXmlPatch: true, result_available: false, action: "select_diagram_element",
         ...selected, documentChanged: false,
-        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, submit exactly one native edit instead; Studio will promote that concrete edit over this provisional selection. Never submit two native edits."
+        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, submit exactly one focused `edit_drawio_xml` patch instead. Never submit two terminal actions."
       };
     }
   });
