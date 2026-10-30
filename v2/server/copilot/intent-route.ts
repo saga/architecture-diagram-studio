@@ -197,8 +197,7 @@ function createDrawioShapeSearchTool(sessionId: string) {
           limit: { type: "integer", minimum: 1, maximum: 8, default: 5 }
         },
         required: ["query"],
-        additionalProperties: false
-      },      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        additionalProperties: false      },      handler: async (args: { query?: unknown; limit?: unknown }) => {
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Shape search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
@@ -228,7 +227,7 @@ function createDrawioShapeSearchTool(sessionId: string) {
           } : {}),
           ...(!searchPage.matchCount ? {
             ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
-            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified."
+            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use the XML patch tool only when a native definition can be verified; otherwise report the limitation."
           } : {})
         };
       }
@@ -397,8 +396,7 @@ function createDrawioGraphInspectionTool(sessionId: string) {
       description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
       parameters: {
         type: "object",
-        properties: {
-          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
+        properties: {          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
           cellType: { type: "string", enum: ["vertex", "edge"] },
           unlabeled: { type: "boolean", description: "When true, include only cells with an empty visible label." },
           point: {
@@ -597,8 +595,7 @@ function createEditDrawioXmlTool(sessionId: string) {
       },
       handler: async (args: { summary?: unknown; patch?: unknown }) => {
         if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
-            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
-          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };        }
+            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };        }
         const context = contextBySession.get(sessionId) as {
           documentRevision?: string; activePageId?: string | null; standalone?: boolean; sourceXml?: string;
         } | undefined;
@@ -797,8 +794,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     }
     const suppliedRuntimeInspection = (requestedContext as { runtimeInspection?: unknown }).runtimeInspection;
     const runtimeInspection = normalizeDrawioRuntimeInspection(suppliedRuntimeInspection, {
-      documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION
-    });    if (suppliedRuntimeInspection !== undefined && !runtimeInspection) {
+      documentRevision: computedRevision, pageId: identity.documentPageId, drawioVersion: PINNED_DRAWIO_VERSION    });    if (suppliedRuntimeInspection !== undefined && !runtimeInspection) {
       await deps.writeLog("request.runtime-inspection.rejected", {
         requestId, sessionId, reason: "snapshot_did_not_match_revision_page_or_pinned_runtime",
         expectedRevision: computedRevision, expectedPageId: identity.documentPageId, expectedDrawioVersion: PINNED_DRAWIO_VERSION
@@ -997,8 +993,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               acceptedSelection: pendingAgentSelections.has(sessionId),
               acceptedReportedOutcome: pendingReportedOutcomes.has(sessionId)
             });
-          }
-        };        const firstRequestPrompt = JSON.stringify({
+          }        };        const firstRequestPrompt = JSON.stringify({
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
@@ -1197,8 +1192,7 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
         const error = "Element selection requires a non-empty target no longer than 200 characters.";
         await writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
         return {
-          selected: false, accepted: false, reason: "invalid_target", error,
-          instructions: "Provide a non-empty exact cell ID or unique element label from the current diagram context. No selection was queued."        };
+          selected: false, accepted: false, reason: "invalid_target", error,          instructions: "Provide a non-empty exact cell ID or unique element label from the current diagram context. No selection was queued."        };
       }
       const current = contextBySession.get(sessionId);
       const source = current && typeof current === "object" ? current as { cells?: unknown; selectedCell?: { pageId?: unknown } | null; activePageId?: unknown } : {};
