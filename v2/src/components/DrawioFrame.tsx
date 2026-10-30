@@ -602,9 +602,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
             pendingSaveConfirmationsRef.current.set(requestId, confirmation);
           }
-          // Copilot batch success is deferred until the native editor has serialized XML. A graph-model
-          // mutation acknowledgement alone is not proof that the resulting document was captured.
-          if (data.path !== "cell:batch" || !pending) onNativeEditResultRef.current?.(nativeResult);
+          onNativeEditResultRef.current?.(nativeResult);
           recordDiagnostic("drawio.selection.property.updated", "Draw.io acknowledged a native cell property mutation", {
             cellId: data.cellId, property: data.path, value: pending?.value ?? null, requestId,
             durationMs: pending ? Date.now() - pending.startedAt : null, xmlLengthBefore: pending?.beforeXml.length ?? null
