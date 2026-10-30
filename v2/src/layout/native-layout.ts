@@ -339,12 +339,6 @@ interface ElkLayoutResult {
   edges?: Array<{ id: string; sections?: Array<{ bendPoints?: Point[] }> }>;
 }
 
-// Explicitly register optional algorithms verified in the bundled elkjs build.
-// Box, Fixed and Random are always included; SPOrE and Rectangle Packing require registration.
-const elk = new ELK({
-  algorithms: ["layered", "stress", "mrtree", "radial", "force", "rectpacking", "sporeCompaction", "sporeOverlap"]
-});
-
 function elementChildren(element: Element): Element[] {
   const result: Element[] = [];
   for (let index = 0; index < element.childNodes.length; index += 1) {
