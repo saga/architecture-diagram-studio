@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { parseDrawioXml, serializeDrawioXml } from "../src/model/drawio-xml-dom";
+import { parseDrawioXml } from "../src/model/drawio-xml-dom";
+import { decodeDrawioPageXml } from "../src/model/drawio-xml-schema";
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
 import { runCompensatingTransaction, writeTextAtomic } from "./storage";
 import type { WorkspaceDiagramFileResolver } from "./workspace-diagram-change-set";
@@ -68,24 +70,53 @@ function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+function canonicalXmlNode(node: Node): string {
+  if (node.nodeType === 3 || node.nodeType === 4) {
+    const value = node.nodeValue ?? "";
+    return /^\s*$/.test(value) ? "" : JSON.stringify(value);
+  }
+  if (node.nodeType !== 1) return "";
+  const element = node as Element;
+  const attributes = Array.from(element.attributes)
+    .map((attribute) => [attribute.name, attribute.value] as const)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => name + "=" + JSON.stringify(value))
+    .join(";");
+  const children = Array.from(element.childNodes).map(canonicalXmlNode).join("");
+  return "<" + element.tagName + " " + attributes + ">" + children + "</" + element.tagName + ">";
+}
+
+function canonicalPageXml(page: Element): string {
+  const attributes = Array.from(page.attributes)
+    .map((attribute) => [attribute.name, attribute.value] as const)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => name + "=" + JSON.stringify(value))
+    .join(";");
+  const inlineModel = Array.from(page.childNodes).find((node) =>
+    node.nodeType === 1 && (node as Element).tagName === "mxGraphModel"
+  );
+  const model = inlineModel
+    ? canonicalXmlNode(inlineModel)
+    : canonicalXmlNode(parseDrawioXml(decodeDrawioPageXml(page.textContent ?? "")).documentElement);
+  return "<diagram " + attributes + ">" + model + "</diagram>";
+}
+
 function pageXmlById(xml: string): Map<string, string> {
   const document = parseDrawioXml(xml);
-  if (document.documentElement.nodeName === "mxfile") {
-    const seen = new Set<string>();
-    for (const page of Array.from(document.getElementsByTagName("diagram"))) {
-      const id = page.getAttribute("id") ?? "";
-      if (!id) throw new Error("Every Draw.io page must have a non-empty stable ID.");
-      if (seen.has(id)) throw new Error("Duplicate Draw.io page ID: " + id);
-      seen.add(id);
-    }
-  }
   if (document.documentElement.nodeName === "mxGraphModel") {
-    return new Map([["__bare_graph_model__", serializeDrawioXml(document.documentElement)]]);
+    return new Map([["__bare_graph_model__", canonicalXmlNode(document.documentElement)]]);
   }
   if (document.documentElement.nodeName !== "mxfile") throw new Error("Draw.io XML root must be mxfile or mxGraphModel.");
-  return new Map(Array.from(document.getElementsByTagName("diagram"))
-    .map((page) => [page.getAttribute("id") ?? "", serializeDrawioXml(page)] as const)
-    .filter(([id]) => Boolean(id)));
+  const seen = new Set<string>();
+  const result = new Map<string, string>();
+  for (const page of Array.from(document.getElementsByTagName("diagram"))) {
+    const id = page.getAttribute("id") ?? "";
+    if (!id) throw new Error("Every Draw.io page must have a non-empty stable ID.");
+    if (seen.has(id)) throw new Error("Duplicate Draw.io page ID: " + id);
+    seen.add(id);
+    result.set(id, canonicalPageXml(page));
+  }
+  return result;
 }
 
 /**
@@ -102,16 +133,43 @@ export async function applyWorkspaceDiagramChangeSet(
   const request = parsed.data;
   if (request.workspaceId !== resolver.workspaceId) return { ok: false, error: "The change set belongs to a different workspace." };
 
-  return withFileLocks(request.targets.map((target) => request.workspaceId + "\0" + target.filePath), async () => {
+  const resolvedTargets: Array<{ target: (typeof request.targets)[number]; absolutePath: string }> = [];
+  const canonicalPaths = new Set<string>();
+  for (const target of request.targets) {
+    try {
+      const resolved = await resolver.resolveWorkspaceFile(target.filePath);
+      if (resolved.workspace.id !== request.workspaceId) {
+        return { ok: false, error: "Resolved file belongs to a different workspace.", failedPath: target.filePath };
+      }
+      const absolutePath = path.resolve(resolved.absolutePath);
+      if (canonicalPaths.has(absolutePath)) {
+        return { ok: false, error: "Multiple target paths resolve to the same workspace file; merge them into one target.", failedPath: target.filePath };
+      }
+      canonicalPaths.add(absolutePath);
+      resolvedTargets.push({ target, absolutePath });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error), failedPath: target.filePath };
+    }
+  }
+
+  return withFileLocks(resolvedTargets.map((target) => target.absolutePath), async () => {
     const prepared: Array<{
       filePath: string; absolutePath: string; beforeXml: string; resultXml: string;
       beforeRevision: string; afterRevision: string; changedPageIds: string[];
     }> = [];
-    for (const target of request.targets) {
+    for (const { target, absolutePath: lockedPath } of resolvedTargets) {
       try {
         const resolved = await resolver.resolveWorkspaceFile(target.filePath);
         if (resolved.workspace.id !== request.workspaceId) return { ok: false, error: "Resolved file belongs to a different workspace.", failedPath: target.filePath };
-        const beforeXml = await readFile(resolved.absolutePath, "utf8");
+        const absolutePath = path.resolve(resolved.absolutePath);
+        if (absolutePath !== lockedPath) {
+          return { ok: false, error: "Target file identity changed while acquiring the workspace write lock.", failedPath: target.filePath };
+        }
+        const beforeXml = await readFile(absolutePath, "utf8");
+        const beforeValidation = validateDrawioXmlDocument(beforeXml);
+        if (!beforeValidation.success) {
+          return { ok: false, error: "Target XML is invalid: " + beforeValidation.issues.slice(0, 3).join("; "), failedPath: target.filePath };
+        }
         const beforeRevision = sha256(beforeXml);
         if (beforeRevision !== target.expectedRevision.toLowerCase()) {
           return { ok: false, error: "Target revision changed; no files were written.", failedPath: target.filePath };
@@ -149,7 +207,7 @@ export async function applyWorkspaceDiagramChangeSet(
           };
         }
         prepared.push({
-          filePath: target.filePath, absolutePath: resolved.absolutePath, beforeXml, resultXml: target.resultXml,
+          filePath: target.filePath, absolutePath, beforeXml, resultXml: target.resultXml,
           beforeRevision, afterRevision: sha256(target.resultXml), changedPageIds: ids
         });
       } catch (error) {

@@ -1,6 +1,6 @@
 # ADR-0017 — Workspace-Scoped Multi-File, Multi-Page Copilot Changes
 
-- Status: Accepted (backend prepare/apply foundation implemented; Copilot and UI integration pending)
+- Status: Accepted (backend foundation only; execution API disabled by default until Copilot/UI integration and durable recovery are complete)
 - Date: 2026-10-28
 - Related: [ADR-0001 — Project Workspace as the Authoritative Project Context](./0001-project-workspace-as-authoritative-context.md), [ADR-0011 — Native Draw.io Is the Only Diagram Model](./0011-native-drawio-only-model.md), [ADR-0016 — Node-Owned Local Draw.io File I/O](./0016-node-owned-local-drawio-file-io.md)
 
@@ -76,3 +76,8 @@ Still incomplete for end-to-end Copilot support:
 - The full multi-file workflow has not yet been verified by CI/E2E on these commits.
 
 Until those pieces are integrated and tested, do not advertise multi-file Copilot editing as available.
+
+
+## 2026-10-30 implementation boundary
+
+The prepare/apply routes are disabled by default. Set `STUDIO_ENABLE_CHANGE_SET_API=1` only for controlled development/testing. The current apply foundation still does not provide the durable journal, immutable per-target versions, or user-facing proposal/confirmation flow required by this ADR. The API must remain opt-in until those pieces and end-to-end tests are complete.
