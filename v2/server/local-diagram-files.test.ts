@@ -62,6 +62,29 @@ describe("standalone Draw.io history for browser-owned files", () => {
     expect((await service.readHistoryEntry(session.fileToken, history.at(-1)!.id)).xml).toBe(changed);
   });
 
+  it("serializes concurrent saves and rejects the losing stale revision", async () => {
+    const original = createEmptyDrawioXml("main.drawio");
+    const firstTab = await service.openBrowserDocument("document-concurrent", "main.drawio", original);
+    const secondTab = await service.openBrowserDocument("document-concurrent", "main.drawio", original);
+    const changedA = original.replace('name="main"', 'name="Concurrent A"');
+    const changedB = original.replace('name="main"', 'name="Concurrent B"');
+
+    const results = await Promise.allSettled([
+      service.saveSnapshot(firstTab.fileToken, firstTab.revision, changedA, "Tab A"),
+      service.saveSnapshot(secondTab.fileToken, secondTab.revision, changedB, "Tab B")
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected?.status).toBe("rejected");
+    if (rejected?.status === "rejected") expect(rejected.reason).toMatchObject({ statusCode: 409 });
+
+    const history = await service.listHistory(firstTab.fileToken);
+    expect(history).toHaveLength(2);
+    const latest = await service.readHistoryEntry(firstTab.fileToken, history.at(-1)!.id);
+    expect([changedA, changedB]).toContain(latest.xml);
+  });
+
   it("prepares a history restore and snapshots the current XML without writing the selected file", async () => {
     const original = createEmptyDrawioXml("main.drawio");
     const session = await service.openBrowserDocument("document-4", "main.drawio", original);
