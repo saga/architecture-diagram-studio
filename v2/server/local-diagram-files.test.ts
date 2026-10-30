@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createEmptyDrawioXml } from "./diagram-file";
@@ -88,14 +88,17 @@ describe("standalone Draw.io history for browser-owned files", () => {
   it("preserves the history index when snapshot metadata reads fail transiently", async () => {
     const original = createEmptyDrawioXml("main.drawio");
     const historyDirectory = path.join(dataRoot, "history");
+    let failStat = false;
     service = createLocalDiagramFileService({
       historyDirectory,
-      statFile: async () => {
-        throw Object.assign(new Error("temporary permission failure"), { code: "EACCES" });
+      statFile: async (filePath) => {
+        if (failStat) throw Object.assign(new Error("temporary permission failure"), { code: "EACCES" });
+        return stat(filePath);
       }
     });
     const session = await service.openBrowserDocument("document-stat-error", "main.drawio", original);
     const changed = original.replace('name="main"', 'name="Changed"');
+    failStat = true;
 
     await expect(service.saveSnapshot(session.fileToken, session.revision, changed, "Should not save"))
       .rejects.toMatchObject({ code: "EACCES" });
