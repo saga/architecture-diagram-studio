@@ -578,6 +578,55 @@ describe("Copilot intent route result and revision contract", () => {
 
   });
 
+  it("returns the native style from element search so a key-only edit needs no full style guess", async () => {
+    const styledXml = XML.replace(
+      '<mxCell id="db" value="Database" vertex="1" parent="1">',
+      '<mxCell id="db" value="Database" style="rounded=1;fillColor=#ffffff;strokeColor=#000000;" vertex="1" parent="1">'
+    );
+    const copilot = elementSearchingCopilot("db", "search_drawio_elements", { query: "db", limit: 5 });
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: styledXml, revision: workspaceRevision(styledXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "Find the database block",
+      diagramXml: styledXml,
+      documentRevision: workspaceRevision(styledXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const searchResult = (copilot as { searchResult?: { results: Array<{ id: string; style?: string }> } }).searchResult;
+    expect(searchResult?.results[0]).toMatchObject({
+      id: "db", style: "rounded=1;fillColor=#ffffff;strokeColor=#000000;"
+    });
+  });
+
+  it("filters graph inspection by a native style substring", async () => {
+    const styledXml = XML.replace(
+      '<mxCell id="db" value="Database" vertex="1" parent="1">',
+      '<mxCell id="db" value="Database" style="rounded=1;fillColor=#ffffff;strokeColor=#000000;" vertex="1" parent="1">'
+    );
+    const copilot = elementSearchingCopilot("", "inspect_drawio_graph", { styleContains: "fillColor=#ffffff", limit: 10 });
+    const harness = await createServer({
+      copilot,
+      snapshot: async () => ({ drawioXml: styledXml, revision: workspaceRevision(styledXml) })
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({
+      prompt: "List white cells",
+      diagramXml: styledXml,
+      documentRevision: workspaceRevision(styledXml)
+    }));
+
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    const inspection = (copilot as { searchResult?: { totalCount: number; results: Array<{ id: string; style?: string }> } }).searchResult;
+    expect(inspection?.totalCount).toBe(1);
+    expect(inspection?.results[0]).toMatchObject({
+      id: "db", style: "rounded=1;fillColor=#ffffff;strokeColor=#000000;"
+    });
+  });
+
   it("returns exact-label and rich-label substring matches together, ranking exact labels first", async () => {
     const exactTargets = ["11", "36", "50"].map((id) =>
       '<mxCell id="task-' + id + '" value="Task 7" vertex="1" parent="1"><mxGeometry x="1" y="1" width="20" height="20" as="geometry"/></mxCell>'

@@ -4,6 +4,7 @@ import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 
 export type DrawioXmlPatch =
   | { op: "set-cell-attributes"; cellId: string; attributes: Record<string, string | null> }
+  | { op: "set-style-properties"; cellId: string; properties: Record<string, string | null> }
   | { op: "set-geometry"; cellId: string; geometry: { x?: number; y?: number; width?: number; height?: number } }
   | { op: "set-geometry-xml"; cellId: string; geometryXml: string }
   | { op: "delete-cell"; cellId: string }
@@ -13,6 +14,53 @@ export interface DrawioXmlPatchResult {
   drawioXml: string;
   changedCellIds: string[];
   operationCount: number;
+}
+
+const NATIVE_STYLE_KEY = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+const MAX_STYLE_PROPERTIES = 50;
+const MAX_STYLE_VALUE_LENGTH = 4000;
+
+/**
+ * Rewrites only the named keys of a native Draw.io style string and keeps every other token,
+ * including its position. Replacing the whole `style` attribute loses tokens the caller never saw,
+ * which is how a color-only request can silently drop shape, routing or label formatting.
+ */
+export function patchNativeStyleTokens(style: string, properties: Record<string, string | null>): string {
+  const entries = Object.entries(properties);
+  if (entries.length === 0 || entries.length > MAX_STYLE_PROPERTIES) {
+    throw new Error(`set-style-properties requires between 1 and ${MAX_STYLE_PROPERTIES} style keys.`);
+  }
+  const tokens = style.split(";").map((token) => token.trim()).filter(Boolean);
+  // A base64 image style embeds `;` inside one token, so token splitting would corrupt it.
+  if (tokens.some((token) => token.includes("data:") || token.includes("base64"))) {
+    throw new Error("This cell style embeds an image data URI; patch the complete style with set-cell-attributes instead.");
+  }
+  const result = [...tokens];
+  for (const [key, value] of entries) {
+    if (!NATIVE_STYLE_KEY.test(key)) throw new Error(`Unsupported native style key: ${key}`);
+    if (value !== null && typeof value !== "string") throw new Error(`Style value for ${key} must be a string or null.`);
+    if (typeof value === "string" && (value.length > MAX_STYLE_VALUE_LENGTH || value.includes(";") || /[\r\n]/.test(value))) {
+      throw new Error(`Style value for ${key} must be one token up to ${MAX_STYLE_VALUE_LENGTH} characters without ";" or newlines.`);
+    }
+    const matches: number[] = [];
+    result.forEach((token, index) => {
+      const equalsAt = token.indexOf("=");
+      const tokenKey = equalsAt > 0 ? token.slice(0, equalsAt).trim() : token;
+      if (tokenKey === key) matches.push(index);
+    });
+    if (value === null) {
+      for (const index of [...matches].reverse()) result.splice(index, 1);
+      continue;
+    }
+    if (matches.length === 0) {
+      result.push(key + "=" + value);
+      continue;
+    }
+    result[matches[0]!] = key + "=" + value;
+    // Duplicate keys are ambiguous in Draw.io; keep the requested value and drop the extras.
+    for (const index of [...matches.slice(1)].reverse()) result.splice(index, 1);
+  }
+  return result.length ? result.join(";") + ";" : "";
 }
 
 /**
@@ -153,6 +201,16 @@ export function applyDrawioXmlPatch(sourceXml: string, patch: DrawioXmlPatch[], 
         else if (typeof value === "string") targetElement.setAttribute(attributeName, value);
         else throw new Error(`Attribute ${name} must be a string or null.`);
       }
+      changed.add(operation.cellId);
+      continue;
+    }
+
+    if (operation.op === "set-style-properties") {
+      const properties = operation.properties;
+      if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+        throw new Error("set-style-properties requires a properties object of style keys.");
+      }
+      cell.setAttribute("style", patchNativeStyleTokens(cell.getAttribute("style") || "", properties));
       changed.add(operation.cellId);
       continue;
     }

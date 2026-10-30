@@ -3,6 +3,7 @@ import {
   extractNativeEditTargets,
   getNativeDiagramPageInfo,
   isBareNativeGraphModel,
+  MAX_NATIVE_STYLE_LENGTH,
   nativePageAccepts,
   resolveNativePageIdentity
 } from "./native-edit-operations";
@@ -131,5 +132,28 @@ describe("extractNativeEditTargets", () => {
     expect(extractNativeEditTargets(c4.replace('c4Name=""', 'c4Name="Orders API"'))).toEqual([
       { id: "opaque-c4-id", name: "Orders API", cellType: "vertex" }
     ]);
+  });
+});
+
+describe("native target style exposure", () => {
+  it("includes the exact style only when the caller asks for it", () => {
+    expect(extractNativeEditTargets(XML, "p1").find((target) => target.id === "db")).not.toHaveProperty("style");
+    expect(extractNativeEditTargets(XML, "p1", { includeStyle: true }).find((target) => target.id === "db")?.style)
+      .toBe("rounded=1;fillColor=#ffffff;");
+  });
+
+  it("omits a style longer than the inspection limit", () => {
+    const longStyle = "fillColor=#ffffff;" + "x".repeat(MAX_NATIVE_STYLE_LENGTH);
+    const xml = XML.replace('style="rounded=1;fillColor=#ffffff;"', 'style="' + longStyle + '"');
+    expect(extractNativeEditTargets(xml, "p1", { includeStyle: true }).find((target) => target.id === "db")?.style)
+      .toBeUndefined();
+  });
+
+  it("includes a style that fits the limit exactly", () => {
+    const prefix = "fillColor=#ffffff;";
+    const exactStyle = prefix + "x".repeat(MAX_NATIVE_STYLE_LENGTH - prefix.length);
+    const xml = XML.replace('style="rounded=1;fillColor=#ffffff;"', 'style="' + exactStyle + '"');
+    expect(extractNativeEditTargets(xml, "p1", { includeStyle: true }).find((target) => target.id === "db")?.style)
+      .toBe(exactStyle);
   });
 });

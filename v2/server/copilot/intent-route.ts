@@ -302,11 +302,11 @@ function createDrawioRuntimeShapeSearchTool(sessionId: string, deps: IntentDepen
 
 function createDrawioElementSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_elements", {
-      description: "Search every native cell on the active Draw.io page by ID, label, shape key or geometry metadata. Read-only and non-terminal. Single-character CJK queries are valid. Use inspect_drawio_graph for structured shape/coordinate filters or pagination.",
+      description: "Search every native cell on the active Draw.io page by ID, label, shape key, style token or geometry metadata. Read-only and non-terminal. Results carry the bounded native style string, so a style-key edit can be written against the real style instead of a guessed one. Single-character CJK queries are valid. Use inspect_drawio_graph for structured shape/coordinate/style filters or pagination.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", minLength: 1, maxLength: 120, description: "Exact ID, label text, native shape key, or a distinctive part of geometry metadata. A single character is valid." },
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Exact ID, label text, native shape key, style token, or a distinctive part of geometry metadata. A single character is valid." },
           limit: { type: "integer", minimum: 1, maximum: 10, default: 10 }
         },
         required: ["query"],
@@ -324,7 +324,7 @@ function createDrawioElementSearchTool(sessionId: string, deps: IntentDependenci
           : {};
         const cells = Array.isArray(context.cells)
           ? context.cells as Array<{
-              id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown;
+              id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown; style?: unknown;
               geometry?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
               rotation?: unknown; parentId?: unknown
             }>
@@ -338,7 +338,7 @@ function createDrawioElementSearchTool(sessionId: string, deps: IntentDependenci
         const searchableText = (cell: typeof cells[number]): string => {
           const geometry = cell.geometry;
           return [
-            cell.id, cell.name, cell.cellType, cell.shape, cell.parentId,
+            cell.id, cell.name, cell.cellType, cell.shape, cell.style, cell.parentId,
             geometry ? "x:" + geometry.x + " y:" + geometry.y + " width:" + geometry.width + " height:" + geometry.height : "",
             typeof cell.rotation === "number" ? "rotation:" + cell.rotation : ""
           ].filter((value): value is string => typeof value === "string").join(" ").toLocaleLowerCase();
@@ -365,6 +365,7 @@ function createDrawioElementSearchTool(sessionId: string, deps: IntentDependenci
             label: typeof cell.name === "string" && cell.name.trim() ? cell.name.trim() : "",
             cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
             ...(typeof cell.shape === "string" && cell.shape ? { shape: cell.shape } : {}),
+            ...(typeof cell.style === "string" && cell.style ? { style: cell.style } : {}),
             ...(cell.geometry && typeof cell.geometry === "object" ? { geometry: cell.geometry } : {}),
             ...(typeof cell.rotation === "number" ? { rotation: cell.rotation } : {}),
             ...(typeof cell.parentId === "string" ? { parentId: cell.parentId } : {})
@@ -394,10 +395,11 @@ function createDrawioElementSearchTool(sessionId: string, deps: IntentDependenci
 
 function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("inspect_drawio_graph", {
-      description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
+      description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, style substring, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan, or when you must match an existing style value. Returns native IDs, shapes, bounded style strings and rounded geometry; does not mutate the diagram.",
       parameters: {
         type: "object",
-        properties: {          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
+        properties: {          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape, style or parent ID." },          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
+          styleContains: { type: "string", minLength: 1, maxLength: 180, description: "Optional case-insensitive substring of the native style string, e.g. a color value or a style key." },
           cellType: { type: "string", enum: ["vertex", "edge"] },
           unlabeled: { type: "boolean", description: "When true, include only cells with an empty visible label." },
           point: {
@@ -415,7 +417,7 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
         additionalProperties: false
       },
       handler: async (args: {
-        query?: unknown; shape?: unknown; cellType?: unknown; unlabeled?: unknown;
+        query?: unknown; shape?: unknown; styleContains?: unknown; cellType?: unknown; unlabeled?: unknown;
         point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
       }) => {
         if (!args || typeof args !== "object" || Array.isArray(args)) {
@@ -426,14 +428,16 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
           ? current as { cells?: unknown; documentRevision?: unknown; activePageId?: unknown }
           : {};
         const cells = Array.isArray(context.cells) ? context.cells as Array<{
-          id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown;
+          id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown; style?: unknown;
           geometry?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
           rotation?: unknown; parentId?: unknown
         }> : [];
         const query = typeof args.query === "string" ? args.query.trim().toLocaleLowerCase() : "";
         const shapeQuery = typeof args.shape === "string" ? args.shape.trim().toLocaleLowerCase() : "";
+        const styleQuery = typeof args.styleContains === "string" ? args.styleContains.trim().toLocaleLowerCase() : "";
         if (args?.query !== undefined && (!query || query.length > 120)) return { ok: false, reason: "invalid_query", error: "Graph inspection query must be 1–120 characters.", results: [] };
         if (args?.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) return { ok: false, reason: "invalid_shape_filter", error: "Shape filter must be 1–180 characters.", results: [] };
+        if (args?.styleContains !== undefined && (!styleQuery || styleQuery.length > 180)) return { ok: false, reason: "invalid_style_filter", error: "Style filter must be 1–180 characters.", results: [] };
         if (args.cellType !== undefined && args.cellType !== "vertex" && args.cellType !== "edge") return { ok: false, reason: "invalid_cell_type", error: "cellType must be vertex or edge.", results: [] };
         if (args.unlabeled !== undefined && typeof args.unlabeled !== "boolean") return { ok: false, reason: "invalid_unlabeled_filter", error: "unlabeled must be a boolean.", results: [] };
         const point = args.point;
@@ -456,13 +460,15 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
           const name = typeof cell.name === "string" ? cell.name.trim() : "";
           const id = typeof cell.id === "string" ? cell.id : "";
           const shape = typeof cell.shape === "string" ? cell.shape : "";
+          const style = typeof cell.style === "string" ? cell.style : "";
           const parentId = typeof cell.parentId === "string" ? cell.parentId : "";
           const type = cell.cellType === "vertex" || cell.cellType === "edge" ? cell.cellType : "unknown";
           const geometry = cell.geometry;
           if (args.cellType !== undefined && type !== args.cellType) return false;
           if (args.unlabeled === true && name.length > 0) return false;
-          if (query && ![id, name, shape, parentId, type].some((value) => value.toLocaleLowerCase().includes(query))) return false;
+          if (query && ![id, name, shape, style, parentId, type].some((value) => value.toLocaleLowerCase().includes(query))) return false;
           if (shapeQuery && !shape.toLocaleLowerCase().includes(shapeQuery)) return false;
+          if (styleQuery && !style.toLocaleLowerCase().includes(styleQuery)) return false;
           if (point !== undefined) {
             const px = (point as { x: number }).x;
             const py = (point as { y: number }).y;
@@ -486,6 +492,7 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
           label: typeof cell.name === "string" ? cell.name : "",
           cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
           shape: typeof cell.shape === "string" ? cell.shape : "",
+          ...(typeof cell.style === "string" && cell.style ? { style: cell.style } : {}),
           // Edges have no bounding box: Draw.io omits x/y/width/height from their serialized
           // mxGeometry, so reporting the normalized zeros here invites assertions that can never
           // pass against the saved XML. Geometry filtering above still uses the internal values.
@@ -498,7 +505,7 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
         await deps.writeLog("tool.inspect_drawio_graph.completed", {
           sessionId, pageId: page, documentRevision: context.documentRevision ?? null,
           totalCount: matches.length, offset, returnedCount: results.length, truncated,
-          filters: { query: query || null, shape: shapeQuery || null, cellType: args.cellType ?? null,
+          filters: { query: query || null, shape: shapeQuery || null, styleContains: styleQuery || null, cellType: args.cellType ?? null,
             unlabeled: args.unlabeled === true, hasPoint: point !== undefined, hasBounds: bounds !== undefined }
         });
         return {
@@ -551,7 +558,7 @@ function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) 
 
 function createEditDrawioXmlTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("edit_drawio_xml", {
-      description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge.",
+      description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-style-properties to change individual style keys such as fillColor while keeping every other style token, set-cell-attributes for non-style mxCell attributes or a deliberate complete style replacement, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge. Put every target of one request into the same patch; a second editing call in the same turn is rejected.",
       parameters: {
         type: "object",
         properties: {
@@ -565,6 +572,14 @@ function createEditDrawioXmlTool(sessionId: string, deps: IntentDependencies) {
                   cellId: { type: "string", minLength: 1 },
                   attributes: { type: "object", additionalProperties: { oneOf: [{ type: "string" }, { type: "null" }] } }
                 }, required: ["op", "cellId", "attributes"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-style-properties"] },
+                  cellId: { type: "string", minLength: 1 },
+                  properties: {
+                    type: "object", minProperties: 1, maxProperties: 50,
+                    additionalProperties: { oneOf: [{ type: "string", maxLength: 4000 }, { type: "null" }] }
+                  }
+                }, required: ["op", "cellId", "properties"], additionalProperties: false },
                 { type: "object", properties: {
                   op: { type: "string", enum: ["set-geometry"] },
                   cellId: { type: "string", minLength: 1 },
@@ -998,7 +1013,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. Never use plain-text replacements that would flatten markup; preserve rich HTML labels and nested markup through targeted XML edits. For C4 diagrams, patch labels and style attributes directly in the native XML, changing only the requested value and preserving the rest of the cell style and metadata. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, patch only the intended text in the native XML while preserving markup, placeholders and wrapper metadata. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml for every diagram mutation. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. Never use plain-text replacements that would flatten markup; preserve rich HTML labels and nested markup through targeted XML edits. For any style or color change, use set-style-properties with only the keys you change (for example {\"fillColor\":\"#ff0000\"}); never rewrite the whole style attribute, and read style from search/inspection results only when you must match an existing value. For C4 diagrams, patch labels and individual style keys directly in the native XML, changing only the requested value and preserving the rest of the cell style and metadata. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, patch only the intended text in the native XML while preserving markup, placeholders and wrapper metadata. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml for every diagram mutation. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1087,7 +1102,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             });
             res.json({
               outcome: "xml_patch_ready",
-              reply: pendingXmlPatch.summary + "。服务端已修改并校验原生 Draw.io XML，正在交由浏览器写回所选本地文件。",
+              reply: pendingXmlPatch.summary + "。服务端已修改并校验原生 Draw.io XML（" +
+                (patched.changedCellIds.length ? patched.changedCellIds.length + " 个元素" : "未检测到元素变化") +
+                "），正在交由浏览器写回所选本地文件。",
               requestId, drawioXml: patched.drawioXml, documentRevision: pendingXmlPatch.baseRevision,
               patchedRevision, changedCellIds: patched.changedCellIds, ...shared
             });
@@ -1127,10 +1144,18 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
             } } : {})
           });
+          // The save route nests the patch receipt under `xmlPatch`; only a patch-bearing save has it.
+          const committedCells = body.xmlPatch && typeof body.xmlPatch === "object"
+            ? (body.xmlPatch as { changedCellIds?: unknown }).changedCellIds
+            : undefined;
+          const committedCellCount = Array.isArray(committedCells) ? committedCells.length : null;
+          const committedCellSummary = committedCellCount === null
+            ? ""
+            : "（" + (committedCellCount ? committedCellCount + " 个元素" : "未检测到元素变化") + "）";
           res.json({
             outcome: "xml_committed",
             reply: typeof body.workspaceRevision === "string"
-              ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
+              ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML" + committedCellSummary + "。"
               : pendingXmlPatch.summary + "。服务端已接受 XML 修改。",
             requestId, persistence: body, ...shared
           });

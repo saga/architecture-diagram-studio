@@ -29,10 +29,13 @@ Native Draw.io XML is the only source of truth. Copilot mutations for workspace 
 Bind each edit to the exact current document revision and active page ID. Resolve targets from revision-bound native cell IDs; reject missing or ambiguous IDs. Preserve unrelated pages, cells, UserObject wrappers, custom shapes, unknown attributes, styles, geometry, and edge relationships.
 
 Supported patch operations:
-- \`set-cell-attributes\`: update explicit native mxCell attributes; for UserObject/object wrappers, label/value attributes are applied to the wrapper while geometry/style remain on its child mxCell.
+- \`set-style-properties\`: change only the named native style keys (for example \`fillColor\`, \`strokeColor\`, \`fontColor\`) and keep every other style token in place. Use \`null\` to remove a key. This is the only safe way to recolor a cell without knowing its full style string.
+- \`set-cell-attributes\`: update explicit native mxCell attributes; for UserObject/object wrappers, label/value attributes are applied to the wrapper while geometry/style remain on its child mxCell. A \`style\` value here replaces the complete style string, so use it only when you intend a full replacement.
 - \`set-geometry\`: update explicit x/y/width/height values. 'set-geometry-xml' replaces the full native mxGeometry fragment, including connector waypoints and control points.
 - \`delete-cell\`: remove only the requested cell or its UserObject/object wrapper.
 - \`insert-cell-xml\`: insert a native mxCell or UserObject/object XML fragment with a unique ID under the existing page root.
+
+Every target of one request belongs in the same patch; a second editing call in the same turn is rejected, so split-out targets would stay unedited while the turn still reports success.
 
 Do not rebuild an existing diagram from a reduced model. Validate the result and report success only after the server returns a successful versioned persistence receipt. If the document revision changed, reload and retry against the new revision. After commit, the frontend must reload the authoritative workspace XML; stale autosave must not overwrite it. Standalone files keep their browser File System Access writeback workflow.
 
@@ -44,6 +47,11 @@ const XML_PATCH_RECIPES = `## Native XML patch recipes
 Rename a normal cell:
 \`\`\`json
 { "op": "set-cell-attributes", "cellId": "cell-id-from-current-context", "attributes": { "value": "New label" } }
+\`\`\`
+
+Change one style key without touching the rest of the style:
+\`\`\`json
+{ "op": "set-style-properties", "cellId": "cell-id-from-current-context", "properties": { "fillColor": "#ff0000" } }
 \`\`\`
 
 Change geometry without touching style or terminals:

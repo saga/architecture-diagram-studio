@@ -142,3 +142,61 @@ describe("applyDrawioXmlPatch", () => {
     ])).toThrow();
   });
 });
+
+describe("set-style-properties", () => {
+  const styled = `<mxfile><diagram id="p1" name="Page"><mxGraphModel><root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+<mxCell id="camunda" value="Camunda" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontColor=#333333;" vertex="1" parent="1"><mxGeometry x="0" y="0" width="120" height="60" as="geometry"/></mxCell>
+<object id="wrapped" label="Wrapped"><mxCell style="rounded=1;fillColor=#eeeeee;strokeColor=#111111;" vertex="1" parent="1"><mxGeometry x="200" y="0" width="80" height="40" as="geometry"/></mxCell></object>
+</root></mxGraphModel></diagram></mxfile>`;
+
+  it("changes only the requested key and keeps every other token in place", () => {
+    const result = applyDrawioXmlPatch(styled, [
+      { op: "set-style-properties", cellId: "camunda", properties: { fillColor: "#ff0000" } }
+    ]);
+    expect(result.changedCellIds).toEqual(["camunda"]);
+    expect(result.drawioXml).toContain('style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ff0000;strokeColor=#000000;fontColor=#333333;"');
+  });
+
+  it("appends a new key and removes a key whose value is null", () => {
+    const result = applyDrawioXmlPatch(styled, [
+      { op: "set-style-properties", cellId: "camunda", properties: { strokeWidth: "2", fontColor: null } }
+    ]);
+    expect(result.drawioXml).toContain('style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=2;"');
+  });
+
+  it("keeps flag tokens that carry no value", () => {
+    const flagged = styled.replace(
+      'style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontColor=#333333;"',
+      'style="shadow;rounded=1;fillColor=#ffffff;"'
+    );
+    const result = applyDrawioXmlPatch(flagged, [
+      { op: "set-style-properties", cellId: "camunda", properties: { fillColor: "#00ff00" } }
+    ]);
+    expect(result.drawioXml).toContain('style="shadow;rounded=1;fillColor=#00ff00;"');
+  });
+
+  it("patches the inner mxCell style behind a UserObject wrapper", () => {
+    const result = applyDrawioXmlPatch(styled, [
+      { op: "set-style-properties", cellId: "wrapped", properties: { fillColor: "#123456" } }
+    ]);
+    expect(result.drawioXml).toContain('style="rounded=1;fillColor=#123456;strokeColor=#111111;"');
+    expect(result.drawioXml).toContain('label="Wrapped"');
+  });
+
+  it("rejects a value that would split the style string", () => {
+    expect(() => applyDrawioXmlPatch(styled, [
+      { op: "set-style-properties", cellId: "camunda", properties: { fillColor: "#fff;rounded=1" } }
+    ])).toThrow(/single token|;/);
+  });
+
+  it("refuses to token-patch a style that embeds image data", () => {
+    const imageStyle = styled.replace(
+      'style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontColor=#333333;"',
+      'style="shape=image;image=data:image/png;base64,AAAA;fillColor=#ffffff;"'
+    );
+    expect(() => applyDrawioXmlPatch(imageStyle, [
+      { op: "set-style-properties", cellId: "camunda", properties: { fillColor: "#ff0000" } }
+    ])).toThrow(/data URI/);
+  });
+});

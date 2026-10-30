@@ -1,12 +1,17 @@
 import { findDrawioElements, parseDrawioXml, type DrawioDomDocument } from "./drawio-xml-dom";
 import { decodeDrawioPageXml } from "./drawio-xml-schema";
 
+/** Longest native style string exposed through inspection; longer styles stay out of model context. */
+export const MAX_NATIVE_STYLE_LENGTH = 4000;
+
 export interface NativeEditTarget {
   id: string;
   name: string;
   cellType: "vertex" | "edge";
   /** Native mxGraph shape style key, e.g. mxgraph.floorplan.table. */
   shape?: string;
+  /** Exact mxCell style string, bounded; omitted when longer than the inspection limit. */
+  style?: string;
   /** Rounded native geometry in the active page coordinate system. */
   geometry?: { x: number; y: number; width: number; height: number };
   rotation?: number;
@@ -153,7 +158,7 @@ function parseNativeGraphModel(xml: string, pageId?: string | null): Document {
 export function extractNativeEditTargets(
   xml: string,
   pageId?: string | null,
-  options: { includeGeometry?: boolean } = {}
+  options: { includeGeometry?: boolean; includeStyle?: boolean } = {}
 ): NativeEditTarget[] {
   const parsed = parseNativeGraphModel(xml, pageId);
   const cells = findDrawioElements(parsed, "mxCell");
@@ -209,6 +214,7 @@ export function extractNativeEditTargets(
       id,
       name: plainNativeLabel(rawLabel),
       cellType: vertex ? "vertex" : "edge",
+      ...(options.includeStyle && style && style.length <= MAX_NATIVE_STYLE_LENGTH ? { style } : {}),
       ...(options.includeGeometry ? {
         ...(shape ? { shape: shape.slice(0, 180) } : {}),
         ...(geometry ? { geometry } : {}),
