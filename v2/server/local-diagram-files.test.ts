@@ -85,6 +85,29 @@ describe("standalone Draw.io history for browser-owned files", () => {
     expect([changedA, changedB]).toContain(latest.xml);
   });
 
+  it("preserves the history index when snapshot metadata reads fail transiently", async () => {
+    const original = createEmptyDrawioXml("main.drawio");
+    const historyDirectory = path.join(dataRoot, "history");
+    service = createLocalDiagramFileService({
+      historyDirectory,
+      statFile: async () => {
+        throw Object.assign(new Error("temporary permission failure"), { code: "EACCES" });
+      }
+    });
+    const session = await service.openBrowserDocument("document-stat-error", "main.drawio", original);
+    const changed = original.replace('name="main"', 'name="Changed"');
+
+    await expect(service.saveSnapshot(session.fileToken, session.revision, changed, "Should not save"))
+      .rejects.toMatchObject({ code: "EACCES" });
+
+    // A fresh service instance simulates a later restart after the transient filesystem failure.
+    service = createLocalDiagramFileService({ historyDirectory });
+    const recovered = await service.openBrowserDocument("document-stat-error", "main.drawio", original);
+    const history = await service.listHistory(recovered.fileToken);
+    expect(history).toHaveLength(1);
+    expect((await service.readHistoryEntry(recovered.fileToken, history[0]!.id)).xml).toBe(original);
+  });
+
   it("prepares a history restore and snapshots the current XML without writing the selected file", async () => {
     const original = createEmptyDrawioXml("main.drawio");
     const session = await service.openBrowserDocument("document-4", "main.drawio", original);
