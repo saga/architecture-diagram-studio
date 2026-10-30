@@ -123,6 +123,521 @@ async function logQueryResult(
   return { warning };
 }
 
+function buildSystemMessage(standalone = false): Promise<string> {
+    const workspace = standalone ? null : await deps.getProjectWorkspace();
+    const workspaceContext = standalone
+      ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
+      : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
+    return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
+  }
+
+function createReportIntentOutcomeTool(sessionId: string) {
+    return defineTool("report_intent_outcome", {
+      description: "Report a validated no-mutation result when no XML patch or selection should be dispatched. Use answered for information/questions, needs_clarification for ambiguous requests or missing details, and unsupported only when the desired outcome cannot be achieved through the native Draw.io runtime. This tool never changes the diagram.",
+      parameters: {
+        type: "object",
+        properties: {
+          outcome: { type: "string", enum: ["answered", "needs_clarification", "unsupported"] },
+          reply: { type: "string", minLength: 1, maxLength: 2000 },
+          question: { type: "string", maxLength: 1000 },
+          reason: { type: "string", maxLength: 1000 }
+        },
+        required: ["outcome", "reply"],
+        additionalProperties: false
+      },
+      handler: async (args: { outcome?: unknown; reply?: unknown; question?: unknown; reason?: unknown }) => {
+        if (args?.outcome !== "answered" && args?.outcome !== "needs_clarification" && args?.outcome !== "unsupported") {
+          const error = "The no-mutation outcome must be answered, needs_clarification, or unsupported.";
+          await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_outcome" });
+          return { recorded: false, accepted: false, reason: "invalid_outcome", error, instructions: "Use one of the supported outcomes and do not claim that a diagram edit was applied." };
+        }
+        if (typeof args.reply !== "string" || !args.reply.trim() || args.reply.length > 2000) {
+          const error = "A no-mutation outcome requires a user-facing reply of 1–2000 characters.";
+          await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_reply" });
+          return { recorded: false, accepted: false, reason: "invalid_reply", error, instructions: "Provide a concise non-empty reply up to 2000 characters; no terminal outcome was registered." };
+        }
+        const report: ReportedNoEditOutcome = {
+          outcome: args.outcome,
+          reply: args.reply.trim(),
+          ...(typeof args.question === "string" && args.question.trim() ? { question: args.question.trim().slice(0, 1000) } : {}),
+          ...(typeof args.reason === "string" && args.reason.trim() ? { reason: args.reason.trim().slice(0, 1000) } : {})
+        } as ReportedNoEditOutcome;
+        const registration = registerTerminalIntent(sessionId, "no_mutation");
+        if (!registration.accepted) {
+          await deps.writeLog("tool.terminal-intent.rejected", {
+            sessionId, requestedKind: "no_mutation", registeredKind: registration.registeredKind,
+            reason: "terminal_action_already_registered"
+          });
+          return {
+            recorded: false, accepted: false, reason: "terminal_action_already_registered",
+            registeredKind: registration.registeredKind,
+            instructions: registration.registeredKind === "native_edit"
+              ? "A XML patch is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+              : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
+          };
+        }
+        pendingReportedOutcomes.set(sessionId, report);
+        await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
+        return {
+          recorded: true, accepted: true, terminal: true, outcome: report.outcome,
+          replaceableByXmlPatch: true,
+          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one XML patch instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit two XML patchs."
+        };
+      }
+    });
+  }
+
+function createDrawioShapeSearchTool(sessionId: string) {
+    return defineTool("search_drawio_shapes", {
+      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a relationship edge recipe. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Shape name or concept, in English or Chinese; a single CJK character is valid." },
+          limit: { type: "integer", minimum: 1, maximum: 8, default: 5 }
+        },
+        required: ["query"],
+        additionalProperties: false
+      },
+      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+          const error = "Shape search requires a non-empty query no longer than 120 characters.";
+          await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
+          return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape name or concept in English or Chinese." };
+        }
+        const requestedLimit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.floor(args.limit) : 5;
+        const c4Directory = isC4DirectoryQuery(args.query);
+        // The C4 alias is a bundle: never truncate the relationship recipe out of it.
+        const searchPage = searchDrawioShapeCatalogDetailed(args.query, c4Directory ? Math.max(requestedLimit, 4) : requestedLimit);        const results = searchPage.results;
+        const queryStatus = await logQueryResult(sessionId, "search_drawio_shapes", args.query.trim(), searchPage.matchCount, deps.writeLog);
+        return {
+          found: searchPage.matchCount > 0,
+          query: args.query.trim(),
+          catalogueVersion: DRAWIO_SHAPE_CATALOG_VERSION,
+          exhaustive: false,
+          matchCount: searchPage.matchCount,
+          returnedCount: searchPage.returnedCount,
+          truncated: searchPage.truncated,
+          results,
+          ...(searchPage.truncated ? {
+            guidance: "The curated catalogue matched " + searchPage.matchCount +
+              " entries but returned only " + searchPage.returnedCount +
+              ". Do not treat this subset as the complete candidate set. Retry with a more specific name/category or use the live Draw.io UI/runtime discovery path; the catalogue is intentionally non-exhaustive."
+          } : {}),
+          ...(c4Directory ? {
+            guidance: "These recipes answer the whole C4 creation turn. Use the exact native style strings and dimensions returned above to create mxCell XML fragments through edit_drawio_xml. Create native edge fragments for relationships and preserve existing cells; do not generate or execute JavaScript."
+          } : {}),
+          ...(!searchPage.matchCount ? {
+            ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
+            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use a typed operation for a supported concept or report the limitation if no native definition can be verified."
+          } : {})
+        };
+      }
+    });
+  }
+
+function createDrawioRuntimeShapeSearchTool(sessionId: string) {
+  return defineTool("search_drawio_runtime_shapes", {
+    description: "Search the live shape-class registry reported by the active Draw.io iframe, not only the curated server catalogue. Read-only. Results are JavaScript renderer registrations, not proof of sidebar visibility or stencil compatibility; verify a representative native cell before relying on one.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 120, description: "Shape class, library or concept keyword, e.g. c4, person, uml; a single CJK character is valid." },
+        limit: { type: "integer", minimum: 1, maximum: 30, default: 15 }
+      },
+      required: ["query"],
+      additionalProperties: false
+    },
+    handler: async (args: { query?: unknown; limit?: unknown }) => {
+      if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+        const error = "Live Draw.io shape search requires a non-empty query no longer than 120 characters.";
+        await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
+        return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with a specific shape class, library or concept keyword." };
+      }
+      const current = contextBySession.get(sessionId);
+      const context = current && typeof current === "object" ? current as {
+        runtimeInspection?: {
+          liveShapeClasses?: unknown; liveShapeClassesTruncated?: unknown;
+          drawioVersion?: unknown; documentRevision?: unknown
+        }
+      } : {};
+      const inspection = context.runtimeInspection;
+      const classes = Array.isArray(inspection?.liveShapeClasses) ? inspection.liveShapeClasses.filter((name): name is string => typeof name === "string") : [];
+      const registrySnapshotTruncated = inspection?.liveShapeClassesTruncated === true;
+      const query = args.query.trim().toLocaleLowerCase();
+      const matches = classes.filter((name) => name.toLocaleLowerCase().includes(query));
+      const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.max(1, Math.min(30, Math.floor(args.limit))) : 15;
+      const results = matches.slice(0, limit);
+      const resultSetTruncated = matches.length > results.length;
+      const guidance = registrySnapshotTruncated
+        ? "The live shape registry snapshot itself was truncated at its transport cap. These counts cover only the retained subset; do not conclude a class is unavailable from no match. Inspect the live Draw.io sidebar/runtime search APIs and verify a representative native cell."
+        : resultSetTruncated
+          ? "This query matched more classes than were returned. Use a narrower query or increase limit; do not treat this result subset as complete."
+          : classes.length === 0
+            ? "No live shape registry snapshot is available for this turn. Refresh the active editor runtime inspection before concluding that a shape is unavailable."
+            : matches.length === 0
+              ? "No registered JavaScript shape class matched this query. This does not exclude built-in mxGraph shapes, stencil libraries, sidebar search entries, or lazily loaded libraries; inspect live sidebar/library APIs and verify a native cell before falling back."
+              : undefined;
+      await deps.writeLog("tool.search_drawio_runtime_shapes.completed", {
+        sessionId, query: args.query.trim(), registryCount: classes.length, registrySnapshotTruncated,
+        matchCount: matches.length, returnedCount: results.length, resultSetTruncated,
+        truncated: registrySnapshotTruncated || resultSetTruncated,
+        drawioVersion: inspection?.drawioVersion ?? null, documentRevision: inspection?.documentRevision ?? null
+      });
+      return {
+        source: "live-mxCellRenderer.defaultShapes",
+        liveSnapshotAvailable: classes.length > 0,
+        registrySnapshotTruncated,
+        matchCountComplete: !registrySnapshotTruncated,
+        drawioVersion: inspection?.drawioVersion ?? null,
+        matchCount: matches.length,
+        returnedCount: results.length,
+        resultSetTruncated,
+        truncated: registrySnapshotTruncated || resultSetTruncated,
+        results,
+        ...(guidance ? { guidance } : {})
+      };
+    }
+  });
+}
+
+function createDrawioElementSearchTool(sessionId: string) {
+    return defineTool("search_drawio_elements", {
+      description: "Search every native cell on the active Draw.io page by ID, label, shape key or geometry metadata. Read-only and non-terminal. Single-character CJK queries are valid. Use inspect_drawio_graph for structured shape/coordinate filters or pagination.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Exact ID, label text, native shape key, or a distinctive part of geometry metadata. A single character is valid." },
+          limit: { type: "integer", minimum: 1, maximum: 10, default: 10 }
+        },
+        required: ["query"],
+        additionalProperties: false
+      },
+      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
+          const error = "Element search requires a non-empty query no longer than 120 characters.";
+          await deps.writeLog("tool.search_drawio_elements.rejected", { sessionId, reason: "invalid_query" });
+          return { found: false, accepted: false, reason: "invalid_query", error, guidance: "Retry with an ID, label, native shape key or geometry fragment." };
+        }
+        const current = contextBySession.get(sessionId);
+        const context = current && typeof current === "object"
+          ? current as { cells?: unknown; activePageId?: unknown; documentRevision?: unknown }
+          : {};
+        const cells = Array.isArray(context.cells)
+          ? context.cells as Array<{
+              id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown;
+              geometry?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+              rotation?: unknown; parentId?: unknown
+            }>
+          : [];
+        const query = args.query.trim();
+        const normalized = query.toLocaleLowerCase();
+        const exactId = cells.filter((cell) => typeof cell.id === "string" && cell.id === query);
+        const exactLabel = cells.filter((cell) =>
+          typeof cell.name === "string" && cell.name.trim().toLocaleLowerCase() === normalized
+        );
+        const searchableText = (cell: typeof cells[number]): string => {
+          const geometry = cell.geometry;
+          return [
+            cell.id, cell.name, cell.cellType, cell.shape, cell.parentId,
+            geometry ? "x:" + geometry.x + " y:" + geometry.y + " width:" + geometry.width + " height:" + geometry.height : "",
+            typeof cell.rotation === "number" ? "rotation:" + cell.rotation : ""
+          ].filter((value): value is string => typeof value === "string").join(" ").toLocaleLowerCase();
+        };
+        const exactIdCells = new Set(exactId);
+        const exactLabelCells = new Set(exactLabel);
+        const matches = cells.filter((cell) => {
+          const index = searchableText(cell);
+          if (index.includes(normalized)) return true;
+          const tokens = normalized.split(/\s+/u).filter(Boolean);
+          return tokens.length > 1 && tokens.every((token) => index.includes(token));
+        }).sort((left, right) => {
+          // Exact ID/label hits rank first, but never suppress other ID or rich-label substring matches.
+          const priority = (cell: typeof cells[number]) => exactIdCells.has(cell) ? 0 : exactLabelCells.has(cell) ? 1 : 2;
+          return priority(left) - priority(right);
+        });
+        const limit = typeof args.limit === "number" && Number.isFinite(args.limit)
+          ? Math.max(1, Math.min(10, Math.floor(args.limit)))
+          : 10;
+        const queryStatus = await logQueryResult(sessionId, "search_drawio_elements", query, matches.length, deps.writeLog);
+        const results = matches.slice(0, limit).flatMap((cell) =>
+          typeof cell.id === "string" ? [{
+            id: cell.id,
+            label: typeof cell.name === "string" && cell.name.trim() ? cell.name.trim() : "",
+            cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
+            ...(typeof cell.shape === "string" && cell.shape ? { shape: cell.shape } : {}),
+            ...(cell.geometry && typeof cell.geometry === "object" ? { geometry: cell.geometry } : {}),
+            ...(typeof cell.rotation === "number" ? { rotation: cell.rotation } : {}),
+            ...(typeof cell.parentId === "string" ? { parentId: cell.parentId } : {})
+          }] : []
+        );
+        await deps.writeLog("tool.search_drawio_elements.completed", {
+          sessionId, matchCount: matches.length, returnedCount: results.length,
+          truncated: matches.length > results.length
+        });
+        return {
+          found: matches.length > 0,
+          query,
+          pageId: typeof context.activePageId === "string" ? context.activePageId : null,
+          documentRevision: typeof context.documentRevision === "string" ? context.documentRevision : null,
+          matchCount: matches.length,
+          returnedCount: results.length,
+          truncated: matches.length > results.length,
+          results,
+          ...(matches.length > results.length ? {
+            guidance: "This result is truncated; do not perform an 'all' edit from this subset. Use inspect_drawio_graph with the same query and offset/nextOffset until truncated is false, keeping the same pageId and documentRevision. Narrow queries only when you can account for the complete union of results; copy every cell ID verbatim."
+          } : {}),
+          ...(queryStatus.warning ? { warning: queryStatus.warning } : {})
+        };
+      }
+    });
+  }
+
+function createDrawioGraphInspectionTool(sessionId: string) {
+    return defineTool("inspect_drawio_graph", {
+      description: "Read-only, non-terminal inspection of every native cell on the current Draw.io page. Filter by shape, cell type, unlabeled status, a point or a bounding box; paginate with offset/limit. Use before editing unnamed shapes such as furniture in a floor plan. Returns native IDs, shapes and rounded geometry; does not mutate the diagram.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", minLength: 1, maxLength: 120, description: "Optional case-insensitive substring of ID, label, shape or parent ID." },
+          shape: { type: "string", minLength: 1, maxLength: 180, description: "Optional substring of the native Draw.io shape style key." },
+          cellType: { type: "string", enum: ["vertex", "edge"] },
+          unlabeled: { type: "boolean", description: "When true, include only cells with an empty visible label." },
+          point: {
+            type: "object",
+            properties: { x: { type: "number" }, y: { type: "number" } },
+            required: ["x", "y"], additionalProperties: false
+          },          bounds: {
+            type: "object",
+            properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number", minimum: 0 }, height: { type: "number", minimum: 0 } },
+            required: ["x", "y", "width", "height"], additionalProperties: false
+          },
+          offset: { type: "integer", minimum: 0, maximum: 20000, default: 0 },
+          limit: { type: "integer", minimum: 1, maximum: 100, default: 40 }
+        },
+        additionalProperties: false
+      },
+      handler: async (args: {
+        query?: unknown; shape?: unknown; cellType?: unknown; unlabeled?: unknown;
+        point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
+      }) => {
+        if (!args || typeof args !== "object" || Array.isArray(args)) {
+          return { ok: false, reason: "invalid_arguments", error: "Graph inspection requires an object of valid filters.", results: [] };
+        }
+        const current = contextBySession.get(sessionId);
+        const context = current && typeof current === "object"
+          ? current as { cells?: unknown; documentRevision?: unknown; activePageId?: unknown }
+          : {};
+        const cells = Array.isArray(context.cells) ? context.cells as Array<{
+          id?: unknown; name?: unknown; cellType?: unknown; shape?: unknown;
+          geometry?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+          rotation?: unknown; parentId?: unknown
+        }> : [];
+        const query = typeof args.query === "string" ? args.query.trim().toLocaleLowerCase() : "";
+        const shapeQuery = typeof args.shape === "string" ? args.shape.trim().toLocaleLowerCase() : "";
+        if (args?.query !== undefined && (!query || query.length > 120)) return { ok: false, reason: "invalid_query", error: "Graph inspection query must be 1–120 characters.", results: [] };
+        if (args?.shape !== undefined && (!shapeQuery || shapeQuery.length > 180)) return { ok: false, reason: "invalid_shape_filter", error: "Shape filter must be 1–180 characters.", results: [] };
+        if (args.cellType !== undefined && args.cellType !== "vertex" && args.cellType !== "edge") return { ok: false, reason: "invalid_cell_type", error: "cellType must be vertex or edge.", results: [] };
+        if (args.unlabeled !== undefined && typeof args.unlabeled !== "boolean") return { ok: false, reason: "invalid_unlabeled_filter", error: "unlabeled must be a boolean.", results: [] };
+        const point = args.point;
+        if (point !== undefined && (!point || typeof point !== "object" || Array.isArray(point) ||
+            typeof (point as { x?: unknown }).x !== "number" || !Number.isFinite((point as { x: number }).x) ||
+            typeof (point as { y?: unknown }).y !== "number" || !Number.isFinite((point as { y: number }).y))) {
+          return { ok: false, reason: "invalid_point", error: "point requires finite x and y coordinates.", results: [] };
+        }
+        const bounds = args.bounds as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | undefined;
+        if (bounds !== undefined && (!bounds || typeof bounds !== "object" || Array.isArray(bounds) ||
+            ![bounds.x, bounds.y, bounds.width, bounds.height].every((value) => typeof value === "number" && Number.isFinite(value)) ||
+            (bounds.width as number) < 0 || (bounds.height as number) < 0)) {
+          return { ok: false, reason: "invalid_bounds", error: "bounds requires finite x/y and non-negative width/height.", results: [] };
+        }
+        const offset = typeof args.offset === "number" && Number.isInteger(args.offset)
+          ? Math.max(0, Math.min(20000, args.offset)) : 0;
+        const limit = typeof args.limit === "number" && Number.isInteger(args.limit)
+          ? Math.max(1, Math.min(100, args.limit)) : 40;
+        const matches = cells.filter((cell) => {
+          const name = typeof cell.name === "string" ? cell.name.trim() : "";
+          const id = typeof cell.id === "string" ? cell.id : "";
+          const shape = typeof cell.shape === "string" ? cell.shape : "";
+          const parentId = typeof cell.parentId === "string" ? cell.parentId : "";
+          const type = cell.cellType === "vertex" || cell.cellType === "edge" ? cell.cellType : "unknown";
+          const geometry = cell.geometry;
+          if (args.cellType !== undefined && type !== args.cellType) return false;
+          if (args.unlabeled === true && name.length > 0) return false;
+          if (query && ![id, name, shape, parentId, type].some((value) => value.toLocaleLowerCase().includes(query))) return false;
+          if (shapeQuery && !shape.toLocaleLowerCase().includes(shapeQuery)) return false;
+          if (point !== undefined) {
+            const px = (point as { x: number }).x;
+            const py = (point as { y: number }).y;
+            if (!geometry || typeof geometry.x !== "number" || typeof geometry.y !== "number" ||
+                typeof geometry.width !== "number" || typeof geometry.height !== "number" ||
+                px < geometry.x || py < geometry.y || px > geometry.x + geometry.width || py > geometry.y + geometry.height) return false;
+          }
+          if (bounds) {
+            if (!geometry || typeof geometry.x !== "number" || typeof geometry.y !== "number" ||
+                typeof geometry.width !== "number" || typeof geometry.height !== "number") return false;
+            const left = bounds.x as number; const top = bounds.y as number;
+            const right = left + (bounds.width as number); const bottom = top + (bounds.height as number);
+            if (geometry.x + geometry.width < left || geometry.x > right ||
+                geometry.y + geometry.height < top || geometry.y > bottom) return false;
+          }
+          return true;
+        });
+        const page = typeof context.activePageId === "string" ? context.activePageId : null;
+        const results = matches.slice(offset, offset + limit).map((cell) => ({
+          id: typeof cell.id === "string" ? cell.id : "",
+          label: typeof cell.name === "string" ? cell.name : "",
+          cellType: typeof cell.cellType === "string" ? cell.cellType : "unknown",
+          shape: typeof cell.shape === "string" ? cell.shape : "",
+          // Edges have no bounding box: Draw.io omits x/y/width/height from their serialized
+          // mxGeometry, so reporting the normalized zeros here invites assertions that can never
+          // pass against the saved XML. Geometry filtering above still uses the internal values.
+          ...(cell.cellType !== "edge" && cell.geometry && typeof cell.geometry === "object"
+            ? { geometry: cell.geometry } : {}),
+          ...(typeof cell.rotation === "number" ? { rotation: cell.rotation } : {}),
+          ...(typeof cell.parentId === "string" ? { parentId: cell.parentId } : {})
+        }));
+        const truncated = offset + results.length < matches.length;
+        await deps.writeLog("tool.inspect_drawio_graph.completed", {
+          sessionId, pageId: page, documentRevision: context.documentRevision ?? null,
+          totalCount: matches.length, offset, returnedCount: results.length, truncated,
+          filters: { query: query || null, shape: shapeQuery || null, cellType: args.cellType ?? null,
+            unlabeled: args.unlabeled === true, hasPoint: point !== undefined, hasBounds: bounds !== undefined }
+        });
+        return {
+          source: "native-drawio-xml", pageId: page, documentRevision: context.documentRevision ?? null,
+          totalCount: matches.length, offset, limit, returnedCount: results.length,
+          nextOffset: truncated ? offset + results.length : null, truncated, results
+        };
+      }
+    });
+  }
+
+function createDrawioReferenceTool(sessionId: string) {
+    return defineTool("get_drawio_reference", {
+      description: "Read the local Draw.io Agent API reference on demand. Read-only; does not change the diagram.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            enum: ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"],
+            description: "Choose the smallest relevant reference section."
+          }
+        },
+        required: ["topic"],
+        additionalProperties: false
+      },
+      handler: async (args: { topic?: unknown }) => {
+        const topic = args?.topic;
+        if (!isDrawioReferenceTopic(topic)) {
+          await deps.writeLog("tool.get_drawio_reference.rejected", { sessionId, reason: "invalid_reference_topic" });
+          return { accepted: false, reason: "invalid_reference_topic", error: "Select one supported Draw.io reference topic.", availableTopics: ["overview", "api_ownership", "shape_discovery", "postconditions", "recipes", "all"] };
+        }
+        try {
+          return { accepted: true, topic, reference: await readDrawioAgentReference(topic) };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await deps.writeLog("tool.get_drawio_reference.failed", {
+            sessionId, topic, errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: errorMessage.slice(0, 1000)
+          });
+          return {
+            accepted: false, reason: "reference_unavailable", topic,
+            error: errorMessage.slice(0, 1000),
+            instructions: "The local reference could not be loaded; this is not a Draw.io bridge failure. Continue using the core instructions and native inspection tools, or choose another reference topic."
+          };
+        }
+      }
+    });
+  }
+
+function createEditDrawioXmlTool(sessionId: string) {
+    return defineTool("edit_drawio_xml", {
+      description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-cell-attributes for mxCell attributes, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge.",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: { type: "string", minLength: 1, maxLength: 1000 },
+          patch: {
+            type: "array", minItems: 1, maxItems: 100,
+            items: {
+              oneOf: [
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-cell-attributes"] },
+                  cellId: { type: "string", minLength: 1 },
+                  attributes: { type: "object", additionalProperties: { oneOf: [{ type: "string" }, { type: "null" }] } }
+                }, required: ["op", "cellId", "attributes"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-geometry"] },
+                  cellId: { type: "string", minLength: 1 },
+                  geometry: { type: "object", properties: {
+                    x: { type: "number" }, y: { type: "number" },
+                    width: { type: "number" }, height: { type: "number" }
+                  }, minProperties: 1, additionalProperties: false }
+                }, required: ["op", "cellId", "geometry"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["set-geometry-xml"] },
+                  cellId: { type: "string", minLength: 1 },
+                  geometryXml: { type: "string", minLength: 1, maxLength: 100000 }
+                }, required: ["op", "cellId", "geometryXml"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["delete-cell"] },
+                  cellId: { type: "string", minLength: 1 }
+                }, required: ["op", "cellId"], additionalProperties: false },
+                { type: "object", properties: {
+                  op: { type: "string", enum: ["insert-cell-xml"] },
+                  parentId: { type: "string", minLength: 1 },
+                  cellXml: { type: "string", minLength: 1, maxLength: 200000 }
+                }, required: ["op", "parentId", "cellXml"], additionalProperties: false }
+              ]
+            }
+          }
+        },
+        required: ["summary", "patch"],
+        additionalProperties: false
+      },
+      handler: async (args: { summary?: unknown; patch?: unknown }) => {
+        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
+            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {
+          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };
+        }
+        const context = contextBySession.get(sessionId) as {
+          documentRevision?: string; activePageId?: string | null; standalone?: boolean; sourceXml?: string;
+        } | undefined;
+        if (!context?.standalone && !deps.commitWorkspaceXmlPatch) {
+          return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };        }
+        const snapshot = context?.standalone && typeof context.sourceXml === "string"
+          ? { drawioXml: context.sourceXml, revision: workspaceRevision(context.sourceXml) }
+          : await deps.getWorkspaceDiagramSnapshot();
+        if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
+          return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
+        }
+        const registration = registerTerminalIntent(sessionId, "native_edit");
+        if (!registration.accepted) {
+          return { accepted: false, terminal: false, reason: "terminal_action_already_registered", registeredKind: registration.registeredKind };
+        }
+        pendingXmlPatches.set(sessionId, {
+          patch: args.patch as Array<Record<string, unknown>>,
+          baseRevision: snapshot.revision,
+          pageId: typeof context.activePageId === "string" ? context.activePageId : null,
+          summary: args.summary.trim(),
+          standalone: context.standalone === true,
+          ...(context.standalone === true ? { sourceXml: context.sourceXml } : {})
+        });
+        await deps.writeLog("tool.edit_drawio_xml.accepted", {
+          sessionId, summary: args.summary.trim(), operationCount: args.patch.length,
+          baseRevision: snapshot.revision
+        });
+        return {
+          accepted: true, terminal: true, execution: "after_model_turn",
+          summary: args.summary.trim(), operationCount: args.patch.length,
+          instructions: "The server will apply and persist this XML patch after the model turn. Do not call another editing tool and do not claim success until the final persistence receipt is returned."
+        };
+      }
+    });
+  }
+
 /**
  * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
  * attempt receives the concrete serialized value it must assert, not just the missing field name.
@@ -197,8 +712,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           res.status(409).json({ outcome: "stale_context", reply: "The diagram changed before Copilot could process the request. Reload and retry.", error: "The supplied document revision does not match its XML snapshot.", documentRevision: suppliedRevision, requestId, sessionId });
           return;
         }
-        const suppliedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, suppliedRevision, requestedPageId);
-        if (!suppliedSnapshot.ok) {
+        const suppliedSnapshot = getCachedNativeDiagramSnapshot(diagramXml, suppliedRevision, requestedPageId);        if (!suppliedSnapshot.ok) {
           await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: suppliedSnapshot.reason, xmlLength: diagramXml.length });
           if (suppliedSnapshot.reason === "page-not-found") {
             res.status(409).json({ outcome: "stale_context", reply: "The active Draw.io page is no longer present in this document revision.", error: "The requested page is not present in this XML revision.", documentRevision, requestId, sessionId });
@@ -397,8 +911,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           throw new Error("Copilot request cancelled by client.");
         }
         // Keep the complete server-derived target index private to tools. The model-facing context is
-        // intentionally capped for prompt size, but target uniqueness must be checked against every cell
-        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
+        // intentionally capped for prompt size, but target uniqueness must be checked against every cell        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
         contextBySession.set(sessionId, {
           ...context, documentRevision, activePageId: identity.documentPageId,
           cells: allNativeCells, runtimeInspection: context.runtimeInspection,
@@ -597,8 +1110,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           await deps.writeLog("turn.completed.xml-patch-committed", {
             requestId, sessionId, summary: pendingXmlPatch.summary,
             baseRevision: pendingXmlPatch.baseRevision, receipt: body
-          });
-          res.json({
+          });          res.json({
             outcome: "xml_committed",
             reply: typeof body.workspaceRevision === "string"
               ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML。"
