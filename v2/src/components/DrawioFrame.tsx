@@ -578,43 +578,27 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             requestId, success: true,
             cellId: typeof data.cellId === "string" ? data.cellId : null,
             path: typeof data.path === "string" ? data.path : null,
-            batchResults: Array.isArray(data.batchResults) ? data.batchResults as NativeEditResult["batchResults"] : null,
           };
           const pending = requestId === null ? undefined : pendingNativeEditsRef.current.get(requestId);
           if (requestId !== null) pendingNativeEditsRef.current.delete(requestId);
+          if (requestId !== null && pending?.path === "cell:select") {
+            onNativeEditResultRef.current?.(nativeResult);
+            recordDiagnostic("drawio.selection.acknowledged", "Draw.io acknowledged the requested native selection", {
+              cellId: data.cellId, requestId, durationMs: Date.now() - pending.startedAt
+            });
+            return;
+          }
           if (requestId !== null && pending) {
             const previous = pendingSaveConfirmationsRef.current.get(requestId);
             if (previous?.timeoutId !== undefined) window.clearTimeout(previous.timeoutId);
             const confirmation: PendingSaveConfirmation = {
               ...pending,
-              ...(data.path === "cell:batch" ? { deferredBatchAck: nativeResult } : {})
             };
             confirmation.timeoutId = window.setTimeout(() => {
               if (pendingSaveConfirmationsRef.current.get(requestId) !== confirmation) return;
               pendingSaveConfirmationsRef.current.delete(requestId);
               const latestXml = lastSent.current;
               const latestChanged = latestXml !== confirmation.beforeXml && isDrawioXmlDocument(latestXml);
-              const errorMessage = latestChanged
-                ? "The document changed, but the requested edit could not be verified because no matching XML export arrived within 30 seconds."
-                : "No matching XML export arrived within 30 seconds; the edit state is unknown.";
-              recordDiagnostic("drawio.selection.property.save-confirmation.timeout",
-                latestChanged ? "The document changed but the native edit confirmation timed out"
-                  : "Timed out waiting for a matching serialized XML snapshot",
-                { requestId, cellId: confirmation.cellId, property: confirmation.path, latestChanged,
-                  timeoutMs: NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS, durationMs: Date.now() - confirmation.startedAt }, "warn");
-              if (confirmation.deferredBatchAck) {
-                onNativeEditResultRef.current?.({
-                  ...confirmation.deferredBatchAck,
-                  success: false,
-                  applicationState: latestChanged ? "changed-unverified" : "unknown",
-                  ...(latestChanged ? { serializedXml: latestXml } : {}),
-                  error: errorMessage,
-                  failureStage: "editor",
-                  auditWarning: latestChanged
-                    ? "Changes may already be present and saved. Do not retry this edit until the current diagram has been inspected."
-                    : "The edit state is unknown. Inspect the current diagram and History before retrying."
-                });
-              }
             }, NATIVE_SAVE_CONFIRMATION_TIMEOUT_MS);
             pendingSaveConfirmationsRef.current.set(requestId, confirmation);
           }
