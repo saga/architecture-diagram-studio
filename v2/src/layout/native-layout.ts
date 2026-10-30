@@ -1,10 +1,26 @@
-import dagre from "@dagrejs/dagre";
-import ELK from "elkjs/lib/elk.bundled.js";
 import { calculateAdditionalNativeLayout, type AdditionalLayoutEngine } from "./additional-layout-engines";
 import { parseDrawioXml } from "../model/drawio-xml-dom";
 import { decodeDrawioPageXml } from "../model/drawio-xml-schema";
 import { detectSpatialRegionsForLayout, type SpatialRegionLayoutCandidate } from "./spatial-region-analysis";
 import { isOrthogonalRouteClear, routeOrthogonalAvoidingObstacles } from "./orthogonal-router";
+
+type ElkRuntime = { layout(graph: unknown): Promise<unknown> };
+let elkRuntimePromise: Promise<ElkRuntime> | undefined;
+
+/** Load the large ELK engine only when the user first selects an ELK layout. */
+async function getElkRuntime(): Promise<ElkRuntime> {
+  if (!elkRuntimePromise) {
+    elkRuntimePromise = import("elkjs/lib/elk.bundled.js")
+      .then(({ default: Elk }) => new Elk({
+        algorithms: ["layered", "stress", "mrtree", "radial", "force", "rectpacking", "sporeCompaction", "sporeOverlap"]
+      }) as unknown as ElkRuntime)
+      .catch((error: unknown) => {
+        elkRuntimePromise = undefined;
+        throw error;
+      });
+  }
+  return elkRuntimePromise;
+}
 
 export const NATIVE_AUTO_LAYOUT_ENGINES = ["elk", "dagre", "graphviz", "msagl", "cytoscape", "d3"] as const;
 export type NativeAutoLayoutEngine = (typeof NATIVE_AUTO_LAYOUT_ENGINES)[number];
@@ -2093,6 +2109,7 @@ export async function calculateNativeAutoLayout(
       emulateEmbeddedFlowDirection(positions, routes, projection.layoutVertices, projection.edges, options.direction);
     }
   } else if (options.engine === "dagre") {
+    const { default: dagre } = await import("@dagrejs/dagre");
     const graph = new dagre.graphlib.Graph({ multigraph: true });
     graph.setDefaultEdgeLabel(() => ({}));
     const rankdir: Record<NativeAutoLayoutDirection, "LR" | "RL" | "TB" | "BT"> = {
@@ -2182,7 +2199,8 @@ export async function calculateNativeAutoLayout(
           };
         })
     };
-    const result = await elk.layout(graphInput as never) as unknown as ElkLayoutResult;
+    const elk = await getElkRuntime();
+    const result = await elk.layout(graphInput) as ElkLayoutResult;
     for (const node of result.children ?? []) {
       if (!nodeById.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
       positions.set(node.id, { x: Number(node.x), y: Number(node.y) });
