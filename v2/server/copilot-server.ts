@@ -198,6 +198,12 @@ type DiagramVersion = {
   label: string;
   drawioXml: string;
 };
+/** The save receipt identifies the version; the XML itself is fetched from the state route. */
+function summarizeDiagramVersion(version: DiagramVersion): Omit<DiagramVersion, "drawioXml"> {
+  const { drawioXml: _omitted, ...summary } = version;
+  return summary;
+}
+
 type WorkspaceState = {
   workspaceId?: string;
   diagramPath?: string | null;
@@ -1313,9 +1319,10 @@ app.put("/api/workspace/document", async (req, res) => {
             });
           } catch { /* Event logging is best-effort after the document commit. */ }
         }
-        return { status: 200 as const, saved: true, version, workspaceRevision: workspaceRevision(drawioXml) };
+        return { status: 200 as const, saved: true, version: summarizeDiagramVersion(version), workspaceRevision: workspaceRevision(drawioXml) };
       }
-      return { status: 200 as const, saved: false, version: workspaceVersions[workspaceVersions.length - 1] ?? null, workspaceRevision: currentRevision };
+      const latestVersion = workspaceVersions[workspaceVersions.length - 1];
+      return { status: 200 as const, saved: false, version: latestVersion ? summarizeDiagramVersion(latestVersion) : null, workspaceRevision: currentRevision };
     });
     if (result.status === 409) { res.status(409).json(result); return; }
     res.json({ ok: true, ...result, ...(xmlPatchReceipt ? { xmlPatch: xmlPatchReceipt } : {}) });

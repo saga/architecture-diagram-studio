@@ -190,7 +190,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
 
 function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_shapes", {
-      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System and Container recipes, the relationship edge recipe, and a relationship edge recipe. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
+      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System, Container and the relationship edge recipe together. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
         type: "object",
         properties: {
@@ -649,9 +649,14 @@ function createEditDrawioXmlTool(sessionId: string, deps: IntentDependencies) {
   }
 
 /**
- * Bounds the "declare this instead" hint attached to an undeclared native change so a repair
- * attempt receives the concrete serialized value it must assert, not just the missing field name.
+ * Full before/after XML diffing is a diagnostic, not part of committing a patch: the patch already
+ * reports which cells it changed. Enabled only for investigations, so a normal edit does not parse
+ * both documents and hash them again.
  */
+function xmlImpactLoggingEnabled(): boolean {
+  return process.env.STUDIO_XML_IMPACT_LOG === "1";
+}
+
 export function registerCopilotIntentRoute(app: Express, deps: IntentDependencies): void {
   app.post("/api/copilot/intent", async (req, res) => {
     let requestCancelled = false;
@@ -835,22 +840,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       cells: promptCells,
       ...(runtimeInspection ? { runtimeInspection } : {}),
     };
-    if (!standalone) {
-      let authoritative: { drawioXml: string; revision: string } | null;
-      try {
-        authoritative = await deps.getWorkspaceDiagramSnapshot();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "workspace_snapshot_unavailable", errorMessage: message });
-        res.status(502).json({ outcome: "failed", reply: "The server could not verify the workspace revision. No edit was dispatched.", error: message.slice(0, 1000), requestId, sessionId });
-        return;
-      }
-      if (!authoritative || authoritative.revision !== documentRevision || authoritative.drawioXml !== diagramXml) {
-        await deps.writeLog("request.validation.failed", { requestId, sessionId, reason: "stale_workspace_revision", requestedRevision: documentRevision, currentRevision: authoritative?.revision ?? null });
-        res.status(409).json({ outcome: "stale_context", reply: "The workspace diagram is not saved at the revision shown in the editor. Save or reload, then retry.", error: "The workspace diagram changed or has not been saved to this revision.", documentRevision: authoritative?.revision ?? null, requestId, sessionId });
-        return;
-      }
-    }
+    // The workspace revision was already verified against the authoritative snapshot above; a
+    // second read here could only re-confirm the same state, and any concurrent save is caught by
+    // the tool-call revision check and the post-turn check before a patch is applied.
     let modelChoice: Awaited<ReturnType<CopilotRuntime["resolveModel"]>>;
     try {
       modelChoice = await deps.copilot.resolveModel(requestedModel);
@@ -1013,7 +1005,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Use edit_drawio_xml for every diagram mutation. Read the current native Draw.io XML, identify the exact cells and page, then submit one focused patch containing only the required changes. Do not use typed operations, editor scripts, or a second editing path. Preserve all unrelated XML, UserObject attributes, rich labels, unknown metadata, and existing cell IDs. Never use plain-text replacements that would flatten markup; preserve rich HTML labels and nested markup through targeted XML edits. For any style or color change, use set-style-properties with only the keys you change (for example {\"fillColor\":\"#ff0000\"}); never rewrite the whole style attribute, and read style from search/inspection results only when you must match an existing value. For C4 diagrams, patch labels and individual style keys directly in the native XML, changing only the requested value and preserving the rest of the cell style and metadata. For C4 creation, call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe. That single query is the whole discovery step — do not call get_drawio_reference and do not search again. Use the returned exact styles and dimensions to build native mxCell XML fragments with edit_drawio_xml, preserve existing cells, and never generate JavaScript.; labelContains is Studio-only, not Draw.io XML. Studio diffs XML. Suggested C4 palette when the user asks for standard C4 styling: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colors and do not recolor unrelated cells. Resolve display labels with graph.convertValueToString(cell), rejecting zero or ambiguous matches. model.getValue(cell) may be a UserObject DOM Element: never String() it blindly. For a wrapped value, clone the element, update only its label attribute, and call model.setValue(cell, clone) so placeholders and metadata survive. For rich HTML labels with nested formatting/placeholders, patch only the intended text in the native XML while preserving markup, placeholders and wrapper metadata. Trust cell IDs from selectedCell, diagram.cells, or search/inspection results bound to this exact documentRevision; never reuse stale IDs. Never infer a cell is a C4 type unless the request or diagram context establishes it. Use edit_drawio_xml for every diagram mutation. Connector routing is a special case: an edge has no box geometry, so a reroute must be proved with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 alone bends nothing unless a waypoint exists."
+          editingGuidance: "Use edit_drawio_xml for every diagram mutation: read the current native XML, resolve exact cell IDs, and submit one focused patch that carries every target of the request — a second editing call in the same turn is rejected, so a split-out target would stay unedited. Do not use editor scripts or a second editing path. Preserve unrelated pages, cells, UserObject wrappers, custom shapes, unknown attributes, styles, geometry and relationships; never use plain-text replacements that flatten markup, and keep rich HTML labels and nested markup intact by patching only the intended attribute. For any style or colour change use set-style-properties with just the keys you change (for example {\"fillColor\":\"#ff0000\"}); never rewrite the whole style attribute, and read style from search or inspection results when you must match an existing value. In a UserObject wrapper the label/value attribute lives on the wrapper while style and geometry live on its inner mxCell; patch the element that owns the attribute and keep the wrapper intact. For C4 diagrams patch labels and individual style keys in place. For C4 creation call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe in a single query — do not call get_drawio_reference and do not search again; build the mxCell fragments from the returned exact styles and dimensions. Suggested C4 palette when standard C4 styling is requested: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colours and do not recolour unrelated cells. Trust cell IDs only from selectedCell, diagram.cells or search results bound to this exact documentRevision. Connector routing is a special case: an edge has no box geometry, so prove a reroute with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 bends nothing unless a waypoint exists."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1084,22 +1076,24 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               pendingXmlPatch.sourceXml, pendingXmlPatch.patch as Parameters<typeof applyDrawioXmlPatch>[1], pendingXmlPatch.pageId
             );
             const patchedRevision = workspaceRevision(patched.drawioXml);
-            let impact: Awaited<ReturnType<typeof interpretNativeXmlChange>> | null = null;
-            try {
-              impact = await interpretNativeXmlChange(pendingXmlPatch.sourceXml, patched.drawioXml);
-            } catch (impactError) {
-              await deps.writeLog("turn.completed.xml-impact.failed", {
-                requestId, sessionId, stage: "standalone-patch", error: impactError instanceof Error ? impactError.message : String(impactError)
-              });
-            }
             await deps.writeLog("turn.completed.xml-patch-prepared-for-browser-save", {
               requestId, sessionId, summary: pendingXmlPatch.summary, baseRevision: pendingXmlPatch.baseRevision,
-              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds,
-              ...(impact ? { xmlImpact: {
-                beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
-                changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
-              } } : {})
+              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds
             });
+            if (xmlImpactLoggingEnabled()) {
+              try {
+                const impact = await interpretNativeXmlChange(pendingXmlPatch.sourceXml, patched.drawioXml);
+                await deps.writeLog("turn.completed.xml-impact", {
+                  requestId, sessionId, stage: "standalone-patch",
+                  beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
+                  changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
+                });
+              } catch (impactError) {
+                await deps.writeLog("turn.completed.xml-impact.failed", {
+                  requestId, sessionId, stage: "standalone-patch", error: impactError instanceof Error ? impactError.message : String(impactError)
+                });
+              }
+            }
             res.json({
               outcome: "xml_patch_ready",
               reply: pendingXmlPatch.summary + "。服务端已修改并校验原生 Draw.io XML（" +
@@ -1127,23 +1121,29 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             });
             return;
           }
-          let impact: Awaited<ReturnType<typeof interpretNativeXmlChange>> | null = null;
-          try {
-            const committedSnapshot = await deps.getWorkspaceDiagramSnapshot();
-            if (committedSnapshot) impact = await interpretNativeXmlChange(diagramXml, committedSnapshot.drawioXml);
-          } catch (impactError) {
-            await deps.writeLog("turn.completed.xml-impact.failed", {
-              requestId, sessionId, stage: "workspace-commit", error: impactError instanceof Error ? impactError.message : String(impactError)
-            });
-          }
           await deps.writeLog("turn.completed.xml-patch-committed", {
             requestId, sessionId, summary: pendingXmlPatch.summary,
-            baseRevision: pendingXmlPatch.baseRevision, receipt: body,
-            ...(impact ? { xmlImpact: {
-              beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
-              changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
-            } } : {})
+            baseRevision: pendingXmlPatch.baseRevision, receipt: body
           });
+          // The patch already reports its changed cells; a full before/after diff of both documents
+          // is a diagnostic only, so it runs solely when explicitly requested.
+          if (xmlImpactLoggingEnabled()) {
+            try {
+              const committedSnapshot = await deps.getWorkspaceDiagramSnapshot();
+              if (committedSnapshot) {
+                const impact = await interpretNativeXmlChange(diagramXml, committedSnapshot.drawioXml);
+                await deps.writeLog("turn.completed.xml-impact", {
+                  requestId, sessionId, stage: "workspace-commit",
+                  beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
+                  changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
+                });
+              }
+            } catch (impactError) {
+              await deps.writeLog("turn.completed.xml-impact.failed", {
+                requestId, sessionId, stage: "workspace-commit", error: impactError instanceof Error ? impactError.message : String(impactError)
+              });
+            }
+          }
           // The save route nests the patch receipt under `xmlPatch`; only a patch-bearing save has it.
           const committedCells = body.xmlPatch && typeof body.xmlPatch === "object"
             ? (body.xmlPatch as { changedCellIds?: unknown }).changedCellIds

@@ -568,10 +568,10 @@ export default function App() {
     projectWorkspace, standaloneMode: Boolean(standaloneFileName), chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
     copilotSessionId, selectedNativeCellId, selectedNativePageId,
     getCurrentDiagramState: () => latestDiagramStateRef.current,
-    getRuntimeInspection: ({ documentRevision, pageId, jsShapeClassNames }) => {
+    getRuntimeInspection: ({ documentRevision, pageId }) => {
       const frame = drawioFrameRef.current;
       if (!frame) throw new Error("The native Draw.io frame is unavailable; no Agent request was sent.");
-      return frame.inspectRuntime({ documentRevision, pageId, jsShapeClassNames });
+      return frame.inspectRuntime({ documentRevision, pageId });
     },
     persistWorkspaceDocument: (xml, label) => persistDocumentNow(xml, label),
     onServerXmlCommitted: async () => {

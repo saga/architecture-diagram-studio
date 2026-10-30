@@ -35,13 +35,14 @@
 - Preserve unknown XML attributes, style keys, shape/stencil names, UserObject wrappers, nested children and future extension elements. Do not turn Draw.io's open format into a closed shape whitelist.
 - Validate mxfile, plain and compressed page payloads, bare mxGraphModel, root/mxCell/mxGeometry, defs, and the separate mxlibrary root through the appropriate schema entry point.
 - Page identity has one resolver: `resolveNativePageIdentity` in `v2/src/model/native-edit-operations.ts`. A bare `<mxGraphModel>` declares no page ID while the live editor reports its own, so requests, proposals, plans and XML comparisons use `documentPageId`, the live editor is addressed with `runtimePageId`, and an editor-generated ID must never be matched against the XML.
+- Cells, geometry, styles and connectors have one source: the native XML. The iframe inspection returns identity plus the `mxCellRenderer.defaultShapes` registry only; do not add a second cell/geometry projection to requests or prompts.
 - Do not run automatic layout during open/import. The native editor retains the geometry stored in the file.
 - Workspace saves/restores keep native XML paired with the server-issued SHA-256 revision and reject stale saves with HTTP 409. Standalone browser-owned files track a browser-calculated hash of the last observed source XML, compare it to `handle.getFile()` before writes, and use a separate Node.js revision for the snapshot stream; do not imply the Node.js history revision protects the original file.
 
 ## Single-canvas contract
 
 - The embedded native Draw.io editor is the only canvas. Do not reintroduce the custom SVG DiagramCanvas, a Studio/Freeform mode toggle, canvas-mode state, or a second production renderer.
-- Tests should use real native XML strings and validate XML preservation/schema, typed-operation validation, direct-script dispatch and iframe isolation, stale revisions, serialized-XML and persistence acknowledgement, failure/partial-state capture, watchdog recovery and history recovery. Do not add parity tests for the removed semantic graph or layout engines.
+- Tests should use real native XML strings and validate XML preservation/schema, XML patch application and rejection, revision and page binding, serialized-XML and persistence acknowledgement, and history recovery. Do not add parity tests for the removed semantic graph, typed operations, script dispatch, or layout engines.
 - When adding an optional native capability, test its plan/finding contract, active-page scoping, invalid input, stale revisions, and actual Draw.io bridge acknowledgement. Keep old design/research documents as guidance, not as instructions to restore retired components.
 
 ## Internal Agent boundary

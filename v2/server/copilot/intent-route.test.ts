@@ -6,7 +6,7 @@ import type { CopilotRuntime } from "./runtime";
 import { registerCopilotIntentRoute } from "./intent-route";
 import { workspaceRevision } from "../storage";
 import {
-  DRAWIO_RUNTIME_BRIDGE_VERSION, PINNED_DRAWIO_VERSION, PINNED_RUNTIME_CAPABILITY_REQUIREMENTS
+  DRAWIO_RUNTIME_BRIDGE_VERSION, PINNED_DRAWIO_VERSION
 } from "../../src/model/drawio-runtime-contract";
 
 const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
@@ -16,29 +16,14 @@ const XML = '<mxfile><diagram id="p1" name="Page 1"><mxGraphModel><root>' +
   '</root></mxGraphModel></diagram></mxfile>';
 
 function runtimeInspectionWithShapes(liveShapeClasses: string[], liveShapeClassesTruncated: boolean) {
-  const requirements = {
-    graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-    model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-    view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-  };
   return {
     schemaVersion: 1,
     bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
     drawioVersion: PINNED_DRAWIO_VERSION,
     documentRevision: workspaceRevision(XML),
     pageId: "p1",
-    capabilities: requirements,
-    capabilityManifest: {
-      required: requirements,
-      missing: { graph: [], model: [], view: [] },
-      jsShapeClasses: { requested: [], registered: {} }
-    },
-    counts: { cells: 4, vertices: 2, edges: 0 },
-    cells: [],
     liveShapeClasses,
-    liveShapeClassesTruncated,
-    renderedEdges: [],
-    truncated: liveShapeClassesTruncated
+    liveShapeClassesTruncated
   };
 }
 
@@ -354,9 +339,13 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("report_intent_outcome for information");
     expect(prompt.length).toBeLessThan(2800);
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
-    expect(firstRequest.editingGuidance).toContain("search/inspection results bound to this exact documentRevision");
-    expect(firstRequest.editingGuidance).toContain("plain-text replacements that would flatten markup");
-    expect(firstRequest.editingGuidance).toContain("labelContains is Studio-only, not Draw.io XML");
+    expect(firstRequest.editingGuidance).toContain("bound to this exact documentRevision");
+    expect(firstRequest.editingGuidance).toContain("plain-text replacements");
+    expect(firstRequest.editingGuidance).toContain("set-style-properties");
+    // The iframe script path is gone; guidance must not point the model at editor JS APIs.
+    expect(firstRequest.editingGuidance).not.toContain("convertValueToString");
+    expect(firstRequest.editingGuidance).not.toContain("model.setValue");
+    expect(firstRequest.editingGuidance).not.toContain("typed operations");
     expect(firstRequest.editingGuidance).not.toContain("expectedTitle");
   });
 
@@ -524,7 +513,8 @@ describe("Copilot intent route result and revision contract", () => {
       copilot: reportingCopilot("answered", "The diagram has two nodes."),
       snapshot: async () => {
         snapshots++;
-        return snapshots <= 2
+        // First read validates the request; the read after the model turn sees the newer document.
+        return snapshots <= 1
           ? { drawioXml: XML, revision: workspaceRevision(XML) }
           : { drawioXml: changedXml, revision: workspaceRevision(changedXml) };
       }
@@ -532,7 +522,7 @@ describe("Copilot intent route result and revision contract", () => {
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(409);
     expect(body.outcome).toBe("stale_context");
-    expect(snapshots).toBe(3);
+    expect(snapshots).toBe(2);
   });
 
   it("loads authoritative workspace XML when the request contains only a revision", async () => {

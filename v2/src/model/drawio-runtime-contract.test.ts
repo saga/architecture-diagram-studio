@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DRAWIO_RUNTIME_BRIDGE_VERSION,
   PINNED_DRAWIO_VERSION,
-  PINNED_RUNTIME_CAPABILITY_REQUIREMENTS,
   normalizeDrawioRuntimeInspection,
   RUNTIME_INSPECTION_LIMITS
 } from "./drawio-runtime-contract";
@@ -17,43 +15,41 @@ function inspection(overrides: Record<string, unknown> = {}) {
     drawioVersion: PINNED_DRAWIO_VERSION,
     documentRevision: revision,
     pageId: "page-1",
-    capabilities: {
-      graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-      model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-      view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-    },
-    capabilityManifest: {
-      required: {
-        graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-      },
-      missing: { graph: [], model: [], view: [] },
-      jsShapeClasses: { requested: ["mxgraph.c4.person2"], registered: { "mxgraph.c4.person2": true } }
-    },
-    counts: { cells: 1, vertices: 1, edges: 0 },
-    cells: [{
-      id: "svc", parentId: "1", kind: "vertex", label: "Service", style: "rounded=1;",
-      sourceId: null, targetId: null, connectable: true, visible: true, collapsed: false,
-      childCount: 0, geometry: { x: 10, y: 20, width: 100, height: 60, relative: false, points: [] }
-    }],
     liveShapeClasses: ["mxgraph.c4.person2", "mxgraph.flowchart.start", "constructor", "invalid name"],
     liveShapeClassesTruncated: false,
-    renderedEdges: [],
-    truncated: false,
     ...overrides
   };
 }
 
 describe("Draw.io runtime inspection contract", () => {
-  it("accepts matching observations and normalizes missing capability groups", () => {
+  it("accepts a matching observation and keeps only identity plus the shape registry", () => {
     const result = normalizeDrawioRuntimeInspection(inspection(), { documentRevision: revision, pageId: "page-1" });
+    expect(result).toEqual({
+      schemaVersion: 1,
+      bridgeVersion: DRAWIO_RUNTIME_BRIDGE_VERSION,
+      drawioVersion: PINNED_DRAWIO_VERSION,
+      documentRevision: revision,
+      pageId: "page-1",
+      liveShapeClasses: ["mxgraph.c4.person2", "mxgraph.flowchart.start"],
+      liveShapeClassesTruncated: false
+    });
+  });
+
+  it("drops the retired cell, capability and rendered-edge payloads", () => {
+    const result = normalizeDrawioRuntimeInspection(inspection({
+      cells: [{ id: "svc", kind: "vertex", label: "Service" }],
+      renderedEdges: [{ id: "e1", stateAvailable: true, absolutePoints: [{ x: 1, y: 2 }] }],
+      capabilities: { graph: ["insertVertex"], model: [], view: [] },
+      capabilityManifest: { required: {}, missing: {}, jsShapeClasses: { requested: [], registered: {} } },
+      counts: { cells: 1, vertices: 1, edges: 0 },
+      truncated: true
+    }));
     expect(result).not.toBeNull();
-    expect(result?.capabilities.graph).toContain("getDefaultParent");
-    expect(result?.capabilities.view).toContain("getState");
-    expect(result?.capabilityManifest.jsShapeClasses.registered["mxgraph.c4.person2"]).toBe(true);
-    expect(result?.cells[0]?.geometry).toMatchObject({ x: 10, y: 20, width: 100, height: 60 });
-    expect(result?.liveShapeClasses).toEqual(["mxgraph.c4.person2", "mxgraph.flowchart.start"]);
+    expect(result).not.toHaveProperty("cells");
+    expect(result).not.toHaveProperty("renderedEdges");
+    expect(result).not.toHaveProperty("capabilities");
+    expect(result).not.toHaveProperty("capabilityManifest");
+    expect(result).not.toHaveProperty("truncated");
   });
 
   it("discovers the active page when the caller has not resolved a page ID yet", () => {
@@ -64,163 +60,26 @@ describe("Draw.io runtime inspection contract", () => {
     expect(result?.pageId).toBe("live-page-2");
   });
 
-  it("keeps source-registry truncation separate from per-query truncation", () => {
+  it("bounds the registry and reports truncation inferred from the payload", () => {
     const classes = Array.from(
       { length: RUNTIME_INSPECTION_LIMITS.liveShapeClasses + 1 },
       (_, index) => "mxgraph.test.shape" + index
     );
-    const inferredTruncation = normalizeDrawioRuntimeInspection(inspection({
-      liveShapeClasses: classes,
-      truncated: false
-    }), { documentRevision: revision, pageId: "page-1" });
-    expect(inferredTruncation?.liveShapeClasses).toHaveLength(RUNTIME_INSPECTION_LIMITS.liveShapeClasses);
-    expect(inferredTruncation?.liveShapeClassesTruncated).toBe(true);
-    expect(inferredTruncation?.truncated).toBe(true);
+    const inferred = normalizeDrawioRuntimeInspection(inspection({ liveShapeClasses: classes }));
+    expect(inferred?.liveShapeClasses).toHaveLength(RUNTIME_INSPECTION_LIMITS.liveShapeClasses);
+    expect(inferred?.liveShapeClassesTruncated).toBe(true);
 
-    const explicitTruncation = normalizeDrawioRuntimeInspection(inspection({
+    const explicit = normalizeDrawioRuntimeInspection(inspection({
       liveShapeClasses: ["mxgraph.c4.person2"],
-      liveShapeClassesTruncated: true,
-      truncated: false
-    }), { documentRevision: revision, pageId: "page-1" });
-    expect(explicitTruncation?.liveShapeClassesTruncated).toBe(true);
-    expect(explicitTruncation?.truncated).toBe(true);
-  });
-
-  it("normalizes shape registration queries independently from stencil lookup", () => {
-    const result = normalizeDrawioRuntimeInspection(inspection({
-      capabilityManifest: {
-        required: {
-          graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-          model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-          view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-        },
-        missing: { graph: [], model: [], view: [] },
-        jsShapeClasses: {
-          requested: ["mxgraph.c4.person2", "mxgraph.missing", "mxgraph.c4.person2", "not a shape", "constructor"],
-          registered: { "mxgraph.c4.person2": true, "mxgraph.missing": false, "not requested": true }
-        }
-      }
+      liveShapeClassesTruncated: true
     }));
-    expect(result?.capabilityManifest.jsShapeClasses).toEqual({
-      requested: ["mxgraph.c4.person2", "mxgraph.missing"],
-      registered: { "mxgraph.c4.person2": true, "mxgraph.missing": false }
-    });
-  });
-
-  it("bounds the number of queried shape names", () => {
-    const names = Array.from({ length: RUNTIME_INSPECTION_LIMITS.jsShapeClassNames + 10 }, (_, index) => "mxgraph.test.shape" + index);
-    const registered = Object.fromEntries(names.map((name) => [name, true]));
-    const result = normalizeDrawioRuntimeInspection(inspection({
-      capabilityManifest: {
-        required: {
-          graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-          model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-          view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-        },
-        missing: { graph: [], model: [], view: [] },
-        jsShapeClasses: { requested: names, registered }
-      }
-    }));
-    expect(result?.capabilityManifest.jsShapeClasses.requested).toHaveLength(RUNTIME_INSPECTION_LIMITS.jsShapeClassNames);
-    expect(Object.keys(result?.capabilityManifest.jsShapeClasses.registered ?? {})).toHaveLength(RUNTIME_INSPECTION_LIMITS.jsShapeClassNames);
-  });
-
-  it("keeps documented API ownership in sync with the required runtime manifest", () => {
-    const contract = readFileSync(new URL("../../../docs/DRAWIO-AGENT-API-CONTRACT.md", import.meta.url), "utf8");
-    const plugin = readFileSync(new URL("../../plugins/studio-selection-plugin.js", import.meta.url), "utf8");
-    for (const methods of Object.values(PINNED_RUNTIME_CAPABILITY_REQUIREMENTS)) {
-      for (const method of methods) expect(contract).toContain(method);
-    }
-    for (const group of ["graph", "model", "view"] as const) {
-      const declaration = new RegExp(group + ":\\s*\\[([^\\]]*)\\]").exec(plugin);
-      expect(declaration, "plugin required capability group " + group).not.toBeNull();
-      const pluginMethods = [...(declaration?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-      expect(pluginMethods).toEqual([...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS[group]]);
-    }
-    expect(contract).toContain("Never call `model.getDefaultParent()`");
-    expect(contract).not.toContain("labelOnCurve=1");
+    expect(explicit?.liveShapeClassesTruncated).toBe(true);
   });
 
   it("rejects observations from a stale document, page, bridge, or Draw.io version", () => {
     expect(normalizeDrawioRuntimeInspection(inspection(), { documentRevision: "b".repeat(64), pageId: "page-1" })).toBeNull();
     expect(normalizeDrawioRuntimeInspection(inspection(), { documentRevision: revision, pageId: "page-2" })).toBeNull();
-    expect(normalizeDrawioRuntimeInspection(inspection({ bridgeVersion: "unknown" }))).toBeNull();
+    expect(normalizeDrawioRuntimeInspection(inspection({ bridgeVersion: "studio-native-runtime/4" }))).toBeNull();
     expect(normalizeDrawioRuntimeInspection(inspection({ drawioVersion: "v32.2.1" }))).toBeNull();
-  });
-
-  it("bounds the cell, edge, and method payload before it reaches the model prompt", () => {
-    const manyMethods = Array.from({ length: RUNTIME_INSPECTION_LIMITS.methodsPerObject + 20 }, (_, i) => "method" + i);
-    const manyCells = Array.from({ length: RUNTIME_INSPECTION_LIMITS.cells + 20 }, (_, i) => ({
-      id: "cell-" + i, kind: "cell", label: "x".repeat(1000), style: "s".repeat(5000)
-    }));
-    const manyEdges = Array.from({ length: RUNTIME_INSPECTION_LIMITS.renderedEdges + 20 }, (_, i) => ({
-      id: "edge-" + i, stateAvailable: true, absolutePoints: [], collinear: null
-    }));
-    const result = normalizeDrawioRuntimeInspection(inspection({
-      capabilities: {
-        graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph, ...manyMethods],
-        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-      },
-      capabilityManifest: {
-        required: {
-          graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-          model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-          view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-        },
-        missing: { graph: [], model: [], view: [] }
-      },
-      cells: manyCells,
-      renderedEdges: manyEdges,
-      truncated: false
-    }));
-    expect(result?.capabilities.graph).toHaveLength(RUNTIME_INSPECTION_LIMITS.methodsPerObject);
-    expect(result?.cells).toHaveLength(RUNTIME_INSPECTION_LIMITS.cells);
-    expect(result?.renderedEdges).toHaveLength(RUNTIME_INSPECTION_LIMITS.renderedEdges);
-    expect(result?.cells[0]?.label).toHaveLength(250);
-    expect(result?.cells[0]?.style).toHaveLength(400);
-    expect(result?.truncated).toBe(true);
-  });
-
-  it("reports missing Graph methods as diagnostics without an execution gate", () => {
-    const graph = [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph].filter((method) => method !== "getDefaultParent");
-    const result = normalizeDrawioRuntimeInspection(inspection({
-      capabilities: {
-        graph,
-        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-      },
-      capabilityManifest: {
-        required: {
-          graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-          model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-          view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-        },
-        missing: { graph: ["getDefaultParent"], model: [], view: [] }
-      }
-    }));
-    expect(result?.capabilityManifest.missing.graph).toContain("getDefaultParent");
-    expect(result?.capabilities.graph).not.toContain("getDefaultParent");
-  });
-
-  it("drops invalid methods and non-finite rendered coordinates", () => {
-    const result = normalizeDrawioRuntimeInspection(inspection({
-      capabilities: {
-        graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph, "not a method", 3],
-        model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-        view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-      },
-      capabilityManifest: {
-        required: {
-          graph: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph],
-          model: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.model],
-          view: [...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.view]
-        },
-        missing: { graph: [], model: [], view: [] }
-      },
-      renderedEdges: [{ id: "edge", stateAvailable: true, absolutePoints: [{ x: 1, y: 2 }, { x: Number.NaN, y: 4 }], collinear: null }]
-    }));
-    expect(result?.capabilities.graph).toEqual([...PINNED_RUNTIME_CAPABILITY_REQUIREMENTS.graph]);
-    expect(result?.renderedEdges[0]?.absolutePoints).toEqual([{ x: 1, y: 2 }]);
   });
 });

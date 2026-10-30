@@ -16,11 +16,10 @@ export interface AIProviderConfig {
 export interface AIIntentContext {
   kind: "drawio";
   title: string;
-  selectedCell?: { cellId: string; pageId: string | null; label: string } | null;
+  /** Cell identity only: the server resolves the label against its own snapshot of the same revision. */
+  selectedCell?: { cellId: string; pageId: string | null } | null;
   activePageId?: string | null;
-  /** Native Draw.io cells from the active page, not a parallel document model. */
-  cells: Array<{ id: string; name: string; cellType?: "vertex" | "edge" }>;
-  /** Live, read-only API/cell/rendered-edge snapshot tied to the same XML revision and page. */
+  /** Live, read-only runtime snapshot tied to the same XML revision and page. */
   runtimeInspection?: DrawioRuntimeInspection;
 }
 
@@ -140,7 +139,6 @@ export async function requestAIIntentPlan(
   recordDiagnostic("copilot.agent.request.started", "Sent a native Draw.io request to the same-origin Copilot SDK service", {
     model: model || "server-default",
     promptCharacters: prompt.length,
-    nativeCellCount: context.cells.length,
     selectedCellPresent: Boolean(context.selectedCell)
   });
   let response: Response;

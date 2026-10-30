@@ -51,7 +51,7 @@ export interface DrawioFrameHandle {
   redo(): void;
   /** Applies an active-page color plan in one native Draw.io model transaction. */
   applyPalette(plan: NativePalettePlan): Promise<string>;
-  inspectRuntime(input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }): Promise<DrawioRuntimeInspection>;
+  inspectRuntime(input: { documentRevision: string; pageId: string | null }): Promise<DrawioRuntimeInspection>;
   /** Applies a revision/page-bound Studio layout geometry plan to native Draw.io cells. */
   applyAutoLayout(plan: NativeLayoutPlan): Promise<string>;
 }
@@ -290,7 +290,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       }
       });
     },
-    inspectRuntime: ({ documentRevision, pageId, jsShapeClassNames }) => new Promise((resolve, reject) => {
+    inspectRuntime: ({ documentRevision, pageId }) => new Promise((resolve, reject) => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) {
         reject(new Error("The native Draw.io runtime is not ready for inspection. Wait for the editor status to become ready, then retry."));
@@ -310,10 +310,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
           requestId,
           documentRevision,
           drawioVersion: DRAWIO_VERSION,
-          expectedPageId: pageId,
-          maxCells: 60,
-          maxRenderedEdges: 24,
-          jsShapeClassNames: Array.isArray(jsShapeClassNames) ? jsShapeClassNames.slice(0, 40) : []
+          expectedPageId: pageId
         }), DRAWIO_ORIGIN);
         recordDiagnostic("drawio.runtime-inspection.requested", "Requested a read-only snapshot of the live native Draw.io runtime", {
           requestId, documentRevision, pageId, drawioVersion: DRAWIO_VERSION
@@ -524,11 +521,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
             } else {
               recordDiagnostic("drawio.runtime-inspection.completed", "Received a bounded read-only snapshot of the live native Draw.io runtime", {
                 requestId, documentRevision: inspection.documentRevision, pageId: inspection.pageId,
-                cellCount: inspection.counts.cells, vertexCount: inspection.counts.vertices, edgeCount: inspection.counts.edges,
-                returnedCells: inspection.cells.length, returnedRenderedEdges: inspection.renderedEdges.length,
-                truncated: inspection.truncated,
-                graphMethodCount: inspection.capabilities.graph.length, modelMethodCount: inspection.capabilities.model.length,
-                viewMethodCount: inspection.capabilities.view.length
+                liveShapeClassCount: inspection.liveShapeClasses.length,
+                liveShapeClassesTruncated: inspection.liveShapeClassesTruncated
               });
               pending.resolve(inspection);
             }
@@ -539,18 +533,10 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
         setBridgeReady(true);
         onHistoryStateChangeRef.current?.({ canUndo: false, canRedo: false });
         const advertisedVersion = typeof data.drawioVersion === "string" ? data.drawioVersion : null;
-        const manifest = data.capabilityManifest && typeof data.capabilityManifest === "object"
-          ? data.capabilityManifest as { missing?: Record<string, unknown> }
-          : null;
-        const missing = manifest?.missing && typeof manifest.missing === "object" ? manifest.missing : {};
-        const hasMissing = ["graph", "model", "view"].some((group) =>
-          Array.isArray(missing[group]) && (missing[group] as unknown[]).length > 0
-        );
-        const compatible = advertisedVersion === DRAWIO_VERSION && !hasMissing;
-        // In local AI-first mode the manifest is diagnostic evidence, never a permission gate.
-        recordDiagnostic(compatible ? "drawio.runtime-manifest.compatible" : "drawio.runtime-manifest.diagnostic-mismatch",
-          compatible ? "The observed Draw.io runtime manifest matches the curated contract" : "The observed Draw.io runtime manifest differs from the curated native-editor contract",
-          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION, missing }, compatible ? "info" : "warn");
+        const compatible = advertisedVersion === DRAWIO_VERSION;
+        recordDiagnostic(compatible ? "drawio.bridge.version-match" : "drawio.bridge.version-mismatch",
+          compatible ? "The embedded Draw.io build matches the pinned version" : "The embedded Draw.io build differs from the pinned version",
+          { frameKey, advertisedVersion, expectedVersion: DRAWIO_VERSION }, compatible ? "info" : "warn");
         recordDiagnostic("drawio.bridge.ready", "Native Draw.io selection and property bridge is ready", { frameKey });
         recordDiagnostic("drawio.plugin.bridge.ready", "The native Draw.io selection and property-edit plugin is ready", { frameKey });
       }

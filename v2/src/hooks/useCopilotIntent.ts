@@ -1,9 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { calculateDrawioXmlRevision, requestAIIntentPlan } from "../intent/aiProvider";
-import {
-  extractNativeEditTargets,
-  resolveNativePageIdentity
-} from "../model/native-edit-operations";
+import { resolveNativePageIdentity } from "../model/native-edit-operations";
 import { recordDiagnostic } from "../diagnostics";
 import { compareCopilotRequestContext, type CopilotRequestDiagramState } from "../model/copilot-stale-context";
 import type { DrawioRuntimeInspection } from "../model/drawio-runtime-contract";
@@ -66,7 +63,7 @@ interface CopilotIntentOptions {
   selectedNativePageId: string | null;
   getCurrentDiagramState?: () => { drawioXml: string; selectedNativeCellId: string | null; selectedNativePageId: string | null };
   /** Read-only iframe inspection, matched to the XML revision/page about to be sent to the Agent. */
-  getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null; jsShapeClassNames?: string[] }) => Promise<DrawioRuntimeInspection>;
+  getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   onServerXmlCommitted?: () => Promise<void>;
   onStandaloneXmlPatchReady?: (xml: string) => Promise<void>;
@@ -133,16 +130,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
       let activePageId = pageIdentity.runtimePageId;
       let runtimeInspection: DrawioRuntimeInspection | undefined;
       if (getRuntimeInspection) {
-        const requestedJsShapeClassNames = new Set<string>();
-        for (const match of requestText.match(/\bmxgraph(?:\.[A-Za-z0-9_-]+)+\b/gi) ?? []) {
-          if (requestedJsShapeClassNames.size < 40) requestedJsShapeClassNames.add(match);
-        }
         // A multi-page mxfile may arrive before the iframe's initial page-selection event has
         // reached React. Ask the live editor to identify its active page instead of rejecting a
         // valid inspection merely because the caller supplied pageId=null.
-        runtimeInspection = await getRuntimeInspection({
-          documentRevision, pageId: activePageId, jsShapeClassNames: [...requestedJsShapeClassNames].slice(0, 40)
-        });
+        runtimeInspection = await getRuntimeInspection({ documentRevision, pageId: activePageId });
         if (runtimeInspection.documentRevision !== documentRevision ||
             (activePageId !== null && runtimeInspection.pageId !== activePageId)) {
           throw new Error("The live Draw.io inspection did not match the source XML revision and active page. No Agent request was sent.");
@@ -171,22 +162,10 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         sourceSelectedCellId = afterInspection.selectedNativeCellId;
       }
 
-      let nativeTargets: Array<{ id: string; name: string; cellType: "vertex" | "edge" }> = [];
       // Re-resolve once the editor has confirmed the active page: the request carries the document
       // identity, which is null for a bare mxGraphModel.
       pageIdentity = resolveNativePageIdentity(sourceXml, activePageId);
       const requestPageId = pageIdentity.documentPageId;
-      try {
-        nativeTargets = extractNativeEditTargets(sourceXml, requestPageId);
-      } catch (error) {
-        recordDiagnostic("copilot.native-context.parse-failed", "Could not index native Draw.io cells from the current XML", {
-          errorMessage: error instanceof Error ? error.message : String(error), xmlLength: sourceXml.length,
-          requestedPageId: requestPageId, runtimePageId: runtimeInspection?.pageId ?? null
-        }, "error");
-        throw new Error("Could not read cells from the active Draw.io page: " +
-          (error instanceof Error ? error.message : String(error)) + ". No Agent request was sent.");
-      }
-      let selectedTarget = nativeTargets.find((target) => target.id === sourceSelectedCellId);
       const getStateForResolvedPage = () => {
         const state = getCurrentDiagramState?.() ?? { drawioXml, selectedNativeCellId, selectedNativePageId };
         return state.selectedNativePageId || !activePageId
@@ -201,11 +180,9 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
           kind: "drawio",
           title: pageIdentity.title || "Draw.io diagram",
           activePageId: requestPageId,
-          selectedCell: sourceSelectedCellId ? {
-            cellId: sourceSelectedCellId, pageId: requestPageId,
-            label: selectedTarget?.name || ""
-          } : null,
-          cells: nativeTargets,
+          // The server resolves the selection against its own snapshot; a client-side label would be
+          // thrown away, and building it meant parsing the whole document on the UI thread.
+          selectedCell: sourceSelectedCellId ? { cellId: sourceSelectedCellId, pageId: requestPageId } : null,
           ...(runtimeInspection ? { runtimeInspection } : {})
         }
       );

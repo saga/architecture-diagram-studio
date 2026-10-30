@@ -4,7 +4,7 @@ import { readDrawioAgentReference, selectDrawioReferenceSections } from "./drawi
 describe("on-demand Draw.io reference", () => {
   it("returns only the requested section", async () => {
     const content = await readDrawioAgentReference("shape_discovery");
-    expect(content).toContain("jsShapeClasses.registered");
+    expect(content).toContain("liveShapeClasses");
     expect(content).toContain("not exhaustive");
     expect(content).not.toContain("### Enumerate all cells");
   });
