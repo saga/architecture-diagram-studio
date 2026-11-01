@@ -183,7 +183,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
         return {
           recorded: true, accepted: true, terminal: true, outcome: report.outcome,
           replaceableByDocumentWrite: true,
-          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly a complete native XML file write instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit multiple complete XML writees."
+          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly a complete native XML file write instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. You may write multiple times; the latest complete XML is saved."
         };
       }
     });
@@ -611,6 +611,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
       }
       if (context.standalone === true) return { ok: false, error: "Standalone mode exposes only $active-diagram." };
       if (!deps.writeWorkspaceFile) return { ok: false, error: "Workspace file writing is unavailable." };
+      const registration = registerTerminalIntent(sessionId, "document_write");
+      if (!registration.accepted) return { ok: false, error: "A different terminal action is already queued.", registeredKind: registration.registeredKind };
       await deps.writeWorkspaceFile(args.path, args.content);
       const writtenPaths = completedFileWrites.get(sessionId) || [];
       writtenPaths.push(args.path);
@@ -835,7 +837,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     };
     // The workspace revision was already verified against the authoritative snapshot above; a
     // second read here could only re-confirm the same state, and any concurrent save is caught by
-    // the tool-call revision check and the post-turn check before a patch is applied.
+    // the tool-call revision check and the post-turn check before the complete XML is committed.
     let modelChoice: Awaited<ReturnType<CopilotRuntime["resolveModel"]>>;
     try {
       modelChoice = await deps.copilot.resolveModel(requestedModel);
@@ -1010,7 +1012,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (!capturedSelection && !capturedReportedOutcome && !pendingDocumentWrites.has(sessionId) && !completedFileWrites.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use write for every diagram mutation. Read-only tools may be used for discovery, then write the complete native XML file. Use read/write/write_code as ordinary file tools; do not use an XML operation language or editor scripts. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a write, you may continue reading and writing to verify or refine the result. The queued document write is committed after this model turn; you may continue reading and writing before finishing. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Write the complete saved mxfile XML directly with write or claim success until the complete XML write has been validated and persisted.",
+            request: "Use the general read/write/write_code tools like ordinary file tools. Read $active-diagram, edit its native XML directly, and write the complete XML. You may perform multiple reads and writes; the latest complete XML is committed after this turn. Do not use a patch language, operation whitelist, typed mutation tool or editor script. Use write_code for source files and write for other workspace files. For pure focus use select_diagram_element. For information use report_intent_outcome(answered). Ask for clarification only when genuinely necessary. Never claim a diagram write succeeded before the persistence receipt.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
@@ -1048,7 +1050,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
-        ? "The model stream failed after an complete XML write was accepted; Studio is continuing with the accepted complete XML and will verify server-side validation and persistence. "
+        ? "The model stream failed after a complete XML write was accepted; Studio is continuing with the accepted complete XML and will verify server-side validation and persistence. "
         : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
