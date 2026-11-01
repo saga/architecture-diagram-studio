@@ -33,7 +33,7 @@ test("Copilot edits the authoritative Draw.io XML and refreshes the editor", asy
     const updatedXml = sourceXml.replace('value="Database"', 'value="Primary Database"');
     expect(updatedXml).not.toBe(sourceXml);
     const save = await request.put("/api/workspace/document", {
-      data: { drawioXml: updatedXml, label: "Copilot XML-first patch", baseRevision: String(body.documentRevision ?? "") }
+      data: { drawioXml: updatedXml, label: "Copilot direct XML write", baseRevision: String(body.documentRevision ?? "") }
     });
     expect(save.status(), await save.text()).toBe(200);
     const saved = await (await request.get("/api/workspace/state")).json() as { drawioXml: string; workspaceRevision: string };
@@ -41,7 +41,7 @@ test("Copilot edits the authoritative Draw.io XML and refreshes the editor", asy
       status: 200, contentType: "application/json",
       body: JSON.stringify({
         outcome: "xml_committed",
-        reply: "Applied the server-side XML patch and refreshed the current document.",
+        reply: "Applied the server-side complete XML write and refreshed the current document.",
         requestId: "55555555-5555-4555-8555-555555555555",
         persistence: { workspaceRevision: saved.workspaceRevision },
         sessionId: body.sessionId || "e2e-xml-first-commit",
@@ -55,7 +55,7 @@ test("Copilot edits the authoritative Draw.io XML and refreshes the editor", asy
   const input = page.locator('textarea[placeholder^="Describe the change"]');
   await input.fill("Rename Database to Primary Database");
   await input.press("Enter");
-  await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied the server-side XML patch");
+  await expect(page.locator(".gemini-message.assistant").last()).toContainText("Applied the server-side complete XML write");
   await expect(nativeFrame(page).getByText("Primary Database", { exact: true })).toBeVisible();
   await expect.poll(async () => {
     const saved = await (await request.get("/api/workspace/state")).json() as { drawioXml: string };
@@ -68,7 +68,7 @@ test("Copilot edits the authoritative Draw.io XML and refreshes the editor", asy
   expect(ackCalls).toBe(0);
 });
 
-test("Copilot reports a rejected XML patch without claiming that a change was applied", async ({ page, request }) => {
+test("Copilot reports a rejected complete XML write without claiming that a change was applied", async ({ page, request }) => {
   const workspace = await createWorkspace(request);
   await openStudio(page);
   await waitForNativeEditor(page);
@@ -83,7 +83,7 @@ test("Copilot reports a rejected XML patch without claiming that a change was ap
       status: 200, contentType: "application/json",
       body: JSON.stringify({
         outcome: "failed",
-        reply: "Nothing was applied because the XML patch failed validation.",
+        reply: "Nothing was applied because the complete XML write failed validation.",
         error: "The requested cell could not be resolved in the current document revision.",
         sessionId: "e2e-rejected-xml-patch", model: "stub-model", provider: "github-copilot-sdk",
         durationMs: 1, toolsUsed: ["read", "write"]
@@ -92,7 +92,7 @@ test("Copilot reports a rejected XML patch without claiming that a change was ap
   });
   await page.getByRole("tab", { name: "Copilot" }).click();
   const input = page.locator('textarea[placeholder^="Describe the change"]');
-  await input.fill("Apply an XML patch against a missing cell");
+  await input.fill("Apply an complete XML write against a missing cell");
   await input.press("Enter");
   const resultMessage = page.locator(".gemini-message.assistant").last();
   await expect(resultMessage).toContainText("Nothing was applied");
