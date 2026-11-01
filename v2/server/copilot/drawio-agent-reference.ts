@@ -62,7 +62,7 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
   const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
   const safeOverview = [
     XML_FIRST_CONTRACT,
-    "Server responsibilities: resolve targets against the active revision, apply cell-scoped patches to native XML, validate the result, and persist through the existing versioned document-save transaction.",
+    "Server responsibilities: resolve targets against the active revision, apply complete native XML documents, validate the result, and persist through the existing versioned document-save transaction.",
     shapeDiscovery
   ].filter(Boolean).join("\\n\\n");
   let selected: string;
@@ -73,7 +73,7 @@ export function selectDrawioReferenceSections(markdown: string, topic: DrawioRef
   } else if (topic === "postconditions") {
     selected = XML_FIRST_CONTRACT + "\\n\\nXML validation is required before persistence. A successful tool call is not a persistence receipt; only the server's successful versioned-save response confirms the commit.";
   } else if (topic === "recipes") {
-    selected = XML_PATCH_RECIPES;
+    selected = XML_DIRECT_RECIPES;
   } else {
     selected = XML_FIRST_CONTRACT;
   }
