@@ -137,8 +137,8 @@ async function buildSystemMessage(deps: IntentDependencies, standalone = false):
     const workspaceContext = standalone
       ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
       : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
-    const tools = [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
-  }
+  return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
+}
 
 function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("report_intent_outcome", {
@@ -631,7 +631,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     }
   };
 
-  return [
+  const tools = [
     defineTool("read", {
       description: "Read a workspace file exactly as stored. Use $active-diagram for the current native Draw.io XML. Large files can be read in chunks with offset and limit. Paths are relative to the configured workspace.",
       parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, offset: { type: "integer", minimum: 0, default: 0 }, limit: { type: "integer", minimum: 1, maximum: 100000, default: 40000 } }, required: ["path"], additionalProperties: false },
