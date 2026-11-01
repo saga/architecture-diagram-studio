@@ -62,4 +62,4 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 
 ## Validation
 
-Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, cell-scoped patch validation, stale revision conflicts, workspace persistence, standalone patch receipts and version recovery. Do not add parity tests for a removed semantic graph.
+Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, complete XML validation, stale revision conflicts, workspace persistence, standalone complete-XML write receipts and version recovery. Do not add parity tests for a removed semantic graph.
