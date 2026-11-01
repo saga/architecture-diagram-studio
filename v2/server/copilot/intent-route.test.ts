@@ -380,9 +380,9 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("report_intent_outcome for information");
     expect(prompt.length).toBeLessThan(2800);
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
-    expect(firstRequest.editingGuidance).toContain("bound to this exact documentRevision");
-    expect(firstRequest.editingGuidance).toContain("plain-text replacements");
-    expect(firstRequest.editingGuidance).toContain("complete result");
+    expect(firstRequest.editingGuidance).toContain("Read the active diagram");
+    expect(firstRequest.editingGuidance).toContain("write the complete result");
+    expect(firstRequest.editingGuidance).toContain("multiple reads and writes");
     // The iframe script path is gone; guidance must not point the model at editor JS APIs.
     expect(firstRequest.editingGuidance).not.toContain("convertValueToString");
     expect(firstRequest.editingGuidance).not.toContain("model.setValue");
