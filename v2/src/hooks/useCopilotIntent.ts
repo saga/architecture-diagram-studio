@@ -250,7 +250,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         recordDiagnostic("copilot.xml-edit.standalone-write-applied",
           "Applied the complete revision-checked server XML to the standalone editor; browser file-handle persistence will confirm the write",
           { requestId: plan.requestId, sourceRevision: plan.documentRevision,
-            writtenRevision: plan.writtenRevision, writtenRevision: plan.writtenRevision });
+            writtenRevision: plan.writtenRevision });
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply.replace("正在交由浏览器写回所选本地文件。", "浏览器已将变更写回所选本地文件。") }]);
         return;
       }
