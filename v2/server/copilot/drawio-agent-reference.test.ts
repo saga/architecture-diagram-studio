@@ -8,6 +8,12 @@ describe("on-demand Draw.io reference", () => {
     expect(content).toContain("not exhaustive");
     expect(content).not.toContain("### Enumerate all cells");
   });
+  it("provides useful shape-discovery guidance when the source document has no matching section", () => {
+    const content = selectDrawioReferenceSections("# Reference\\n\\n## API ownership\\nFile ownership.", "shape_discovery");
+    expect(content).toContain("search_drawio_shapes");
+    expect(content).toContain("liveShapeClasses");
+    expect(content).toContain("not exhaustive");
+  });
   it("does not expose retired script recipes through on-demand references", async () => {
     const shapeDiscovery = await readDrawioAgentReference("shape_discovery");
     const recipes = await readDrawioAgentReference("recipes");
