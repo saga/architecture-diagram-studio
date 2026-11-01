@@ -1054,6 +1054,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const toolsUsed = Array.from(usedFileTools.get(sessionId) ?? []);
       usedFileTools.delete(sessionId);
       if (plan.capturedSelection && !toolsUsed.includes("select_diagram_element")) toolsUsed.push("select_diagram_element");
+      const completedWrites = completedFileWrites.get(sessionId) ?? [];
+      const workspaceFilesWritten = Array.from(new Set(completedWrites.map(({ path: writtenPath }) => writtenPath)));
       const terminalIntentWarning = plan.terminalIntentModelFailure
         ? "The model stream failed after a complete XML write was accepted; Studio is continuing with the accepted complete XML and will verify server-side validation and persistence. "
         : "";
@@ -1062,6 +1064,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         ...(plan.terminalIntentModelFailure ? { modelTurnWarning: plan.terminalIntentModelFailure.error } : {}),
         reasoningEffort: plan.session.reasoningEffort || "model-default",
         provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed,
+        ...(workspaceFilesWritten.length ? { workspaceFilesWritten } : {}),
         ...(plan.usage ? { usage: plan.usage } : {}),
         ...(plan.modelCallUsages.length ? { modelCallUsages: plan.modelCallUsages } : {}),
         ...(plan.contextUsage ? { contextUsage: plan.contextUsage } : {})
@@ -1075,6 +1078,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
             if (workspaceRevision(diagramXml) !== pendingDocumentWrite.baseRevision) throw new Error("The standalone Draw.io source changed before the complete XML could be written.");
             const writtenRevision = workspaceRevision(pendingDocumentWrite.drawioXml);
             await deps.writeLog("turn.completed.document-write-prepared-for-browser-save", { requestId, sessionId, summary: pendingDocumentWrite.summary, baseRevision: pendingDocumentWrite.baseRevision, writtenRevision, bytes: Buffer.byteLength(pendingDocumentWrite.drawioXml, "utf8") });
+            completedFileWrites.delete(sessionId);
             res.json({ outcome: "xml_write_ready", reply: pendingDocumentWrite.summary + "。完整原生 Draw.io XML 已校验，正在交由浏览器写回所选本地文件。", requestId, drawioXml: pendingDocumentWrite.drawioXml, documentRevision: pendingDocumentWrite.baseRevision, writtenRevision, ...shared });
             return;
           }
@@ -1084,7 +1088,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           if (!receipt.ok) {
             const message = typeof body.error === "string" ? body.error : "The workspace rejected the complete XML write.";
             await deps.writeLog("turn.completed.document-write-failed", { requestId, sessionId, status: receipt.status, baseRevision: pendingDocumentWrite.baseRevision, error: message });
-            res.status(receipt.status >= 400 ? receipt.status : 409).json({ outcome: "failed", reply: message, error: message, requestId, ...shared });
+            completedFileWrites.delete(sessionId);
+            res.status(receipt.status >= 400 ? receipt.status : 409).json({
+              outcome: "failed", reply: message, error: message, requestId, ...shared
+            });
             return;
           }
           await deps.writeLog("turn.completed.document-write-committed", { requestId, sessionId, summary: pendingDocumentWrite.summary, baseRevision: pendingDocumentWrite.baseRevision, receipt: body });
@@ -1096,21 +1103,25 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               await deps.writeLog("turn.completed.xml-impact.failed", { requestId, sessionId, stage: "workspace-document-write", error: impactError instanceof Error ? impactError.message : String(impactError) });
             }
           }
+          completedFileWrites.delete(sessionId);
           res.json({ outcome: "xml_committed", reply: typeof body.workspaceRevision === "string" ? pendingDocumentWrite.summary + "。完整原生 Draw.io XML 已保存为新版本。" : pendingDocumentWrite.summary + "。服务端已接受完整 XML 写入。", requestId, persistence: body, ...shared });
           return;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await deps.writeLog("turn.completed.document-write-failed", { requestId, sessionId, error: message });
+          completedFileWrites.delete(sessionId);
           res.status(500).json({ outcome: "failed", reply: "服务端完整 XML 写入失败：" + message, error: message, requestId, ...shared });
           return;
         }
       }
 
-      const writtenPaths = completedFileWrites.get(sessionId) || [];
       completedFileWrites.delete(sessionId);
-      if (writtenPaths.length) {
-        await deps.writeLog("turn.completed.workspace-files-written", { requestId, sessionId, paths: writtenPaths });
-        res.json({ outcome: "answered", reply: "已写入工作区文件：" + writtenPaths.join("、"), requestId, ...shared });
+      if (workspaceFilesWritten.length) {
+        await deps.writeLog("turn.completed.workspace-files-written", {
+          requestId, sessionId, paths: workspaceFilesWritten,
+          tools: Array.from(new Set(completedWrites.map(({ toolName }) => toolName)))
+        });
+        res.json({ outcome: "answered", reply: "已写入工作区文件：" + workspaceFilesWritten.join("、"), requestId, ...shared });
         return;
       }
       if (selection) {
@@ -1143,6 +1154,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
       pendingDocumentWrites.delete(sessionId);
       completedFileWrites.delete(sessionId);
+      usedFileTools.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);
