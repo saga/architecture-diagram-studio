@@ -41,7 +41,7 @@ export type CopilotIntentResponse =
       requestId: string;
       drawioXml: string;
       documentRevision: string;
-      writtenRevision: string;
+      documentRevision: string;
       writtenRevision: string;
     })
   | (OutcomeBase & { outcome: "answered" })
