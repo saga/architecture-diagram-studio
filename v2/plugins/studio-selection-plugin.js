@@ -150,6 +150,12 @@
       if (activeHistoryListener) activeHistoryModel.addListener("change", activeHistoryListener);
     }
 
+    function runtimeCellId(cell) {
+      if (!cell) return null;
+      var id = typeof cell.getId === "function" ? cell.getId() : cell.id;
+      return typeof id === "string" && id ? id : null;
+    }
+
     function inspectDrawioRuntime(options) {
       options = options && typeof options === "object" ? options : {};
       // Only identity and the live shape registry are consumed. Native cells come from the XML
