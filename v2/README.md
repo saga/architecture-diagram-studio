@@ -37,7 +37,7 @@ The embedded Draw.io shape library panel is enabled by default, and its initial 
 
 ## Extension points for future native capabilities
 
-V2 retains native XML page/cell indexing for target resolution and a small read-only analysis contract used by the spatial-region analyzer. There is no generic operation-provider registry. Copilot diagram mutations use the server-side `edit_drawio_xml` tool; Studio-owned automatic layout remains a separate concrete geometry planner. See [ADR-0012](../docs/adr/0012-native-diagram-extension-contracts.md).
+V2 retains native XML page/cell indexing for target resolution and a small read-only analysis contract used by the spatial-region analyzer. There is no generic operation-provider registry. Copilot diagram mutations use general read/write/write_code file tools; Studio-owned automatic layout remains a separate concrete geometry planner. See [ADR-0012](../docs/adr/0012-native-diagram-extension-contracts.md).
 
 ## Copilot native XML editing
 
