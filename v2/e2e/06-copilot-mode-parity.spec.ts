@@ -51,7 +51,7 @@ test("Copilot uses the XML-first contract in workspace and standalone modes", as
         outcome: "xml_write_ready", reply: "Renamed Database to Local Data Store.",
         requestId: "22222222-2222-4222-8222-222222222222",
         drawioXml: updatedXml, documentRevision: body.documentRevision,
-        writtenRevision, changedCellIds: ["database"],
+        writtenRevision,
         sessionId: body.sessionId || "mode-parity-session", model: "e2e-stub-model",
         provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["edit_drawio_xml"]
       })
