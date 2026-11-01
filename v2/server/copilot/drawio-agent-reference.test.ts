@@ -4,13 +4,14 @@ import { readDrawioAgentReference, selectDrawioReferenceSections } from "./drawi
 describe("on-demand Draw.io reference", () => {
   it("returns only the requested section", async () => {
     const content = await readDrawioAgentReference("shape_discovery");
-    expect(content).toContain("liveShapeClasses");
+    expect(content).toContain("search_drawio_shapes");
     expect(content).toContain("not exhaustive");
     expect(content).not.toContain("### Enumerate all cells");
   });
   it("does not expose retired script recipes through on-demand references", async () => {
     const shapeDiscovery = await readDrawioAgentReference("shape_discovery");
     const recipes = await readDrawioAgentReference("recipes");
+    expect(shapeDiscovery).toContain("search_drawio_shapes");
     expect(shapeDiscovery).toContain("not exhaustive");
     expect(recipes).toContain("Direct XML editing examples");
     expect(recipes).toContain("mxCell");
