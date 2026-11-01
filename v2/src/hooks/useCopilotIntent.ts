@@ -66,7 +66,7 @@ interface CopilotIntentOptions {
   getRuntimeInspection?: (input: { documentRevision: string; pageId: string | null }) => Promise<DrawioRuntimeInspection>;
   persistWorkspaceDocument?: (xml: string, label: string) => Promise<{ workspaceRevision?: string | null }>;
   onServerXmlCommitted?: () => Promise<void>;
-  onStandaloneXmlPatchReady?: (xml: string) => Promise<void>;
+  onStandaloneXmlWriteReady?: (xml: string) => Promise<void>;
   setWorkspaceSetupOpen: (open: boolean) => void;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setChatInput: (value: string) => void;
@@ -78,7 +78,7 @@ interface CopilotIntentOptions {
 export function useCopilotIntent(options: CopilotIntentOptions) {
   const {
     projectWorkspace, standaloneMode, chatInput, chatBusy, workspaceContentReady, drawioXml, aiModel, reasoningEffort,
-    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted, onStandaloneXmlPatchReady,
+    copilotSessionId, selectedNativeCellId, selectedNativePageId, getCurrentDiagramState, getRuntimeInspection, persistWorkspaceDocument, onServerXmlCommitted, onStandaloneXmlWriteReady,
     setWorkspaceSetupOpen, setMessages, setChatInput, setChatBusy, setCopilotSessionId, selectNativeCell
   } = options;
 
@@ -229,28 +229,28 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply }]);
         return;
       }
-      if (plan.outcome === "xml_patch_ready") {
+      if (plan.outcome === "xml_write_ready") {
         if (!standaloneMode) throw new Error("A standalone XML patch was returned for a workspace document; no canvas state was changed.");
-        if (!onStandaloneXmlPatchReady) throw new Error("The server prepared the XML patch, but browser-owned file persistence is unavailable.");
+        if (!onStandaloneXmlWriteReady) throw new Error("The server prepared the complete XML write, but browser-owned file persistence is unavailable.");
         if (plan.documentRevision !== documentRevision ||
-            await calculateDrawioXmlRevision(plan.drawioXml) !== plan.patchedRevision) {
-          throw new Error("The standalone XML patch failed revision verification. The local file was not changed.");
+            await calculateDrawioXmlRevision(plan.drawioXml) !== plan.writtenRevision) {
+          throw new Error("The complete standalone XML failed revision verification. The local file was not changed.");
         }
         const currentState = getStateForResolvedPage();
         if (await calculateDrawioXmlRevision(currentState.drawioXml) !== plan.documentRevision) {
-          throw new Error("The current local XML no longer matches the patch source revision. The local file was not changed.");
+          throw new Error("The current local XML no longer matches the source revision. The local file was not changed.");
         }
         assertCopilotRequestContextFresh(
           "before-standalone-xml-apply",
           { drawioXml: sourceXml, selectedNativeCellId: sourceSelectedCellId, selectedNativePageId: sourcePageId },
           currentState,
-          "before applying the server-generated XML. No change was applied; retry against the current state."
+          "before writing the complete server-generated XML. No change was applied; retry against the current state."
         );
-        await onStandaloneXmlPatchReady(plan.drawioXml);
-        recordDiagnostic("copilot.xml-edit.standalone-patch-applied",
-          "Applied a revision-checked server XML patch to the standalone editor; browser file-handle persistence will confirm the write",
+        await onStandaloneXmlWriteReady(plan.drawioXml);
+        recordDiagnostic("copilot.xml-edit.standalone-write-applied",
+          "Applied the complete revision-checked server XML to the standalone editor; browser file-handle persistence will confirm the write",
           { requestId: plan.requestId, sourceRevision: plan.documentRevision,
-            patchedRevision: plan.patchedRevision, changedCellIds: plan.changedCellIds });
+            writtenRevision: plan.writtenRevision, writtenRevision: plan.writtenRevision });
         setMessages((items) => [...items, { role: "assistant", id: Date.now() + 1, text: plan.reply.replace("正在交由浏览器写回所选本地文件。", "浏览器已将变更写回所选本地文件。") }]);
         return;
       }
