@@ -16,7 +16,7 @@ describe("native Draw.io Copilot XML contract", () => {
     });
   });
 
-  it("accepts a standalone XML patch with source and patched revisions", () => {
+  it("accepts a standalone complete XML write with source and result revisions", () => {
     const response = parseAIIntentResponse(JSON.stringify({
       outcome: "xml_write_ready",
       reply: "Updated the diagram.",
@@ -24,13 +24,11 @@ describe("native Draw.io Copilot XML contract", () => {
       drawioXml: "<mxfile/>",
       documentRevision: "source-revision",
       writtenRevision: "patched-revision",
-      changedCellIds: ["db", "api"]
     }));
     expect(response).toMatchObject({
       outcome: "xml_write_ready",
       documentRevision: "source-revision",
       writtenRevision: "patched-revision",
-      changedCellIds: ["db", "api"]
     });
   });
 
