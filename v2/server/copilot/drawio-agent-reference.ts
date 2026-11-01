@@ -56,7 +56,14 @@ const XML_DIRECT_RECIPES = [
   "These are ordinary XML examples, not tool arguments or an operation schema. Use the actual source document as the basis for every edit."
 ].join("\n");
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
-  const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
+  const documentedShapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
+  const shapeDiscovery = documentedShapeDiscovery || [
+    "## Shape discovery",
+    "Use search_drawio_shapes to find native Draw.io shape and stencil definitions relevant to the requested diagram.",
+    "When runtime inspection provides liveShapeClasses, treat that list as a snapshot of shapes currently registered in this Draw.io runtime, not as an exhaustive catalogue.",
+    "A catalogue miss does not prove that a shape is unavailable. Inspect the actual source XML and use native Draw.io XML attributes, styles and shape identifiers supported by the document.",
+    "For C4 elements, use the established C4 shape discovery instructions and verify the exact native shape definition before writing XML."
+  ].join("\n");
   const safeOverview = [
     XML_FIRST_CONTRACT,
     "Server responsibilities: resolve targets against the active revision, apply complete native XML documents, validate the result, and persist through the existing versioned document-save transaction.",
