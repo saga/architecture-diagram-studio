@@ -34,7 +34,7 @@ const XML_FIRST_CONTRACT = [
   "The server validates the complete XML, checks the source revision and persists workspace diagram writes through the versioned document-save transaction. Standalone writes are returned to the browser for persistence through the selected File System Access handle. Report success only after the appropriate persistence receipt.",
   "",
   "Never generate or execute JavaScript for the Draw.io iframe. Use Studio automatic layout for layout requests; do not reimplement or alter layout engines as part of XML editing."
-].join("\\n");
+].join("\n");
 
 const XML_DIRECT_RECIPES = [
   "## Direct XML editing examples",
@@ -54,21 +54,21 @@ const XML_DIRECT_RECIPES = [
   "Create a native cell by adding an mxCell element under the appropriate existing root, using a unique ID and the correct native parent relationship. For edges, preserve valid source and target IDs and their native geometry. For UserObject/object cells, keep the wrapper and inner mxCell together.",
   "",
   "These are ordinary XML examples, not tool arguments or an operation schema. Use the actual source document as the basis for every edit."
-].join("\\n");
+].join("\n");
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
   const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
   const safeOverview = [
     XML_FIRST_CONTRACT,
     "Server responsibilities: resolve targets against the active revision, apply complete native XML documents, validate the result, and persist through the existing versioned document-save transaction.",
     shapeDiscovery
-  ].filter(Boolean).join("\\n\\n");
+  ].filter(Boolean).join("\n\n");
   let selected: string;
   if (topic === "all" || topic === "overview" || topic === "api_ownership") {
     selected = safeOverview;
   } else if (topic === "shape_discovery") {
     selected = shapeDiscovery;
   } else if (topic === "postconditions") {
-    selected = XML_FIRST_CONTRACT + "\\n\\nXML validation is required before persistence. A successful tool call is not a persistence receipt; only the server's successful versioned-save response confirms the commit.";
+    selected = XML_FIRST_CONTRACT + "\n\nXML validation is required before persistence. A successful tool call is not a persistence receipt; only the server's successful versioned-save response confirms the commit.";
   } else if (topic === "recipes") {
     selected = XML_DIRECT_RECIPES;
   } else {
