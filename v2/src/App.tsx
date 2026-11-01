@@ -595,9 +595,9 @@ export default function App() {
       setServerXmlAvailable(true);
       setDocumentSaveState("saved");
     },
-    onStandaloneXmlPatchReady: async (xml) => {      const binding = standaloneFileBindingRef.current;
+    onStandaloneXmlWriteReady: async (xml) => {      const binding = standaloneFileBindingRef.current;
       if (!binding || !standaloneFileHandleRef.current || !standaloneFileName) {
-        throw new Error("The standalone file handle is no longer available; the XML patch was not written.");
+        throw new Error("The standalone file handle is no longer available; the XML was not written.");
       }
       const expectedToken = binding.fileToken;
       await enqueueStandaloneSave(xml, expectedToken);
