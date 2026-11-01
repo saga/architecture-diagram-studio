@@ -45,7 +45,14 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 type TerminalIntentKind = "document_write" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
 const pendingDocumentWrites = new Map<string, { drawioXml: string; baseRevision: string; summary: string; standalone: boolean }>();
-const completedFileWrites = new Map<string, string[]>();
+const completedFileWrites = new Map<string, Array<{ path: string; toolName: "write" | "write_code" }>>();
+const usedFileTools = new Map<string, Set<string>>();
+
+function recordFileToolUse(sessionId: string, toolName: string): void {
+  const used = usedFileTools.get(sessionId) ?? new Set<string>();
+  used.add(toolName);
+  usedFileTools.set(sessionId, used);
+}
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -130,7 +137,7 @@ async function buildSystemMessage(deps: IntentDependencies, standalone = false):
     const workspaceContext = standalone
       ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
       : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
-    return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
+    const tools = [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
   }
 
 function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependencies) {
@@ -557,12 +564,12 @@ function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) 
     });
   }
 
-function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
+function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, standaloneMode: boolean) {
   const isActiveDiagram = (context: Record<string, unknown>, requestedPath: string) =>
     requestedPath === "$active-diagram" ||
     (typeof context.primaryDiagram === "string" && requestedPath === context.primaryDiagram);
 
-  const readHandler = async (args: { path?: unknown; offset?: unknown; limit?: unknown }) => {
+  const readHandler = async (args: { path?: unknown; offset?: unknown; limit?: unknown }) => {\n    recordFileToolUse(sessionId, "read");
     if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048) return { ok: false, error: "read requires a workspace-relative path or $active-diagram." };
     const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
     const offset = typeof args.offset === "number" && Number.isSafeInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
@@ -589,7 +596,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
     }
   };
 
-  const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {
+  const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {\n    recordFileToolUse(sessionId, toolName);
     if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048 || typeof args.content !== "string" || !args.content.length || Buffer.byteLength(args.content, "utf8") > 20000000) {
       return { ok: false, error: toolName + " requires a relative path and non-empty content up to 20 MB." };
     }
@@ -611,14 +618,12 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
       }
       if (context.standalone === true) return { ok: false, error: "Standalone mode exposes only $active-diagram." };
       if (!deps.writeWorkspaceFile) return { ok: false, error: "Workspace file writing is unavailable." };
-      const registeredKind = pendingTerminalIntents.get(sessionId);
-      if (registeredKind && registeredKind !== "document_write") return { ok: false, error: "A different terminal action is already queued.", registeredKind };
-      await deps.writeWorkspaceFile(args.path, args.content);
       const registration = registerTerminalIntent(sessionId, "document_write");
       if (!registration.accepted) return { ok: false, error: "A different terminal action is already queued.", registeredKind: registration.registeredKind };
-      const writtenPaths = completedFileWrites.get(sessionId) || [];
-      writtenPaths.push(args.path);
-      completedFileWrites.set(sessionId, writtenPaths);
+      await deps.writeWorkspaceFile(args.path, args.content);
+      const writtenFiles = completedFileWrites.get(sessionId) || [];
+      writtenFiles.push({ path: args.path, toolName });
+      completedFileWrites.set(sessionId, writtenFiles);
       await deps.writeLog("tool." + toolName + ".completed", { sessionId, path: args.path, bytes: Buffer.byteLength(args.content, "utf8") });
       return { ok: true, path: args.path, saved: true, bytes: Buffer.byteLength(args.content, "utf8") };
     } catch (error) {
@@ -637,12 +642,13 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
       parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", minLength: 1, maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
       handler: (args: { path?: unknown; content?: unknown; summary?: unknown }) => writeHandler(args, "write")
     }),
-    defineTool("write_code", {
+    ...(standaloneMode ? [] : [defineTool("write_code", {
       description: "Create or replace a source-code file with complete code. This is a general file-writing capability, not a diagram operation API. Use workspace-relative paths.",
       parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", minLength: 1, maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
       handler: (args: { path?: unknown; content?: unknown; summary?: unknown }) => writeHandler(args, "write_code")
-    })
+    })])
   ];
+  return tools;
 }
 
 /**
@@ -891,7 +897,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               createDrawioElementSearchTool(sessionId, deps),
               createDrawioGraphInspectionTool(sessionId, deps),
               createDrawioReferenceTool(sessionId, deps),
-              ...createWorkspaceFileTools(sessionId, deps),
+              ...createWorkspaceFileTools(sessionId, deps, standalone),
               createReportIntentOutcomeTool(sessionId, deps)
             ],
             workspaceId: sessionWorkspace?.id
@@ -919,7 +925,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
         pendingDocumentWrites.delete(sessionId);
-        completedFileWrites.delete(sessionId);
+        completedFileWrites.delete(sessionId);\n        usedFileTools.set(sessionId, new Set());
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -1045,11 +1051,9 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       }
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
-      const toolsUsed = pendingDocumentWrites.has(sessionId)
-        ? ["read", "write"]
-        : completedFileWrites.has(sessionId) ? ["write", "write_code"]
-
-        : plan.capturedSelection ? ["select_diagram_element"] : [];
+      const toolsUsed = Array.from(usedFileTools.get(sessionId) ?? []);
+      usedFileTools.delete(sessionId);
+      if (plan.capturedSelection && !toolsUsed.includes("select_diagram_element")) toolsUsed.push("select_diagram_element");
       const terminalIntentWarning = plan.terminalIntentModelFailure
         ? "The model stream failed after a complete XML write was accepted; Studio is continuing with the accepted complete XML and will verify server-side validation and persistence. "
         : "";
