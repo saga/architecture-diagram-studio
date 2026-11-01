@@ -6,7 +6,7 @@
 
 ## Historical Status
 
-This ADR records the earlier unified-intent and typed-native-operation design. Its typed operation, proposal/confirmation, editor-batch, and acknowledgement decisions are retired. ADR-0026 is authoritative for Copilot diagram mutation: the agent edits native Draw.io XML through the server-side `edit_drawio_xml` path. Keep native selection as a separate non-mutating action, and keep Studio-owned automatic-layout algorithms unchanged. The remaining XML indexing helpers are context utilities, not an alternate edit contract.
+This ADR records the earlier unified-intent and typed-native-operation design. Its application-defined mutation operation, proposal/confirmation, editor-batch, and acknowledgement decisions are retired. ADR-0026 is authoritative for Copilot diagram mutation: the agent edits native Draw.io XML through the server-side `read/write file tools` path. Keep native selection as a separate non-mutating action, and keep Studio-owned automatic-layout algorithms unchanged. The remaining XML indexing helpers are context utilities, not an alternate edit contract.
 
 ## Context
 
@@ -27,7 +27,7 @@ The shared pipeline is:
 1. Validate the request envelope and mode-specific authorization.
 2. Assemble authoritative context: current Draw.io XML or its server-validated snapshot/revision, projection completeness, current native selection (cell ID and page ID), diagram kind, and the available execution capabilities.
 3. Use the configured Copilot SDK session and internal tools to interpret the request and resolve the target. Natural-language interpretation belongs to the model/tool pipeline, not browser regexes.
-4. Convert the intent into an allowlisted, typed operation. Validate required arguments, target existence and uniqueness, selection freshness, operation scope, XML structure, and revision.
+4. Convert the intent into an allowlisted, application-defined mutation operation. Validate required arguments, target existence and uniqueness, selection freshness, operation scope, XML structure, and revision.
 5. Execute through a mode-specific adapter behind the same server orchestration contract.
 6. Return a structured outcome that distinguishes applied, proposal-required, unsupported, ambiguous, stale-context and failed states. The frontend displays this outcome and does not infer success from a submitted request.
 7. Record the request, selected target, tool calls, validation decisions, base/current revision, execution result, persistence result and failure reason in the existing Copilot/diagnostic trajectory.
@@ -59,7 +59,7 @@ Before execution, validate that the selected cell still exists in the same page 
 
 The model must select from server-defined operation tools/schemas; it must not emit executable JavaScript, arbitrary commands, or raw replacement XML. Native XML edits must use the shared XML parse/validation boundary and a loss-preserving, allowlisted cell operation. Preserve unknown attributes, cells, pages and metadata. If the intended change cannot be applied safely without reconstructing unsupported XML, fail closed and explain why.
 
-Examples such as rename, move by a delta, resize, delete, selection alignment, grouping and relation edits must be represented as explicit typed operations with validated arguments. A request like “move the currently selected element up by 10px” must resolve to the selected cell and a bounded geometry delta; “rename X to Y” must resolve the target unambiguously and validate the new label. These examples define expected behavior, not permission to bypass the operation allowlist.
+Examples such as rename, move by a delta, resize, delete, selection alignment, grouping and relation edits must be represented as explicit application-defined mutation operations with validated arguments. A request like “move the currently selected element up by 10px” must resolve to the selected cell and a bounded geometry delta; “rename X to Y” must resolve the target unambiguously and validate the new label. These examples define expected behavior, not permission to bypass the operation allowlist.
 
 Focused, explicit edits may be directly applied only under the existing ADR-0005 governance rules. Broad, ambiguous, bulk-destructive, template replacement and restore requests require a reviewable proposal and explicit confirmation. Every workspace mutation must use an expected revision and create a version snapshot. A failed operation must not be reported as successful.
 
