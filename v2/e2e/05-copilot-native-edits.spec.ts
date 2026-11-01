@@ -46,7 +46,7 @@ test("Copilot edits the authoritative Draw.io XML and refreshes the editor", asy
         persistence: { workspaceRevision: saved.workspaceRevision },
         sessionId: body.sessionId || "e2e-xml-first-commit",
         model: "stub-model", provider: "github-copilot-sdk", durationMs: 1,
-        toolsUsed: ["edit_drawio_xml"]
+        toolsUsed: ["read", "write"]
       })
     });
   });
@@ -86,7 +86,7 @@ test("Copilot reports a rejected XML patch without claiming that a change was ap
         reply: "Nothing was applied because the XML patch failed validation.",
         error: "The requested cell could not be resolved in the current document revision.",
         sessionId: "e2e-rejected-xml-patch", model: "stub-model", provider: "github-copilot-sdk",
-        durationMs: 1, toolsUsed: ["edit_drawio_xml"]
+        durationMs: 1, toolsUsed: ["read", "write"]
       })
     });
   });
