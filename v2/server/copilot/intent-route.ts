@@ -611,9 +611,11 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
       }
       if (context.standalone === true) return { ok: false, error: "Standalone mode exposes only $active-diagram." };
       if (!deps.writeWorkspaceFile) return { ok: false, error: "Workspace file writing is unavailable." };
+      const registeredKind = pendingTerminalIntents.get(sessionId);
+      if (registeredKind && registeredKind !== "document_write") return { ok: false, error: "A different terminal action is already queued.", registeredKind };
+      await deps.writeWorkspaceFile(args.path, args.content);
       const registration = registerTerminalIntent(sessionId, "document_write");
       if (!registration.accepted) return { ok: false, error: "A different terminal action is already queued.", registeredKind: registration.registeredKind };
-      await deps.writeWorkspaceFile(args.path, args.content);
       const writtenPaths = completedFileWrites.get(sessionId) || [];
       writtenPaths.push(args.path);
       completedFileWrites.set(sessionId, writtenPaths);
