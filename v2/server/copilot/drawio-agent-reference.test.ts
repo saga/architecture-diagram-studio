@@ -12,8 +12,8 @@ describe("on-demand Draw.io reference", () => {
     const shapeDiscovery = await readDrawioAgentReference("shape_discovery");
     const recipes = await readDrawioAgentReference("recipes");
     expect(shapeDiscovery).toContain("not exhaustive");
-    expect(recipes).toContain("Native XML patch recipes");
-    expect(recipes).toContain("insert-cell-xml");
+    expect(recipes).toContain("Direct XML editing examples");
+    expect(recipes).toContain("mxCell");
     expect(recipes).not.toContain("run_drawio_script");
     expect(recipes).not.toContain("new Function");
   });
