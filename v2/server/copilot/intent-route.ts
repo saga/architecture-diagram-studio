@@ -913,7 +913,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           throw new Error("Copilot request cancelled by client.");
         }
         // Keep the complete server-derived target index private to tools. The model-facing context is
-        // intentionally capped for prompt size, but target uniqueness must be checked against every cell        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
+        // intentionally capped for prompt size, but target uniqueness must be checked against every cell\n        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
         contextBySession.set(sessionId, {
           ...context, documentRevision, activePageId: identity.documentPageId,
           cells: allNativeCells, runtimeInspection: context.runtimeInspection,
