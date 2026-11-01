@@ -105,7 +105,7 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>) {
+function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>, iterative = false) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -133,6 +133,11 @@ function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs
           const current = await read.handler({ path: "$active-diagram" }) as { content?: string };
           if (typeof current.content !== "string" || !current.content.includes('value="Database"')) throw new Error("read did not return the active native XML");
           await tool.handler({ path: "$active-diagram", summary: "Rename Database", content: current.content.replace('value="Database"', 'value="Data Store"') });
+          if (iterative) {
+            const reread = await read.handler({ path: "$active-diagram" }) as { content?: string };
+            if (typeof reread.content !== "string" || !reread.content.includes('value="Data Store"')) throw new Error("read did not return the pending complete XML write");
+            await tool.handler({ path: "$active-diagram", summary: "Rename Database again", content: reread.content.replace('value="Data Store"', 'value="Database Cluster"') });
+          }
         } else {
           await tool.handler(writeArgs ?? { path: "src/generated.ts", content: "export const generated = true;", summary: "Write generated source" });
         }
@@ -329,6 +334,19 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.logs.some((entry) => entry.event === "turn.completed.document-write-committed")).toBe(true);
   });
 
+
+  it("allows repeated read/write iterations and commits the latest complete XML", async () => {
+    const commitWorkspaceXml = vi.fn(async (input: { drawioXml: string }) => ({
+      ok: true, status: 200, body: { ok: true, workspaceRevision: workspaceRevision(input.drawioXml), version: { id: "v-iterative" } }
+    }));
+    const harness = await createServer({ copilot: xmlEditingCopilot("write", undefined, true), commitWorkspaceXml });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("xml_committed");
+    expect(commitWorkspaceXml).toHaveBeenCalledTimes(1);
+    expect(commitWorkspaceXml.mock.calls[0]?.[0].drawioXml).toContain('value="Database Cluster"');
+    expect(commitWorkspaceXml.mock.calls[0]?.[0].drawioXml).not.toContain('value="Data Store"');
+  });
 
   it("exposes generic write_code for ordinary workspace files", async () => {
     const writeWorkspaceFile = vi.fn(async () => undefined);
