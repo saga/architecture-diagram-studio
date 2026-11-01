@@ -644,9 +644,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
 }
 
 /**
- * Full before/after XML diffing is a diagnostic, not part of committing a patch: the patch already
- * reports which cells it changed. Enabled only for investigations, so a normal edit does not parse
- * both documents and hash them again.
+ * Full before/after XML diffing is diagnostic only. It is enabled only for investigations so a
+ * normal full-document write does not parse and hash both documents again.
  */
 function xmlImpactLoggingEnabled(): boolean {
   return process.env.STUDIO_XML_IMPACT_LOG === "1";
