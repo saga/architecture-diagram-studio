@@ -105,7 +105,7 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>, iterative = false) {
+function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>, iterative = false, mixedWorkspaceWrite = false) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -124,11 +124,16 @@ function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs
     withTurn: async (_conversationId: string, run: (turn: unknown) => Promise<unknown>) => run({
       get session() { return activeSession; },
       send: async () => {
-        const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === toolName);
+        const registeredTools = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> });
+        const tool = registeredTools.find((candidate) => candidate.name === toolName);
         if (!tool?.handler) throw new Error(toolName + " tool was not registered");
         if (toolName === "write") {
-          const read = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> }).find((candidate) => candidate.name === "read");
+          if (mixedWorkspaceWrite) {
+            const writeCode = registeredTools.find((candidate) => candidate.name === "write_code");
+            if (!writeCode?.handler) throw new Error("write_code tool was not registered");
+            await writeCode.handler({ path: "src/generated.ts", content: "export const generated = true;" });
+          }
+          const read = registeredTools.find((candidate) => candidate.name === "read");
           if (!read?.handler) throw new Error("read tool was not registered");
           const current = await read.handler({ path: "$active-diagram" }) as { content?: string };
           if (typeof current.content !== "string" || !current.content.includes('value="Database"')) throw new Error("read did not return the active native XML");
@@ -143,7 +148,8 @@ function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs
         }
         return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
       }
-    })
+    }),
+    getPreparedToolNames: () => prepared.tools.map((candidate) => (candidate as { name?: string }).name).filter(Boolean)
   };
 }
 
@@ -317,6 +323,25 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.documentRevision).toBe(workspaceRevision(XML));
     expect(body.drawioXml).toContain('value="Data Store"');
     expect(body.writtenRevision).toBe(workspaceRevision(String(body.drawioXml)));
+    expect((harness.copilot as { getPreparedToolNames?: () => string[] }).getPreparedToolNames?.()).not.toContain("write_code");
+  });
+
+  it("reports workspace file writes together with a committed active diagram write", async () => {
+    const writeWorkspaceFile = vi.fn(async () => undefined);
+    const commitWorkspaceXml = vi.fn(async (input: { drawioXml: string }) => ({
+      ok: true, status: 200, body: { ok: true, workspaceRevision: workspaceRevision(input.drawioXml), version: { id: "v-mixed" } }
+    }));
+    const harness = await createServer({
+      copilot: xmlEditingCopilot("write", undefined, false, true),
+      writeWorkspaceFile, commitWorkspaceXml
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("xml_committed");
+    expect(body.workspaceFilesWritten).toEqual(["src/generated.ts"]);
+    expect(body.toolsUsed).toEqual(["write_code", "read", "write"]);
+    expect(writeWorkspaceFile).toHaveBeenCalledWith("src/generated.ts", "export const generated = true;");
+    expect(commitWorkspaceXml).toHaveBeenCalledTimes(1);
   });
 
   it("commits the complete XML write through the versioned server persistence callback", async () => {
@@ -358,6 +383,8 @@ describe("Copilot intent route result and revision contract", () => {
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
     expect(writeWorkspaceFile).toHaveBeenCalledWith("src/generated.ts", "export const generated = true;");
+    expect(body.workspaceFilesWritten).toEqual(["src/generated.ts"]);
+    expect(body.toolsUsed).toEqual(["write_code"]);
     expect(harness.logs.some((entry) => entry.event === "turn.completed.workspace-files-written")).toBe(true);
   });
 
