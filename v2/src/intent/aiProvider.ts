@@ -107,7 +107,7 @@ function validateResponse(value: unknown): AIIntentResponse {
       return {
         outcome: "xml_write_ready", reply: reply || "The server prepared the complete native XML for browser-owned persistence.",
         requestId: item.requestId, drawioXml: item.drawioXml, documentRevision: item.documentRevision,
-        writtenRevision: item.writtenRevision, writtenRevision: item.writtenRevision as string, ...metadata
+        writtenRevision: item.writtenRevision as string, ...metadata
       };
     }
   }
