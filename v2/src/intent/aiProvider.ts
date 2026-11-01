@@ -101,7 +101,6 @@ function validateResponse(value: unknown): AIIntentResponse {
       if (typeof item.requestId !== "string" || !item.requestId.trim() ||
           typeof item.drawioXml !== "string" || !item.drawioXml.trim() ||
           typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||
-          typeof item.writtenRevision !== "string" || !item.writtenRevision.trim() ||
           typeof item.writtenRevision !== "string" || !item.writtenRevision.trim()) {
         throw new Error("The xml_write_ready outcome requires complete validated XML and source/result revisions");
       }
