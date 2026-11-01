@@ -327,7 +327,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleHistoryShortcut, true);
   }, [nativeEditorReady, diagramThemeApplying, autoLayoutRunning, documentSaveState]);
 
-  // The native Draw.io editor is the only canvas; server-side XML patches preserve unrelated cells.
+  // The native Draw.io editor is the only canvas; complete native XML is the authoritative document.
 
   useEffect(() => {
     let active = true;
