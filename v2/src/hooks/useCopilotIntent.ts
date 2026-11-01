@@ -230,7 +230,7 @@ export function useCopilotIntent(options: CopilotIntentOptions) {
         return;
       }
       if (plan.outcome === "xml_write_ready") {
-        if (!standaloneMode) throw new Error("A standalone XML patch was returned for a workspace document; no canvas state was changed.");
+        if (!standaloneMode) throw new Error("A standalone XML write was returned for a workspace document; no canvas state was changed.");
         if (!onStandaloneXmlWriteReady) throw new Error("The server prepared the complete XML write, but browser-owned file persistence is unavailable.");
         if (plan.documentRevision !== documentRevision ||
             await calculateDrawioXmlRevision(plan.drawioXml) !== plan.writtenRevision) {
