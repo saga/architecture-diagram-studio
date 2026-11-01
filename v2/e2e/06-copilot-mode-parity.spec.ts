@@ -39,7 +39,7 @@ test("Copilot uses the XML-first contract in workspace and standalone modes", as
           requestId: "11111111-1111-4111-8111-111111111111",
           persistence: { workspaceRevision: saved.workspaceRevision },
           sessionId: body.sessionId || "mode-parity-session", model: "e2e-stub-model",
-          provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["edit_drawio_xml"]
+          provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["read", "write"]
         })
       });
       return;
@@ -53,7 +53,7 @@ test("Copilot uses the XML-first contract in workspace and standalone modes", as
         drawioXml: updatedXml, documentRevision: body.documentRevision,
         writtenRevision,
         sessionId: body.sessionId || "mode-parity-session", model: "e2e-stub-model",
-        provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["edit_drawio_xml"]
+        provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["read", "write"]
       })
     });
   });
