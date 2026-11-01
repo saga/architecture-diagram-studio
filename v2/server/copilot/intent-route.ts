@@ -45,6 +45,7 @@ const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
 type TerminalIntentKind = "document_write" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
 const pendingDocumentWrites = new Map<string, { drawioXml: string; baseRevision: string; summary: string; standalone: boolean }>();
+const completedFileWrites = new Map<string, string[]>();
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -611,6 +612,9 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies) {
       if (context.standalone === true) return { ok: false, error: "Standalone mode exposes only $active-diagram." };
       if (!deps.writeWorkspaceFile) return { ok: false, error: "Workspace file writing is unavailable." };
       await deps.writeWorkspaceFile(args.path, args.content);
+      const writtenPaths = completedFileWrites.get(sessionId) || [];
+      writtenPaths.push(args.path);
+      completedFileWrites.set(sessionId, writtenPaths);
       await deps.writeLog("tool." + toolName + ".completed", { sessionId, path: args.path, bytes: Buffer.byteLength(args.content, "utf8") });
       return { ok: true, path: args.path, saved: true, bytes: Buffer.byteLength(args.content, "utf8") };
     } catch (error) {
@@ -912,6 +916,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
         pendingDocumentWrites.delete(sessionId);
+        completedFileWrites.delete(sessionId);
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -1002,7 +1007,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
                 let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
         // write stores its accepted terminal result in pendingDocumentWrites rather than
         // the typed-operation maps. Treat it as a completed tool call; do not spend another model turn.
-        if (!capturedSelection && !capturedReportedOutcome && !pendingDocumentWrites.has(sessionId)) {
+        if (!capturedSelection && !capturedReportedOutcome && !pendingDocumentWrites.has(sessionId) && !completedFileWrites.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
             request: "Finish with exactly one terminal tool call. Use write for every diagram mutation. Read-only tools may be used for discovery, then write the complete native XML file. Use read/write/write_code as ordinary file tools; do not use an XML operation language or editor scripts. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a write, you may continue reading and writing to verify or refine the result. The queued document write is committed after this model turn; you may continue reading and writing before finishing. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Write the complete saved mxfile XML directly with write or claim success until the complete XML write has been validated and persisted.",
@@ -1039,6 +1044,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const selection = plan.capturedSelection || undefined;
       const toolsUsed = pendingDocumentWrites.has(sessionId)
         ? ["read", "write"]
+        : completedFileWrites.has(sessionId) ? ["write", "write_code"]
 
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
@@ -1093,6 +1099,13 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         }
       }
 
+      const writtenPaths = completedFileWrites.get(sessionId) || [];
+      completedFileWrites.delete(sessionId);
+      if (writtenPaths.length) {
+        await deps.writeLog("turn.completed.workspace-files-written", { requestId, sessionId, paths: writtenPaths });
+        res.json({ outcome: "answered", reply: "已写入工作区文件：" + writtenPaths.join("、"), requestId, ...shared });
+        return;
+      }
       if (selection) {
         const response = { outcome: "selected" as const, commands: [], reply: terminalIntentWarning + (modelReply || "Selected diagram element: " + selection.label), selection, ...shared };
         await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response, usage: plan.usage });
@@ -1122,6 +1135,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       contextBySession.delete(sessionId);
 
       pendingDocumentWrites.delete(sessionId);
+      completedFileWrites.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);
