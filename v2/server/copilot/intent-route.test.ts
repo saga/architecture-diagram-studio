@@ -41,7 +41,7 @@ const servers: Server[] = [];
 async function createServer(options: {
   snapshot?: () => Promise<{ drawioXml: string; revision: string } | null>;
   copilot?: Record<string, unknown>;
-  commitWorkspaceXmlPatch?: (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => Promise<{ ok: boolean; status: number; body: unknown }>;
+  commitWorkspaceXml?: (input: { drawioXml: string; baseRevision: string; label: string }) => Promise<{ ok: boolean; status: number; body: unknown }>;
 } = {}): Promise<ServerHarness> {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
@@ -63,7 +63,7 @@ async function createServer(options: {
     getWorkspaceVersionSnapshot: async (versionId) => versionId === "version-1"
       ? { drawioXml: XML, revision: workspaceRevision(XML), versionId }
       : null,
-    ...(options.commitWorkspaceXmlPatch ? { commitWorkspaceXmlPatch: options.commitWorkspaceXmlPatch } : {}),
+    ...(options.commitWorkspaceXml ? { commitWorkspaceXml: options.commitWorkspaceXml } : {}),
     collectAgentWorkspaceContext: async () => ({}),
     persistSessionId,
   });
@@ -121,11 +121,12 @@ function xmlEditingCopilot() {
       get session() { return activeSession; },
       send: async () => {
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "edit_drawio_xml");
-        if (!tool?.handler) throw new Error("edit_drawio_xml tool was not registered");
+          .find((candidate) => candidate.name === "write");
+        if (!tool?.handler) throw new Error("write tool was not registered");
         await tool.handler({
+          path: "$active-diagram",
           summary: "Rename Database",
-          patch: [{ op: "set-cell-attributes", cellId: "db", attributes: { value: "Data Store" } }]
+          content: XML.replace('value="Database"', 'value="Data Store"')
         });
         return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
       }
@@ -295,30 +296,29 @@ function terminalConflictCopilot(
 }
 
 describe("Copilot intent route result and revision contract", () => {
-  it("returns a revision-checked XML patch for standalone browser-owned persistence", async () => {
+  it("returns a revision-checked complete XML write for standalone browser-owned persistence", async () => {
     const harness = await createServer({ copilot: xmlEditingCopilot() });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest({ standalone: true }));
     expect(response.status).toBe(200);
-    expect(body.outcome).toBe("xml_patch_ready");
+    expect(body.outcome).toBe("xml_write_ready");
     expect(body.documentRevision).toBe(workspaceRevision(XML));
     expect(body.drawioXml).toContain('value="Data Store"');
-    expect(body.patchedRevision).toBe(workspaceRevision(String(body.drawioXml)));
-    expect(body.changedCellIds).toEqual(["db"]);
+    expect(body.writtenRevision).toBe(workspaceRevision(String(body.drawioXml)));
   });
 
-  it("commits the XML-first tool through the versioned server persistence callback", async () => {
-    const commitWorkspaceXmlPatch = vi.fn(async (input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }) => ({
-      ok: true, status: 200, body: { ok: true, workspaceRevision: "new-revision", version: { id: "v-2" }, accepted: input.patch.length === 1 }
+  it("commits the complete XML write through the versioned server persistence callback", async () => {
+    const commitWorkspaceXml = vi.fn(async (input: { drawioXml: string; baseRevision: string; label: string }) => ({
+      ok: true, status: 200, body: { ok: true, workspaceRevision: "new-revision", version: { id: "v-2" }, saved: input.drawioXml.includes('value="Data Store"') }
     }));
-    const harness = await createServer({ copilot: xmlEditingCopilot(), commitWorkspaceXmlPatch });
+    const harness = await createServer({ copilot: xmlEditingCopilot(), commitWorkspaceXml });
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("xml_committed");
-    expect(commitWorkspaceXmlPatch).toHaveBeenCalledWith(expect.objectContaining({
-      baseRevision: workspaceRevision(XML), pageId: "p1", label: "Copilot: Rename Database",
-      patch: [{ op: "set-cell-attributes", cellId: "db", attributes: { value: "Data Store" } }]
+    expect(commitWorkspaceXml).toHaveBeenCalledWith(expect.objectContaining({
+      baseRevision: workspaceRevision(XML), label: "Copilot: Rename Database",
+      drawioXml: XML.replace('value="Database"', 'value="Data Store"')
     }));
-    expect(harness.logs.some((entry) => entry.event === "turn.completed.xml-patch-committed")).toBe(true);
+    expect(harness.logs.some((entry) => entry.event === "turn.completed.document-write-committed")).toBe(true);
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
@@ -334,14 +334,15 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).toContain("geometry");
     expect(prompt).toContain("exact native cell IDs");
     expect(prompt).toContain("Catalogue misses do not prove a shape is absent");
-    expect(prompt).toContain("edit_drawio_xml");
+    expect(prompt).toContain("read");
+    expect(prompt).toContain("write");
     expect(prompt).not.toContain("run_drawio_script");
     expect(prompt).toContain("report_intent_outcome for information");
     expect(prompt.length).toBeLessThan(2800);
     const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
     expect(firstRequest.editingGuidance).toContain("bound to this exact documentRevision");
     expect(firstRequest.editingGuidance).toContain("plain-text replacements");
-    expect(firstRequest.editingGuidance).toContain("set-style-properties");
+    expect(firstRequest.editingGuidance).toContain("complete result");
     // The iframe script path is gone; guidance must not point the model at editor JS APIs.
     expect(firstRequest.editingGuidance).not.toContain("convertValueToString");
     expect(firstRequest.editingGuidance).not.toContain("model.setValue");
@@ -899,7 +900,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(ids).toContain("c4.relationship");
     expect(result).toMatchObject({ matchCount: 4, returnedCount: 4, truncated: false });
     expect(result.scriptTemplate).toBeUndefined();
-    expect(String(result.guidance)).toContain("edit_drawio_xml");
+    expect(String(result.guidance)).toContain("write");
     expect(String(result.guidance)).toContain("mxCell XML fragments");
   });
 
