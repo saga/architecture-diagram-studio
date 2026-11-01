@@ -42,6 +42,8 @@ async function createServer(options: {
   snapshot?: () => Promise<{ drawioXml: string; revision: string } | null>;
   copilot?: Record<string, unknown>;
   commitWorkspaceXml?: (input: { drawioXml: string; baseRevision: string; label: string }) => Promise<{ ok: boolean; status: number; body: unknown }>;
+  readWorkspaceFile?: (path: string) => Promise<{ content: string; size: number }>;
+  writeWorkspaceFile?: (path: string, content: string) => Promise<void>;
 } = {}): Promise<ServerHarness> {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
@@ -64,6 +66,8 @@ async function createServer(options: {
       ? { drawioXml: XML, revision: workspaceRevision(XML), versionId }
       : null,
     ...(options.commitWorkspaceXml ? { commitWorkspaceXml: options.commitWorkspaceXml } : {}),
+    ...(options.readWorkspaceFile ? { readWorkspaceFile: options.readWorkspaceFile } : {}),
+    ...(options.writeWorkspaceFile ? { writeWorkspaceFile: options.writeWorkspaceFile } : {}),
     collectAgentWorkspaceContext: async () => ({}),
     persistSessionId,
   });
@@ -101,7 +105,7 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function xmlEditingCopilot() {
+function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -121,13 +125,17 @@ function xmlEditingCopilot() {
       get session() { return activeSession; },
       send: async () => {
         const tool = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> })
-          .find((candidate) => candidate.name === "write");
-        if (!tool?.handler) throw new Error("write tool was not registered");
-        await tool.handler({
-          path: "$active-diagram",
-          summary: "Rename Database",
-          content: XML.replace('value="Database"', 'value="Data Store"')
-        });
+          .find((candidate) => candidate.name === toolName);
+        if (!tool?.handler) throw new Error(toolName + " tool was not registered");
+        if (toolName === "write") {
+          const read = prepared.tools.map((candidate) => candidate as { name?: string; handler?: (args: unknown) => Promise<unknown> }).find((candidate) => candidate.name === "read");
+          if (!read?.handler) throw new Error("read tool was not registered");
+          const current = await read.handler({ path: "$active-diagram" }) as { content?: string };
+          if (typeof current.content !== "string" || !current.content.includes('value="Database"')) throw new Error("read did not return the active native XML");
+          await tool.handler({ path: "$active-diagram", summary: "Rename Database", content: current.content.replace('value="Database"', 'value="Data Store"') });
+        } else {
+          await tool.handler(writeArgs ?? { path: "src/generated.ts", content: "export const generated = true;", summary: "Write generated source" });
+        }
         return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
       }
     })
@@ -319,6 +327,20 @@ describe("Copilot intent route result and revision contract", () => {
       drawioXml: XML.replace('value="Database"', 'value="Data Store"')
     }));
     expect(harness.logs.some((entry) => entry.event === "turn.completed.document-write-committed")).toBe(true);
+  });
+
+
+  it("exposes generic write_code for ordinary workspace files", async () => {
+    const writeWorkspaceFile = vi.fn(async () => undefined);
+    const harness = await createServer({
+      copilot: xmlEditingCopilot("write_code", { path: "src/generated.ts", content: "export const generated = true;" }),
+      writeWorkspaceFile
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    expect(writeWorkspaceFile).toHaveBeenCalledWith("src/generated.ts", "export const generated = true;");
+    expect(harness.logs.some((entry) => entry.event === "turn.completed.workspace-files-written")).toBe(true);
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
