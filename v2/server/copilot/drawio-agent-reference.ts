@@ -22,42 +22,39 @@ function bounded(value: string): string {
     ? value
     : value.slice(0, MAX_REFERENCE_CHARS) + "\n\n[Reference truncated at the configured response limit.]";
 }
-const XML_FIRST_CONTRACT = `# Direct Native Draw.io XML Editing
+const XML_FIRST_CONTRACT = [
+  "# Direct Native Draw.io XML Editing",
+  "",
+  "The active diagram is a normal file exposed at $active-diagram. Use read to inspect it, edit the native XML itself, and use write to replace it with the complete resulting XML. Large files support chunked reads. Read and write repeatedly as needed; the latest complete XML is saved after the model turn.",
+  "",
+  "Use read and write for workspace files and write_code for source code. Workspace paths are relative to the configured root; absolute paths, traversal and symlink escapes are rejected. Standalone mode exposes only $active-diagram.",
+  "",
+  "There is no XML Patch DSL, cell-operation list, or per-cell mutation API. Preserve unrelated pages, cells, wrappers, custom shapes, unknown attributes, styles, geometry, groups, layers, labels and edge relationships. Do not rebuild the document from a reduced model. Keep HTML labels and nested markup intact.",
+  "",
+  "The server validates the complete XML, checks the source revision and persists workspace diagram writes through the versioned document-save transaction. Standalone writes are returned to the browser for persistence through the selected File System Access handle. Report success only after the appropriate persistence receipt.",
+  "",
+  "Never generate or execute JavaScript for the Draw.io iframe. Use Studio automatic layout for layout requests; do not reimplement or alter layout engines as part of XML editing."
+].join("\\n");
 
-The active diagram is a normal file exposed at `$active-diagram`. Use `read` to inspect it, edit the native XML itself, and use `write` to replace it with the complete resulting XML. Large files support chunked reads. Read and write repeatedly as needed; the latest complete XML is saved after the model turn.
-
-Use `read` and `write` for workspace files and `write_code` for source code. Workspace paths are relative to the configured root; absolute paths, traversal and symlink escapes are rejected. Standalone mode exposes only `$active-diagram`.
-
-There is no XML Patch DSL, cell-operation list, or per-cell mutation API. Preserve unrelated pages, cells, wrappers, custom shapes, unknown attributes, styles, geometry, groups, layers, labels and edge relationships. Do not rebuild the document from a reduced model. Keep HTML labels and nested markup intact.
-
-The server validates the complete XML, checks the source revision and persists workspace diagram writes through the versioned document-save transaction. Standalone writes are returned to the browser for persistence through the selected File System Access handle. Report success only after the appropriate persistence receipt.
-
-Never generate or execute JavaScript for the Draw.io iframe. Use Studio's existing automatic-layout capability for layout requests; do not reimplement or alter layout engines as part of XML editing.
-`;
-
-const XML_DIRECT_RECIPES = `## Direct XML editing examples
-
-Rename a normal cell by changing its native `value` attribute:
-
-```xml
-<mxCell id="database" value="Data Store" vertex="1" parent="1">
-  <mxGeometry x="240" y="120" width="120" height="60" as="geometry"/>
-</mxCell>
-```
-
-Change the native style string directly. Preserve every existing token that is unrelated to the requested change:
-
-```xml
-<mxCell id="database" value="Database" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
-  <mxGeometry x="240" y="120" width="120" height="60" as="geometry"/>
-</mxCell>
-```
-
-Create a native cell by adding an `mxCell` element under the appropriate existing `root`, using a unique ID and the correct native parent relationship. For edges, preserve valid `source` and `target` IDs and their native geometry. For UserObject/object cells, keep the wrapper and inner `mxCell` together.
-
-These are ordinary XML examples, not tool arguments or an operation schema. Use the actual source document as the basis for every edit.
-`;
-
+const XML_DIRECT_RECIPES = [
+  "## Direct XML editing examples",
+  "",
+  "Rename a normal cell by changing its native value attribute:",
+  "",
+  "```xml",
+  '<mxCell id="database" value="Data Store" vertex="1" parent="1"><mxGeometry x="240" y="120" width="120" height="60" as="geometry"/></mxCell>',
+  "```",
+  "",
+  "Change the native style string directly. Preserve every existing token that is unrelated to the requested change:",
+  "",
+  "```xml",
+  '<mxCell id="database" value="Database" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="240" y="120" width="120" height="60" as="geometry"/></mxCell>',
+  "```",
+  "",
+  "Create a native cell by adding an mxCell element under the appropriate existing root, using a unique ID and the correct native parent relationship. For edges, preserve valid source and target IDs and their native geometry. For UserObject/object cells, keep the wrapper and inner mxCell together.",
+  "",
+  "These are ordinary XML examples, not tool arguments or an operation schema. Use the actual source document as the basis for every edit."
+].join("\\n");
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
   const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
   const safeOverview = [
