@@ -173,7 +173,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
             recorded: false, accepted: false, reason: "terminal_action_already_registered",
             registeredKind: registration.registeredKind,
             instructions: registration.registeredKind === "document_write"
-              ? "An complete XML write is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+              ? "A complete XML write is already queued for dispatch. Do not call another terminal tool; let that edit execute."
               : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
           };
         }
@@ -181,7 +181,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
         return {
           recorded: true, accepted: true, terminal: true, outcome: report.outcome,
-          replaceableByXmlPatch: true,
+          replaceableByDocumentWrite: true,
           instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly a complete native XML file write instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit multiple complete XML writees."
         };
       }
@@ -995,7 +995,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           projectWorkspace: projectContext,
           diagram: context,
           request: prompt,
-          editingGuidance: "Use write for every diagram mutation: read the current native XML, resolve exact cell IDs, and submit one focused patch that carries every target of the request — a second editing call in the same turn is rejected, so a split-out target would stay unedited. Do not use editor scripts or a second editing path. Preserve unrelated pages, cells, UserObject wrappers, custom shapes, unknown attributes, styles, geometry and relationships; never use plain-text replacements that flatten markup, and keep rich HTML labels and nested markup intact by patching only the intended attribute. For any style or colour change use set-style-properties with just the keys you change (for example {\"fillColor\":\"#ff0000\"}); never rewrite the whole style attribute, and read style from search or inspection results when you must match an existing value. In a UserObject wrapper the label/value attribute lives on the wrapper while style and geometry live on its inner mxCell; patch the element that owns the attribute and keep the wrapper intact. For C4 diagrams patch labels and individual style keys in place. For C4 creation call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe in a single query — do not call get_drawio_reference and do not search again; build the mxCell fragments from the returned exact styles and dimensions. Suggested C4 palette when standard C4 styling is requested: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colours and do not recolour unrelated cells. Trust cell IDs only from selectedCell, diagram.cells or search results bound to this exact documentRevision. Connector routing is a special case: an edge has no box geometry, so prove a reroute with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 bends nothing unless a waypoint exists."
+          editingGuidance: "Use the general read, write and write_code tools as you would for ordinary files. Read the active diagram with read({path:\u0022$active-diagram\u0022}); use offset/limit to read large XML in chunks. Edit the native Draw.io XML itself and write the complete result with write({path:\u0022$active-diagram\u0022,content:\u0022...\u0022}). You may read, write and read again repeatedly during the turn; the latest complete XML is saved at the end. There is no XML Patch DSL, operation whitelist, or single-call editing restriction. Do not convert the XML to a shadow graph or reconstruct it from a reduced model. Preserve unrelated pages, cells, wrappers, custom shapes, unknown attributes, styles, geometry, layers, groups and edge relationships. Keep HTML labels and nested markup intact. Use native Draw.io elements, attributes and styles directly; do not invent shape whitelists or application-specific editing semantics. Use write_code for source files and write for other workspace files. C4 creation may use search_drawio_shapes and exact native shape definitions. Do not generate or execute JavaScript for the Draw.io iframe. The server validates the complete XML, checks the source revision and persists a new version before reporting success."
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
@@ -1005,7 +1005,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         if (!capturedSelection && !capturedReportedOutcome && !pendingDocumentWrites.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use write for every diagram mutation. Read-only tools may be used for discovery, then submit a complete native XML file write. Use read/write/write_code as ordinary file tools; do not use an XML operation language or editor scripts. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After an complete XML write is accepted, do not call another terminal tool. The queued document write is committed after this model turn; you may continue reading and writing before finishing. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Write the complete saved mxfile XML directly with write or claim success until the complete XML write has been validated and persisted.",
+            request: "Finish with exactly one terminal tool call. Use write for every diagram mutation. Read-only tools may be used for discovery, then write the complete native XML file. Use read/write/write_code as ordinary file tools; do not use an XML operation language or editor scripts. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After a write, you may continue reading and writing to verify or refine the result. The queued document write is committed after this model turn; you may continue reading and writing before finishing. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Write the complete saved mxfile XML directly with write or claim success until the complete XML write has been validated and persisted.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
@@ -1042,7 +1042,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
         : plan.capturedSelection ? ["select_diagram_element"] : [];
       const terminalIntentWarning = plan.terminalIntentModelFailure
-        ? "The model stream failed after an complete XML write was accepted; Studio is continuing with the accepted patch and will verify server-side validation and persistence. "
+        ? "The model stream failed after an complete XML write was accepted; Studio is continuing with the accepted complete XML and will verify server-side validation and persistence. "
         : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
@@ -1202,16 +1202,16 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
           selected: false, accepted: false, reason: "terminal_action_already_registered",
           registeredKind: registration.registeredKind,
           instructions: registration.registeredKind === "document_write"
-            ? "An complete XML write is already queued for dispatch. Do not call another terminal tool; let that patch execute."
+            ? "A complete XML write is already queued for dispatch. Do not call another terminal tool; let that patch execute."
             : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
         };
       }
       pendingAgentSelections.set(sessionId, selected);
       return {
         accepted: true, queued: true, execution: "after_model_turn", terminal: true,
-        replaceableByXmlPatch: true, result_available: false, action: "select_diagram_element",
+        replaceableByDocumentWrite: true, result_available: false, action: "select_diagram_element",
         ...selected, documentChanged: false,
-        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, write the complete focused `write` patch instead. Never submit two terminal actions."
+        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, write the complete native XML file with `write` instead. Never submit two terminal actions."
       };
     }
   });
