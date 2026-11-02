@@ -619,8 +619,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
 
   const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {
     recordToolUse(sessionId, toolName);
-    if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048 || typeof args.content !== "string" || !args.content.length || Buffer.byteLength(args.content, "utf8") > 20000000) {
-      return { ok: false, error: toolName + " requires a relative path and non-empty content up to 20 MB." };
+    if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048 || typeof args.content !== "string" || Buffer.byteLength(args.content, "utf8") > 20000000) {
+      return { ok: false, error: toolName + " requires a workspace-relative path and content up to 20 MB." };
     }
     const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
     const summary = typeof args.summary === "string" && args.summary.trim() ? args.summary.trim().slice(0, 1000) : "Write " + args.path;
@@ -666,7 +666,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     }),
     defineTool("write", {
       description: "Write complete file contents like a normal filesystem write. For the active Draw.io document use $active-diagram (or its exact primary path) and provide the complete native XML, not an operation list or patch. Other workspace files are written directly.",
-      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", minLength: 1, maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
+      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
       handler: (args: { path?: unknown; content?: unknown; summary?: unknown }) => writeHandler(args, "write")
     }),
     ...(standaloneMode ? [] : [defineTool("write_code", {
