@@ -6,7 +6,7 @@ describe("native diagram always-on instructions", () => {
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS.length).toBeLessThan(2800);
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("Native Draw.io XML is the only source of truth");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("read");
-    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("complete native XML");
+    expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("complete XML");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("Preserve unrelated pages, cells");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("Never execute or generate JavaScript");
     expect(NATIVE_DIAGRAM_CORE_INSTRUCTIONS).toContain("automatic-layout capability");
