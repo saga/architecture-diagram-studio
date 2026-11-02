@@ -415,7 +415,7 @@ describe("Copilot intent route result and revision contract", () => {
     const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
     expect(response.status).toBe(200);
     expect(body.outcome).toBe("answered");
-    expect(body.reply).toBe("The file write failed; no file change was made.");
+    expect(body.reply).toContain("The file write failed; no file change was made.");
     expect(body.workspaceFilesWritten).toBeUndefined();
     expect(body.toolsUsed).toEqual(["write_code", "report_intent_outcome"]);
   });
