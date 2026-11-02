@@ -1031,6 +1031,7 @@ export default function App() {
         throw new Error(diagnostics.issues[0] || "The selected file is not a supported Draw.io diagram; the active document was not changed.");
       }
       setNativeXmlOverride(xml);
+      drawioFrameRef.current?.reloadDocument();
       setRevision((value) => value + 1);
       if (standaloneFileBindingRef.current) standaloneLastSavedXmlRef.current = null;
       setLastAction("Imported native Draw.io XML from " + handle.name);
