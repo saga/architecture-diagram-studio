@@ -154,7 +154,8 @@ function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs
         return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
       }
     }),
-    getPreparedToolNames: () => prepared.tools.map((candidate) => (candidate as { name?: string }).name).filter(Boolean)
+    getPreparedToolNames: () => prepared.tools.map((candidate) => (candidate as { name?: string }).name).filter(Boolean),
+    getPreparedSystemMessage: () => (prepared as { systemMessage?: string }).systemMessage ?? ""
   };
 }
 
@@ -329,6 +330,7 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.drawioXml).toContain('value="Data Store"');
     expect(body.writtenRevision).toBe(workspaceRevision(String(body.drawioXml)));
     expect((harness.copilot as { getPreparedToolNames?: () => string[] }).getPreparedToolNames?.()).not.toContain("write_code");
+    expect((harness.copilot as { getPreparedSystemMessage?: () => string }).getPreparedSystemMessage?.()).toContain("write_code and all workspace files are unavailable");
   });
 
   it("reports workspace file writes together with a committed active diagram write", async () => {
