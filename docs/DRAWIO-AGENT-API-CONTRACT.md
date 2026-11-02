@@ -18,3 +18,10 @@ Copilot uses the ordinary file tools `read`, `write` and `write_code`. There is 
 - Do not execute model-generated JavaScript in the Draw.io iframe. Automatic layout remains a separate Studio-owned capability.
 
 The former `edit_drawio_xml` tool and XML Patch DSL are retired. The `run_drawio_script` execution path remains retired as well.
+
+
+## Shape discovery
+
+Use `search_drawio_shapes` to find relevant native Draw.io shape and stencil definitions. When the active iframe provides `liveShapeClasses`, treat them as a snapshot of the current runtime registry, not as an exhaustive catalogue or proof that a shape is visible in the sidebar.
+
+A catalogue miss does not prove that a shape is unavailable. Inspect the source XML and use native shape identifiers, attributes and styles supported by the document. For C4 elements, use the established C4 shape recipes and verify the exact native definition before writing XML.
