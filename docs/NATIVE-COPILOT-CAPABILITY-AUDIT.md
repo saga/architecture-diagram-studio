@@ -7,15 +7,13 @@
 - Reference: [Architecture V2](../ARCHITECTURE-V2.md), [ADR-0010](adr/0010-unified-server-side-copilot-intent-processing.md), [ADR-0011](adr/0011-native-drawio-only-model.md), [ADR-0012](adr/0012-native-diagram-extension-contracts.md).
 - Ground rule: the bundled Draw.io editor and its `mxCell` model are the only active diagram model. More internal editor methods do not automatically become Copilot permissions.
 
-> **Status (2026-10-30): Historical audit.** This document records the retired typed-operation and script-first Copilot implementation. ADR-0026 is authoritative: Copilot diagram mutations use generic `read`, `write` and `write_code` file tools and direct complete native XML writes. The former XML Patch DSL and `edit_drawio_xml`, typed Copilot edit operations, `propose_native_edits`, script execution, browser-side edit dispatch, and proposal/confirmation/acknowledgement flows are removed. Automatic layout remains a separate Studio-owned capability.
+> **Status (2026-11-02): Archived historical audit.** This document records the retired typed-operation and script-first Copilot implementation. ADR-0026 is authoritative: Copilot diagram mutations use generic `read`, `write` and `write_code` file tools and direct complete native XML writes. The former XML Patch DSL and `edit_drawio_xml`, typed Copilot edit operations, `propose_native_edits`, script execution, browser-side edit dispatch, and proposal/confirmation/acknowledgement flows are removed. Automatic layout remains a separate Studio-owned capability.
 
 
 
-## Executive finding
+## Executive finding (historical; not current implementation guidance)
 
-The original typed-operation allowlist was deliberately narrower than Draw.io's native API, forcing every new capability to require changes across several layers. Keep typed operations for focused edits and use the typed `auto_layout` operation for whole-page Dagre/ELK layout (ADR-0013); use the generic `run_drawio_script` entry point only for other complex native effects that are not covered by a typed operation. The important protections remain source-revision/page binding, native editor execution, script-error rollback of active-page cells, serialized XML confirmation and workspace persistence.
-
-Those paths remain in place. The API uses a discriminated outcome union for `command_ready`, `proposal_required`, `selected`, `answered`, `needs_clarification`, `unsupported`, `stale_context` and `failed`; the separate final acknowledgement returns `applied` or `failed`. The acknowledgement is bound to the request, active page, serialized XML revision and immutable version ID. General scripts use the same revision-bound bridge and save/acknowledgement chain instead of requiring a feature-specific implementation.
+This section records the former typed-operation and script execution design only. It has been superseded by ADR-0026. The current Copilot editing path is ordinary `read` / `write` / `write_code` file I/O: the model edits complete native Draw.io XML directly, and the server validates and persists the result. There is no XML Patch DSL, typed Copilot mutation allowlist, browser-side model dispatch, script execution, or edit proposal/acknowledgement round trip. The Studio-owned automatic-layout pipeline remains separate and unchanged. The request still binds edits to the source revision; XML validation and the workspace persistence receipt remain required.
 
 ## Findings and code changes
 
@@ -67,7 +65,7 @@ Relevant code: `v2/src/App.tsx`, `v2/server/copilot/intent-route.ts`.
 
 ### P2 — Avoid implicit style and color conversions
 
-The earlier `set_style` implementation defaulted a missing key to `fillColor` and converted English/Chinese color names (including color names embedded in phrases) through a hard-coded lookup table. Both behaviors have been removed: the typed shortcut now requires an explicit style key and explicit hexadecimal color, and preserves that value. For other native Draw.io style values, use `run_drawio_script` instead of adding another alias or conversion table. The three typed color keys remain an intentionally narrow shortcut; direct scripts retain the full native style capability.
+The earlier `set_style` implementation defaulted a missing key to `fillColor` and converted English/Chinese color names (including color names embedded in phrases) through a hard-coded lookup table. Both behaviors have been removed: the typed shortcut now requires an explicit style key and explicit hexadecimal color, and preserves that value. This describes the retired typed-style/script implementation. Under ADR-0026, style changes are made directly in the complete native XML through the general file tools; do not reintroduce a style mutation shortcut or script runtime.
 
 Relevant code: `v2/server/copilot/native-edit-tool-schema.ts`, `v2/server/copilot/native-edit-tool-schema.test.ts`, `v2/src/model/native-edit-operations.ts`.
 
@@ -90,13 +88,13 @@ Draw.io has multiple layers of capability: its standard iframe JSON protocol (lo
 | Arbitrary style replacement / arbitrary style key | Plugin can accept `style` and `style:<key>` | None | Must stay blocked; the model should never overwrite a whole style string or choose arbitrary keys |
 | Page creation/deletion/reordering; broad layout | Draw.io/editor has richer editor actions; local plugin does not provide a governed Copilot contract for them | None | Future feature work only, via explicit revision-bound typed contracts |
 
-### Suggested capability order
+### Suggested capability order (historical; superseded by ADR-0026)
 
 1. **Independent edge creation and endpoint repair**: most material modeling gap; must validate both endpoints against the active page, reject edge-to-edge terminals, preserve labels/styles unless explicitly requested, and be covered by atomic rollback tests.
 2. **Node shape selection**: allow a small, documented set of Draw.io shape keys for insertion. Avoid arbitrary style strings.
 3. **Do not add more per-feature operations.** Alignment, distribution, grouping, shape/stencil selection, connector routing/reconnection and other native actions should use the general script runtime. Add shared helpers only for API limitations or repeated failure patterns.
 
-Do not add one operation type for every Draw.io feature. Use `run_drawio_script` for native Graph/Model operations instead of growing a feature-specific union. Raw replacement XML remains unsupported.
+This recommendation is retired. Do not use `run_drawio_script` or add a feature-specific mutation union. Use the generic file tools to edit complete native XML directly, as specified by ADR-0026.
 
 ## Server vs. browser responsibility
 
@@ -115,7 +113,7 @@ Do not add one operation type for every Draw.io feature. Use `run_drawio_script`
 1. Route-level tests cover typed no-mutation outcomes, source hash/page/selection mismatch, workspace changes during model latency, duplicate labels beyond the first 200 cells, standalone workspace isolation, identical focused-rename resolution in both request modes, proposal confirmation and stale revision, acknowledgement replay/expiry, immutable-version mismatch, persistence failure, conflicting terminal tools, and assertions on the canonical multilingual rename/move prompt policy. Unit tests cover localized label values, all four numeric move directions, resize/delete mapping, and explicit rejection of alignment/grouping/relation operations not yet supported. Browser E2E covers workspace edits, bulk-delete confirmation, standalone local-file persistence, workspace/standalone isolation, and workspace-save failure. The full suite passed in [V2 CI run 39880294805](https://github.com/saga/architecture-diagram-studio/actions/runs/39880294805).
 2. The discriminated result contract is implemented for the current allowlist. Remaining work is to expand the integration matrix for all error branches, not to add another outcome vocabulary.
 3. The workspace snapshot accessor validates the server's stored workspace state, not changes written directly to disk by another process. If V2 must tolerate external file edits while open, add a filesystem-aware freshness check before issuing a command and document the trade-off between file I/O and latency.
-4. Live-model paraphrase and script-generation quality still need tests across model releases. Advanced editor/page UI state outside the active mxGraphModel is not fully rolled back if a script throws; active-page cell values, styles, geometry, terminals and reparenting are snapshotted for rollback.
+4. The former script-generation and rollback limitations are historical and no longer describe the active XML file-editing path.
 5. Standalone execution receipts explicitly say persistence is not managed by the server. This is intentional: a serialized XML event is not proof that a user-selected local file was written. If UI/product needs that guarantee, post a separate File System Access save result without treating it as a workspace version.
 
 ## ADR alignment matrix
@@ -130,4 +128,4 @@ Do not add one operation type for every Draw.io feature. Use `run_drawio_script`
 
 ## Verification status
 
-Final verification passed for commit `e44d3939c889c8382561218a22fdfb90f0a46480`: typecheck, native XML/cell-operation/persistence tests, production build, and expanded Playwright E2E all succeeded. Run: [V2 CI 39880294805](https://github.com/saga/architecture-diagram-studio/actions/runs/39880294805). Earlier failed/cancelled runs drove fixes to the standalone file loading and queued autosave race. Remaining known gaps are live-model script quality, rollback for document-level/page UI state outside the active mxGraphModel, and awareness of external file edits made by other processes.
+Final verification passed for commit `e44d3939c889c8382561218a22fdfb90f0a46480`: typecheck, native XML/cell-operation/persistence tests, production build, and expanded Playwright E2E all succeeded. Run: [V2 CI 39880294805](https://github.com/saga/architecture-diagram-studio/actions/runs/39880294805). Earlier failed/cancelled runs drove fixes to the standalone file loading and queued autosave race. That verification predates ADR-0026 and applies only to the retired typed-operation implementation. Current verification status is tracked by the ADR-0026 implementation PR and its CI runs.
