@@ -671,7 +671,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     }),
     ...(standaloneMode ? [] : [defineTool("write_code", {
       description: "Create or replace a source-code file with complete code. This is a general file-writing capability, not a diagram operation API. Use workspace-relative paths.",
-      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", minLength: 1, maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
+      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
       handler: (args: { path?: unknown; content?: unknown; summary?: unknown }) => writeHandler(args, "write_code")
     })])
   ];
