@@ -438,15 +438,10 @@ describe("Copilot intent route result and revision contract", () => {
     expect(prompt).not.toContain("run_drawio_script");
     expect(prompt).toContain("report_intent_outcome for information");
     expect(prompt.length).toBeLessThan(2800);
-    const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { editingGuidance: string };
-    expect(firstRequest.editingGuidance).toContain("Read the active diagram");
-    expect(firstRequest.editingGuidance).toContain("write the complete result");
-    expect(firstRequest.editingGuidance).toContain("read, write and read again repeatedly");
-    // The iframe script path is gone; guidance must not point the model at editor JS APIs.
-    expect(firstRequest.editingGuidance).not.toContain("convertValueToString");
-    expect(firstRequest.editingGuidance).not.toContain("model.setValue");
-    expect(firstRequest.editingGuidance).not.toContain("typed operations");
-    expect(firstRequest.editingGuidance).not.toContain("expectedTitle");
+    const firstRequest = JSON.parse((copilot as unknown as { prompts: string[] }).prompts[0]!) as { request: string; diagram: unknown };
+    expect(firstRequest.request).toBe("把当前选中的 Database 向上移动 10px");
+    expect(firstRequest.diagram).toBeTruthy();
+    expect(firstRequest).not.toHaveProperty("editingGuidance");
   });
 
   it("reports a queued selection without claiming the canvas has selected it", async () => {
