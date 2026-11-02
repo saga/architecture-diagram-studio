@@ -97,18 +97,17 @@ function validateResponse(value: unknown): AIIntentResponse {
         ...metadata
       };
     }
-    case "xml_patch_ready": {
+    case "xml_write_ready": {
       if (typeof item.requestId !== "string" || !item.requestId.trim() ||
           typeof item.drawioXml !== "string" || !item.drawioXml.trim() ||
           typeof item.documentRevision !== "string" || !item.documentRevision.trim() ||
-          typeof item.patchedRevision !== "string" || !item.patchedRevision.trim() ||
-          !Array.isArray(item.changedCellIds) || !item.changedCellIds.every((id) => typeof id === "string")) {
-        throw new Error("The xml_patch_ready outcome requires validated XML, source/result revisions and changed cell IDs");
+          typeof item.writtenRevision !== "string" || !item.writtenRevision.trim()) {
+        throw new Error("The xml_write_ready outcome requires complete validated XML and source/result revisions");
       }
       return {
-        outcome: "xml_patch_ready", reply: reply || "The server prepared the native XML edit for browser-owned persistence.",
+        outcome: "xml_write_ready", reply: reply || "The server prepared the complete native XML for browser-owned persistence.",
         requestId: item.requestId, drawioXml: item.drawioXml, documentRevision: item.documentRevision,
-        patchedRevision: item.patchedRevision, changedCellIds: item.changedCellIds as string[], ...metadata
+        writtenRevision: item.writtenRevision as string, ...metadata
       };
     }
   }

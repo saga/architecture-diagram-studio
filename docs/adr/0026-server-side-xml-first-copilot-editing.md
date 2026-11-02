@@ -1,99 +1,100 @@
-# ADR-0026: Server-Side XML-First Copilot Editing and Frontend Version Synchronization
+# ADR-0026: Generic File I/O for Direct Native Draw.io XML Editing
 
-- **Status:** Accepted; implementation cleanup and validation in progress in PR #31.
-- **Date:** 2026-10-29
-- **Scope:** Copilot diagram edits, native XML validation/versioning, and frontend synchronization.
-- **Supersedes:** The script-first Copilot execution decision in ADR-0018 and any conflicting requirement in ADR-0010, ADR-0011, ADR-0012, AGENTS.md, or ARCHITECTURE-V2.md that prevents the model from directly editing native XML on the server.
+- **Status:** Accepted; implementation in progress on `feat/copilot-generic-file-xml-editing`.
+- **Date:** 2026-11-02
+- **Scope:** Copilot file tools, direct native XML editing, revision checks, persistence and frontend synchronization.
+- **Supersedes:** The XML Patch DSL and `edit_drawio_xml` contract previously introduced by this ADR. Continues to supersede the script-first Copilot execution decision in ADR-0018.
 - **Related:** ADR-0001, ADR-0009, ADR-0011, ADR-0013, ADR-0016, ADR-0017, ADR-0020, ADR-0023.
 
 ## Context
 
-The current Copilot path commonly asks the model to generate JavaScript for the live Draw.io runtime, dispatches it across the iframe bridge, exports XML, and then coordinates persistence and acknowledgement. This adds runtime coupling and multiple state transitions even for edits that can be expressed directly in the native XML. The saved artifact is already native Draw.io XML, so requiring a Draw.io script as the normal write interface has no demonstrated additional value for ordinary edits.
+Draw.io's saved artifact is already native XML. The previous XML-first implementation removed the iframe script round trip but replaced it with a Studio-defined XML Patch DSL: a fixed list of cell-level operations, one edit call per turn, and a server-side patch engine that interpreted UserObject wrappers, styles, geometry and cell relationships.
 
-The product must continue to preserve the complete open Draw.io format. Removing the script-first path must not reintroduce DiagramDocument, a shadow graph, a closed shape whitelist, or lossy reconstruction. The existing Studio-owned automatic-layout subsystem is a deliberate exception to the scope of this change and must remain unchanged.
+That is still an application-specific mutation language. It makes the model translate ordinary file edits into a narrow operation vocabulary and prevents it from using the same read/edit/write workflow it uses for source code, Markdown and other project files.
+
+The desired interface is ordinary file I/O. The model should read the actual XML, edit that XML directly, and write the complete resulting file. No DiagramDocument, shadow graph, XML patch language, cell-operation whitelist or Draw.io JavaScript is needed.
 
 ## Decisions
 
-### 1. Server-side XML editing is the default Copilot path
+### 1. Use general file tools, not a diagram-specific mutation API
 
-- The Copilot agent reads the current authoritative native XML and edits it directly on the server.
-- The model must not be required to translate its intended changes into `NativeEditOperation[]` or JavaScript for the Draw.io Graph/Model API.
-- Prefer targeted changes that preserve the original XML. A full-document replacement is acceptable only when the workflow needs it and preservation checks pass; it must not be the default reasoner behavior.
-- Keep Draw.io's native XML/mxGraph structure as the only persisted diagram model. Parsed cells, indexes, summaries and diff structures are transient helpers, never a second writable authority.
-- The server owns validation, revision conflict detection, persistence, version history and the final outcome. The agent cannot write arbitrary filesystem paths or bypass the document service.
+The Copilot session exposes three general capabilities:
 
-### 2. Every edit is bound to a source revision and produces a persisted revision
+- `read(path)`: read a workspace-relative file. The virtual path `$active-diagram` reads the current native Draw.io document. Large files support offset/limit reads.
+- `write(path, content)`: write complete file contents. Writing `$active-diagram` queues the complete native XML for the versioned document save. Other workspace files are written directly through the workspace file service.
+- `write_code(path, content)`: create or replace a source-code file using complete source text.
 
-For each edit, carry a stable document identity, source revision/hash and applicable page identity. Before committing, verify that the authoritative source has not advanced. If it has, reject the stale write and let the agent re-read/re-plan rather than silently overwriting newer changes.
+The model may read, write, read again and write again within one turn. For the active diagram, the latest complete XML is the version that is committed after the model turn. The model does not submit a sequence of application-defined cell operations.
 
-Before a result is marked successful:
-1. Parse and validate the native XML using the shared XML validation entry points.
-2. Check structural invariants including unique IDs, valid cell/edge references, valid page payloads and preservation of unknown attributes, wrappers, shapes, styles, layers, groups and unrelated pages.
-3. Produce a before/after native-XML diff and identify unexpected out-of-scope changes where the comparison can determine them.
-4. Persist the exact resulting XML as the next authoritative document revision and immutable version.
-5. Return a receipt containing request/document IDs, source and resulting revisions/hashes, version ID, diff summary, validation result and persistence outcome.
+The active diagram is the only diagram exposed in standalone mode. Other workspace files are available through workspace-relative paths. Absolute paths, path traversal and symlink escapes are rejected by the existing workspace resolver. The tools do not expose arbitrary host filesystem paths.
 
-XML parsing alone is not proof that the diagram renders correctly or that the user's intent was achieved. The frontend/Draw.io rendering result and semantic postconditions should be checked where appropriate; failures must be reported distinctly rather than collapsing into a generic success/failure flag.
+### 2. The model edits native Draw.io XML directly
 
-### 3. Frontend follows the authoritative document revision
+- The model reads the original `mxfile` / `mxGraphModel` content and modifies it as a normal text file.
+- The complete resulting XML is written back. The model may use any native Draw.io XML element, attribute, shape, stencil, style, wrapper, geometry or relationship supported by the format.
+- There is no XML Patch DSL, typed cell-operation allowlist, special style-token API, or single-write-call restriction.
+- Do not create or persist a DiagramDocument, semantic graph, or reduced replacement representation.
+- Preserve unrelated pages, cells, wrappers, custom shapes, unknown attributes, styles, geometry, groups, layers, labels and edge relationships.
+- The agent may use read-only search and shape-discovery tools as supplementary context, but those tools do not define the set of editable XML features.
 
-After the server commits a new XML revision, it publishes a document-changed notification with document identity, revision/hash and version metadata. Prefer a push event over a polling loop when the existing local application transport supports it. A revision poll is an acceptable fallback, not a second source of truth.
+### 3. Keep document integrity and persistence in the server
 
-On receiving a newer revision, the frontend must:
-- Ignore duplicate or older events.
-- Avoid applying the revision to the wrong workspace/document/page.
-- Load the exact persisted XML revision into the embedded Draw.io editor and update its local revision/hash baseline.
-- Suppress treating the refresh itself as a new user edit/autosave.
-- Prevent stale in-memory editor XML from overwriting the newer server revision.
-- Handle an unsaved user edit explicitly: detect the local/server revision mismatch and reconcile or surface the conflict rather than silently discarding either version.
-- Acknowledge the loaded revision where needed so the Copilot outcome can distinguish “persisted on server” from “frontend refreshed”.
+General file tools do not bypass the diagram document lifecycle.
 
-The server-persisted XML version is authoritative. A successful server write must not be reported as a failed edit solely because the frontend notification is delayed; instead expose the synchronization state and reconcile the late event.
+For a write to `$active-diagram`:
 
-### 4. Workspace and standalone files retain their established ownership boundaries
+1. Bind the write to the source XML revision supplied with the request.
+2. Validate the complete resulting document using the shared Draw.io XML validation entry point.
+3. Reject stale source revisions and external modifications to the configured primary diagram.
+4. Persist the exact resulting XML through the existing immutable version and workspace-state transaction.
+5. Return the persistence receipt only after the save transaction succeeds.
+6. Notify the frontend to load the authoritative persisted revision.
 
-- In workspace mode, the server edits and persists the configured workspace XML using the existing filesystem and version services.
-- In standalone mode, the browser continues to own the user's selected source file through its File System Access handle, as defined by ADR-0016. The server may produce and version the next XML document revision, but the browser must write it to the selected source file through the existing handle and external-change check. Do not send a local absolute path to the server or imply that a server-side version automatically changed the original standalone file.
-- Keep these modes explicit in the receipt: server document revision, standalone source-file write outcome, and frontend-loaded revision are distinct facts.
+For writes to other workspace files, use the existing workspace-relative path resolver, reject path traversal and symlink escapes, and use atomic file writes. These writes do not mutate the active diagram state.
 
-### 5. Remove the Draw.io script tool and execution path
+XML parsing validates document integrity; it does not prove that the diagram renders as intended or that the user's semantic intent was satisfied. Do not add application-specific shape taxonomies or mandatory semantic postconditions.
 
-Remove `run_drawio_script` as a Copilot tool entirely. Do not retain it as a fallback, hidden capability, feature flag, deprecated tool schema, retry path or prompt-only prohibition. Remove its tool registration/schema, script-specific instruction text, execution/dispatch bridge, watchdog and confirmation-policy branches, script-only telemetry/configuration, and tests that exist solely to support it. Remove or simplify `NativeEditOperation` script variants and validation branches that only exist to route this tool.
+### 4. Workspace and standalone ownership remain unchanged
 
-Do not replace the script with another way to execute model-generated JavaScript inside Draw.io. Copilot edits native XML directly through the server-side document service. If a future requirement genuinely cannot be expressed as XML, it needs a separate architecture decision; this ADR does not authorize retaining the current script tool under another name.
+- Workspace mode: the server owns workspace file reads/writes, primary diagram revision checks, XML persistence and version history.
+- Standalone mode: the browser continues to own the selected source file through its File System Access handle. The server returns the complete validated XML and source/result revisions; the browser writes the result through the selected handle and checks for external changes.
+- Never send a standalone absolute path to the server or imply that a server-side history snapshot alone modified the source file.
 
-Do not create new typed operations merely to preserve the former script-first design. Small shared XML helpers are acceptable where they reduce repeated reasoning or make preservation/validation reliable; they must not grow into a second diagram model.
+### 5. Keep Draw.io JavaScript execution removed
 
-### 6. Automatic layout is explicitly unchanged
+The `run_drawio_script` tool and model-generated JavaScript execution path remain removed. Do not reintroduce script execution under another tool name. General file tools write file contents; they do not evaluate code in the Draw.io iframe.
 
-This ADR does not redesign, remove, replace, or refactor automatic layout. ADR-0013 and the expanded layout ADRs remain authoritative. Keep the current Studio-owned Dagre, ELK, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 algorithms, adapters, configuration, temporary layout projection and geometry-application pipeline unchanged.
+The former `edit_drawio_xml` tool, `DrawioXmlPatch` type, patch engine, patch-specific confirmation/dispatch state and XML Patch DSL tests are removed. Do not replace them with another XML operation language.
 
-Copilot-triggered automatic layout continues through its existing layout workflow for now. A later, separately scoped decision may consider how layout output is applied, but it must not be bundled into this XML-first migration.
+### 6. Automatic layout remains unchanged
+
+This ADR does not redesign automatic layout. ADR-0013 and the expanded layout ADRs remain authoritative. Keep the Studio-owned Dagre, ELK, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 algorithms, adapters, configuration, temporary layout projection and geometry-application pipeline unchanged.
 
 ## Consequences
 
-- The Copilot path removes the live Draw.io script execution round trip entirely.
-- XML validation, revision checks, native diff, persistence and version history become the core write contract.
-- Frontend synchronization is an explicit part of the document lifecycle, not an incidental side effect of editor script acknowledgement.
-- The implementation must prevent races between server commits, frontend refresh, Draw.io autosave and standalone source-file writes.
-- Script-runtime infrastructure that exists only for `run_drawio_script` should be removed with the tool.
-- Automatic layout behavior and its current implementation are out of scope.
+- The model works with Draw.io XML like any other project file.
+- Complex Draw.io structures are no longer blocked by a Studio-specific operation list.
+- Repeated read/write iterations are possible within one Agent turn.
+- The server remains responsible for path boundaries, XML integrity, revision conflicts, atomic persistence, version history and frontend synchronization.
+- Workspace text/code writes are ordinary file writes; active diagram writes retain the stronger versioned document-save lifecycle.
+- Automatic layout is independent and unchanged.
 
-## Migration and acceptance criteria
+## Acceptance criteria
 
-1. Update architecture guidance and repository instructions so no document still says Copilot must use scripts/typed operations or may not submit XML.
-2. Implement a server-side XML-edit tool/contract with source revision binding, shared validation, native diff, immutable persistence and structured receipts.
-3. Implement frontend revision notifications with push-first delivery and polling fallback; load only the matching, persisted document revision and suppress refresh-triggered autosave.
-4. Cover races: concurrent server edits, user edits while Copilot is working, duplicate/out-of-order notifications, stale autosave, failed persistence, frontend disconnection, and standalone file changes outside the app.
-5. Regression-test preservation of multiple pages, compressed/plain page payloads, UserObject wrappers, custom shapes/stencils, unknown attributes/style keys, layers, groups, edge terminals and unrelated cells.
-6. Verify that `run_drawio_script` is absent from tool registration, schemas, prompts, execution bridge, confirmation logic, runtime configuration and active documentation. No script fallback remains.
-7. Verify automatic-layout source files, adapters, configuration and behavior are unchanged by this migration.
-8. Run typecheck, unit tests, production build and relevant Playwright E2E tests. The decision is accepted now; implementation is not complete until these checks pass and the change is integrated into `main`.
+1. Copilot exposes `read`, `write` and `write_code`; it does not expose `edit_drawio_xml` or a replacement patch tool.
+2. The model can read the active XML, make a direct complete-document edit, read the result again, and write a revised complete document in the same turn.
+3. Workspace diagram writes use source-revision checks, complete XML validation, external-file conflict detection and immutable version persistence.
+4. Standalone diagram writes use the browser-owned file handle and verify source/result revisions.
+5. Generic workspace file writes reject absolute paths, traversal and symlink escapes.
+6. Regression tests cover plain/compressed XML, multiple pages, UserObject wrappers, custom shapes, unknown attributes, labels, groups, edge terminals, stale revisions and persistence failures.
+7. No active tool, schema or handler exposes the retired XML Patch DSL or `edit_drawio_xml`; any remaining mentions are explicit prohibitions or historical explanations.
+8. Automatic layout code and behavior are unchanged.
+9. Typecheck, unit tests, production build and relevant Playwright E2E tests pass, and the changes are integrated into `main`.
 
 ## Non-goals
 
-- Reintroducing `DiagramDocument`, a second persisted graph model or a parallel renderer.
-- Rewriting automatic layout algorithms or their adapters.
-- Moving standalone source-file I/O to Node.js or exposing local file paths to the server.
-- Treating XML parse success as proof of correct rendering or successful user intent.
-- Retaining a model-generated Draw.io JavaScript execution path under this or another name.
+- Reintroducing a semantic graph model or parallel renderer.
+- Moving standalone source-file I/O to Node.js.
+- Exposing arbitrary host absolute paths.
+- Executing model-generated JavaScript in the Draw.io iframe.
+- Rewriting automatic layout algorithms or adapters.

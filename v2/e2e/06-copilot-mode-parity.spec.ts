@@ -39,21 +39,21 @@ test("Copilot uses the XML-first contract in workspace and standalone modes", as
           requestId: "11111111-1111-4111-8111-111111111111",
           persistence: { workspaceRevision: saved.workspaceRevision },
           sessionId: body.sessionId || "mode-parity-session", model: "e2e-stub-model",
-          provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["edit_drawio_xml"]
+          provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["read", "write"]
         })
       });
       return;
     }
-    const patchedRevision = createHash("sha256").update(updatedXml, "utf8").digest("hex");
+    const writtenRevision = createHash("sha256").update(updatedXml, "utf8").digest("hex");
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        outcome: "xml_patch_ready", reply: "Renamed Database to Local Data Store.",
+        outcome: "xml_write_ready", reply: "Renamed Database to Local Data Store.",
         requestId: "22222222-2222-4222-8222-222222222222",
         drawioXml: updatedXml, documentRevision: body.documentRevision,
-        patchedRevision, changedCellIds: ["database"],
+        writtenRevision,
         sessionId: body.sessionId || "mode-parity-session", model: "e2e-stub-model",
-        provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["edit_drawio_xml"]
+        provider: "github-copilot-sdk", durationMs: 1, toolsUsed: ["read", "write"]
       })
     });
   });

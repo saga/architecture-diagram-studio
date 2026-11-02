@@ -6,7 +6,7 @@ import type { ContextUsage, ModelCallUsage, TurnUsageMetrics } from "./runtime";
 import { nativePageAccepts } from "../../src/model/native-edit-operations";
 import { getCachedNativeDiagramSnapshot } from "./diagram-snapshot-cache";
 import { workspaceRevision } from "../storage";
-import { applyDrawioXmlPatch } from "./xml-first-edit";
+import { validateDrawioXmlDocument } from "../../src/model/drawio-xml-schema";
 import { normalizeDrawioRuntimeInspection, PINNED_DRAWIO_VERSION } from "../../src/model/drawio-runtime-contract";
 import { resolveCopilotTurnTimeoutMs, resolveCopilotTurnIdleTimeoutMs } from "./turn-timeout";
 import { NATIVE_DIAGRAM_CORE_INSTRUCTIONS } from "./native-diagram-instructions";
@@ -30,7 +30,9 @@ interface IntentDependencies {
   getWorkspaceVersionSnapshot(versionId: string): Promise<{ drawioXml: string; revision: string; versionId: string } | null>;
   collectAgentWorkspaceContext(prompt?: string): Promise<unknown>;
   persistSessionId(sessionId: string): Promise<void>;
-  commitWorkspaceXmlPatch?(input: { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
+  readWorkspaceFile?(path: string): Promise<{ content: string; size: number }>;
+  writeWorkspaceFile?(path: string, content: string): Promise<void>;
+  commitWorkspaceXml?(input: { drawioXml: string; baseRevision: string; label: string }): Promise<{ ok: boolean; status: number; body: unknown }>;
 }
 
 type ReportedNoEditOutcome =
@@ -40,9 +42,31 @@ type ReportedNoEditOutcome =
 
 const pendingAgentSelections = new Map<string, { cellId: string; pageId: string | null; label: string }>();
 const pendingReportedOutcomes = new Map<string, ReportedNoEditOutcome>();
-type TerminalIntentKind = "xml_patch" | "selection" | "no_mutation";
+type TerminalIntentKind = "document_write" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
-const pendingXmlPatches = new Map<string, { patch: Array<Record<string, unknown>>; baseRevision: string; pageId: string | null; summary: string; standalone: boolean; sourceXml?: string }>();
+const pendingDocumentWrites = new Map<string, { drawioXml: string; baseRevision: string; summary: string; standalone: boolean }>();
+const completedFileWrites = new Map<string, Array<{ path: string; toolName: "write" | "write_code" }>>();
+const inFlightFileWrites = new Map<string, number>();
+const usedToolsBySession = new Map<string, Set<string>>();
+
+function recordToolUse(sessionId: string, toolName: string): void {
+  const used = usedToolsBySession.get(sessionId) ?? new Set<string>();
+  used.add(toolName);
+  usedToolsBySession.set(sessionId, used);
+}
+
+function finishWorkspaceFileWrite(sessionId: string): void {
+  const remaining = (inFlightFileWrites.get(sessionId) ?? 1) - 1;
+  if (remaining > 0) {
+    inFlightFileWrites.set(sessionId, remaining);
+    return;
+  }
+  inFlightFileWrites.delete(sessionId);
+  if (!completedFileWrites.has(sessionId) && !pendingDocumentWrites.has(sessionId) &&
+      pendingTerminalIntents.get(sessionId) === "document_write") {
+    pendingTerminalIntents.delete(sessionId);
+  }
+}
 
 type TerminalIntentRegistration =
   | { accepted: true; replaced?: TerminalIntentKind }
@@ -54,22 +78,20 @@ function registerTerminalIntent(sessionId: string, kind: TerminalIntentKind): Te
     pendingTerminalIntents.set(sessionId, kind);
     return { accepted: true };
   }
-  // A concrete edit is more specific than a speculative focus/no-mutation conclusion.
-  // Promote the edit rather than letting a premature terminal call poison the whole turn.
-  if (kind === "xml_patch" && registeredKind !== "xml_patch") {
-    pendingTerminalIntents.set(sessionId, "xml_patch");
+  if (kind === "document_write" && registeredKind === "document_write") return { accepted: true };
+  // A concrete document write replaces a speculative focus/no-mutation conclusion.
+  if (kind === "document_write" && registeredKind !== "document_write") {
+    pendingTerminalIntents.set(sessionId, "document_write");
     if (registeredKind === "selection") pendingAgentSelections.delete(sessionId);
     if (registeredKind === "no_mutation") pendingReportedOutcomes.delete(sessionId);
     return { accepted: true, replaced: registeredKind };
   }
-  // Never throw across the SDK boundary: SDK errors are often collapsed to the
-  // unhelpful "Tool execution failed". Keep the first XML patch and explain why
-  // the later terminal action was ignored.
+  // Never throw across the SDK boundary; return a useful tool result instead.
   return { accepted: false, registeredKind };
 }
 
 /**
- * The selection and XML patch tools must use elements from the *current* request.
+ * File tools and selection use the current request context.
  * The SDK session survives across turns and its tool closures are created once, so the
  * per-request context is read from here instead of being captured at session build time.
  */
@@ -125,16 +147,16 @@ async function logQueryResult(
 }
 
 async function buildSystemMessage(deps: IntentDependencies, standalone = false): Promise<string> {
-    const workspace = standalone ? null : await deps.getProjectWorkspace();
-    const workspaceContext = standalone
-      ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
-      : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
-    return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
-  }
+  const workspace = standalone ? null : await deps.getProjectWorkspace();
+  const workspaceContext = standalone
+    ? "Standalone Draw.io mode: only read and write on $active-diagram are available. write_code and all workspace files are unavailable."
+    : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
+  return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
+}
 
 function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("report_intent_outcome", {
-      description: "Report a validated no-mutation result when no XML patch or selection should be dispatched. Use answered for information/questions, needs_clarification for ambiguous requests or missing details, and unsupported only when the desired outcome cannot be achieved through the native Draw.io runtime. This tool never changes the diagram.",
+      description: "Report a validated no-mutation result when no complete XML write or selection should be dispatched. Use answered for information/questions, needs_clarification for ambiguous requests or missing details, and unsupported only when the desired outcome cannot be achieved through the native Draw.io runtime. This tool never changes the diagram.",
       parameters: {
         type: "object",
         properties: {
@@ -147,6 +169,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
         additionalProperties: false
       },
       handler: async (args: { outcome?: unknown; reply?: unknown; question?: unknown; reason?: unknown }) => {
+        recordToolUse(sessionId, "report_intent_outcome");
         if (args?.outcome !== "answered" && args?.outcome !== "needs_clarification" && args?.outcome !== "unsupported") {
           const error = "The no-mutation outcome must be answered, needs_clarification, or unsupported.";
           await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_outcome" });
@@ -172,8 +195,8 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
           return {
             recorded: false, accepted: false, reason: "terminal_action_already_registered",
             registeredKind: registration.registeredKind,
-            instructions: registration.registeredKind === "xml_patch"
-              ? "An XML patch is already queued for dispatch. Do not call another terminal tool; let that edit execute."
+            instructions: registration.registeredKind === "document_write"
+              ? "A complete XML write is already queued for dispatch. Do not call another terminal tool; let that edit execute."
               : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
           };
         }
@@ -181,8 +204,8 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
         await deps.writeLog("tool.report_intent_outcome", { sessionId, outcome: report.outcome, replyLength: report.reply.length });
         return {
           recorded: true, accepted: true, terminal: true, outcome: report.outcome,
-          replaceableByXmlPatch: true,
-          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly one XML patch instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. Never submit multiple XML patches."
+          replaceableByDocumentWrite: true,
+          instructions: "This no-mutation report will be returned if the turn ends now. If you determine the user actually requested a diagram mutation, submit exactly a complete native XML file write instead; Studio will promote that concrete edit over this provisional report. Otherwise stop. You may write multiple times; the latest complete XML is saved."
         };
       }
     });
@@ -190,7 +213,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
 
 function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies) {
     return defineTool("search_drawio_shapes", {
-      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System, Container and the relationship edge recipe together. Use the returned exact styles and dimensions to construct native mxCell XML fragments with edit_drawio_xml; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
+      description: "Search the curated local Draw.io shape catalogue for exact vetted styles and dimensions. Includes a C4 directory alias: query `C4 directory` once to return Person (person2), Software System, Container and the relationship edge recipe together. Use the returned exact styles and dimensions to construct native mxCell XML fragments with write; preserve existing cells and never generate or execute JavaScript. A C4 creation turn allows this single catalogue query and no get_drawio_reference call. Query an individual type only when you need that specific recipe. Read-only and non-exhaustive: a miss does not prove a shape is unavailable.",
       parameters: {
         type: "object",
         properties: {
@@ -199,6 +222,7 @@ function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies
         },
         required: ["query"],
         additionalProperties: false      },      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        recordToolUse(sessionId, "search_drawio_shapes");
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Shape search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
@@ -224,11 +248,11 @@ function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies
               ". Do not treat this subset as the complete candidate set. Retry with a more specific name/category or use the live Draw.io UI/runtime discovery path; the catalogue is intentionally non-exhaustive."
           } : {}),
           ...(c4Directory ? {
-            guidance: "These recipes answer the whole C4 creation turn. Use the exact native style strings and dimensions returned above to create mxCell XML fragments through edit_drawio_xml. Create native edge fragments for relationships and preserve existing cells; do not generate or execute JavaScript."
+            guidance: "These recipes answer the whole C4 creation turn. Use the exact native style strings and dimensions returned above to create mxCell XML fragments through write. Create native edge fragments for relationships and preserve existing cells; do not generate or execute JavaScript."
           } : {}),
           ...(!searchPage.matchCount ? {
             ...(queryStatus.warning ? { warning: queryStatus.warning } : {}),
-            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use the XML patch tool only when a native definition can be verified; otherwise report the limitation."
+            guidance: "No match exists in the curated local catalogue. This is inconclusive: do not invent an ID or style. Probe the live Draw.io UI/runtime for matching native entries (for example, inspect ui.sidebar.searchEntries if available); do not treat the curated catalogue as exhaustive. Use the complete XML write tool only when a native definition can be verified; otherwise report the limitation."
           } : {})
         };
       }
@@ -248,6 +272,7 @@ function createDrawioRuntimeShapeSearchTool(sessionId: string, deps: IntentDepen
       additionalProperties: false
     },
     handler: async (args: { query?: unknown; limit?: unknown }) => {
+        recordToolUse(sessionId, "search_drawio_runtime_shapes");
       if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
         const error = "Live Draw.io shape search requires a non-empty query no longer than 120 characters.";
         await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
@@ -313,6 +338,7 @@ function createDrawioElementSearchTool(sessionId: string, deps: IntentDependenci
         additionalProperties: false
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
+        recordToolUse(sessionId, "search_drawio_elements");
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Element search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_elements.rejected", { sessionId, reason: "invalid_query" });
@@ -420,6 +446,7 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
         query?: unknown; shape?: unknown; styleContains?: unknown; cellType?: unknown; unlabeled?: unknown;
         point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
       }) => {
+        recordToolUse(sessionId, "inspect_drawio_graph");
         if (!args || typeof args !== "object" || Array.isArray(args)) {
           return { ok: false, reason: "invalid_arguments", error: "Graph inspection requires an object of valid filters.", results: [] };
         }
@@ -533,6 +560,7 @@ function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) 
         additionalProperties: false
       },
       handler: async (args: { topic?: unknown }) => {
+        recordToolUse(sessionId, "get_drawio_reference");
         const topic = args?.topic;
         if (!isDrawioReferenceTopic(topic)) {
           await deps.writeLog("tool.get_drawio_reference.rejected", { sessionId, reason: "invalid_reference_topic" });
@@ -556,102 +584,103 @@ function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) 
     });
   }
 
-function createEditDrawioXmlTool(sessionId: string, deps: IntentDependencies) {
-    return defineTool("edit_drawio_xml", {
-      description: "Edit the active native Draw.io document with a revision-bound cell-scoped XML patch. The server applies and validates the patch directly to native XML. Workspace mode persists through the versioned server transaction; standalone mode returns the patched XML for browser file-handle persistence. Do not use JavaScript or editor scripts. Target cells by exact native cell ID copied from the supplied diagram context. Use set-style-properties to change individual style keys such as fillColor while keeping every other style token, set-cell-attributes for non-style mxCell attributes or a deliberate complete style replacement, set-geometry for coordinates and size, delete-cell to remove a cell, or insert-cell-xml to add a native mxCell/object fragment under an existing parent ID. The inserted fragment must include its exact unique native cell ID and any mxGeometry needed by the shape or edge. Put every target of one request into the same patch; a second editing call in the same turn is rejected.",
-      parameters: {
-        type: "object",
-        properties: {
-          summary: { type: "string", minLength: 1, maxLength: 1000 },
-          patch: {
-            type: "array", minItems: 1, maxItems: 100,
-            items: {
-              oneOf: [
-                { type: "object", properties: {
-                  op: { type: "string", enum: ["set-cell-attributes"] },
-                  cellId: { type: "string", minLength: 1 },
-                  attributes: { type: "object", additionalProperties: { oneOf: [{ type: "string" }, { type: "null" }] } }
-                }, required: ["op", "cellId", "attributes"], additionalProperties: false },
-                { type: "object", properties: {
-                  op: { type: "string", enum: ["set-style-properties"] },
-                  cellId: { type: "string", minLength: 1 },
-                  properties: {
-                    type: "object", minProperties: 1, maxProperties: 50,
-                    additionalProperties: { oneOf: [{ type: "string", maxLength: 4000 }, { type: "null" }] }
-                  }
-                }, required: ["op", "cellId", "properties"], additionalProperties: false },
-                { type: "object", properties: {
-                  op: { type: "string", enum: ["set-geometry"] },
-                  cellId: { type: "string", minLength: 1 },
-                  geometry: { type: "object", properties: {
-                    x: { type: "number" }, y: { type: "number" },
-                    width: { type: "number" }, height: { type: "number" }
-                  }, minProperties: 1, additionalProperties: false }
-                }, required: ["op", "cellId", "geometry"], additionalProperties: false },
-                { type: "object", properties: {
-                  op: { type: "string", enum: ["set-geometry-xml"] },
-                  cellId: { type: "string", minLength: 1 },
-                  geometryXml: { type: "string", minLength: 1, maxLength: 100000 }
-                }, required: ["op", "cellId", "geometryXml"], additionalProperties: false },
-                { type: "object", properties: {
-                  op: { type: "string", enum: ["delete-cell"] },
-                  cellId: { type: "string", minLength: 1 }
-                }, required: ["op", "cellId"], additionalProperties: false },
-                { type: "object", properties: {
-                  op: { type: "string", enum: ["insert-cell-xml"] },
-                  parentId: { type: "string", minLength: 1 },
-                  cellXml: { type: "string", minLength: 1, maxLength: 200000 }
-                }, required: ["op", "parentId", "cellXml"], additionalProperties: false }
-              ]
-            }
-          }
-        },
-        required: ["summary", "patch"],
-        additionalProperties: false
-      },
-      handler: async (args: { summary?: unknown; patch?: unknown }) => {
-        if (typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 1000 ||
-            !Array.isArray(args.patch) || args.patch.length < 1 || args.patch.length > 100) {          return { accepted: false, terminal: false, reason: "invalid_xml_patch", error: "Provide a summary and 1–100 valid XML patch operations." };        }
-        const context = contextBySession.get(sessionId) as {
-          documentRevision?: string; activePageId?: string | null; standalone?: boolean; sourceXml?: string;
-        } | undefined;
-        if (!context?.standalone && !deps.commitWorkspaceXmlPatch) {
-          return { accepted: false, terminal: false, reason: "xml_patch_persistence_unavailable", error: "Server-side XML patch persistence is not configured." };        }
-        const snapshot = context?.standalone && typeof context.sourceXml === "string"
-          ? { drawioXml: context.sourceXml, revision: workspaceRevision(context.sourceXml) }
-          : await deps.getWorkspaceDiagramSnapshot();
-        if (!snapshot || !context?.documentRevision || context.documentRevision !== snapshot.revision) {
-          return { accepted: false, terminal: false, reason: "stale_document_revision", error: "The active document changed since the model context was prepared. Reload the current XML and retry." };
+function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, standaloneMode: boolean) {
+  const isActiveDiagram = (context: Record<string, unknown>, requestedPath: string) =>
+    requestedPath === "$active-diagram" ||
+    (typeof context.primaryDiagram === "string" && requestedPath === context.primaryDiagram);
+
+  const readHandler = async (args: { path?: unknown; offset?: unknown; limit?: unknown }) => {
+    recordToolUse(sessionId, "read");
+    if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048) return { ok: false, error: "read requires a workspace-relative path or $active-diagram." };
+    const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
+    const offset = typeof args.offset === "number" && Number.isSafeInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
+    const limit = typeof args.limit === "number" && Number.isSafeInteger(args.limit) ? Math.max(1, Math.min(100000, args.limit)) : 40000;
+    try {
+      let content: string;
+      if (isActiveDiagram(context, args.path)) {
+        const pending = pendingDocumentWrites.get(sessionId);
+        if (pending) content = pending.drawioXml;
+        else if (context.standalone === true && typeof context.sourceXml === "string") content = context.sourceXml;
+        else {
+          const snapshot = await deps.getWorkspaceDiagramSnapshot();
+          if (!snapshot || snapshot.revision !== context.documentRevision) return { ok: false, stale: true, error: "The active diagram revision changed. Reload before reading it." };
+          content = snapshot.drawioXml;
         }
-        const registration = registerTerminalIntent(sessionId, "xml_patch");
-        if (!registration.accepted) {
-          return { accepted: false, terminal: false, reason: "terminal_action_already_registered", registeredKind: registration.registeredKind };
-        }
-        pendingXmlPatches.set(sessionId, {
-          patch: args.patch as Array<Record<string, unknown>>,
-          baseRevision: snapshot.revision,
-          pageId: typeof context.activePageId === "string" ? context.activePageId : null,
-          summary: args.summary.trim(),
-          standalone: context.standalone === true,
-          ...(context.standalone === true ? { sourceXml: context.sourceXml } : {})
-        });
-        await deps.writeLog("tool.edit_drawio_xml.accepted", {
-          sessionId, summary: args.summary.trim(), operationCount: args.patch.length,
-          baseRevision: snapshot.revision
-        });
-        return {
-          accepted: true, terminal: true, execution: "after_model_turn",
-          summary: args.summary.trim(), operationCount: args.patch.length,
-          instructions: "The server will apply and persist this XML patch after the model turn. Do not call another editing tool and do not claim success until the final persistence receipt is returned."
-        };
+      } else {
+        if (context.standalone === true) return { ok: false, error: "Standalone mode exposes only $active-diagram." };
+        if (!deps.readWorkspaceFile) return { ok: false, error: "Workspace file reading is unavailable." };
+        content = (await deps.readWorkspaceFile(args.path)).content;
       }
-    });
-  }
+      return { ok: true, path: args.path, offset, totalCharacters: content.length, content: content.slice(offset, offset + limit), truncated: offset + limit < content.length, nextOffset: offset + limit < content.length ? offset + limit : null };
+    } catch (error) {
+      return { ok: false, path: args.path, error: error instanceof Error ? error.message : String(error) };
+    }
+  };
+
+  const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {
+    recordToolUse(sessionId, toolName);
+    if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048 || typeof args.content !== "string" || Buffer.byteLength(args.content, "utf8") > 20000000) {
+      return { ok: false, error: toolName + " requires a workspace-relative path and content up to 20 MB." };
+    }
+    const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
+    const summary = typeof args.summary === "string" && args.summary.trim() ? args.summary.trim().slice(0, 1000) : "Write " + args.path;
+    let fileWriteStarted = false;
+    try {
+      if (isActiveDiagram(context, args.path)) {
+        if (!validateDrawioXmlDocument(args.content).success) return { ok: false, error: "The content is not valid native Draw.io XML. Nothing was saved." };
+        const standalone = context.standalone === true;
+        const snapshot = standalone && typeof context.sourceXml === "string" ? { drawioXml: context.sourceXml, revision: workspaceRevision(context.sourceXml) } : await deps.getWorkspaceDiagramSnapshot();
+        if (!snapshot || typeof context.documentRevision !== "string" || snapshot.revision !== context.documentRevision) return { ok: false, stale: true, error: "The active diagram changed since this request began. Read the latest XML and retry." };
+        const registration = registerTerminalIntent(sessionId, "document_write");
+        if (!registration.accepted) return { ok: false, error: "A different terminal action is already queued.", registeredKind: registration.registeredKind };
+        pendingDocumentWrites.set(sessionId, { drawioXml: args.content, baseRevision: snapshot.revision, summary, standalone });
+        const current = contextBySession.get(sessionId) as Record<string, unknown>;
+        contextBySession.set(sessionId, { ...current, pendingDrawioXml: args.content });
+        await deps.writeLog("tool." + toolName + ".active-diagram", { sessionId, path: args.path, summary, baseRevision: snapshot.revision, resultRevision: workspaceRevision(args.content), bytes: Buffer.byteLength(args.content, "utf8") });
+        return { ok: true, path: args.path, queued: true, persisted: false, revision: workspaceRevision(args.content), instructions: "The complete native XML is queued for the versioned save after this model turn. You may read $active-diagram and write again; the latest complete document will be saved. Do not claim persistence until the final receipt." };
+      }
+      if (context.standalone === true) return { ok: false, error: "Standalone mode exposes only $active-diagram." };
+      if (!deps.writeWorkspaceFile) return { ok: false, error: "Workspace file writing is unavailable." };
+      const registration = registerTerminalIntent(sessionId, "document_write");
+      if (!registration.accepted) return { ok: false, error: "A different terminal action is already queued.", registeredKind: registration.registeredKind };
+      inFlightFileWrites.set(sessionId, (inFlightFileWrites.get(sessionId) ?? 0) + 1);
+      fileWriteStarted = true;
+      await deps.writeWorkspaceFile(args.path, args.content);
+      const writtenFiles = completedFileWrites.get(sessionId) || [];
+      writtenFiles.push({ path: args.path, toolName });
+      completedFileWrites.set(sessionId, writtenFiles);
+      await deps.writeLog("tool." + toolName + ".completed", { sessionId, path: args.path, bytes: Buffer.byteLength(args.content, "utf8") });
+      return { ok: true, path: args.path, saved: true, bytes: Buffer.byteLength(args.content, "utf8") };
+    } catch (error) {
+      return { ok: false, path: args.path, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (fileWriteStarted) finishWorkspaceFileWrite(sessionId);
+    }
+  };
+
+  const tools = [
+    defineTool("read", {
+      description: "Read a workspace file exactly as stored. Use $active-diagram for the current native Draw.io XML. Large files can be read in chunks with offset and limit. Paths are relative to the configured workspace.",
+      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, offset: { type: "integer", minimum: 0, default: 0 }, limit: { type: "integer", minimum: 1, maximum: 100000, default: 40000 } }, required: ["path"], additionalProperties: false },
+      handler: readHandler
+    }),
+    defineTool("write", {
+      description: "Write complete file contents like a normal filesystem write. For the active Draw.io document use $active-diagram (or its exact primary path) and provide the complete native XML, not an operation list or patch. Other workspace files are written directly.",
+      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
+      handler: (args: { path?: unknown; content?: unknown; summary?: unknown }) => writeHandler(args, "write")
+    }),
+    ...(standaloneMode ? [] : [defineTool("write_code", {
+      description: "Create or replace a source-code file with complete code. This is a general file-writing capability, not a diagram operation API. Use workspace-relative paths.",
+      parameters: { type: "object", properties: { path: { type: "string", minLength: 1, maxLength: 2048 }, content: { type: "string", maxLength: 20000000 }, summary: { type: "string", maxLength: 1000 } }, required: ["path", "content"], additionalProperties: false },
+      handler: (args: { path?: unknown; content?: unknown; summary?: unknown }) => writeHandler(args, "write_code")
+    })])
+  ];
+  return tools;
+}
 
 /**
- * Full before/after XML diffing is a diagnostic, not part of committing a patch: the patch already
- * reports which cells it changed. Enabled only for investigations, so a normal edit does not parse
- * both documents and hash them again.
+ * Full before/after XML diffing is diagnostic only. It is enabled only for investigations so a
+ * normal full-document write does not parse and hash both documents again.
  */
 function xmlImpactLoggingEnabled(): boolean {
   return process.env.STUDIO_XML_IMPACT_LOG === "1";
@@ -842,7 +871,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
     };
     // The workspace revision was already verified against the authoritative snapshot above; a
     // second read here could only re-confirm the same state, and any concurrent save is caught by
-    // the tool-call revision check and the post-turn check before a patch is applied.
+    // the tool-call revision check and the post-turn check before the complete XML is committed.
     let modelChoice: Awaited<ReturnType<CopilotRuntime["resolveModel"]>>;
     try {
       modelChoice = await deps.copilot.resolveModel(requestedModel);
@@ -895,7 +924,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               createDrawioElementSearchTool(sessionId, deps),
               createDrawioGraphInspectionTool(sessionId, deps),
               createDrawioReferenceTool(sessionId, deps),
-              createEditDrawioXmlTool(sessionId, deps),
+              ...createWorkspaceFileTools(sessionId, deps, standalone),
               createReportIntentOutcomeTool(sessionId, deps)
             ],
             workspaceId: sessionWorkspace?.id
@@ -911,17 +940,21 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
           throw new Error("Copilot request cancelled by client.");
         }
         // Keep the complete server-derived target index private to tools. The model-facing context is
-        // intentionally capped for prompt size, but target uniqueness must be checked against every cell        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
+        // intentionally capped for prompt size, but target uniqueness must be checked against every cell\n        // on the active page or duplicate labels beyond that cap could be resolved incorrectly.
         contextBySession.set(sessionId, {
           ...context, documentRevision, activePageId: identity.documentPageId,
           cells: allNativeCells, runtimeInspection: context.runtimeInspection,
+          primaryDiagram: sessionWorkspace?.primaryDiagram ?? null,
           standalone, ...(standalone ? { sourceXml: diagramXml } : {})
         });
         pendingAgentSelections.delete(sessionId);
 
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
-        pendingXmlPatches.delete(sessionId);
+        pendingDocumentWrites.delete(sessionId);
+        completedFileWrites.delete(sessionId);
+        inFlightFileWrites.delete(sessionId);
+        usedToolsBySession.set(sessionId, new Set());
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -1001,21 +1034,20 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               acceptedSelection: pendingAgentSelections.has(sessionId),
               acceptedReportedOutcome: pendingReportedOutcomes.has(sessionId)
             });
-          }        };        const firstRequestPrompt = JSON.stringify({
+          }        };
+        const firstRequestPrompt = JSON.stringify({
           projectWorkspace: projectContext,
           diagram: context,
-          request: prompt,
-          editingGuidance: "Use edit_drawio_xml for every diagram mutation: read the current native XML, resolve exact cell IDs, and submit one focused patch that carries every target of the request — a second editing call in the same turn is rejected, so a split-out target would stay unedited. Do not use editor scripts or a second editing path. Preserve unrelated pages, cells, UserObject wrappers, custom shapes, unknown attributes, styles, geometry and relationships; never use plain-text replacements that flatten markup, and keep rich HTML labels and nested markup intact by patching only the intended attribute. For any style or colour change use set-style-properties with just the keys you change (for example {\"fillColor\":\"#ff0000\"}); never rewrite the whole style attribute, and read style from search or inspection results when you must match an existing value. In a UserObject wrapper the label/value attribute lives on the wrapper while style and geometry live on its inner mxCell; patch the element that owns the attribute and keep the wrapper intact. For C4 diagrams patch labels and individual style keys in place. For C4 creation call search_drawio_shapes with `C4 directory` exactly once: it returns Person (person2), Software System, Container and the relationship edge recipe in a single query — do not call get_drawio_reference and do not search again; build the mxCell fragments from the returned exact styles and dimensions. Suggested C4 palette when standard C4 styling is requested: Person fill #08427B, External System fill #999999, System fill #1168BD; preserve user-edited colours and do not recolour unrelated cells. Trust cell IDs only from selectedCell, diagram.cells or search results bound to this exact documentRevision. Connector routing is a special case: an edge has no box geometry, so prove a reroute with geometry.points (the waypoints you set), never with geometry.x/y/width/height, and curved=1 bends nothing unless a waypoint exists."
+          request: prompt
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
-                let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
-        // edit_drawio_xml stores its accepted terminal result in pendingXmlPatches rather than
-        // the typed-operation maps. Treat it as a completed tool call; do not spend another model turn.
-        if (!capturedSelection && !capturedReportedOutcome && !pendingXmlPatches.has(sessionId)) {
+        let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
+        // An accepted complete XML write is already a terminal action. Do not spend another model turn.
+        if (!capturedSelection && !capturedReportedOutcome && !pendingDocumentWrites.has(sessionId) && !completedFileWrites.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Finish with exactly one terminal tool call. Use edit_drawio_xml for every diagram mutation. Read-only tools may be used for discovery, then submit one focused XML patch. Do not use typed operations, editor scripts, or a second editing path. Use the read-only inspection tools for discovery. Use inspect_drawio_graph/search_drawio_elements for same-turn read-only data, then edit. After an XML patch is accepted, do not call another terminal tool. The accepted edit is dispatched after this model turn ends, so finish the turn with it and do not try to re-dispatch or re-confirm it. Use select_diagram_element only for pure focus. For informational questions use report_intent_outcome(answered), and ask for clarification only when the user's intent is genuinely ambiguous. Do not author/replace the saved mxfile XML directly or claim success until the XML patch has been validated and persisted.",
+            request: "For diagram changes, read $active-diagram, edit the native XML directly, and write the complete XML with write. Repeat reads and writes as needed. Use write_code for source files. For focus use select_diagram_element; for information use report_intent_outcome. Never claim a diagram write succeeded before the persistence receipt.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
@@ -1047,127 +1079,79 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       }
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
-      const toolsUsed = pendingXmlPatches.has(sessionId)
-        ? ["edit_drawio_xml"]
-
-        : plan.capturedSelection ? ["select_diagram_element"] : [];
+      const toolsUsed = Array.from(usedToolsBySession.get(sessionId) ?? []);
+      usedToolsBySession.delete(sessionId);
+      if (plan.capturedSelection && !toolsUsed.includes("select_diagram_element")) toolsUsed.push("select_diagram_element");
+      const completedWrites = completedFileWrites.get(sessionId) ?? [];
+      const workspaceFilesWritten = Array.from(new Set(completedWrites.map(({ path: writtenPath }) => writtenPath)));
       const terminalIntentWarning = plan.terminalIntentModelFailure
-        ? "The model stream failed after an XML patch was accepted; Studio is continuing with the accepted patch and will verify server-side validation and persistence. "
+        ? "The model stream failed after a terminal outcome was accepted; Studio is preserving that result and will verify any required persistence. "
         : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
         ...(plan.terminalIntentModelFailure ? { modelTurnWarning: plan.terminalIntentModelFailure.error } : {}),
         reasoningEffort: plan.session.reasoningEffort || "model-default",
         provider: "github-copilot-sdk", durationMs: Date.now() - startedAt, toolsUsed,
+        ...(workspaceFilesWritten.length ? { workspaceFilesWritten } : {}),
         ...(plan.usage ? { usage: plan.usage } : {}),
         ...(plan.modelCallUsages.length ? { modelCallUsages: plan.modelCallUsages } : {}),
         ...(plan.contextUsage ? { contextUsage: plan.contextUsage } : {})
       };
-      const pendingXmlPatch = pendingXmlPatches.get(sessionId);
-      if (pendingXmlPatch) {
-        pendingXmlPatches.delete(sessionId);
+      const pendingDocumentWrite = pendingDocumentWrites.get(sessionId);
+      if (pendingDocumentWrite) {
+        pendingDocumentWrites.delete(sessionId);
         try {
-          if (pendingXmlPatch.standalone) {
-            if (typeof pendingXmlPatch.sourceXml !== "string" ||
-                workspaceRevision(pendingXmlPatch.sourceXml) !== pendingXmlPatch.baseRevision) {
-              throw new Error("The standalone Draw.io source changed before the XML patch could be applied.");
-            }
-            const patched = applyDrawioXmlPatch(
-              pendingXmlPatch.sourceXml, pendingXmlPatch.patch as Parameters<typeof applyDrawioXmlPatch>[1], pendingXmlPatch.pageId
-            );
-            const patchedRevision = workspaceRevision(patched.drawioXml);
-            await deps.writeLog("turn.completed.xml-patch-prepared-for-browser-save", {
-              requestId, sessionId, summary: pendingXmlPatch.summary, baseRevision: pendingXmlPatch.baseRevision,
-              patchedRevision, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds
-            });
-            if (xmlImpactLoggingEnabled()) {
-              try {
-                const impact = await interpretNativeXmlChange(pendingXmlPatch.sourceXml, patched.drawioXml);
-                await deps.writeLog("turn.completed.xml-impact", {
-                  requestId, sessionId, stage: "standalone-patch",
-                  beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
-                  changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
-                });
-              } catch (impactError) {
-                await deps.writeLog("turn.completed.xml-impact.failed", {
-                  requestId, sessionId, stage: "standalone-patch", error: impactError instanceof Error ? impactError.message : String(impactError)
-                });
-              }
-            }
-            res.json({
-              outcome: "xml_patch_ready",
-              reply: pendingXmlPatch.summary + "。服务端已修改并校验原生 Draw.io XML（" +
-                (patched.changedCellIds.length ? patched.changedCellIds.length + " 个元素" : "未检测到元素变化") +
-                "），正在交由浏览器写回所选本地文件。",
-              requestId, drawioXml: patched.drawioXml, documentRevision: pendingXmlPatch.baseRevision,
-              patchedRevision, changedCellIds: patched.changedCellIds, ...shared
-            });
+          if (!validateDrawioXmlDocument(pendingDocumentWrite.drawioXml).success) throw new Error("The complete native Draw.io XML failed document validation; nothing was persisted.");
+          if (pendingDocumentWrite.standalone) {
+            if (workspaceRevision(diagramXml) !== pendingDocumentWrite.baseRevision) throw new Error("The standalone Draw.io source changed before the complete XML could be written.");
+            const writtenRevision = workspaceRevision(pendingDocumentWrite.drawioXml);
+            await deps.writeLog("turn.completed.document-write-prepared-for-browser-save", { requestId, sessionId, summary: pendingDocumentWrite.summary, baseRevision: pendingDocumentWrite.baseRevision, writtenRevision, bytes: Buffer.byteLength(pendingDocumentWrite.drawioXml, "utf8") });
+            completedFileWrites.delete(sessionId);
+            res.json({ outcome: "xml_write_ready", reply: pendingDocumentWrite.summary + "。完整原生 Draw.io XML 已校验，正在交由浏览器写回所选本地文件。", requestId, drawioXml: pendingDocumentWrite.drawioXml, documentRevision: pendingDocumentWrite.baseRevision, writtenRevision, ...shared });
             return;
           }
-          const receipt = await deps.commitWorkspaceXmlPatch!({
-            patch: pendingXmlPatch.patch,
-            baseRevision: pendingXmlPatch.baseRevision,
-            pageId: pendingXmlPatch.pageId,
-            label: "Copilot: " + pendingXmlPatch.summary
-          });
+          if (!deps.commitWorkspaceXml) throw new Error("Workspace XML persistence is not configured.");
+          const receipt = await deps.commitWorkspaceXml({ drawioXml: pendingDocumentWrite.drawioXml, baseRevision: pendingDocumentWrite.baseRevision, label: "Copilot: " + pendingDocumentWrite.summary });
           const body = receipt.body && typeof receipt.body === "object" ? receipt.body as Record<string, unknown> : {};
           if (!receipt.ok) {
-            const message = typeof body.error === "string" ? body.error : "The server rejected the XML patch.";
-            await deps.writeLog("turn.completed.xml-patch-failed", {
-              requestId, sessionId, status: receipt.status, baseRevision: pendingXmlPatch.baseRevision, error: message
-            });
+            const message = typeof body.error === "string" ? body.error : "The workspace rejected the complete XML write.";
+            await deps.writeLog("turn.completed.document-write-failed", { requestId, sessionId, status: receipt.status, baseRevision: pendingDocumentWrite.baseRevision, error: message });
+            completedFileWrites.delete(sessionId);
             res.status(receipt.status >= 400 ? receipt.status : 409).json({
               outcome: "failed", reply: message, error: message, requestId, ...shared
             });
             return;
           }
-          await deps.writeLog("turn.completed.xml-patch-committed", {
-            requestId, sessionId, summary: pendingXmlPatch.summary,
-            baseRevision: pendingXmlPatch.baseRevision, receipt: body
-          });
-          // The patch already reports its changed cells; a full before/after diff of both documents
-          // is a diagnostic only, so it runs solely when explicitly requested.
+          await deps.writeLog("turn.completed.document-write-committed", { requestId, sessionId, summary: pendingDocumentWrite.summary, baseRevision: pendingDocumentWrite.baseRevision, receipt: body });
           if (xmlImpactLoggingEnabled()) {
             try {
-              const committedSnapshot = await deps.getWorkspaceDiagramSnapshot();
-              if (committedSnapshot) {
-                const impact = await interpretNativeXmlChange(diagramXml, committedSnapshot.drawioXml);
-                await deps.writeLog("turn.completed.xml-impact", {
-                  requestId, sessionId, stage: "workspace-commit",
-                  beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary,
-                  changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields }))
-                });
-              }
+              const impact = await interpretNativeXmlChange(diagramXml, pendingDocumentWrite.drawioXml);
+              await deps.writeLog("turn.completed.xml-impact", { requestId, sessionId, stage: "workspace-document-write", beforeHash: impact.beforeHash, afterHash: impact.afterHash, summary: impact.summary, changes: impact.changes.map(({ pageId, cellId, kind, fields }) => ({ pageId, cellId, kind, fields })) });
             } catch (impactError) {
-              await deps.writeLog("turn.completed.xml-impact.failed", {
-                requestId, sessionId, stage: "workspace-commit", error: impactError instanceof Error ? impactError.message : String(impactError)
-              });
+              await deps.writeLog("turn.completed.xml-impact.failed", { requestId, sessionId, stage: "workspace-document-write", error: impactError instanceof Error ? impactError.message : String(impactError) });
             }
           }
-          // The save route nests the patch receipt under `xmlPatch`; only a patch-bearing save has it.
-          const committedCells = body.xmlPatch && typeof body.xmlPatch === "object"
-            ? (body.xmlPatch as { changedCellIds?: unknown }).changedCellIds
-            : undefined;
-          const committedCellCount = Array.isArray(committedCells) ? committedCells.length : null;
-          const committedCellSummary = committedCellCount === null
-            ? ""
-            : "（" + (committedCellCount ? committedCellCount + " 个元素" : "未检测到元素变化") + "）";
-          res.json({
-            outcome: "xml_committed",
-            reply: typeof body.workspaceRevision === "string"
-              ? pendingXmlPatch.summary + "。已由服务端修改并保存原生 Draw.io XML" + committedCellSummary + "。"
-              : pendingXmlPatch.summary + "。服务端已接受 XML 修改。",
-            requestId, persistence: body, ...shared
-          });
+          completedFileWrites.delete(sessionId);
+          res.json({ outcome: "xml_committed", reply: typeof body.workspaceRevision === "string" ? pendingDocumentWrite.summary + "。完整原生 Draw.io XML 已保存为新版本。" : pendingDocumentWrite.summary + "。服务端已接受完整 XML 写入。", requestId, persistence: body, ...shared });
           return;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          await deps.writeLog("turn.completed.xml-patch-failed", { requestId, sessionId, error: message });
-          res.status(500).json({ outcome: "failed", reply: "服务端 XML 修改失败：" + message, error: message, requestId, ...shared });
+          await deps.writeLog("turn.completed.document-write-failed", { requestId, sessionId, error: message });
+          completedFileWrites.delete(sessionId);
+          res.status(500).json({ outcome: "failed", reply: "服务端完整 XML 写入失败：" + message, error: message, requestId, ...shared });
           return;
         }
       }
 
+      completedFileWrites.delete(sessionId);
+      if (workspaceFilesWritten.length) {
+        await deps.writeLog("turn.completed.workspace-files-written", {
+          requestId, sessionId, paths: workspaceFilesWritten,
+          tools: Array.from(new Set(completedWrites.map(({ toolName }) => toolName)))
+        });
+        res.json({ outcome: "answered", reply: "已写入工作区文件：" + workspaceFilesWritten.join("、"), requestId, ...shared });
+        return;
+      }
       if (selection) {
         const response = { outcome: "selected" as const, commands: [], reply: terminalIntentWarning + (modelReply || "Selected diagram element: " + selection.label), selection, ...shared };
         await deps.writeLog("turn.completed.with-selection", { sessionId, selection, response, usage: plan.usage });
@@ -1196,7 +1180,10 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       abortActiveTurn = null;
       contextBySession.delete(sessionId);
 
-      pendingXmlPatches.delete(sessionId);
+      pendingDocumentWrites.delete(sessionId);
+      completedFileWrites.delete(sessionId);
+      inFlightFileWrites.delete(sessionId);
+      usedToolsBySession.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);
@@ -1240,6 +1227,7 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
       additionalProperties: false
     },
     handler: async (args: { target: string }) => {
+        recordToolUse(sessionId, "select_diagram_element");
       if (typeof args?.target !== "string" || !args.target.trim() || args.target.length > 200) {
         const error = "Element selection requires a non-empty target no longer than 200 characters.";
         await writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
@@ -1276,17 +1264,17 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
         return {
           selected: false, accepted: false, reason: "terminal_action_already_registered",
           registeredKind: registration.registeredKind,
-          instructions: registration.registeredKind === "xml_patch"
-            ? "An XML patch is already queued for dispatch. Do not call another terminal tool; let that patch execute."
+          instructions: registration.registeredKind === "document_write"
+            ? "A complete XML write is already queued for dispatch. Do not call another terminal tool; let that patch execute."
             : "A terminal action is already queued for dispatch. Do not call another terminal tool this turn."
         };
       }
       pendingAgentSelections.set(sessionId, selected);
       return {
         accepted: true, queued: true, execution: "after_model_turn", terminal: true,
-        replaceableByXmlPatch: true, result_available: false, action: "select_diagram_element",
+        replaceableByDocumentWrite: true, result_available: false, action: "select_diagram_element",
         ...selected, documentChanged: false,
-        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, submit exactly one focused `edit_drawio_xml` patch instead. Never submit two terminal actions."
+        instructions: "The selection is queued and has not happened yet. If the user only asked to focus this element, stop here and do not claim selection succeeded before the bridge acknowledgement. If the user's request requires changing diagram content, write the complete native XML file with `write` instead. Never submit two terminal actions."
       };
     }
   });

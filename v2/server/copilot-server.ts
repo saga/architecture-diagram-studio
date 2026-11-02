@@ -6,7 +6,7 @@ import { appendRotatingJsonl, readRecentJsonl } from "./jsonl-log";
 import { parseEnv } from "node:util";
 
 import { validateDrawioXmlDocument } from "../src/model/drawio-xml-schema";
-import { applyDrawioXmlPatch, type DrawioXmlPatch } from "./copilot/xml-first-edit";
+
 import { createEmptyDrawioXml, normalizeNewDrawioFileName } from "./diagram-file";
 import { readCopilotProvider, describeModelRouting, isModelConfiguredWithoutProvider } from "./copilot/model-routing";
 import { randomUUID } from "node:crypto";
@@ -1119,32 +1119,8 @@ app.get("/api/workspace/state", async (_req, res) => {
 });
 
 app.put("/api/workspace/document", async (req, res) => {
-  let drawioXml: unknown = req.body?.drawioXml;
-  let xmlPatchReceipt: { pageId: string | null; operationCount: number; changedCellIds: string[] } | null = null;
+  const drawioXml: unknown = req.body?.drawioXml;
   const label = typeof req.body?.label === "string" ? req.body.label.slice(0, 300) : "Document autosave";
-  // Copilot may submit a cell-scoped XML patch. The server applies it to the native source
-  // and then sends the result through this same revision-checked, versioned save transaction.
-  if (Array.isArray(req.body?.patch)) {
-    try {
-      const baseState = await getWorkspaceState();
-      if (typeof baseState.drawioXml !== "string") {
-        res.status(409).json({ error: "No active Draw.io XML document is available to patch." });
-        return;
-      }
-      const pageId = typeof req.body?.pageId === "string" ? req.body.pageId : null;
-      const patched = applyDrawioXmlPatch(baseState.drawioXml, req.body.patch as DrawioXmlPatch[], pageId);
-      drawioXml = patched.drawioXml;
-      xmlPatchReceipt = { pageId, operationCount: patched.operationCount, changedCellIds: patched.changedCellIds };
-      await writeLog("workspace.document.xml-patch.applied", {
-        operationCount: patched.operationCount,
-        changedCellIds: patched.changedCellIds,
-        baseRevision: typeof req.body?.baseRevision === "string" ? req.body.baseRevision : null
-      });
-    } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid Draw.io XML patch." });
-      return;
-    }
-  }
   const baseRevision = typeof req.body?.baseRevision === "string" ? req.body.baseRevision : req.body?.baseRevision === null ? null : undefined;
   if (typeof drawioXml !== "string" || Buffer.byteLength(drawioXml, "utf8") > 20_000_000) {
     res.status(400).json({ error: "Invalid Draw.io XML document or the XML exceeds 20 MB" });
@@ -1325,7 +1301,7 @@ app.put("/api/workspace/document", async (req, res) => {
       return { status: 200 as const, saved: false, version: latestVersion ? summarizeDiagramVersion(latestVersion) : null, workspaceRevision: currentRevision };
     });
     if (result.status === 409) { res.status(409).json(result); return; }
-    res.json({ ok: true, ...result, ...(xmlPatchReceipt ? { xmlPatch: xmlPatchReceipt } : {}) });
+    res.json({ ok: true, ...result });
   } catch (error) {
     const cause = error instanceof Error ? error : new Error(String(error));
     const errorCode = (error as NodeJS.ErrnoException | undefined)?.code;
@@ -1666,16 +1642,27 @@ registerCopilotIntentRoute(app, {
     );
     return version ? { drawioXml: version.drawioXml, revision: cachedXmlRevision(diagramVersionRevisionCache, version, version.drawioXml), versionId: version.id } : null;
   },
-  commitWorkspaceXmlPatch: async ({ patch, baseRevision, pageId, label }) => {
-    // Re-enter the canonical document-save route rather than duplicating its transaction,
-    // external-file conflict handling, immutable version index, or rollback logic.
+  readWorkspaceFile: async (relativePath) => {
+    const { workspace, absolutePath } = await resolveWorkspaceFile(relativePath);
+    const info = await stat(absolutePath);
+    const maxBytes = 20 * 1024 * 1024;
+    if (info.size > maxBytes) throw new Error("File exceeds the 20 MiB read limit");
+    const content = await readFile(absolutePath, "utf8");
+    await writeLog("workspace.file.read.by-agent", { workspaceId: workspace.id, path: relativePath, bytes: info.size });
+    return { content, size: info.size };
+  },
+  writeWorkspaceFile: async (relativePath, content) => {
+    if (Buffer.byteLength(content, "utf8") > 20 * 1024 * 1024) throw new Error("File exceeds the 20 MiB write limit");
+    const { workspace, absolutePath } = await resolveWorkspaceFile(relativePath, { allowMissingFile: true });
+    await writeTextAtomic(absolutePath, content);
+    invalidateWorkspaceScanCache(workspace.id);
+    await writeLog("workspace.file.written.by-agent", { workspaceId: workspace.id, path: relativePath, bytes: Buffer.byteLength(content, "utf8") });
+  },
+  commitWorkspaceXml: async ({ drawioXml, baseRevision, label }) => {
     const response = await fetch(`http://127.0.0.1:${PORT}/api/workspace/document`, {
       method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        origin: `http://127.0.0.1:${PORT}`
-      },
-      body: JSON.stringify({ patch, baseRevision, pageId, label })
+      headers: { "content-type": "application/json", origin: `http://127.0.0.1:${PORT}` },
+      body: JSON.stringify({ drawioXml, baseRevision, label })
     });
     let body: unknown;
     try { body = await response.json(); }

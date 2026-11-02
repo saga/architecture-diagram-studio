@@ -22,67 +22,62 @@ function bounded(value: string): string {
     ? value
     : value.slice(0, MAX_REFERENCE_CHARS) + "\n\n[Reference truncated at the configured response limit.]";
 }
-const XML_FIRST_CONTRACT = `# Draw.io XML-First Editing Contract
+const XML_FIRST_CONTRACT = [
+  "# Direct Native Draw.io XML Editing",
+  "",
+  "The active diagram is a normal file exposed at $active-diagram. Use read to inspect it, edit the native XML itself, and use write to replace it with the complete resulting XML. Large files support chunked reads. Read and write repeatedly as needed; the latest complete XML is saved after the model turn.",
+  "",
+  "Use read and write for workspace files and write_code for source code. Workspace paths are relative to the configured root; absolute paths, traversal and symlink escapes are rejected. Standalone mode exposes only $active-diagram.",
+  "",
+  "There is no XML Patch DSL, cell-operation list, or per-cell mutation API. Preserve unrelated pages, cells, wrappers, custom shapes, unknown attributes, styles, geometry, groups, layers, labels and edge relationships. Do not rebuild the document from a reduced model. Keep HTML labels and nested markup intact.",
+  "",
+  "The server validates the complete XML, checks the source revision and persists workspace diagram writes through the versioned document-save transaction. Standalone writes are returned to the browser for persistence through the selected File System Access handle. Report success only after the appropriate persistence receipt.",
+  "",
+  "Never generate or execute JavaScript for the Draw.io iframe. Use Studio automatic layout for layout requests; do not reimplement or alter layout engines as part of XML editing."
+].join("\n");
 
-Native Draw.io XML is the only source of truth. Copilot mutations for workspace documents use the server-side \`edit_drawio_xml\` tool. Never execute or generate JavaScript for the Draw.io iframe.
-
-Bind each edit to the exact current document revision and active page ID. Resolve targets from revision-bound native cell IDs; reject missing or ambiguous IDs. Preserve unrelated pages, cells, UserObject wrappers, custom shapes, unknown attributes, styles, geometry, and edge relationships.
-
-Supported patch operations:
-- \`set-style-properties\`: change only the named native style keys (for example \`fillColor\`, \`strokeColor\`, \`fontColor\`) and keep every other style token in place. Use \`null\` to remove a key. This is the only safe way to recolor a cell without knowing its full style string.
-- \`set-cell-attributes\`: update explicit native mxCell attributes; for UserObject/object wrappers, label/value attributes are applied to the wrapper while geometry/style remain on its child mxCell. A \`style\` value here replaces the complete style string, so use it only when you intend a full replacement.
-- \`set-geometry\`: update explicit x/y/width/height values. 'set-geometry-xml' replaces the full native mxGeometry fragment, including connector waypoints and control points.
-- \`delete-cell\`: remove only the requested cell or its UserObject/object wrapper.
-- \`insert-cell-xml\`: insert a native mxCell or UserObject/object XML fragment with a unique ID under the existing page root.
-
-Every target of one request belongs in the same patch; a second editing call in the same turn is rejected, so split-out targets would stay unedited while the turn still reports success.
-
-Do not rebuild an existing diagram from a reduced model. Validate the result and report success only after the server returns a successful versioned persistence receipt. If the document revision changed, reload and retry against the new revision. After commit, the frontend must reload the authoritative workspace XML; stale autosave must not overwrite it. Standalone files keep their browser File System Access writeback workflow.
-
-Use Studio's existing automatic-layout capability for layout requests. Do not reimplement or alter layout engines as part of XML editing.
-`;
-
-const XML_PATCH_RECIPES = `## Native XML patch recipes
-
-Rename a normal cell:
-\`\`\`json
-{ "op": "set-cell-attributes", "cellId": "cell-id-from-current-context", "attributes": { "value": "New label" } }
-\`\`\`
-
-Change one style key without touching the rest of the style:
-\`\`\`json
-{ "op": "set-style-properties", "cellId": "cell-id-from-current-context", "properties": { "fillColor": "#ff0000" } }
-\`\`\`
-
-Change geometry without touching style or terminals:
-\`\`\`json
-{ "op": "set-geometry", "cellId": "cell-id-from-current-context", "geometry": { "x": 240, "y": 120 } }
-\`\`\`
-
-Add a native vertex under an existing parent cell. Replace both parent placeholders with the exact ID of an existing native parent from the current page; never assume the root or layer uses a particular ID:
-\`\`\`json
-{ "op": "insert-cell-xml", "parentId": "existing-parent-id-from-current-context", "cellXml": "<mxCell id=\\"new-unique-id\\" value=\\"New node\\" vertex=\\"1\\" parent=\\"existing-parent-id-from-current-context\\"><mxGeometry x=\\"240\\" y=\\"120\\" width=\\"120\\" height=\\"60\\" as=\\"geometry\\"/></mxCell>" }
-\`\`\`
-
-For edges, preserve valid source/target cell IDs and native geometry. For UserObject/object cells, keep the wrapper and inner mxCell together. Never invent IDs from stale context or assume IDs are unique across different pages; every patch must specify the active page ID.
-`;
-
+const XML_DIRECT_RECIPES = [
+  "## Direct XML editing examples",
+  "",
+  "Rename a normal cell by changing its native value attribute:",
+  "",
+  "```xml",
+  '<mxCell id="database" value="Data Store" vertex="1" parent="1"><mxGeometry x="240" y="120" width="120" height="60" as="geometry"/></mxCell>',
+  "```",
+  "",
+  "Change the native style string directly. Preserve every existing token that is unrelated to the requested change:",
+  "",
+  "```xml",
+  '<mxCell id="database" value="Database" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="240" y="120" width="120" height="60" as="geometry"/></mxCell>',
+  "```",
+  "",
+  "Create a native cell by adding an mxCell element under the appropriate existing root, using a unique ID and the correct native parent relationship. For edges, preserve valid source and target IDs and their native geometry. For UserObject/object cells, keep the wrapper and inner mxCell together.",
+  "",
+  "These are ordinary XML examples, not tool arguments or an operation schema. Use the actual source document as the basis for every edit."
+].join("\n");
 export function selectDrawioReferenceSections(markdown: string, topic: DrawioReferenceTopic): string {
-  const shapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
+  const documentedShapeDiscovery = (getSection(markdown, "Shape discovery").split("### C4 shape recipes")[0] ?? "").trim();
+  const shapeDiscovery = documentedShapeDiscovery || [
+    "## Shape discovery",
+    "Use search_drawio_shapes to find native Draw.io shape and stencil definitions relevant to the requested diagram.",
+    "When runtime inspection provides liveShapeClasses, treat that list as a snapshot of shapes currently registered in this Draw.io runtime, not as an exhaustive catalogue.",
+    "A catalogue miss does not prove that a shape is unavailable. Inspect the actual source XML and use native Draw.io XML attributes, styles and shape identifiers supported by the document.",
+    "For C4 elements, use the established C4 shape discovery instructions and verify the exact native shape definition before writing XML."
+  ].join("\n");
   const safeOverview = [
     XML_FIRST_CONTRACT,
-    "Server responsibilities: resolve targets against the active revision, apply cell-scoped patches to native XML, validate the result, and persist through the existing versioned document-save transaction.",
+    "Server responsibilities: resolve targets against the active revision, apply complete native XML documents, validate the result, and persist through the existing versioned document-save transaction.",
     shapeDiscovery
-  ].filter(Boolean).join("\\n\\n");
+  ].filter(Boolean).join("\n\n");
   let selected: string;
   if (topic === "all" || topic === "overview" || topic === "api_ownership") {
     selected = safeOverview;
   } else if (topic === "shape_discovery") {
     selected = shapeDiscovery;
   } else if (topic === "postconditions") {
-    selected = XML_FIRST_CONTRACT + "\\n\\nXML validation is required before persistence. A successful tool call is not a persistence receipt; only the server's successful versioned-save response confirms the commit.";
+    selected = XML_FIRST_CONTRACT + "\n\nXML validation is required before persistence. A successful tool call is not a persistence receipt; only the server's successful versioned-save response confirms the commit.";
   } else if (topic === "recipes") {
-    selected = XML_PATCH_RECIPES;
+    selected = XML_DIRECT_RECIPES;
   } else {
     selected = XML_FIRST_CONTRACT;
   }

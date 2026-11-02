@@ -8,12 +8,12 @@
 
 ## Core design
 
-Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Copilot reads the current native XML and makes diagram mutations through the server-side `edit_drawio_xml` tool (ADR-0026). The server validates the revision-bound patch, validates and persists the resulting XML, then notifies the frontend to reload the authoritative revision. There is no model-facing typed-edit proposal, editor script, browser mutation or acknowledgement path. Workspace XML is persisted by the server; standalone source files remain browser-owned under ADR-0016. Automatic layout remains a separate Studio-owned path: it derives a temporary native-cell projection for the selected engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
+Draw.io's mxfile XML is the only authoritative diagram representation. The application does not persist a second graph or project edits back by regenerating XML. The embedded, locally bundled Draw.io editor owns rendering and interactive graph behavior. Copilot uses general `read`, `write` and `write_code` file tools. It reads and edits the complete native Draw.io XML directly, then writes the full document through the revision-bound, versioned save service (ADR-0026). There is no model-facing typed-edit proposal, editor script, browser mutation or acknowledgement path. Workspace XML is persisted by the server; standalone source files remain browser-owned under ADR-0016. Automatic layout remains a separate Studio-owned path: it derives a temporary native-cell projection for the selected engine (ELK, Dagre, Graphviz, MSAGL.js, Cytoscape.js or D3), then applies a revision/page-bound geometry plan through the native editor bridge. The projection is discarded and is never an alternate document model.
 
 Responsibilities are deliberately small:
 
-1. The browser loads native XML in the iframe, reflects selection and sends the current XML snapshot/revision with Copilot requests. It does not apply model-generated typed edit operations or editor scripts. After a server-side XML commit it follows the authoritative persisted revision and reloads the editor; standalone files remain browser-owned and receive a revision-bound XML patch.
-2. The Copilot service exposes native XML editing, read-only inspection/shape search, selection and outcome reporting. The XML editing tool is the only diagram mutation path for Copilot. It validates the source revision, applies a focused cell-scoped patch while preserving unrelated XML and metadata, validates the resulting document, and persists workspace changes.
+1. The browser loads native XML in the iframe, reflects selection and sends the current XML snapshot/revision with Copilot requests. It does not apply model-generated typed edit operations or editor scripts. After a server-side XML commit it follows the authoritative persisted revision and reloads the editor; standalone files remain browser-owned and receive the complete revision-bound XML document.
+2. The Copilot service exposes generic read/write/write_code file tools, read-only inspection/shape search, selection and outcome reporting. The agent edits native XML directly; the server validates the source revision and complete resulting document, then persists workspace changes through the normal versioned save service.
 3. The workspace service validates XML, applies optimistic revision checks, saves exact XML and stores immutable full-XML versions. The accepted workspace revision is the commit receipt; no browser-side mutation acknowledgement is required.
 4. Agent Traces shows server-side Copilot/model-call records. Token and cost values are shown only when reported by the SDK/provider; missing metrics are not estimated.
 
@@ -23,13 +23,13 @@ The toolbar exposes ELK, Dagre, Graphviz WASM, MSAGL.js, Cytoscape.js and D3 thr
 
 ## Supported native operations
 
-Copilot edits native XML directly on the server. The `run_drawio_script` tool and model-generated JavaScript execution path are removed entirely; do not retain a fallback under another name. Automatic layout remains on its existing typed planner/application path and is explicitly out of scope for ADR-0026; its engine set, algorithms, parameters and geometry application are unchanged. The model cannot write arbitrary workspace paths or bypass the server's validated document persistence service.
+Copilot edits native XML directly using general read/write/write_code tools. The XML Patch DSL and `edit_drawio_xml` tool are removed entirely. The `run_drawio_script` tool and model-generated JavaScript execution path are also removed; do not retain fallbacks under other names. Generic workspace file access is constrained to workspace-relative paths resolved by the server. Writes to the active diagram use the validated, revision-bound versioned save service. Automatic layout remains on its existing Studio-owned planner/application path and is unchanged.
 
 ## Extension contracts without porting the old implementation
 
 V2 does not include the former `DiagramDocument` model, semantic fixtures/templates, DiagramDocument-based layout/quality pipeline, semantic proposal pipeline, semantic XML importer/exporter, or secondary canvas. Its removal does not remove core layout: ADR-0013 and ADR-0021 define the active Studio-owned multi-engine path over temporary native-cell facts.
 
-`v2/src/model/native-diagram-capabilities.ts` contains only the read-only analysis contract used by the installed spatial-region analyzer. There is no generic operation-provider registry. Copilot mutations use the server-side XML patch path; Studio-owned layout remains implemented by its concrete planner and bridge.
+`v2/src/model/native-diagram-capabilities.ts` contains only the read-only analysis contract used by the installed spatial-region analyzer. There is no generic operation-provider registry. Copilot mutations use generic file tools and complete native XML writes; Studio-owned layout remains implemented by its concrete planner and bridge.
 
 Future XML-first edits use the shared XML parser/schema, revision checks, native diff, version persistence and frontend synchronization. The existing layout planner and geometry-application path remain unchanged. The old reports under `docs/` remain research references for principles and use cases; their renderer and semantic-model code is not copied into active V2.
 
@@ -54,7 +54,7 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 | src/hooks/useWorkspaceBootstrap.ts | Loads XML without conversion |
 | src/hooks/useWorkspacePersistence.ts | Persists exact XML and chat state |
 | src/intent/aiProvider.ts | XML-first Copilot request/response contract |
-| server/copilot/intent-route.ts | Copilot SDK tool registration, XML patching and persistence |
+| server/copilot/intent-route.ts | Copilot SDK generic file tools, native XML validation and persistence |
 | server/copilot-server.ts | Workspace, XML revisions and version persistence |
 | plugins/studio-selection-plugin.js | Native Draw.io graph operations |
 
@@ -62,4 +62,4 @@ V2 does not restore the old semantic graph model or directly port the old SVG/Re
 
 ## Validation
 
-Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, cell-scoped patch validation, stale revision conflicts, workspace persistence, standalone patch receipts and version recovery. Do not add parity tests for a removed semantic graph.
+Run typecheck, unit tests, end-to-end tests and build after code changes. Tests should focus on native XML preservation, unknown attributes/cells/pages, complete XML validation, stale revision conflicts, workspace persistence, standalone complete-XML write receipts and version recovery. Do not add parity tests for a removed semantic graph.

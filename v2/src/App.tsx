@@ -327,7 +327,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleHistoryShortcut, true);
   }, [nativeEditorReady, diagramThemeApplying, autoLayoutRunning, documentSaveState]);
 
-  // The native Draw.io editor is the only canvas; server-side XML patches preserve unrelated cells.
+  // The native Draw.io editor is the only canvas; complete native XML is the authoritative document.
 
   useEffect(() => {
     let active = true;
@@ -595,9 +595,9 @@ export default function App() {
       setServerXmlAvailable(true);
       setDocumentSaveState("saved");
     },
-    onStandaloneXmlPatchReady: async (xml) => {      const binding = standaloneFileBindingRef.current;
+    onStandaloneXmlWriteReady: async (xml) => {      const binding = standaloneFileBindingRef.current;
       if (!binding || !standaloneFileHandleRef.current || !standaloneFileName) {
-        throw new Error("The standalone file handle is no longer available; the XML patch was not written.");
+        throw new Error("The standalone file handle is no longer available; the XML was not written.");
       }
       const expectedToken = binding.fileToken;
       await enqueueStandaloneSave(xml, expectedToken);
@@ -1031,6 +1031,7 @@ export default function App() {
         throw new Error(diagnostics.issues[0] || "The selected file is not a supported Draw.io diagram; the active document was not changed.");
       }
       setNativeXmlOverride(xml);
+      drawioFrameRef.current?.reloadDocument();
       setRevision((value) => value + 1);
       if (standaloneFileBindingRef.current) standaloneLastSavedXmlRef.current = null;
       setLastAction("Imported native Draw.io XML from " + handle.name);

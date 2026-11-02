@@ -27,4 +27,4 @@
 | [0023](./0023-category-preserving-curated-diagram-palettes.md) | Category-Preserving Curated Diagram Palettes | Accepted |
 | [0024](./0024-local-grouping-and-layout-density-options.md) | Preserve Local Grouping and Offer Layout Density Presets | Accepted |
 | [0025](./0025-relative-anchors-and-stability-preserving-layout.md) | Relative Anchors and Mental-Map-Preserving Layout | Accepted |
-| [0026](./0026-server-side-xml-first-copilot-editing.md) | Server-Side XML-First Copilot Editing | Accepted; implementation cleanup in PR #31 |
+| [0026](./0026-server-side-xml-first-copilot-editing.md) | Generic File I/O for Direct Native Draw.io XML Editing | Accepted; implementation cleanup in PR #31 |
