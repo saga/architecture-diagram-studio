@@ -87,7 +87,7 @@ This ADR does not redesign automatic layout. ADR-0013 and the expanded layout AD
 4. Standalone diagram writes use the browser-owned file handle and verify source/result revisions.
 5. Generic workspace file writes reject absolute paths, traversal and symlink escapes.
 6. Regression tests cover plain/compressed XML, multiple pages, UserObject wrappers, custom shapes, unknown attributes, labels, groups, edge terminals, stale revisions and persistence failures.
-7. No active code, prompts or architecture guidance references the XML Patch DSL or `edit_drawio_xml`.
+7. No active tool, schema or handler exposes the retired XML Patch DSL or `edit_drawio_xml`; any remaining mentions are explicit prohibitions or historical explanations.
 8. Automatic layout code and behavior are unchanged.
 9. Typecheck, unit tests, production build and relevant Playwright E2E tests pass, and the changes are integrated into `main`.
 
