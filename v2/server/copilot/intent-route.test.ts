@@ -105,7 +105,7 @@ function intentRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>, iterative = false, mixedWorkspaceWrite = false) {
+function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs?: Record<string, unknown>, iterative = false, mixedWorkspaceWrite = false, reportAfterWriteFailure = false) {
   let activeSession: Record<string, unknown> = {};
   let prepared: { configRevisionId: string; tools: unknown[] } = { configRevisionId: "test-config", tools: [] };
   return {
@@ -144,7 +144,12 @@ function xmlEditingCopilot(toolName: "write" | "write_code" = "write", writeArgs
             await tool.handler({ path: "$active-diagram", summary: "Rename Database again", content: reread.content.replace('value="Data Store"', 'value="Database Cluster"') });
           }
         } else {
-          await tool.handler(writeArgs ?? { path: "src/generated.ts", content: "export const generated = true;", summary: "Write generated source" });
+          const writeResult = await tool.handler(writeArgs ?? { path: "src/generated.ts", content: "export const generated = true;", summary: "Write generated source" }) as { ok?: boolean };
+          if (reportAfterWriteFailure && writeResult.ok === false) {
+            const report = registeredTools.find((candidate) => candidate.name === "report_intent_outcome");
+            if (!report?.handler) throw new Error("report_intent_outcome tool was not registered");
+            await report.handler({ outcome: "answered", reply: "The file write failed; no file change was made." });
+          }
         }
         return { message: { data: { content: "Rename Database to Data Store." } }, model: "test-model" };
       }
@@ -399,6 +404,20 @@ describe("Copilot intent route result and revision contract", () => {
     expect(body.outcome).toBe("answered");
     expect(writeWorkspaceFile).toHaveBeenCalledWith("docs/empty.md", "");
     expect(body.workspaceFilesWritten).toEqual(["docs/empty.md"]);
+  });
+
+  it("does not leave a phantom terminal action when an ordinary file write fails", async () => {
+    const writeWorkspaceFile = vi.fn(async () => { throw new Error("disk is read-only"); });
+    const harness = await createServer({
+      copilot: xmlEditingCopilot("write_code", { path: "src/generated.ts", content: "export const generated = true;" }, false, false, true),
+      writeWorkspaceFile
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    expect(body.reply).toBe("The file write failed; no file change was made.");
+    expect(body.workspaceFilesWritten).toBeUndefined();
+    expect(body.toolsUsed).toEqual(["write_code", "report_intent_outcome"]);
   });
 
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
