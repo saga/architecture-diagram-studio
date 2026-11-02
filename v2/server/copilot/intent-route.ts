@@ -133,10 +133,10 @@ async function logQueryResult(
 }
 
 async function buildSystemMessage(deps: IntentDependencies, standalone = false): Promise<string> {
-    const workspace = standalone ? null : await deps.getProjectWorkspace();
-    const workspaceContext = standalone
-      ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
-      : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
+  const workspace = standalone ? null : await deps.getProjectWorkspace();
+  const workspaceContext = standalone
+    ? "Standalone Draw.io mode: only the supplied native diagram may be targeted. No workspace files are available."
+    : "Workspace: " + (workspace?.name || "not configured") + "; primary diagram: " + (workspace?.primaryDiagram || "not selected") + ". Use only this active diagram for edits.";
   return [workspaceContext, NATIVE_DIAGRAM_CORE_INSTRUCTIONS].join("\n\n");
 }
 
