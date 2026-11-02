@@ -47,12 +47,12 @@ const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
 const pendingDocumentWrites = new Map<string, { drawioXml: string; baseRevision: string; summary: string; standalone: boolean }>();
 const completedFileWrites = new Map<string, Array<{ path: string; toolName: "write" | "write_code" }>>();
 const inFlightFileWrites = new Map<string, number>();
-const usedFileTools = new Map<string, Set<string>>();
+const usedToolsBySession = new Map<string, Set<string>>();
 
 function recordToolUse(sessionId: string, toolName: string): void {
-  const used = usedFileTools.get(sessionId) ?? new Set<string>();
+  const used = usedToolsBySession.get(sessionId) ?? new Set<string>();
   used.add(toolName);
-  usedFileTools.set(sessionId, used);
+  usedToolsBySession.set(sessionId, used);
 }
 
 function finishWorkspaceFileWrite(sessionId: string): void {
@@ -954,7 +954,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingDocumentWrites.delete(sessionId);
         completedFileWrites.delete(sessionId);
         inFlightFileWrites.delete(sessionId);
-        usedFileTools.set(sessionId, new Set());
+        usedToolsBySession.set(sessionId, new Set());
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
@@ -1080,8 +1080,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       }
       const modelReply = plan.modelText.trim().slice(0, 500);
       const selection = plan.capturedSelection || undefined;
-      const toolsUsed = Array.from(usedFileTools.get(sessionId) ?? []);
-      usedFileTools.delete(sessionId);
+      const toolsUsed = Array.from(usedToolsBySession.get(sessionId) ?? []);
+      usedToolsBySession.delete(sessionId);
       if (plan.capturedSelection && !toolsUsed.includes("select_diagram_element")) toolsUsed.push("select_diagram_element");
       const completedWrites = completedFileWrites.get(sessionId) ?? [];
       const workspaceFilesWritten = Array.from(new Set(completedWrites.map(({ path: writtenPath }) => writtenPath)));
@@ -1184,7 +1184,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       pendingDocumentWrites.delete(sessionId);
       completedFileWrites.delete(sessionId);
       inFlightFileWrites.delete(sessionId);
-      usedFileTools.delete(sessionId);
+      usedToolsBySession.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
       pendingTerminalIntents.delete(sessionId);
