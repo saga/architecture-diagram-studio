@@ -23,7 +23,7 @@ That behavior was not required by Draw.io or requested by the user. It conflated
 ## Consequences
 
 - The `set_c4_type` schema operation and its special bridge, fixed geometry/style presets, and C4-only XML postconditions are removed.
-- Copilot diagram mutations share one server-side XML patch path; C4 is not a special execution mode.
+- Copilot diagram mutations share the general file-based native XML editing path; C4 is not a special execution mode.
 - Blank labels are valid native document state. Target resolution carries the native ID separately from the visible label.
 - Tests cover blank-label handling and ensure the retired conversion path cannot mutate an existing cell.
 - The original typed-conversion ADR remains in the repository as a historical record and is superseded by this decision.
