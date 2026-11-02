@@ -569,7 +569,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     requestedPath === "$active-diagram" ||
     (typeof context.primaryDiagram === "string" && requestedPath === context.primaryDiagram);
 
-  const readHandler = async (args: { path?: unknown; offset?: unknown; limit?: unknown }) => {\n    recordFileToolUse(sessionId, "read");
+  const readHandler = async (args: { path?: unknown; offset?: unknown; limit?: unknown }) => {
+    recordFileToolUse(sessionId, "read");
     if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048) return { ok: false, error: "read requires a workspace-relative path or $active-diagram." };
     const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
     const offset = typeof args.offset === "number" && Number.isSafeInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
@@ -596,7 +597,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     }
   };
 
-  const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {\n    recordFileToolUse(sessionId, toolName);
+  const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {
+    recordFileToolUse(sessionId, toolName);
     if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048 || typeof args.content !== "string" || !args.content.length || Buffer.byteLength(args.content, "utf8") > 20000000) {
       return { ok: false, error: toolName + " requires a relative path and non-empty content up to 20 MB." };
     }
@@ -925,7 +927,8 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingReportedOutcomes.delete(sessionId);
         pendingTerminalIntents.delete(sessionId);
         pendingDocumentWrites.delete(sessionId);
-        completedFileWrites.delete(sessionId);\n        usedFileTools.set(sessionId, new Set());
+        completedFileWrites.delete(sessionId);
+        usedFileTools.set(sessionId, new Set());
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
         let contextUsage: ContextUsage | undefined;
