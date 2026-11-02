@@ -1085,7 +1085,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
       const completedWrites = completedFileWrites.get(sessionId) ?? [];
       const workspaceFilesWritten = Array.from(new Set(completedWrites.map(({ path: writtenPath }) => writtenPath)));
       const terminalIntentWarning = plan.terminalIntentModelFailure
-        ? "The model stream failed after a complete XML write was accepted; Studio is continuing with the accepted complete XML and will verify server-side validation and persistence. "
+        ? "The model stream failed after a terminal outcome was accepted; Studio is preserving that result and will verify any required persistence. "
         : "";
       const shared = {
         sessionId, model: plan.session.observedModel || plan.session.model,
