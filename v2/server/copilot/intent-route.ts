@@ -46,12 +46,26 @@ type TerminalIntentKind = "document_write" | "selection" | "no_mutation";
 const pendingTerminalIntents = new Map<string, TerminalIntentKind>();
 const pendingDocumentWrites = new Map<string, { drawioXml: string; baseRevision: string; summary: string; standalone: boolean }>();
 const completedFileWrites = new Map<string, Array<{ path: string; toolName: "write" | "write_code" }>>();
+const inFlightFileWrites = new Map<string, number>();
 const usedFileTools = new Map<string, Set<string>>();
 
 function recordToolUse(sessionId: string, toolName: string): void {
   const used = usedFileTools.get(sessionId) ?? new Set<string>();
   used.add(toolName);
   usedFileTools.set(sessionId, used);
+}
+
+function finishWorkspaceFileWrite(sessionId: string): void {
+  const remaining = (inFlightFileWrites.get(sessionId) ?? 1) - 1;
+  if (remaining > 0) {
+    inFlightFileWrites.set(sessionId, remaining);
+    return;
+  }
+  inFlightFileWrites.delete(sessionId);
+  if (!completedFileWrites.has(sessionId) && !pendingDocumentWrites.has(sessionId) &&
+      pendingTerminalIntents.get(sessionId) === "document_write") {
+    pendingTerminalIntents.delete(sessionId);
+  }
 }
 
 type TerminalIntentRegistration =
@@ -610,6 +624,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     }
     const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
     const summary = typeof args.summary === "string" && args.summary.trim() ? args.summary.trim().slice(0, 1000) : "Write " + args.path;
+    let fileWriteStarted = false;
     try {
       if (isActiveDiagram(context, args.path)) {
         if (!validateDrawioXmlDocument(args.content).success) return { ok: false, error: "The content is not valid native Draw.io XML. Nothing was saved." };
@@ -628,6 +643,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
       if (!deps.writeWorkspaceFile) return { ok: false, error: "Workspace file writing is unavailable." };
       const registration = registerTerminalIntent(sessionId, "document_write");
       if (!registration.accepted) return { ok: false, error: "A different terminal action is already queued.", registeredKind: registration.registeredKind };
+      inFlightFileWrites.set(sessionId, (inFlightFileWrites.get(sessionId) ?? 0) + 1);
+      fileWriteStarted = true;
       await deps.writeWorkspaceFile(args.path, args.content);
       const writtenFiles = completedFileWrites.get(sessionId) || [];
       writtenFiles.push({ path: args.path, toolName });
@@ -636,6 +653,8 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
       return { ok: true, path: args.path, saved: true, bytes: Buffer.byteLength(args.content, "utf8") };
     } catch (error) {
       return { ok: false, path: args.path, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (fileWriteStarted) finishWorkspaceFileWrite(sessionId);
     }
   };
 
@@ -934,6 +953,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
         pendingTerminalIntents.delete(sessionId);
         pendingDocumentWrites.delete(sessionId);
         completedFileWrites.delete(sessionId);
+        inFlightFileWrites.delete(sessionId);
         usedFileTools.set(sessionId, new Set());
         const usageSamples: TurnUsageMetrics[] = [];
         const modelCallUsages: ModelCallUsage[] = [];
@@ -1163,6 +1183,7 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
 
       pendingDocumentWrites.delete(sessionId);
       completedFileWrites.delete(sessionId);
+      inFlightFileWrites.delete(sessionId);
       usedFileTools.delete(sessionId);
       pendingAgentSelections.delete(sessionId);
       pendingReportedOutcomes.delete(sessionId);
