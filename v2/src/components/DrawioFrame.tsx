@@ -188,7 +188,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }
 
   useImperativeHandle(ref, () => ({
-    reloadDocument: () => retryEditor(),
+    reloadDocument: () => retryEditor("document-replacement"),
     undo: () => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) return;
@@ -771,7 +771,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
     return () => window.removeEventListener("message", receive);
   }, []);
 
-  function retryEditor() {
+  function retryEditor(recoverySource: "manual" | "document-replacement" = "manual") {
     for (const pending of pendingAutoLayoutRef.current ? [pendingAutoLayoutRef.current] : []) {
       window.clearTimeout(pending.timeoutId);
       pending.reject(new Error("Draw.io editor was reloaded before automatic layout completed."));
@@ -783,8 +783,8 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
       pending.reject(new Error("Draw.io editor was reloaded before runtime inspection completed."));
     }
     pendingRuntimeInspectionsRef.current.clear();
-    recordDiagnostic("drawio.retry", "The user asked to re-initialise the Draw.io editor", {
-      previousFrameKey: frameKey, recoverySource: "manual"
+    recordDiagnostic("drawio.retry", recoverySource === "manual" ? "The user asked to re-initialise the Draw.io editor" : "Reinitialised the Draw.io editor to load a replacement document", {
+      previousFrameKey: frameKey, recoverySource
     }, "warn");
     lastSent.current = "";
     setEditorReady(false);
