@@ -48,7 +48,7 @@ const pendingDocumentWrites = new Map<string, { drawioXml: string; baseRevision:
 const completedFileWrites = new Map<string, Array<{ path: string; toolName: "write" | "write_code" }>>();
 const usedFileTools = new Map<string, Set<string>>();
 
-function recordFileToolUse(sessionId: string, toolName: string): void {
+function recordToolUse(sessionId: string, toolName: string): void {
   const used = usedFileTools.get(sessionId) ?? new Set<string>();
   used.add(toolName);
   usedFileTools.set(sessionId, used);
@@ -155,6 +155,7 @@ function createReportIntentOutcomeTool(sessionId: string, deps: IntentDependenci
         additionalProperties: false
       },
       handler: async (args: { outcome?: unknown; reply?: unknown; question?: unknown; reason?: unknown }) => {
+        recordToolUse(sessionId, "report_intent_outcome");
         if (args?.outcome !== "answered" && args?.outcome !== "needs_clarification" && args?.outcome !== "unsupported") {
           const error = "The no-mutation outcome must be answered, needs_clarification, or unsupported.";
           await deps.writeLog("tool.report_intent_outcome.rejected", { sessionId, reason: "invalid_outcome" });
@@ -207,6 +208,7 @@ function createDrawioShapeSearchTool(sessionId: string, deps: IntentDependencies
         },
         required: ["query"],
         additionalProperties: false      },      handler: async (args: { query?: unknown; limit?: unknown }) => {
+        recordToolUse(sessionId, "search_drawio_shapes");
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Shape search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_shapes.rejected", { sessionId, reason: "invalid_query" });
@@ -256,6 +258,7 @@ function createDrawioRuntimeShapeSearchTool(sessionId: string, deps: IntentDepen
       additionalProperties: false
     },
     handler: async (args: { query?: unknown; limit?: unknown }) => {
+        recordToolUse(sessionId, "search_drawio_runtime_shapes");
       if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
         const error = "Live Draw.io shape search requires a non-empty query no longer than 120 characters.";
         await deps.writeLog("tool.search_drawio_runtime_shapes.rejected", { sessionId, reason: "invalid_query" });
@@ -321,6 +324,7 @@ function createDrawioElementSearchTool(sessionId: string, deps: IntentDependenci
         additionalProperties: false
       },
       handler: async (args: { query?: unknown; limit?: unknown }) => {
+        recordToolUse(sessionId, "search_drawio_elements");
         if (typeof args?.query !== "string" || args.query.trim().length < 1 || args.query.length > 120) {
           const error = "Element search requires a non-empty query no longer than 120 characters.";
           await deps.writeLog("tool.search_drawio_elements.rejected", { sessionId, reason: "invalid_query" });
@@ -426,6 +430,7 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
       },
       handler: async (args: {
         query?: unknown; shape?: unknown; styleContains?: unknown; cellType?: unknown; unlabeled?: unknown;
+        recordToolUse(sessionId, "inspect_drawio_graph");
         point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
       }) => {
         if (!args || typeof args !== "object" || Array.isArray(args)) {
@@ -541,6 +546,7 @@ function createDrawioReferenceTool(sessionId: string, deps: IntentDependencies) 
         additionalProperties: false
       },
       handler: async (args: { topic?: unknown }) => {
+        recordToolUse(sessionId, "get_drawio_reference");
         const topic = args?.topic;
         if (!isDrawioReferenceTopic(topic)) {
           await deps.writeLog("tool.get_drawio_reference.rejected", { sessionId, reason: "invalid_reference_topic" });
@@ -570,7 +576,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
     (typeof context.primaryDiagram === "string" && requestedPath === context.primaryDiagram);
 
   const readHandler = async (args: { path?: unknown; offset?: unknown; limit?: unknown }) => {
-    recordFileToolUse(sessionId, "read");
+    recordToolUse(sessionId, "read");
     if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048) return { ok: false, error: "read requires a workspace-relative path or $active-diagram." };
     const context = (contextBySession.get(sessionId) || {}) as Record<string, unknown>;
     const offset = typeof args.offset === "number" && Number.isSafeInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
@@ -598,7 +604,7 @@ function createWorkspaceFileTools(sessionId: string, deps: IntentDependencies, s
   };
 
   const writeHandler = async (args: { path?: unknown; content?: unknown; summary?: unknown }, toolName: "write" | "write_code") => {
-    recordFileToolUse(sessionId, toolName);
+    recordToolUse(sessionId, toolName);
     if (typeof args.path !== "string" || !args.path.trim() || args.path.length > 2048 || typeof args.content !== "string" || !args.content.length || Buffer.byteLength(args.content, "utf8") > 20000000) {
       return { ok: false, error: toolName + " requires a relative path and non-empty content up to 20 MB." };
     }
@@ -1201,6 +1207,7 @@ function createSelectDiagramElementTool(sessionId: string, writeLog: IntentDepen
       additionalProperties: false
     },
     handler: async (args: { target: string }) => {
+        recordToolUse(sessionId, "select_diagram_element");
       if (typeof args?.target !== "string" || !args.target.trim() || args.target.length > 200) {
         const error = "Element selection requires a non-empty target no longer than 200 characters.";
         await writeLog("tool.select_diagram_element.rejected", { sessionId, reason: "invalid_target" });
