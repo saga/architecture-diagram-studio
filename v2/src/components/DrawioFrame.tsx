@@ -47,6 +47,7 @@ export type { NativeAutoLayoutOptions, NativeLayoutPlan };
 export interface NativeHistoryState { canUndo: boolean; canRedo: boolean; }
 
 export interface DrawioFrameHandle {
+  reloadDocument(): void;
   undo(): void;
   redo(): void;
   /** Applies an active-page color plan in one native Draw.io model transaction. */
@@ -187,6 +188,7 @@ const DrawioFrame = forwardRef<DrawioFrameHandle, Props>(function DrawioFrame({ 
   }
 
   useImperativeHandle(ref, () => ({
+    reloadDocument: () => retryEditor(),
     undo: () => {
       const target = iframeRef.current?.contentWindow;
       if (!editorReady || !bridgeReady || !target) return;
