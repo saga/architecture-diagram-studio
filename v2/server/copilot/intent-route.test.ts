@@ -388,6 +388,19 @@ describe("Copilot intent route result and revision contract", () => {
     expect(harness.logs.some((entry) => entry.event === "turn.completed.workspace-files-written")).toBe(true);
   });
 
+  it("allows writing an empty ordinary workspace file", async () => {
+    const writeWorkspaceFile = vi.fn(async () => undefined);
+    const harness = await createServer({
+      copilot: xmlEditingCopilot("write_code", { path: "docs/empty.md", content: "" }),
+      writeWorkspaceFile
+    });
+    const { response, body } = await post(harness.baseUrl, "/api/copilot/intent", intentRequest());
+    expect(response.status).toBe(200);
+    expect(body.outcome).toBe("answered");
+    expect(writeWorkspaceFile).toHaveBeenCalledWith("docs/empty.md", "");
+    expect(body.workspaceFilesWritten).toEqual(["docs/empty.md"]);
+  });
+
   it("uses one canonical prompt for localized rename, selected-cell movement and unsupported operations", async () => {
     const copilot = reportingCopilot("answered", "No document change is needed.");
     const harness = await createServer({ copilot });
