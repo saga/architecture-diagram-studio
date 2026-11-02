@@ -444,9 +444,9 @@ function createDrawioGraphInspectionTool(sessionId: string, deps: IntentDependen
       },
       handler: async (args: {
         query?: unknown; shape?: unknown; styleContains?: unknown; cellType?: unknown; unlabeled?: unknown;
-        recordToolUse(sessionId, "inspect_drawio_graph");
         point?: unknown; bounds?: unknown; offset?: unknown; limit?: unknown
       }) => {
+        recordToolUse(sessionId, "inspect_drawio_graph");
         if (!args || typeof args !== "object" || Array.isArray(args)) {
           return { ok: false, reason: "invalid_arguments", error: "Graph inspection requires an object of valid filters.", results: [] };
         }
