@@ -1034,21 +1034,20 @@ export function registerCopilotIntentRoute(app: Express, deps: IntentDependencie
               acceptedSelection: pendingAgentSelections.has(sessionId),
               acceptedReportedOutcome: pendingReportedOutcomes.has(sessionId)
             });
-          }        };        const firstRequestPrompt = JSON.stringify({
+          }        };
+        const firstRequestPrompt = JSON.stringify({
           projectWorkspace: projectContext,
           diagram: context,
-          request: prompt,
-          editingGuidance: "Use the general read, write and write_code tools as you would for ordinary files. Read the active diagram with read({path:\u0022$active-diagram\u0022}); use offset/limit to read large XML in chunks. Edit the native Draw.io XML itself and write the complete result with write({path:\u0022$active-diagram\u0022,content:\u0022...\u0022}). You may read, write and read again repeatedly during the turn; the latest complete XML is saved at the end. There is no XML Patch DSL, operation whitelist, or single-call editing restriction. Do not convert the XML to a shadow graph or reconstruct it from a reduced model. Preserve unrelated pages, cells, wrappers, custom shapes, unknown attributes, styles, geometry, layers, groups and edge relationships. Keep HTML labels and nested markup intact. Use native Draw.io elements, attributes and styles directly; do not invent shape whitelists or application-specific editing semantics. Use write_code for source files and write for other workspace files. C4 creation may use search_drawio_shapes and exact native shape definitions. Do not generate or execute JavaScript for the Draw.io iframe. The server validates the complete XML, checks the source revision and persists a new version before reporting success."
+          request: prompt
         });
         await sendAttemptPreservingAcceptedIntent(1, firstRequestPrompt);
         let capturedSelection = pendingAgentSelections.get(sessionId) || null;
-                let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
-        // write stores its accepted terminal result in pendingDocumentWrites rather than
-        // the typed-operation maps. Treat it as a completed tool call; do not spend another model turn.
+        let capturedReportedOutcome = pendingReportedOutcomes.get(sessionId) || null;
+        // An accepted complete XML write is already a terminal action. Do not spend another model turn.
         if (!capturedSelection && !capturedReportedOutcome && !pendingDocumentWrites.has(sessionId) && !completedFileWrites.has(sessionId)) {
           await deps.writeLog("turn.native-tool-not-called", { sessionId, attempt: 1, modelText: modelText.slice(0, 2000) });
           const retryPrompt = JSON.stringify({
-            request: "Use the general read/write/write_code tools like ordinary file tools. Read $active-diagram, edit its native XML directly, and write the complete XML. You may perform multiple reads and writes; the latest complete XML is committed after this turn. Do not use a patch language, operation whitelist, typed mutation tool or editor script. Use write_code for source files and write for other workspace files. For pure focus use select_diagram_element. For information use report_intent_outcome(answered). Ask for clarification only when genuinely necessary. Never claim a diagram write succeeded before the persistence receipt.",
+            request: "For diagram changes, read $active-diagram, edit the native XML directly, and write the complete XML with write. Repeat reads and writes as needed. Use write_code for source files. For focus use select_diagram_element; for information use report_intent_outcome. Never claim a diagram write succeeded before the persistence receipt.",
             diagram: context
           });
           await sendAttemptPreservingAcceptedIntent(2, retryPrompt, "the first response did not invoke a native editor tool");
